@@ -23,22 +23,30 @@ public final class AudioConverter16k: @unchecked Sendable {
         self.init(inputFormat: AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: AVAudioChannelCount(channels), interleaved: false)!)
     }
 
-    /// Convert a buffer in `inputFormat` to 16k mono samples.
-    public func convert(_ buffer: AVAudioPCMBuffer) -> [Float] {
+    /// Convert a buffer in `inputFormat` to 16k mono samples. Streaming: the resampler keeps a
+    /// few ms of history between calls (`flush: false`). `flush: true` drains it (one-shot use)
+    /// and resets the converter.
+    public func convert(_ buffer: AVAudioPCMBuffer, flush: Bool = false) -> [Float] {
         guard let converter else { return Self.floats(buffer) }
         let ratio = Self.targetSampleRate / inputFormat.sampleRate
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
-        guard let out = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return [] }
+        var result: [Float] = []
         var consumed = false
         var error: NSError?
-        let status = converter.convert(to: out, error: &error) { _, outStatus in
-            if consumed { outStatus.pointee = .noDataNow; return nil }
-            consumed = true
-            outStatus.pointee = .haveData
-            return buffer
+        while true {
+            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 4096
+            guard let out = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { break }
+            let status = converter.convert(to: out, error: &error) { _, outStatus in
+                if consumed { outStatus.pointee = flush ? .endOfStream : .noDataNow; return nil }
+                consumed = true
+                outStatus.pointee = .haveData
+                return buffer
+            }
+            if status == .error { break }
+            result.append(contentsOf: Self.floats(out))
+            if status != .haveData || out.frameLength == 0 || !flush { break }
         }
-        guard status != .error else { return [] }
-        return Self.floats(out)
+        if flush { converter.reset() }
+        return result
     }
 
     /// Convenience for non-interleaved mono/stereo Float input at `inputFormat`.
@@ -55,7 +63,7 @@ public final class AudioConverter16k: @unchecked Sendable {
                 for i in 0..<frames { dst[i] = samples[i * channels + c] }
             }
         }
-        return convert(buf)
+        return convert(buf, flush: true)
     }
 
     private static func floats(_ buffer: AVAudioPCMBuffer) -> [Float] {

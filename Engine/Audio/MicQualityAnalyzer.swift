@@ -1,7 +1,10 @@
 import Foundation
 import Shared
 
-/// Looks at the first `windowDuration` (300 ms) of 16 kHz audio and publishes one `MicQuality`.
+/// Publishes one `MicQuality` from the first `windowDuration` (300 ms) of *signal*. Leading
+/// silence (the beat before the user starts talking) is skipped, so the verdict is about the mic,
+/// not the pause; if nothing above the low-level threshold arrives within `deadline` (1.5 s) the
+/// verdict is `lowLevel` / `.bad`. `flush()` forces a verdict on whatever was collected.
 /// SNR = 90th-percentile frame RMS over 10th-percentile frame RMS (10 ms frames), in dB.
 /// Clipping = fraction of samples at |x| >= 0.985. Low level = peak below -40 dBFS.
 public final class MicQualityAnalyzer: @unchecked Sendable {
@@ -9,20 +12,38 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
     public static let clipThreshold: Float = 0.985
     public static let lowLevelPeakDB: Float = -40
     public static let sampleRate = 16_000
+    public static let deadline: TimeInterval = 1.5
+    private static let activityThreshold: Float = 0.01   // -40 dBFS peak
 
     private var buffer: [Float] = []
+    private var skipped = 0
     private let windowSamples = Int(windowDuration * Double(sampleRate))
     private(set) public var result: MicQuality?
 
     public init() {}
 
-    public func reset() { buffer.removeAll(keepingCapacity: true); result = nil }
+    public func reset() { buffer.removeAll(keepingCapacity: true); result = nil; skipped = 0 }
 
     /// Feed samples; returns the verdict exactly once, when the window is full.
     @discardableResult
     public func feed(_ samples: [Float]) -> MicQuality? {
         guard result == nil else { return nil }
-        buffer.append(contentsOf: samples.prefix(windowSamples - buffer.count))
+        var slice = samples[...]
+        if buffer.isEmpty {
+            if let first = slice.firstIndex(where: { abs($0) >= Self.activityThreshold }) {
+                skipped += first - slice.startIndex
+                slice = slice[first...]
+            } else {
+                skipped += slice.count
+                let deadlineSamples = Int(Self.deadline * Double(Self.sampleRate))
+                guard skipped >= deadlineSamples else { return nil }
+                buffer.append(contentsOf: samples.suffix(min(samples.count, windowSamples)))
+                let q = Self.analyze(buffer)
+                result = q
+                return q
+            }
+        }
+        buffer.append(contentsOf: slice.prefix(windowSamples - buffer.count))
         guard buffer.count >= windowSamples else { return nil }
         let q = Self.analyze(buffer)
         result = q
