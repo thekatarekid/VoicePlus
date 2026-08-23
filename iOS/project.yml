@@ -1,0 +1,68 @@
+# XcodeGen spec for the VoicePlus iOS companion app + keyboard extension (P6.5).
+# Generate with: xcodegen generate   (run from iOS/). Requires Xcode 15+.
+name: VoicePlusMobile
+options:
+  bundleIdPrefix: in.adityakatare.voiceplus
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+packages:
+  VoicePlus:
+    path: ..          # this repo: Shared, Pipeline, KeyboardCore products
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    DEVELOPMENT_TEAM: ""          # set your team id before archiving
+    CODE_SIGN_STYLE: Automatic
+targets:
+  VoicePlusMobile:
+    type: application
+    platform: iOS
+    sources: [VoicePlusMobile, Shared]
+    dependencies:
+      - package: VoicePlus
+        product: Shared
+      - package: VoicePlus
+        product: Pipeline
+      - package: VoicePlus
+        product: KeyboardCore
+      - target: VoicePlusKeyboard
+        embed: true
+    entitlements:
+      path: VoicePlusMobile/VoicePlusMobile.entitlements
+      properties:
+        com.apple.security.application-groups: [group.in.adityakatare.voiceplus]
+    info:
+      path: VoicePlusMobile/Info.plist
+      properties:
+        CFBundleDisplayName: VoicePlus
+        UILaunchScreen: {}
+        NSSpeechRecognitionUsageDescription: VoicePlus transcribes your speech on device.
+        NSMicrophoneUsageDescription: VoicePlus listens while you hold the talk pill.
+  VoicePlusKeyboard:
+    type: app-extension
+    platform: iOS
+    sources: [VoicePlusKeyboard, Shared]
+    dependencies:
+      - package: VoicePlus
+        product: Shared
+      - package: VoicePlus
+        product: KeyboardCore
+    entitlements:
+      path: VoicePlusKeyboard/VoicePlusKeyboard.entitlements
+      properties:
+        com.apple.security.application-groups: [group.in.adityakatare.voiceplus]
+    info:
+      path: VoicePlusKeyboard/Info.plist
+      properties:
+        CFBundleDisplayName: VoicePlus Keyboard
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: en-US
+            # Required for mic/SFSpeech and App Group access from the keyboard; the user must
+            # enable "Allow Full Access" in Settings. Without it we fall back to app-proxy only.
+            RequestsOpenAccess: true
