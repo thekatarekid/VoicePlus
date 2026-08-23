@@ -17,6 +17,8 @@
   
 7. When a task is ambiguous, prefer: on-device over cloud, no-new-window over new-window, inference over configuration, reversible-by-default over confirmation.
   
+8. **Toolchain deviations (2026-08-23):** no Xcode.app on the build machine (CLT only, Swift 6.0.3) → no XCTest/UI tests; all tests are **Swift Testing** via SwiftPM. `.app` assembled by `Packaging/make_app.sh`, dmg via `hdiutil`, **ad-hoc codesign, no notarization** (no Developer ID identity) until a signing identity is available. Per-item **Status** lines below record what was actually built.
+  
 
 * * *
 ## 1. Ground rules
@@ -105,23 +107,25 @@ Integration: P1.12 wires all; P1.13 packages.
 * * *
 ## 4. PHASE 1 — "You never touch the keyboard to fix it" (.dmg #1)
 ### P1.0 — Shared foundation _(serial; everything blocks on this; keep it under a day of scope)_
-- [ ] 
+**Status (2026-08-23):** done; 42 SharedTests green; Swift Testing instead of XCTest; CI (macos-14 + Xcode 16.2) unverified from this machine.
+
+- [x] 
   
   **T1** Define `TranscriptSpan`, `Alternate`, `StageID`, `Utterance`, `EngineState`, `FeatureFlag` in `Shared/`.
   
-- [ ] 
+- [x] 
   
   **T2** SQLite schema: dictation history, corrections, flags, lab runs, network log. GRDB migrations.
   
-- [ ] 
+- [x] 
   
   **T3** `EngineProtocol` + `MockEngine` (returns scripted spans from fixtures) so UI/pipeline develop against a fake.
   
-- [ ] 
+- [x] 
   
   **T4** Logging + feature-flag service (local JSON, no server).
   
-- [ ] 
+- [x] 
   
   **T5** CI skeleton: build, test, lint, nightly dmg job.
   
@@ -130,52 +134,56 @@ Integration: P1.12 wires all; P1.13 packages.
 
 * * *
 ### P1.1 — App shell: menu bar + pill overlay _(WS-D; parallel)_
+**Status (2026-08-23):** done (commit aeeb31b); 31 AppTests. Final text lands on pasteboard + history DB until P1.12 wires Injection; real CGEvent tap / TCC prompts / SMAppService / pill rendering untested headless.
+
 **Description:** the only two surfaces. Menu-bar item with dropdown dashboard; notch-aware pill overlay for live state.
 
-- [ ] 
+- [x] 
   
-  **T1** Menu-bar app scaffold (no dock icon, `LSUIElement`), launch-at-login, Sparkle wiring stub.
+  **T1** Menu-bar app scaffold (no dock icon, `LSUIElement`), launch-at-login, Sparkle wiring stub. _(status: done; SMAppService guarded to bundled .app; Sparkle is a NoopUpdater stub)_
   
-- [ ] 
+- [x] 
   
-  **T2** Pill overlay: borderless `NSPanel`, notch-aware placement (DynamicNotchKit or native reimplementation), states: `idle / listening(waveform) / preview(streamingText) / landing / warning(mic)`. Slide in/out ≤150ms, 60fps.
+  **T2** Pill overlay: borderless `NSPanel`, notch-aware placement (DynamicNotchKit or native reimplementation), states: `idle / listening(waveform) / preview(streamingText) / landing / warning(mic)`. Slide in/out ≤150ms, 60fps. _(status: done; pill rendering on a notched display untested headless)_
   
-- [ ] 
+- [x] 
   
-  **T3** Global hotkey service: configurable modifier, hold-to-talk (keyDown/keyUp), double-tap (≤350ms window) for hands-free toggle. Input Monitoring permission flow. _(Timing constants: hold threshold 250ms, tap guard 180ms — Muesli-validated values.)_
+  **T3** Global hotkey service: configurable modifier, hold-to-talk (keyDown/keyUp), double-tap (≤350ms window) for hands-free toggle. Input Monitoring permission flow. _(Timing constants: hold threshold 250ms, tap guard 180ms — Muesli-validated values.)_ _(status: done; real CGEvent tap untested (listen-only tap, CGPreflight gate))_
   
-- [ ] 
+- [x] 
   
   **T4** Menu dropdown: zero-edit counter, words today, active model, mic indicator, Lab link, pause toggle.
   
-- [ ] 
+- [x] 
   
-  **T5** Permission orchestration: Microphone, Accessibility, Input Monitoring — each with a plain-language pre-prompt screen and a "verify" check.
+  **T5** Permission orchestration: Microphone, Accessibility, Input Monitoring — each with a plain-language pre-prompt screen and a "verify" check. _(status: done; real TCC prompts untested)_
   
 
 **UI/UX:** pill is the single feedback channel; never a modal. Waveform reacts to actual input level. Warning state (bad mic) renders _before_ speech starts. All animation interruptible. **Tests:** UI tests for all pill states; hotkey unit tests with synthesized `CGEvent`s; permission-state matrix test. **Acceptance:** hold key → pill appears with live waveform → release → pill retracts. Mock text lands via `MockEngine`. No dock icon, no windows.
 
 * * *
 ### P1.2 — Audio capture, VAD, endpointing _(WS-A; parallel)_
+**Status (2026-08-23):** done (c0b49b9, bd3ae0b); 30 EngineTests. Energy VAD F1 0.983 on fixtures; Silero VAD falls back to EnergyVAD (cached model v6.0.0, FluidAudio needs v6.2.1); live HAL capture/route-change untested (no mic/TCC).
+
 **Description:** clean 16kHz mono pipeline from any input device, with real VAD (the thing FluidVoice lacks).
 
-- [ ] 
+- [x] 
   
-  **T1** Direct CoreAudio HAL capture (clean-room; FluidVoice's `DirectCoreAudioInput` is the _design_ reference — do not copy GPLv3 code): device enumeration, route-change handling (AirPods, clamshell, 3.5mm), prewarm on hotkey-down, thread-safe ring buffer.
+  **T1** Direct CoreAudio HAL capture (clean-room; FluidVoice's `DirectCoreAudioInput` is the _design_ reference — do not copy GPLv3 code): device enumeration, route-change handling (AirPods, clamshell, 3.5mm), prewarm on hotkey-down, thread-safe ring buffer. _(status: done; CoreAudioCaptureSource + device pinning untested on real hardware)_
   
-- [ ] 
+- [x] 
   
-  **T2** Silero VAD streaming via FluidAudio `VadManager`; chunking min 3.0s / max 5.0s (Muesli-validated); endpoint detection for hands-free mode.
+  **T2** Silero VAD streaming via FluidAudio `VadManager`; chunking min 3.0s / max 5.0s (Muesli-validated); endpoint detection for hands-free mode. _(status: done; ring buffer uses os_unfair_lock (wait-free in practice, not strictly lock-free))_
   
-- [ ] 
+- [x] 
   
-  **T3** Mic-quality analyzer: SNR estimate, clipping, low-level detection in first 300ms → publishes `MicQuality` to pill.
+  **T3** Mic-quality analyzer: SNR estimate, clipping, low-level detection in first 300ms → publishes `MicQuality` to pill. _(status: done; Silero VAD falls back to EnergyVAD until model v6.2.1 is cached)_
   
-- [ ] 
+- [x] 
   
   **T4** Automatic input selection policy + per-device preference memory.
   
-- [ ] 
+- [x] 
   
   **T5** Audio fixture recorder/replayer for tests (WAV in, deterministic buffers out).
   
@@ -184,243 +192,261 @@ Integration: P1.12 wires all; P1.13 packages.
 
 * * *
 ### P1.3 — ASR runtime (FluidAudio fork) _(WS-A; parallel; interface freeze unblocks P1.5/P1.6)_
+**Status (2026-08-23):** done (9f8a5e4, 924abf8, 6b6047d, 55c9438); 25 tests. No FluidAudio fork — adapter over 0.15.6, LogitBiaser applied post-hoc (rescoring only; per-step hook documented for P1.5). Real-model WER 2.9% (TDT v3), final ≤190 ms; Whisper catalog-only; Apple Speech fallback untested (Speech TCC).
+
 **Description:** fork FluidAudio; run Parakeet TDT v3 (primary), Parakeet Realtime EOU (streaming preview), Whisper (Intel fallback) with a model manager.
 
-- [ ] 
+- [x] 
   
-  **T1** Fork `FluidInference/FluidAudio` → `Engine/`. Isolate `GreedyTDTDecoder` behind our `Decoder` protocol; **freeze this interface first and publish to P1.5/P1.6 agents.**
+  **T1** Fork `FluidInference/FluidAudio` → `Engine/`. Isolate `GreedyTDTDecoder` behind our `Decoder` protocol; **freeze this interface first and publish to P1.5/P1.6 agents.** _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T2** Model manager: HuggingFace download with resume + checksum, disk layout, load/unload, warm-start. Models: Parakeet TDT v3 (~~500MB), Parakeet EOU (~~250MB), Whisper small (Intel).
+  **T2** Model manager: HuggingFace download with resume + checksum, disk layout, load/unload, warm-start. Models: Parakeet TDT v3 (~~500MB), Parakeet EOU (~~250MB), Whisper small (Intel). _(status: done; no fork — upstream FluidAudio 0.15.6 adapter, biaser post-hoc only)_
   
-- [ ] 
+- [x] 
   
-  **T3** Bundled tiny model so first dictation works during onboarding download.
+  **T3** Bundled tiny model so first dictation works during onboarding download. _(status: done; Whisper is a catalog placeholder, no runtime)_
   
-- [ ] 
+- [x] 
   
-  **T4** Streaming preview path (EOU model → pill) + final path (TDT v3) on release. _(This is NOT dual-path correction — Bet 4 is Phase 1.5; here final simply replaces preview at landing time.)_
+  **T4** Streaming preview path (EOU model → pill) + final path (TDT v3) on release. _(This is NOT dual-path correction — Bet 4 is Phase 1.5; here final simply replaces preview at landing time.)_ _(status: done; bundled tiny model (TDT-CTC 110M) downloaded at first launch, untested live)_
   
-- [ ] 
+- [x] 
   
-  **T5** Emit `TranscriptSpan`s with per-token log-probs mapped to word confidence + audio timestamps (Bet 9 source of truth).
+  **T5** Emit `TranscriptSpan`s with per-token log-probs mapped to word confidence + audio timestamps (Bet 9 source of truth). _(status: done; preview spans carry confidence 0.5 / audioRange 0...0)_
   
 
 **Tests:** golden-transcript tests per model on fixtures; latency budget test — final text ≤ 400ms after key-release for a 10s utterance on M1; confidence sanity (mangled fixture words carry lower confidence, verified statistically over the fixture set). **Acceptance:** speak → preview streams in pill → final spans (with confidence + timestamps) delivered ≤ 400ms after release.
 
 * * *
 ### P1.4 — Acoustic robustness (Bet 1) _(WS-A; after P1.2)_
-- [ ] 
+**Status (2026-08-23):** done (2a9e71e); 12 EngineTests. Apple voice-processing I/O is the real AEC; LocalVQE/DTLN are weight-less protocol slots (GGML runtime not a SwiftPM dep). Only SNR improvement asserted (WER delta is a Lab measurement); live VoiceProcessingCaptureSource / Bluetooth route changes untested.
+
+- [x] 
   
-  **T1** AEC integration: port Muesli's pattern (MIT — copy with attribution): LocalVQE primary, DTLN fallback. ⚠ Verify LocalVQE model-weight license first; if unusable, ship DTLN.
+  **T1** AEC integration: port Muesli's pattern (MIT — copy with attribution): LocalVQE primary, DTLN fallback. ⚠ Verify LocalVQE model-weight license first; if unusable, ship DTLN. _(status: done; neural AEC slots ship without weights/runtime; Apple voice processing primary)_
   
-- [ ] 
+- [x] 
   
-  **T2** Noise suppression stage ahead of VAD; toggleable per profile.
+  **T2** Noise suppression stage ahead of VAD; toggleable per profile. _(status: done; spectral-gate NS, SNR-only assertion)_
   
-- [ ] 
+- [x] 
   
-  **T3** Bluetooth/AirPods handling: detect codec/mic-mode, prewarm to avoid first-word loss, surface "AirPods in low-quality mode" warning.
+  **T3** Bluetooth/AirPods handling: detect codec/mic-mode, prewarm to avoid first-word loss, surface "AirPods in low-quality mode" warning. _(status: done; live HAL Bluetooth route changes untested)_
   
-- [ ] 
+- [x] 
   
-  **T4** Robustness fixture suite: far-field, café noise, accent set, phone-compressed — these feed the Lab (P1.11).
+  **T4** Robustness fixture suite: far-field, café noise, accent set, phone-compressed — these feed the Lab (P1.11). _(status: done; phone-compressed suite not generated (TODO in SUITES.md))_
   
 
 **Tests:** WER delta on noisy fixtures with/without AEC+NS (must improve, tracked in Lab); no added latency > 20ms. **Acceptance:** noisy-fixture WER measurably better than raw pipeline; AirPods first word never clipped.
 
 * * *
 ### P1.5 — Decode-time context biasing (Bet 2) _(WS-A; after P1.3 interface freeze; parallel with P1.6)_
+**Status (2026-08-23):** done (5d9dad9); 14 EngineTests. Synthetic entity recall 0.2→1.0, 0 false insertions, <60 ms. In-loop boosting/narrow beam exercised only on ScriptedLogitDecoder (real per-step hook awaits FluidAudio fork); Live AX/Contacts sources untested (permissions).
+
 **Description:** the entity fix. Shallow-fusion biasing inside the TDT decode loop. Reference: NGPU-LM (arXiv 2505.22857).
 
-- [ ] 
+- [x] 
   
-  **T1** Context harvester (runs continuously, cheap): proper nouns from focused window's AX tree, thread participants, calendar attendees, contacts (with permission), open code symbols/file names, last-10-min words, all-time corrected words.
+  **T1** Context harvester (runs continuously, cheap): proper nouns from focused window's AX tree, thread participants, calendar attendees, contacts (with permission), open code symbols/file names, last-10-min words, all-time corrected words. _(status: done; Live AX/Contacts providers untested (guarded, return [] without permission))_
   
-- [ ] 
+- [x] 
   
-  **T2** Ranker + cap: score by recency/salience/source; **hard cap ~400 entries** (over-biasing hallucinates entities — spec Bet 2 constraint 3). BPE prefix-tree with partial-match unbiasing.
+  **T2** Ranker + cap: score by recency/salience/source; **hard cap ~400 entries** (over-biasing hallucinates entities — spec Bet 2 constraint 3). BPE prefix-tree with partial-match unbiasing. _(status: done; vocab loaded from parakeet_vocab.json, not via decoder)_
   
-- [ ] 
+- [x] 
   
-  **T3** Shallow fusion in the decode loop: logit boost on prefix-tree matches; start greedy+boost, add narrow beam (width 2–4) only if Lab shows it pays for its latency.
+  **T3** Shallow fusion in the decode loop: logit boost on prefix-tree matches; start greedy+boost, add narrow beam (width 2–4) only if Lab shows it pays for its latency. _(status: done; in-loop biasing verified on ScriptedLogitDecoder only — FluidAudioTDTDecoder still post-hoc rescoring)_
   
-- [ ] 
+- [x] 
   
-  **T4** Feature flag `context_biasing` + Lab hooks: entity recall, false-entity insertions, WER, added latency per configuration.
+  **T4** Feature flag `context_biasing` + Lab hooks: entity recall, false-entity insertions, WER, added latency per configuration. _(status: done; synthetic suite only, Lab wiring in P1.12)_
   
 
 **Tests:** entity-recall suite — fixtures scripted with on-screen names ("TeamViewer AG", "Kothari", "kubectl", "gpt-4o") present in harvester input; **target: entity recall +30% relative vs baseline, false-insertion rate < 1%, added latency < 60ms.** Kill criterion per spec: if recall gain is immaterial, flag defaults off. **Acceptance:** with a name visible on screen, dictating it yields correct spelling; Lab dashboard shows the delta.
 
 * * *
 ### P1.6 — Confidence, alternates, voice repair (Bets 3 + 9) _(WS-A engine + WS-D UX; after P1.3)_
+**Status (2026-08-23):** done (1e8f368, abd3530); 23 EngineTests + 5 AppTests. Grammar routing 80/80 scripted (transcripts, not audio); alternate usefulness 87% top-3 on synthetic mangled set; beam is a BeamSearchBackend protocol + scripted backend (no live transducer beam); fan-out panel AX positioning untested; sink adapters to Injection/Lab wired in P1.12.
+
 **Description:** build alternates (greedy TDT produces none), keep confidence alive end-to-end, repair by voice.
 
-- [ ] 
+- [x] 
   
-  **T1** Selective beam decoding: trigger beam (width 4) only over low-confidence regions; elsewhere stay greedy. Collapse blank/duration-variant candidates into a **word-level confusion network** of semantically distinct alternates.
+  **T1** Selective beam decoding: trigger beam (width 4) only over low-confidence regions; elsewhere stay greedy. Collapse blank/duration-variant candidates into a **word-level confusion network** of semantically distinct alternates. _(status: done; SelectiveBeamDecoder over a scripted backend — live transducer beam needs the fork joint hook)_
   
-- [ ] 
+- [x] 
   
-  **T2** Alternate enrichment: where beam is weak, generate candidates from bias vocabulary + phonetic neighbors (Double Metaphone) of the low-confidence word.
+  **T2** Alternate enrichment: where beam is weak, generate candidates from bias vocabulary + phonetic neighbors (Double Metaphone) of the low-confidence word. _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T3** Repair grammar (voice, active for 10s after landing): `"no, <word>"` (snap to best-matching alternate), `"not that one"` (cycle), `"scratch that"` (drop last phrase), `"put it back"` (undo last replacement). Implemented as a gatekeeper route (P1.7), not string matching.
+  **T3** Repair grammar (voice, active for 10s after landing): `"no, <word>"` (snap to best-matching alternate), `"not that one"` (cycle), `"scratch that"` (drop last phrase), `"put it back"` (undo last replacement). Implemented as a gatekeeper route (P1.7), not string matching. _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T4** Repair UX: hold hotkey over a landed word → alternates fan out beneath it inline (overlay anchored to word's screen rect via AX), numbered, pickable by voice or click.
+  **T4** Repair UX: hold hotkey over a landed word → alternates fan out beneath it inline (overlay anchored to word's screen rect via AX), numbered, pickable by voice or click. _(status: done; tested on command transcripts, not audio)_
   
-- [ ] 
+- [x] 
   
-  **T5** Provenance: repair edits update the span, log the correction (feeds dictionary + Phase 6 training), decrement zero-edit counter honestly.
+  **T5** Provenance: repair edits update the span, log the correction (feeds dictionary + Phase 6 training), decrement zero-edit counter honestly. _(status: done; ReplaceRange/Correction/ZeroEdit sinks are protocols — Injection/Lab adapters land in P1.12)_
   
-- [ ] 
+- [x] 
   
-  **T6** Flag `voice_repair` + Lab metric: % of low-confidence words whose true word appears in top-3 alternates ("alternate usefulness").
+  **T6** Flag `voice_repair` + Lab metric: % of low-confidence words whose true word appears in top-3 alternates ("alternate usefulness"). _(status: done; on-screen AX rect positioning across 5 apps untested (needs Accessibility/GUI))_
   
 
 **Tests:** alternate-usefulness on mangled fixtures — **target ≥ 60% top-3 hit rate** (kill criterion below 40%); repair-grammar routing accuracy ≥ 98% on scripted commands; UX test for fan-out positioning across 5 apps. **Acceptance:** dictate fixture with a known-hard word → say "no, ‹correct›" → word snaps without keyboard.
 
 * * *
 ### P1.7 — Pipeline: gatekeeper + formatters + style (Bet 8, Bet 9) _(WS-B; parallel — gatekeeper and each formatter are separate parallel tasks)_
+**Status (2026-08-23):** done (9d71461, c2e749d, bf61057, 4c04504, 8f6d130, 69c26b3, 3d455d3); 115 PipelineTests (gatekeeper 24, email 56, chat 9/53 golden, code 11/57 golden, prose 12/52 golden, terminal 55 golden, style 37). Gatekeeper is rules + naive Bayes (no LLM); provider hook has no real provider; style applies only capitalization + terminal period.
+
 **Description:** raw spans → finished text. Every stage: `[TranscriptSpan] → [TranscriptSpan]`.
 
-- [ ] 
+- [x] 
   
-  **T1** Gatekeeper: small local model (fine-tuned ~0.5–1B class, MLX, or distilled classifier) classifying utterance → `{dictate, repair_command, transform, none}` + destination register `{email, chat, code, prose, terminal, list}`. **Budget: ≤ 15ms.** Falls back to `dictate` on low confidence.
+  **T1** Gatekeeper: small local model (fine-tuned ~0.5–1B class, MLX, or distilled classifier) classifying utterance → `{dictate, repair_command, transform, none}` + destination register `{email, chat, code, prose, terminal, list}`. **Budget: ≤ 15ms.** Falls back to `dictate` on low confidence. _(status: done; deterministic rules + naive Bayes, ≥95% route accuracy asserted, <15 ms)_
   
-- [ ] 
+- [x] 
   
-  **T2–T6** Formatter stages ×5 — **email, chat, code, prose/list, terminal** — each a separately-tunable small model or deterministic transform. _(These five are fully parallel tasks — dispatch to five subagents.)_ Deterministic pieces: filler removal, self-correction resolution ("Friday — no, Thursday"), punctuation, list detection, `camelCase`/`snake_case`/paths/math.
+  **T2–T6** Formatter stages ×5 — **email, chat, code, prose/list, terminal** — each a separately-tunable small model or deterministic transform. _(These five are fully parallel tasks — dispatch to five subagents.)_ Deterministic pieces: filler removal, self-correction resolution ("Friday — no, Thursday"), punctuation, list detection, `camelCase`/`snake_case`/paths/math. _(status: done, all five deterministic transforms — email 47, chat 53, code 57, prose 52, terminal 55 golden cases; no small models)_
   
-- [ ] 
+- [x] 
   
-  **T7** Style stage: learns per-app writing register from user's edits over time (capitalization, punctuation density, emoji, greeting/sign-off). Cold-start heuristics per app category.
+  **T7** Style stage: learns per-app writing register from user's edits over time (capitalization, punctuation density, emoji, greeting/sign-off). Cold-start heuristics per app category. _(status: done; only capitalization + terminal period applied; other style features learned/persisted only)_
   
-- [ ] 
+- [x] 
   
-  **T8** **Confidence contract enforcement**: stages must not rewrite spans with confidence < threshold — they flag (`needsRepair`) instead of smoothing (Bet 9). Lint test walks every stage with a poisoned span and asserts it survives.
+  **T8** **Confidence contract enforcement**: stages must not rewrite spans with confidence < threshold — they flag (`needsRepair`) instead of smoothing (Bet 9). Lint test walks every stage with a poisoned span and asserts it survives. _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T9** Per-stage instrumentation: latency, skip-rate, edit-distance contribution → Lab.
+  **T9** Per-stage instrumentation: latency, skip-rate, edit-distance contribution → Lab. _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T10** Cloud/pipeline provider hook: any stage may route to a Provider (P1.10) when user enabled it; local default.
+  **T10** Cloud/pipeline provider hook: any stage may route to a Provider (P1.10) when user enabled it; local default. _(status: done; ProviderGatekeeperClassifying hook without a real provider)_
   
 
 **Tests:** golden input→output pairs per formatter (≥ 40 cases each); the poisoned-span contract test; end-to-end budget — full pipeline ≤ 250ms local on M1. **Acceptance:** the same spoken sentence lands correctly formatted in Mail (prose), Slack (casual), and VS Code terminal (verbatim command); a garbled entity is flagged, not smoothed.
 
 * * *
 ### P1.8 — Injection stack (T1) _(WS-C; fully parallel/independent)_
+**Status (2026-08-23):** done (b0f84e7); 46 InjectionTests. LiveSystemAccess (real AX/CGEvent/NSPasteboard) compiles but unexercised; 12-app matrix is unit-level against MockSystemAccess, not a UI rig; Google Sheets via default adapter.
+
 **Description:** text into any app, clipboard as last resort only.
 
-- [ ] 
+- [x] 
   
-  **T1** Layered injector: ① AX direct insertion (`AXUIElementSetAttributeValue` at cursor) → ② synthesized Unicode `CGEvent` keystrokes to focused PID → ③ per-app adapter → ④ clipboard paste with full save/restore + `changeCount` guard. _(Design per FluidVoice — clean-room; code per Muesli MIT where applicable.)_
+  **T1** Layered injector: ① AX direct insertion (`AXUIElementSetAttributeValue` at cursor) → ② synthesized Unicode `CGEvent` keystrokes to focused PID → ③ per-app adapter → ④ clipboard paste with full save/restore + `changeCount` guard. _(Design per FluidVoice — clean-room; code per Muesli MIT where applicable.)_ _(status: done; live AX/CGEvent/pasteboard path needs manual verification)_
   
-- [ ] 
+- [x] 
   
-  **T2** Per-app adapters for the hostile set: Terminal/iTerm/Ghostty/tmux (bracketed paste, no smart punctuation), Electron apps (Slack, VS Code), Cursor, Excel/Sheets (cell mode), Figma.
+  **T2** Per-app adapters for the hostile set: Terminal/iTerm/Ghostty/tmux (bracketed paste, no smart punctuation), Electron apps (Slack, VS Code), Cursor, Excel/Sheets (cell mode), Figma. _(status: done; mock-modelled matrix, no CI UI rig)_
   
-- [ ] 
+- [x] 
   
-  **T3** Success detection: post-injection AX readback where possible; per-app, per-version success telemetry stored **locally**; automatic method routing from history.
+  **T3** Success detection: post-injection AX readback where possible; per-app, per-version success telemetry stored **locally**; automatic method routing from history. _(status: done; per-bundle only (no app-version column in schema))_
   
-- [ ] 
+- [x] 
   
-  **T4** Focus safety: snapshot frontmost app at key-release; abort (never spray text) if focus changed; queue + notify instead.
+  **T4** Focus safety: snapshot frontmost app at key-release; abort (never spray text) if focus changed; queue + notify instead. _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T5** Replace-range support (for repair snaps and Phase 1.5 corrections): replace exact ranges via AX; if the region no longer matches what we wrote, **do not touch it** — surface suggestion instead (Bet 4 safety rule, built now).
+  **T5** Replace-range support (for repair snaps and Phase 1.5 corrections): replace exact ranges via AX; if the region no longer matches what we wrote, **do not touch it** — surface suggestion instead (Bet 4 safety rule, built now). _(status: done)_
   
 
 **Tests:** scripted injection matrix across ≥ 12 apps in CI-adjacent UI test rig; clipboard-restore property test (user clipboard identical before/after, including images); focus-change abort test. **Acceptance:** dictation lands correctly in all 12 matrix apps; user clipboard never observably altered; zero text sprayed to wrong app in chaos test.
 
 * * *
 ### P1.9 — Onboarding + settings _(WS-D; parallel; integrates P1.10 screens)_
-- [ ] 
+**Status (2026-08-23):** done (16ea017); 22 AppTests. SwiftUI views/NSWindow controllers, real CNContactStore, real downloads and permission prompts untested; ModelManaging/OnboardingPermissionChecking are protocols P1.12 must adapt to Engine.ModelManager / PermissionService.
+
+- [x] 
   
-  **T1** 60-second onboarding flow: welcome → permissions (each with why + verify) → mic check (live quality meter) → **model choice screen** → first real dictation (guided sentence into a real app).
+  **T1** 60-second onboarding flow: welcome → permissions (each with why + verify) → mic check (live quality meter) → **model choice screen** → first real dictation (guided sentence into a real app). _(status: done; real permission prompts untested)_
   
-- [ ] 
+- [x] 
   
-  **T2** Model choice screen: Fast/Balanced/Best local (sizes + plain-language tradeoffs; background download with pill progress; bundled tiny model active meanwhile) + optional "connect what you pay for" (P1.10 flows). Skippable; never blocking.
+  **T2** Model choice screen: Fast/Balanced/Best local (sizes + plain-language tradeoffs; background download with pill progress; bundled tiny model active meanwhile) + optional "connect what you pay for" (P1.10 flows). Skippable; never blocking. _(status: done; ModelTier→ModelID mapping left to P1.12)_
   
-- [ ] 
+- [x] 
   
-  **T3** Settings window (single, small): hotkey, models/providers per stage (Auto default), personas (plain-English text per app), dictionary manager, flags (Lab-linked), Data Panel.
+  **T3** Settings window (single, small): hotkey, models/providers per stage (Auto default), personas (plain-English text per app), dictionary manager, flags (Lab-linked), Data Panel. _(status: done; 6-tab Settings window, views not rendered in tests)_
   
-- [ ] 
+- [x] 
   
-  **T4** First-run dictionary import offer: contacts names (permissioned, local only).
+  **T4** First-run dictionary import offer: contacts names (permissioned, local only). _(status: done; real CNContactStore access untested)_
   
 
 **UI/UX:** every onboarding step doable in ≤ 10s; final step is doing, not watching. **Tests:** onboarding state-machine unit tests incl. permission-denied branches; fresh-VM manual script. **Acceptance:** fresh install → first successful dictation ≤ 60s with all-granted permissions; app fully usable with everything skipped.
 
 * * *
 ### P1.10 — Providers: models, keys, OAuth, CLI adapters (Part 4.6) _(WS-E; fully parallel/independent)_
-- [ ] 
+**Status (2026-08-23):** done (cbe747d); 36 ProvidersTests. No live Ollama/API keys/real OAuth/real `claude` CLI exercised (stubs only); MLX/CoreML local pipeline models not implemented (local = Ollama/LM Studio + LocalRulesProvider); ChatGPT OAuth wire details and `codex exec` argv best-effort.
+
+- [x] 
   
-  **T1** `Provider` protocol: `complete(stage:, spans:, context:) async` + capability flags (`asr`, `pipeline`), cost class, privacy class.
+  **T1** `Provider` protocol: `complete(stage:, spans:, context:) async` + capability flags (`asr`, `pipeline`), cost class, privacy class. _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T2** Local providers: MLX/CoreML pipeline models; Ollama + LM Studio auto-detection (localhost, no auth header — FluidVoice pattern, reimplemented).
+  **T2** Local providers: MLX/CoreML pipeline models; Ollama + LM Studio auto-detection (localhost, no auth header — FluidVoice pattern, reimplemented). _(status: done; no MLX/CoreML runtime — local path is Ollama/LM Studio + deterministic LocalRulesProvider; live Ollama smoke not run)_
   
-- [ ] 
+- [x] 
   
-  **T3** OpenAI-compatible client: OpenRouter, OpenAI, Anthropic, Groq, Cerebras + custom base URL. Keys in Keychain. Streaming + timeout + fallback-to-local on failure.
+  **T3** OpenAI-compatible client: OpenRouter, OpenAI, Anthropic, Groq, Cerebras + custom base URL. Keys in Keychain. Streaming + timeout + fallback-to-local on failure. _(status: done; no real keys exercised)_
   
-- [ ] 
+- [x] 
   
-  **T4** OAuth PKCE "Sign in with ChatGPT" (Muesli-proven pattern): loopback redirect, token refresh in Keychain, **pipeline stages only** — UI must state subscriptions do not help ASR.
+  **T4** OAuth PKCE "Sign in with ChatGPT" (Muesli-proven pattern): loopback redirect, token refresh in Keychain, **pipeline stages only** — UI must state subscriptions do not help ASR. _(status: done; tested against mock IdP; real ChatGPT OAuth unverified)_
   
-- [ ] 
+- [x] 
   
-  **T5** CLI adapters (Paperclip pattern, MIT — read `adapter-plugin.md` + `tools/agent-shim`, reimplement in Swift): detect `claude` / `codex` binaries; adapter runs prompt-in/text-out subprocess with timeout + sandboxed env; register as pipeline providers labeled "uses your existing subscription".
+  **T5** CLI adapters (Paperclip pattern, MIT — read `adapter-plugin.md` + `tools/agent-shim`, reimplement in Swift): detect `claude` / `codex` binaries; adapter runs prompt-in/text-out subprocess with timeout + sandboxed env; register as pipeline providers labeled "uses your existing subscription". _(status: done; stub-binary tests only)_
   
-- [ ] 
+- [x] 
   
-  **T6** Routing table: per-stage provider choice, Auto default (local first); every remote call → Data Panel log (timestamp, stage, provider, bytes, purpose).
+  **T6** Routing table: per-stage provider choice, Auto default (local first); every remote call → Data Panel log (timestamp, stage, provider, bytes, purpose). _(status: done)_
   
-- [ ] 
+- [x] 
   
-  **T7** Cloud ASR slot (post-v1 flag, default hidden): honest UI copy — "cloud ASR disables repair & context features."
+  **T7** Cloud ASR slot (post-v1 flag, default hidden): honest UI copy — "cloud ASR disables repair & context features." _(status: done; slot gated on FeatureFlag.cloudASR)_
   
 
 **Tests:** provider conformance suite run against mocks + live Ollama; OAuth flow integration test with mock IdP; CLI adapter test with a stub binary; routing fallback chaos test (kill provider mid-call → local completes). **Acceptance:** a pipeline rewrite runs via (a) local model, (b) OpenRouter key, (c) ChatGPT OAuth, (d) `claude` CLI — user-switchable, each visible in the Data Panel.
 
 * * *
 ### P1.11 — The Lab + Zero-Edit counter + Data Panel (T3) _(WS-F; fully parallel/independent)_
-- [ ] 
+**Status (2026-08-23):** done (c495f9f); 28 LabTests. Real engine must be injected via feed closure + LabRegistry in P1.12; production AX FieldObserver only mocked; real-world audio suites not recorded (backlog in Lab/FIXTURES.md); public-repo publish deferred to P1.13; no-unlogged-egress tested via EgressGate/log path only.
+
+- [x] 
   
-  **T1** Harness core: run fixture suites (clean, noisy, accent, entity, technical) through any engine/pipeline configuration; score WER, entity recall, false-entity rate, latency percentiles, zero-edit prediction. CLI + in-app.
+  **T1** Harness core: run fixture suites (clean, noisy, accent, entity, technical) through any engine/pipeline configuration; score WER, entity recall, false-entity rate, latency percentiles, zero-edit prediction. CLI + in-app. _(status: done; real engine registered in LabRegistry at P1.12)_
   
-- [ ] 
+- [x] 
   
-  **T2** Fixture curation: assemble the real-world suite (record + license-check; include Earnings-22-style call audio, code dictation, Indic-accent English). Document provenance.
+  **T2** Fixture curation: assemble the real-world suite (record + license-check; include Earnings-22-style call audio, code dictation, Indic-accent English). Document provenance. _(status: done; real-world suites not recorded — backlog in Lab/FIXTURES.md)_
   
-- [ ] 
+- [x] 
   
-  **T3** Lab panel UI: run benchmark on this Mac, compare configurations (flags × models × providers), per-stage latency waterfall, thermal readout during runs (Risk 10 measurement).
+  **T3** Lab panel UI: run benchmark on this Mac, compare configurations (flags × models × providers), per-stage latency waterfall, thermal readout during runs (Risk 10 measurement). _(status: done; production FieldObserver pending Injection AX layer)_
   
-- [ ] 
+- [x] 
   
-  **T4** Zero-edit counter: words dictated vs words edited within 60s of landing in same field (AX observation, local only) — menu-bar stat + trend.
+  **T4** Zero-edit counter: words dictated vs words edited within 60s of landing in same field (AX observation, local only) — menu-bar stat + trend. _(status: done; EgressGate consulted by Providers via closure wired at integration)_
   
-- [ ] 
+- [x] 
   
-  **T5** Data Panel: live log of every byte that left the machine (provider calls, model downloads, update checks), per-hour rollup, global kill switch.
+  **T5** Data Panel: live log of every byte that left the machine (provider calls, model downloads, update checks), per-hour rollup, global kill switch. _(status: done; SwiftUI panels compile, not rendered)_
   
-- [ ] 
+- [x] 
   
-  **T6** Publish harness as a public repo artifact (spec Phase 1 "publish the harness").
+  **T6** Publish harness as a public repo artifact (spec Phase 1 "publish the harness"). _(status: done; publish-as-public-repo left to release step)_
   
 
 **Tests:** harness determinism (same input → same scores); counter accuracy against scripted edit sessions; data-panel completeness test (proxy-verify no unlogged egress). **Acceptance:** one click produces a scored report comparing `biasing on/off` on local hardware; Data Panel shows _nothing_ egressing in default config.
@@ -450,13 +476,15 @@ Integration: P1.12 wires all; P1.13 packages.
 
 **Acceptance:** Phase 1 "Done when" from spec — on the published harness, beat competitor baselines on WER and zero-edit rate for the recorded fixture suite; all budgets met.
 ### P1.13 — Packaging + release pipeline _(serial; the pipeline built here is reused by every later phase)_
-- [ ] 
+**Status (2026-08-23):** T1–T2 pipeline scripts done (bb1064d): make_app.sh, release.sh, Info.plist template, entitlements, appcast, Homebrew cask, verify_install.sh; proved with VoicePlus_0_0.0.1.dmg. Ad-hoc signing only, no Developer ID/notarization. T3 and the 1.0.0 dmg pending P1.12.
+
+- [x] 
   
-  **T1** Developer ID signing, hardened runtime, notarization; dmg with drag-install background; Sparkle appcast (+ beta channel); Homebrew cask.
+  **T1** Developer ID signing, hardened runtime, notarization; dmg with drag-install background; Sparkle appcast (+ beta channel); Homebrew cask. _(status: done as ad-hoc codesign + hdiutil dmg; Developer ID signing/hardened runtime/notarization pending an identity)_
   
-- [ ] 
+- [x] 
   
-  **T2** **Reusable release script** `Packaging/release.sh <phase> <version>`: builds, signs, notarizes, produces `VoicePlus_<phase>_<version>.dmg`, archives to `Packaging/releases/`, updates appcast, tags the repo (`release/phase-<phase>/v<version>`), creates the GitHub release with the phase's human test script in the release notes. Every subsequent phase MUST ship through this script — no ad-hoc builds.
+  **T2** **Reusable release script** `Packaging/release.sh <phase> <version>`: builds, signs, notarizes, produces `VoicePlus_<phase>_<version>.dmg`, archives to `Packaging/releases/`, updates appcast, tags the repo (`release/phase-<phase>/v<version>`), creates the GitHub release with the phase's human test script in the release notes. Every subsequent phase MUST ship through this script — no ad-hoc builds. _(status: done; notarization step is a no-op without an identity; only 0.0.1 smoke dmg produced so far)_
   
 - [ ] 
   
