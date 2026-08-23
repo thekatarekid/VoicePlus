@@ -62,3 +62,11 @@ all events are strictly ordered. `stop()` awaits the worker, so `.stopped` means
 ## Not exercised by tests (needs a mic + TCC permission)
 `CoreAudioCaptureSource` start/tap/pin and live route-change callbacks. Everything else runs
 against fixtures; `AudioDeviceMonitor`/`AudioDeviceEnumerator` are smoke-tested against the real HAL.
+
+## Acoustic robustness (P1.4) — `Audio/Robustness`, `Audio/Bluetooth`
+`AcousticCaptureSource(wrapping: source, profile: RobustnessProfile)` slots between any capture source and
+`AudioPipeline`: neural AEC slot (LocalVQE/DTLN, Apache-2.0/MIT, weights + GGML runtime not bundled →
+passthrough) → `SpectralGateNoiseSuppressor` (toggle per profile) → sink; Bluetooth pre-roll on `prewarm()`.
+`VoiceProcessingCaptureSource` is the Apple-AEC variant of `CoreAudioCaptureSource`.
+`BluetoothInputDetector.assess(device)` classifies SCO 8k/16k as low-quality and yields a `MicQuality` + message.
+See `Robustness/SUITES.md` for the Lab fixture registration and `Robustness/AEC.swift` for license notes.
