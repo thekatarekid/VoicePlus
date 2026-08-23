@@ -1,0 +1,7 @@
+{
+  "env": {
+    "SWIFTPM_CUSTOM_LIBS_DIR": "/Users/adityakatare/Library/Developer/VoicePlus-swiftpm-libs",
+    "SWIFT_EXEC": "/Users/adityakatare/Library/Developer/VoicePlus-toolchain/usr/bin/swiftc",
+    "SWIFT_EXEC_MANIFEST": "/Users/adityakatare/Library/Developer/VoicePlus-toolchain/usr/bin/swiftc"
+  }
+}

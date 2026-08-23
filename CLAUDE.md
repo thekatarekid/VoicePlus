@@ -3,7 +3,9 @@
 Source of truth: `PRODUCT-SPEC.md` (why), `VoicePlus_Build.md` (what/how). Your assigned item ID (e.g. P1.8) is defined there — read only your item's section + Sections 0–3.
 
 ## Toolchain reality (no Xcode.app on this machine)
-- Only Command Line Tools: Swift 6.0.3, `swift build`/`swift test` (XCTest works). **No `xcodebuild`, no Xcode UI tests, no simulators.**
+- Only Command Line Tools: Swift 6.0.3, `swift build`/`swift test`. **No `xcodebuild`, no Xcode UI tests, no simulators, and NO XCTest** (the CLT ships no XCTest.framework). **Tests use Swift Testing** (`import Testing`, `@Test`, `#expect`, `#require`) — see `Tests/SharedTests/` for the pattern.
+- The CLT install is partially broken (stale files from older versions). **Run `eval "$(Scripts/bootstrap-toolchain.sh)"` once per shell** (or rely on `.claude/settings.json`, which exports the same env vars) before any `swift build`/`swift test`. Without it every build fails with `Undefined symbols ... Package.__allocating_init` or `redefinition of module 'SwiftBridging'`.
+- Add `--disable-keychain` to `swift build`/`swift test`/`swift package resolve` when SwiftPM needs to download a binary artifact (FluidAudio pulls one); the keychain prompt can't be answered non-interactively. Once cached it is not needed.
 - App bundle is assembled by `Packaging/make_app.sh`; DMG by `Packaging/release.sh <phase> <version>` (hdiutil). Ad-hoc codesign only (no Developer ID identity available; notarization skipped — documented deviation).
 - macOS 14+ target, Swift 5 language mode in Package.swift (`swiftLanguageVersions: [.v5]`) to avoid Swift 6 strict-concurrency churn.
 - Third-party deps via SwiftPM only: GRDB (SQLite), FluidAudio (ASR/VAD, Apache-2.0). Do not add deps without noting it in progress.md.
@@ -13,7 +15,7 @@ Shared/ Engine/ Pipeline/ Injection/ App/ Providers/ Lab/ Actions/ Packaging/ Te
 
 ## Parallel-work rules (several agents work in this checkout simultaneously)
 - **Only touch your module's directory + your test target.** Never edit `Shared/` or `Package.swift` unless your item says so; if you need a change there, make it minimal, additive, and mention it in your final report.
-- Build/test with an isolated scratch path: `swift build --scratch-path .build-<yourItem>` and `swift test --scratch-path .build-<yourItem> --filter <YourModule>Tests`. `.build*` is gitignored.
+- Build/test with an isolated scratch path: `swift build --scratch-path .build-<yourItem>` and `swift test --scratch-path .build-<yourItem> --filter <YourModule>Tests`. `.build*` is gitignored. Fixtures are read from `Fixtures/` at the package root (`AppPaths.fixturesDirectory()`), not from a bundle.
 - Commit often, scoped: `git add <your paths> && git commit -m "P1.x Tn: ..."`. If `index.lock` exists, wait 2s and retry. Never `git add -A`, never push (orchestrator pushes), never rebase/reset.
 - Keep files small and focused. No web views, no Electron, no telemetry, no plaintext secrets.
 - Pipeline stages are `[TranscriptSpan] -> [TranscriptSpan]`; never drop confidence/audioRange/provenance.
