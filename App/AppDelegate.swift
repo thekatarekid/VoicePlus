@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: DictationCoordinator?
     private var orchestrator: PermissionOrchestrator?
     private var container: AppContainer?
+    private var transformPill: TransformPillDriver?
+    private var correctionOverlay: CorrectionOverlayController?
     private let hotkey = HotkeyService()
     private let pill = PillPanelController()
     private let updater: UpdaterProtocol = NoopUpdater()
@@ -44,12 +46,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { coordinator?.noteMicQuality(q) }
         }
         self.coordinator = coordinator
+
+        // P2.3 — transform pill (tint, "editing N words", ghost, 8 s warm window).
+        let transformPill = TransformPillDriver(pill: pill.model, warmWindow: container.transform.session.warmWindow)
+        container.transform.onEvent = { [weak transformPill] e in Task { @MainActor in transformPill?.handle(e) } }
+        transformPill.onAction = { [weak container] action in
+            guard let container else { return }
+            switch action {
+            case .undo: container.transform.undo()
+            case .tryAgain: Task { _ = await container.transform.tryAgain() }
+            }
+        }
+        self.transformPill = transformPill
+
+        // P1.5.2 — shimmer/underline + hover "was: …" + one-tap revert on silent corrections.
+        let overlay = CorrectionOverlayController(ledger: container.correction.ledger)
+        overlay.revertSink = container.repair.replaceSink
+        overlay.isEnabled = { [weak container] in
+            guard let container else { return false }
+            return CorrectionSettings.isEnabled(for: NSWorkspace.shared.frontmostApplication?.bundleIdentifier, store: container.settings)
+        }
+        correctionOverlay = overlay
+
         hotkey.onAction = { [weak coordinator] action in coordinator?.handle(action) }
 
         let status = StatusItemController(flags: container.flags, database: container.database, coordinator: coordinator,
                                           hotkey: hotkey, updater: updater)
         status.activeModelName = { [weak container] in container?.activeModelName ?? "—" }
         status.micName = { [weak container] in container?.microphoneName ?? "Default microphone" }
+        status.corrections = container.correction.ledger
+        status.correctionSettings = container.settings
+        status.correctionRevertSink = { [weak container] in container?.repair.replaceSink }
         status.onRecheckPermissions = { [weak self] in self?.runPermissions() }
         status.onOpenLab = { [weak container] in
             guard let container else { return }

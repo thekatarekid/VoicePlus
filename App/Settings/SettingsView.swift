@@ -9,6 +9,8 @@ public struct SettingsView: View {
     @ObservedObject var dictionary: DictionaryViewModel
     @ObservedObject var flags: FlagsViewModel
     @ObservedObject var data: DataPanelViewModel
+    @ObservedObject var snippets: SnippetsViewModel
+    @ObservedObject var corrections: CorrectionSettingsViewModel
     let deps: OnboardingDependencies
     @Binding var selectedTab: SettingsTab
 
@@ -18,6 +20,7 @@ public struct SettingsView: View {
             modelsTab.tabItem { Label("Models", systemImage: "cpu") }.tag(SettingsTab.models)
             personasTab.tabItem { Label("Personas", systemImage: "person.text.rectangle") }.tag(SettingsTab.personas)
             dictionaryTab.tabItem { Label("Dictionary", systemImage: "character.book.closed") }.tag(SettingsTab.dictionary)
+            SnippetsSettingsTab(model: snippets).padding(4).tabItem { Label("Snippets", systemImage: "text.quote") }.tag(SettingsTab.snippets)
             flagsTab.tabItem { Label("Flags", systemImage: "flag") }.tag(SettingsTab.flags)
             dataTab.tabItem { Label("Data", systemImage: "network") }.tag(SettingsTab.data)
         }
@@ -32,6 +35,7 @@ public struct SettingsView: View {
             }
             Text("Hold to talk, release to land. Double-tap locks it on.").font(.caption).foregroundStyle(.secondary)
             Button("Run onboarding again") { OnboardingWindowController.show(dependencies: deps) }
+            CorrectionSettingsSection(model: corrections)
         }
         .formStyle(.grouped)
     }
@@ -79,7 +83,12 @@ public struct SettingsView: View {
             }
             TextField("App bundle ID (e.g. com.tinyspeck.slackmacgap)", text: $personaBundle)
             TextEditor(text: $personaText).frame(height: 60).border(.quaternary)
-            HStack { Spacer(); Button("Save") { personas.save(appBundleID: personaBundle, instructions: personaText) } }
+            HStack {
+                Button("Auto-draft from my style") { if let d = personas.autoDraft(appBundleID: personaBundle, database: deps.database) { personaText = d } }
+                    .disabled(personaBundle.isEmpty)
+                Spacer()
+                Button("Save") { personas.save(appBundleID: personaBundle, instructions: personaText) }
+            }
         }
     }
 
@@ -173,4 +182,4 @@ struct DataRow: Identifiable {
     var purpose: String { record.purpose }
 }
 
-public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, flags, data }
+public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, data }

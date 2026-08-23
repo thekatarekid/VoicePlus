@@ -1,4 +1,5 @@
 import AppKit
+import Engine
 import Shared
 
 /// Menu-bar item + dropdown dashboard (T1/T4). Rebuilt on every open so counters are live.
@@ -17,6 +18,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     /// Live labels supplied by the composition root (P1.12); defaults keep shell tests unchanged.
     public var activeModelName: () -> String = { "Mock engine (fixture)" }
     public var micName: () -> String = { "Default microphone" }
+    /// P1.5.2 — "show what changed" list + per-app off switch (nil keeps the Phase 1 menu).
+    public var corrections: CorrectionLedger?
+    public var correctionSettings: SettingsStore?
+    public var correctionRevertSink: (() -> ReplaceRangeSink?)?
+    public var frontmostBundleID: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
 
     public init(flags: FeatureFlagService, database: AppDatabase?, coordinator: DictationCoordinator,
@@ -94,6 +100,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         flagsItem.submenu = flagMenu
         menu.addItem(flagsItem)
 
+        if let corrections {
+            menu.addItem(CorrectionMenuBuilder.item(ledger: corrections, settings: correctionSettings, bundleID: frontmostBundleID(), target: self,
+                                                    revert: #selector(revertCorrection(_:)), toggleApp: #selector(toggleCorrectionsForApp(_:))))
+        }
         let lab = NSMenuItem(title: "Open the Lab…", action: #selector(openLab), keyEquivalent: "l")
         lab.target = self
         menu.addItem(lab)
@@ -145,6 +155,17 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleFlag(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String, let flag = flags.knownFlags.first(where: { $0.id == id }) else { return }
         try? flags.setOverride(!flags.isEnabled(flag), for: flag)
+    }
+
+    @objc private func revertCorrection(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw),
+              let entry = corrections?.entry(id: id), let sink = correctionRevertSink?() else { return }
+        corrections?.revert(entry, via: sink)
+    }
+
+    @objc private func toggleCorrectionsForApp(_ sender: NSMenuItem) {
+        guard let bundle = sender.representedObject as? String, let store = correctionSettings else { return }
+        CorrectionSettings.setEnabled(!CorrectionSettings.isEnabled(for: bundle, store: store), for: bundle, store: store)
     }
 
     @objc private func openLab() {

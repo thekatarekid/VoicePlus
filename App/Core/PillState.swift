@@ -9,6 +9,8 @@ public enum PillState: Equatable, Sendable {
     case preview(text: String)
     case landing
     case warning(MicQuality)
+    /// P2.3 — "talk to your text": tinted pill, "editing N words", then the 5 s ghost / 8 s warm window.
+    case transform(TransformPillInfo)
 
     public var isVisible: Bool { self != .hidden }
 
@@ -20,8 +22,36 @@ public enum PillState: Equatable, Sendable {
         case .preview: return "preview"
         case .landing: return "landing"
         case .warning: return "warning"
+        case .transform: return "transform"
         }
     }
+}
+
+/// What the transform-tinted pill shows (P2.3). Additive; the engine reducer never produces it.
+public struct TransformPillInfo: Equatable, Sendable {
+    public enum Stage: Equatable, Sendable {
+        /// Model is rewriting; "editing N words".
+        case editing
+        /// Rewrite landed; ghost row offers "↩ / try again" for `TransformGhost.lifetime`.
+        case done(changed: Int)
+        /// Selection still warm for a chained turn; `remaining` seconds.
+        case warm(remaining: Int)
+        /// No change / failed; short notice then warm.
+        case notice(String)
+    }
+    public var editingWords: Int
+    public var stage: Stage
+    public init(editingWords: Int, stage: Stage) { self.editingWords = editingWords; self.stage = stage }
+
+    public var headline: String {
+        switch stage {
+        case .editing: return "editing \(editingWords) word\(editingWords == 1 ? "" : "s")"
+        case .done(let n): return n == 0 ? "no change" : "changed \(n) word\(n == 1 ? "" : "s")"
+        case .warm(let r): return "say more… (\(r)s)"
+        case .notice(let s): return s
+        }
+    }
+    public var showsGhost: Bool { if case .done(let n) = stage { return n > 0 }; return false }
 }
 
 /// Pure reducer: engine state → pill state. Warning is sticky for the utterance so the bad-mic

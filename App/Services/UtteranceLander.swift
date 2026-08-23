@@ -13,6 +13,10 @@ public struct LandingResult: Sendable {
     public var text: String
     public var injection: InjectionOutcome?
     public var repair: RepairResult?
+    /// P2.3 — set when the utterance was a transform / question on a selection.
+    public var transform: TransformLanding.Outcome?
+    /// P1.5.2 — set when "put it back" reverted a silent correction.
+    public var revertedCorrection: CorrectionEntry?
     public var pipelineMs: Double
     public var totalMs: Double
 
@@ -33,6 +37,14 @@ public final class UtteranceLander: @unchecked Sendable {
     public let recentWords: RecentWordsRing?
     public var stylePersonaProvider: ((String?) -> String?)?
     public var clock: () -> Date = Date.init
+    /// P2.5 — per-app persona box (+ recipient overrides) decorates every context.
+    public var personaManager: PersonaManager?
+    /// P2.3 — transform / question landing on a selection.
+    public var transform: TransformLanding?
+    /// P1.5.2 — dual-path silent correction after landing + "put it back".
+    public var correction: CorrectionService?
+    /// Tests await the reconcile; the app runs it off the landing path.
+    public var reconcileInline = false
 
     public init(pipeline: PipelineRunner, injector: any Injector, system: SystemAccess, repair: RepairSession?,
                 flags: FeatureFlagService, database: AppDatabase?, zeroEdit: ZeroEditTracker? = nil,
@@ -52,7 +64,8 @@ public final class UtteranceLander: @unchecked Sendable {
         for f in flags.knownFlags { flagMap[f.id] = flags.isEnabled(f) }
         var extra: [String: String] = [:]
         if let persona = stylePersonaProvider?(bundleID) { extra["persona"] = persona }
-        return StageContext(register: .unknown, appBundleID: bundleID, flags: flagMap, extra: extra)
+        let ctx = StageContext(register: .unknown, appBundleID: bundleID, flags: flagMap, extra: extra)
+        return personaManager?.decorate(ctx) ?? ctx
     }
 
     /// Runs the whole landing. `focus` is the snapshot taken at key release; injection aborts
@@ -79,6 +92,29 @@ public final class UtteranceLander: @unchecked Sendable {
         }
         result.route = decision.route
         result.register = decision.register
+
+        // P2.3 — a selection turns the utterance into a transform / question (Bet 5). The raw
+        // spans are the instruction: formatters must not rewrite what the user asked for.
+        if let transform, decision.route != .repairCommand || transform.session.isWarm {
+            let outcome = await transform.handle(spans, decision: decision, context: ctx)
+            if outcome != .notHandled {
+                result.transform = outcome
+                result.route = transform.route(decision).route
+                result.text = spans.joinedText
+                result.totalMs = ms(since: t0)
+                Log.app.info("transform: \(String(describing: outcome))")
+                return result
+            }
+        }
+
+        // P1.5.2 — "put it back" undoes a silent correction before the repair session's own undo.
+        if decision.route == .repairCommand, let correction, let sink = repair?.replaceSink,
+           case .revertedCorrection(let entry) = CorrectionUndoRouter.handle(text: spans.joinedText, ledger: correction.ledger, sink: sink, at: clock()) {
+            result.revertedCorrection = entry
+            result.text = spans.joinedText
+            result.totalMs = ms(since: t0)
+            return result
+        }
 
         // Bet 3 — spoken repair of the last utterance, consumed instead of typed.
         if decision.route == .repairCommand, let repair, flags.isEnabled(.voiceRepair) {
@@ -112,6 +148,11 @@ public final class UtteranceLander: @unchecked Sendable {
             if let zeroEdit, let focus {
                 zeroEdit.recordLanding(utteranceID: id.uuidString, text: text,
                                        field: FieldIdentity(appBundleID: focus.bundleID, elementID: focus.elementToken ?? "focused"))
+            }
+            // Bet 4 — accurate pass reconciles the landed text; off the landing path in the app.
+            if let correction, correction.isEnabled(for: bundleID) {
+                if reconcileInline { await correction.reconcile(utteranceID: id, fieldOffset: caret, bundleID: bundleID) }
+                else { Task { await correction.reconcile(utteranceID: id, fieldOffset: caret, bundleID: bundleID) } }
             }
         }
         if let database {

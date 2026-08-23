@@ -1,4 +1,5 @@
 import AppKit
+import Pipeline
 import SwiftUI
 
 /// Public entry point wired by P1.1 / P1.12. `show(tab:)` deep-links (e.g. Providers → `.models`).
@@ -21,6 +22,8 @@ public enum SettingsWindowController {
                 dictionary: DictionaryViewModel(database: deps.database),
                 flags: FlagsViewModel(service: deps.flags),
                 data: DataPanelViewModel(database: deps.database),
+                snippets: SnippetsViewModel(store: deps.database.map { DatabaseSnippetStore(database: $0) as any SnippetStoring } ?? InMemorySnippetStore()),
+                corrections: CorrectionSettingsViewModel(store: deps.settingsStore),
                 deps: deps,
                 selectedTab: $selection.tab
             )

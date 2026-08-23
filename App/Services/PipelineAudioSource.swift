@@ -17,6 +17,9 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     public var startTimeout: TimeInterval = 3
     /// Tests replaying fixtures set this false; live capture keeps the TCC check.
     public var requireMicrophonePermission = true
+    /// P1.5.2 — keeps the last utterance's samples so the dual-path reconciler can re-run both
+    /// passes after landing. Reset at `start()`, frozen at `stop()`. Off when nil.
+    public var utteranceTap: UtteranceAudioTap?
 
     private let lock = NSLock()
     private var forwarder: Task<Void, Never>?
@@ -38,6 +41,7 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
         guard !requireMicrophonePermission || Self.microphoneAuthorized else { throw AudioCaptureError.noInputDevice }
         let already = lock.withLock { () -> Bool in let r = running; running = true; return r }
         if already { return }
+        utteranceTap?.reset()
 
         let events = pipeline.events()
         forwarder = Task.detached(priority: .userInteractive) { [weak self] in
@@ -45,6 +49,7 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
                 guard let self else { return }
                 switch event {
                 case .audio(let samples, _):
+                    self.utteranceTap?.append(samples)
                     samples.withUnsafeBufferPointer { self.sink?($0) }
                 case .micQuality(let q):
                     self.onMicQuality?(q)
@@ -127,4 +132,17 @@ public final class FileFeedAudioSource: AudioSource, @unchecked Sendable {
     public func feed(url: URL) throws {
         push(try SampleAudioSource.load16k(url: url))
     }
+}
+
+/// Accumulates one utterance's 16 kHz samples (bounded) for post-landing reconciliation.
+public final class UtteranceAudioTap: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer: [Float] = []
+    public let maxSamples: Int
+    public init(maxSeconds: TimeInterval = 120) { maxSamples = Int(maxSeconds * 16_000) }
+    public func reset() { lock.withLock { buffer.removeAll(keepingCapacity: true) } }
+    public func append(_ samples: [Float]) {
+        lock.withLock { if buffer.count < maxSamples { buffer.append(contentsOf: samples.prefix(maxSamples - buffer.count)) } }
+    }
+    public var samples: [Float] { lock.withLock { buffer } }
 }

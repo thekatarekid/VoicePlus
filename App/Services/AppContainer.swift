@@ -34,6 +34,13 @@ public final class AppContainer {
     public let routing: RoutingTable
     public let lander: UtteranceLander
     public let labRegistry: LabRegistry
+    /// P2.3 / P2.4 / P2.6 / P2.5
+    public let transform: TransformLanding
+    public let snippets: any SnippetStoring
+    public let personas: PersonaManager
+    /// P1.5.2
+    public let correction: CorrectionService
+    public let audioTap = UtteranceAudioTap()
     private let recognizerProvider: BiasingRecognizerProvider?
     private var zeroEditTimer: Timer?
 
@@ -94,10 +101,24 @@ public final class AppContainer {
         // Pipeline (P1.7): gatekeeper → register-routed formatter → style, providers behind the hook.
         let providerRouting = RoutingTableProviderRouting(table: routing, settings: settings)
         let styleStore: any StyleProfileStore = database.map { DatabaseStyleProfileStore(database: $0) } ?? InMemoryStyleProfileStore()
-        let stages: [any PipelineStage] = StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
+        // P2.6 snippets: exact-trigger pre-route ahead of every other rule, expansion first among stages.
+        let snippetStore: any SnippetStoring = database.map { DatabaseSnippetStore(database: $0) } ?? InMemorySnippetStore()
+        snippets = snippetStore
+        let stages: [any PipelineStage] = [SnippetStage(store: snippetStore)] + StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
             stage.id == .style ? StyleStage(store: styleStore) : stage
         }
-        pipeline = PipelineRunner(gatekeeper: GatekeeperStage(), stages: stages, providers: providerRouting)
+        let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [SnippetPreRoute(store: snippetStore)]))
+        pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
+
+        // P2.5 personas: the same rows Settings edits, auto-drafted from style learnings.
+        personas = PersonaManager(store: database.map { DatabasePersonaStore(database: $0) } ?? InMemoryPersonaStore(), styles: styleStore)
+
+        // P2.1–P2.4: selection → transform (replace in place, 8 s warm window) / question (answer below).
+        transform = TransformLanding(session: TransformSession(executor: TransformExecutor(providers: providerRouting),
+                                                               sink: InjectionTransformReplaceSink(system: system)),
+                                     detector: SystemAccessSelectionDetector(system: system),
+                                     qa: QuestionAnswerStage(answerer: ProviderAnswerer(providers: providerRouting)),
+                                     system: system, injector: injector)
 
         // Zero-edit counter (P1.11) over AX readback.
         let zeroEditTracker: ZeroEditTracker? = database.map { db in
@@ -125,12 +146,20 @@ public final class AppContainer {
                                zeroEditSink: DatabaseZeroEditSink(database: database),
                                enricher: AlternateEnricher(userDictionary: dictionary))
 
+        // P1.5.2: dual-path reconciler over the same AX replace-range + value readback.
+        audio?.utteranceTap = audioTap
+        correction = CorrectionService(ledger: CorrectionLedger(), flags: flags, settings: settings,
+                                       readback: InjectionDocumentReadback(system: system),
+                                       replaceSink: InjectionReplaceRangeSink(system: system),
+                                       recognizers: built.provider.map { ProviderDualPathRecognizers(provider: $0) },
+                                       samples: { [audioTap] in audioTap.samples })
+        correction.correctionLog = database.map { DatabaseCorrectionSink(database: $0) }
+
         lander = UtteranceLander(pipeline: pipeline, injector: injector, system: system, repair: repair, flags: flags,
                                  database: database, zeroEdit: zeroEditTracker, recentWords: recentWords)
-        lander.stylePersonaProvider = { [database] bundleID in
-            guard let bundleID, let db = database else { return nil }
-            return try? db.persona(forApp: bundleID)?.instructions
-        }
+        lander.personaManager = personas
+        lander.transform = transform
+        lander.correction = correction
 
         labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, biasing: biasing)
 
