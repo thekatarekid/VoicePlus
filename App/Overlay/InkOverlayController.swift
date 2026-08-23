@@ -5,7 +5,7 @@ import Actions
 /// bound regions. Main-thread only for AppKit calls; the sink callbacks hop to main.
 @MainActor
 public final class InkOverlayController {
-    private var windows: [UInt32: OverlayWindow] = [:]
+    var windows: [UInt32: OverlayWindow] = [:]
     private(set) var normalizer: DisplayNormalizer
     public private(set) var bundle = RegionBundleCounter()
     /// Called whenever the bundle counter changes so the pill can show "3 regions".
