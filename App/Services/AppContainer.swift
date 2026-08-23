@@ -53,6 +53,10 @@ public final class AppContainer {
     public let agentBackend: NativeAgentBackend
     public let connectorHub: ConnectorHub
     public let connectors: ConnectorRegistry
+    /// P5 — hands-free gate (directed speech + speaker + mute), wake-verb pre-route, meetings.
+    public let handsFree: HandsFreeController
+    public let wakeVerb: WakeVerbPreRoute
+    public let meeting: MeetingCoordinator
     public let audioTap = UtteranceAudioTap()
     private let recognizerProvider: BiasingRecognizerProvider?
     private var zeroEditTimer: Timer?
@@ -117,14 +121,19 @@ public final class AppContainer {
         // P2.6 snippets: exact-trigger pre-route ahead of every other rule, expansion first among stages.
         let snippetStore: any SnippetStoring = database.map { DatabaseSnippetStore(database: $0) } ?? InMemorySnippetStore()
         snippets = snippetStore
-        let stages: [any PipelineStage] = [SnippetStage(store: snippetStore)] + StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
-            stage.id == .style ? StyleStage(store: styleStore) : stage
-        }
         // P4.2 — the act hook runs first: while the second key holds the domain open (or a card
         // is pending) the utterance is a command, not text.
+        // P5 — then "not you" (hands-free only) and the wake-verb grammar, then snippets.
         let actHook = ActPreRouteHook()
         self.actHook = actHook
-        let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, SnippetPreRoute(store: snippetStore)]))
+        let handsFreeController = HandsFreeController(flags: flags)
+        self.handsFree = handsFreeController
+        let wakeVerbPre = WakeVerbPreRoute()
+        self.wakeVerb = wakeVerbPre
+        let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore)] + StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
+            stage.id == .style ? StyleStage(store: styleStore) : stage
+        }
+        let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, handsFreeController, wakeVerbPre, SnippetPreRoute(store: snippetStore)]))
         pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
 
         // P2.5 personas: the same rows Settings edits, auto-drafted from style learnings.
@@ -190,7 +199,11 @@ public final class AppContainer {
         lander.transform = transform
         lander.correction = correction
         lander.contextAugmenter = { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }
-        lander.actClaimConsumer = { [weak actHook] in actHook?.consumeClaim() ?? false }
+        lander.actClaimConsumer = { [weak actHook, weak handsFreeController] in
+            let act = actHook?.consumeClaim() ?? false
+            let notYou = handsFreeController?.consumeClaim() ?? false
+            return act || notYou
+        }
 
         // P4 — deterministic action layer + consent + agent, all over one AX action system.
         // catalog.json resolves from the source tree in dev and from Contents/Resources in the
@@ -219,6 +232,26 @@ public final class AppContainer {
         })
         connectorHub = hub
         connectors = hub.registry()
+
+        // P5.5 — meeting capture: detector-driven session over the engine's recognizer (or a
+        // silent transcriber under the mock engine); live mic+system capture only when real.
+        let meetingCoordinator = MeetingCoordinator()
+        let meetingStore = meetingCoordinator.store
+        let recognizerProvider = built.provider
+        meetingCoordinator.makeSession = { prompt in
+            let transcriber: any MeetingTranscriber = recognizerProvider.map { p in
+                ProviderMeetingTranscriber(resolve: { try await p.resolve().final })
+            } ?? SilentMeetingTranscriber()
+            return MeetingSession(title: prompt.title, event: prompt.event, transcriber: transcriber,
+                                  labeler: DiarizationFactory.make(enrolledUserEmbedding: nil), store: meetingStore)
+        }
+        if case .real = built.kind {
+            meetingCoordinator.makeCapture = {
+                DualCapture(mic: CoreAudioCaptureSource(), system: SystemAudioRecorder.live(),
+                            micVAD: EnergyVAD(), systemVAD: EnergyVAD())
+            }
+        }
+        meeting = meetingCoordinator
 
         labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, biasing: biasing)
 

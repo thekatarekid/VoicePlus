@@ -1,5 +1,6 @@
 import Actions
 import AppKit
+import Pipeline
 import Shared
 
 /// Composition root. No dock icon, no windows by default: a status item and the pill.
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var actSession: ActSessionController?
     private var consentPanels: ConsentPanelsController?
     private var agentCursor: AgentCursorController?
+    private var meetingPanel: MeetingPromptPanel?
     private let hotkey = HotkeyService()
     /// P4.2 — second key opens the act domain (Bet 5: two keys, never inferred from phrasing).
     private let actHotkey = HotkeyService(bindingKey: HotkeyService.actBindingDefaultsKey,
@@ -146,6 +148,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         SettingsWindowController.connectorHub = container.connectorHub
 
+        // P5 — hands-free: wake-verb context flag rides the lander's augmenter chain; the
+        // directed-speech gate opens the mic on addressed speech; hard mute pauses everything.
+        let baseAugmenter = container.lander.contextAugmenter
+        container.lander.contextAugmenter = { [weak coordinator] spans, ctx in
+            var ctx = baseAugmenter?(spans, ctx) ?? ctx
+            if coordinator?.handsFree == true {
+                ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.handsFreeValue
+            }
+            return ctx
+        }
+        container.handsFree.isHandsFree = { [weak coordinator] in coordinator?.handsFree ?? false }
+        container.handsFree.onShouldCapture = { [weak coordinator] _ in
+            // Addressed speech opens the mic for the follow-on utterance (RAM-only ring;
+            // nothing is stored). The engine's normal finalize path lands it.
+            DispatchQueue.main.async { coordinator?.start() }
+        }
+        container.handsFree.mute.observe { [weak self, weak coordinator] model in
+            DispatchQueue.main.async {
+                coordinator?.setPaused(model.muted)
+                self?.statusItem?.refreshIcon()
+                if model.muted { self?.pill.model.present(.preview(text: "Muted — mic stays closed until you unmute")) }
+            }
+        }
+
+        // P5.5 — meeting capture: detector effects → notch prompt / recording / notes notification.
+        let meetingPanel = MeetingPromptPanel()
+        meetingPanel.onChoice = { [weak container] choice in container?.meeting.choose(choice) }
+        self.meetingPanel = meetingPanel
+        container.meeting.onPrompt = { prompt in
+            Task { @MainActor in
+                if let prompt { meetingPanel.show(prompt) } else { meetingPanel.dismiss() }
+            }
+        }
+        container.meeting.onNotes = { record in MeetingNotifier.post(record) }
+        container.meeting.startMonitoring()
+
         let status = StatusItemController(flags: container.flags, database: container.database, coordinator: coordinator,
                                           hotkey: hotkey, updater: updater)
         status.activeModelName = { [weak container] in container?.activeModelName ?? "—" }
@@ -154,6 +192,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         status.correctionSettings = container.settings
         status.correctionRevertSink = { [weak container] in container?.repair.replaceSink }
         status.onRecheckPermissions = { [weak self] in self?.runPermissions() }
+        // P5.4 — ambient glyph + one-gesture hard mute; P5.3 — enrollment window.
+        status.ambientSymbol = { [weak container] in
+            guard let container, container.flags.isEnabled(.directedSpeech) else { return nil }
+            return container.handsFree.ambientModel.menuBarSymbol
+        }
+        status.ambientMuted = { [weak container] in container?.handsFree.mute.isMuted ?? false }
+        status.onToggleMute = { [weak container] in container?.handsFree.mute.toggleMute() }
+        status.onEnrollVoice = { [weak self, weak container] in
+            guard let self, let container else { return }
+            self.showSpeakerEnrollment(container: container)
+        }
         status.onOpenLab = { [weak container] in
             guard let container else { return }
             LabWindowController.showLab(registry: container.labRegistry, database: container.database)
@@ -178,6 +227,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             runPermissions()
         }
         Log.app.info("VoicePlus up: \(container.activeModelName) (Shared \(SharedModule.version))")
+    }
+
+    /// P5.3 — onboarding-2: enroll the user's voice through the engine's audio tap (~3 s per
+    /// prompted phrase); the finished profile arms the hands-free speaker gate.
+    @MainActor
+    private func showSpeakerEnrollment(container: AppContainer) {
+        let model = SpeakerEnrollmentViewModel(embedder: container.handsFree.embedder) { [weak container] in
+            guard let container else { return [] }
+            container.audioTap.reset()
+            try? await container.engine.start(prewarm: true)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            _ = try? await container.engine.stop()
+            return container.audioTap.samples
+        }
+        model.onComplete = { [weak container] profile in container?.handsFree.install(profile: profile) }
+        SpeakerEnrollmentWindowController.show(model: model)
     }
 
     /// P4 — act feedback: pill text per dispatch; the agent cursor animates the action

@@ -22,6 +22,12 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public var corrections: CorrectionLedger?
     public var correctionSettings: SettingsStore?
     public var correctionRevertSink: (() -> ReplaceRangeSink?)?
+    /// P5.4 — ambient state glyph + one-gesture hard mute (nil until hands-free is wired).
+    public var ambientSymbol: (() -> String?)?
+    public var ambientMuted: (() -> Bool)?
+    public var onToggleMute: (() -> Void)?
+    /// P5.3 — voice enrollment window.
+    public var onEnrollVoice: (() -> Void)?
     public var frontmostBundleID: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
 
@@ -51,8 +57,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     public func refreshIcon() {
         let m = model()
-        statusItem.button?.image = NSImage(systemSymbolName: m.statusSymbol, accessibilityDescription: "VoicePlus")
-        statusItem.button?.appearsDisabled = m.paused
+        // P5.4 — ambient three-state glyph (listening/muted/processing) wins when hands-free is wired.
+        let symbol = ambientSymbol?() ?? m.statusSymbol
+        statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "VoicePlus")
+        statusItem.button?.appearsDisabled = m.paused || ambientMuted?() == true
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) { rebuild() }
@@ -68,6 +76,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         let pause = NSMenuItem(title: m.pauseTitle, action: #selector(togglePause), keyEquivalent: "p")
         pause.target = self
         menu.addItem(pause)
+        if let ambientMuted, onToggleMute != nil {
+            let muted = ambientMuted()
+            let mute = NSMenuItem(title: muted ? "Unmute microphone" : "Mute microphone (hard)",
+                                  action: #selector(toggleMute), keyEquivalent: "m")
+            mute.target = self
+            mute.state = muted ? .on : .off
+            menu.addItem(mute)
+        }
         if capabilities.needsMenuFallback || !hotkey.isRunning {
             let start = NSMenuItem(title: coordinator.engine.state.isActive ? "Stop dictation" : "Start dictation (no hotkey)",
                                    action: #selector(toggleDictation), keyEquivalent: "d")
@@ -116,6 +132,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         let perms = NSMenuItem(title: "Check permissions…", action: #selector(recheckPermissions), keyEquivalent: "")
         perms.target = self
         menu.addItem(perms)
+        if onEnrollVoice != nil {
+            let enroll = NSMenuItem(title: "Enroll voice…", action: #selector(enrollVoice), keyEquivalent: "")
+            enroll.target = self
+            menu.addItem(enroll)
+        }
         menu.addItem(.separator())
         let login = NSMenuItem(title: "Launch at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
@@ -136,6 +157,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         item.isEnabled = false
         return item
     }
+
+    @objc private func toggleMute() {
+        onToggleMute?()
+        refreshIcon()
+        rebuild()
+    }
+
+    @objc private func enrollVoice() { onEnrollVoice?() }
 
     @objc private func togglePause() {
         coordinator.setPaused(!coordinator.paused)

@@ -39,5 +39,12 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
         description: "Send audio to a cloud ASR provider when explicitly enabled."
     )
 
-    public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR]
+    /// P5.1 — hands-free directed-speech detection. Experimental: stays opt-in until the
+    /// recorded home+office corpus (not just the synthetic harness) holds < 1 false trigger/day.
+    public static let directedSpeech = FeatureFlag(
+        id: "directedSpeech", defaultOn: false,
+        description: "Experimental: hands-free mode answers speech directed at the machine (no hotkey)."
+    )
+
+    public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR, .directedSpeech]
 }
