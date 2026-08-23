@@ -9,3 +9,5 @@
 
 ## Phase 1
 - [x] P1.0 Shared foundation — done 2026-08-23. Frozen API: `TranscriptSpan`, `Alternate`, `StageID`, `Utterance`, `EngineState`, `MicQuality`, `FeatureFlag`, `PipelineStage`/`StageContext`/`ConfidenceContract`, `AppDatabase` + `*Record` structs, `EngineProtocol`/`EngineEvent`/`EngineEventBroadcaster`/`MockEngine`/`TranscriptFixture`, `Log`/`LogBuffer`, `FeatureFlagService`, `AppPaths`. 42 tests green.
+- [ ] Wave 1 (P1.1, P1.2, P1.3, P1.7×7, P1.8, P1.9, P1.10, P1.11) — dispatched 2026-08-23 as one pipelined workflow; Wave 2 (P1.4 after P1.2; P1.5+P1.6 after P1.3) chained in same workflow; verify agent at end.
+- [ ] P1.13 packaging pipeline scripts — dispatched in parallel (Packaging/ only).
