@@ -7,6 +7,8 @@ let package = Package(
     products: [
         .executable(name: "VoicePlusApp", targets: ["VoicePlusApp"]),
         .library(name: "Shared", targets: ["Shared"]),
+        .library(name: "Pipeline", targets: ["Pipeline"]),
+        .library(name: "KeyboardCore", targets: ["KeyboardCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
@@ -29,6 +31,7 @@ let package = Package(
         .target(name: "Lab", dependencies: ["Shared"], path: "Lab"),
         .target(name: "Actions", dependencies: ["Shared"], path: "Actions"),
         .target(name: "Sync", dependencies: ["Shared"], path: "Sync"),
+        .target(name: "KeyboardCore", dependencies: ["Shared"], path: "iOS/KeyboardCore"),
         .executableTarget(
             name: "VoicePlusApp",
             dependencies: ["Shared", "Engine", "Pipeline", "Injection", "Providers", "Lab", "Actions"],
@@ -42,6 +45,7 @@ let package = Package(
         .testTarget(name: "LabTests", dependencies: ["Lab"], path: "Tests/LabTests"),
         .testTarget(name: "ActionsTests", dependencies: ["Actions"], path: "Tests/ActionsTests"),
         .testTarget(name: "SyncTests", dependencies: ["Sync"], path: "Tests/SyncTests"),
+        .testTarget(name: "KeyboardCoreTests", dependencies: ["KeyboardCore"], path: "Tests/KeyboardCoreTests"),
         .testTarget(name: "AppTests", dependencies: ["Shared", "VoicePlusApp"], path: "Tests/AppTests"),
     ],
     swiftLanguageVersions: [.v5]
