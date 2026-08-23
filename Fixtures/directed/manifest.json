@@ -1,0 +1,274 @@
+[
+ {
+  "file": "clean/clean_01_samantha.wav",
+  "label": "addressed",
+  "preview": "Hey, just checking in. Are we still on for lunch tomorrow at noon?",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": true
+ },
+ {
+  "file": "clean/clean_02_daniel.wav",
+  "label": "addressed",
+  "preview": "Please find the updated quarterly report attached to this email.",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_03_rishi.wav",
+  "label": "addressed",
+  "preview": "I think the best approach is to start small and iterate from there.",
+  "scene": "office",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_04_samantha.wav",
+  "label": "addressed",
+  "preview": "Thanks for your help yesterday, it really made a difference.",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_05_daniel.wav",
+  "label": "addressed",
+  "preview": "Can you send me the address of the restaurant we talked about?",
+  "scene": "office",
+  "textFieldFocused": true,
+  "addressedRecently": true
+ },
+ {
+  "file": "clean/clean_06_rishi.wav",
+  "label": "addressed",
+  "preview": "The meeting has been moved to three thirty on Wednesday afternoon.",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_07_samantha.wav",
+  "label": "addressed",
+  "preview": "I will be out of office next week and will reply when I am back.",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_08_daniel.wav",
+  "label": "addressed",
+  "preview": "Let me know if you have any questions about the proposal.",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_09_rishi.wav",
+  "label": "addressed",
+  "preview": "Sounds good to me, see you at the station around eight.",
+  "scene": "office",
+  "textFieldFocused": true,
+  "addressedRecently": true
+ },
+ {
+  "file": "clean/clean_10_samantha.wav",
+  "label": "addressed",
+  "preview": "We should probably book the flights before prices go up again.",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_11_daniel.wav",
+  "label": "addressed",
+  "preview": "Dear Priya, thank you for the invitation, I would be glad to attend.",
+  "scene": "office",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "clean/clean_12_rishi.wav",
+  "label": "addressed",
+  "preview": "Remind me to call the dentist on Monday morning before ten.",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_01_samantha_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "yeah so anyway I was thinking",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_01_samantha_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "no no the other one",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_02_daniel_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "did you see the game last night",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_02_daniel_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "um what time is it",
+  "scene": "office",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_03_rishi_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "she said it was fine",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_03_rishi_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "okay bye see you",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_04_samantha_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "the kids are upstairs",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_04_samantha_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "that's what I told him",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_05_daniel_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_05_daniel_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "hmm maybe later",
+  "scene": "office",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_06_rishi_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "right right exactly",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_06_rishi_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "so the report is due",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_07_samantha_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_07_samantha_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "where did I put it",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_08_daniel_snr10db_pink.wav",
+  "label": "ambient",
+  "preview": "coffee anyone",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_08_daniel_snr00db_white.wav",
+  "label": "ambient",
+  "preview": "it's on the second floor",
+  "scene": "office",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_01_samantha_farfield.wav",
+  "label": "ambient",
+  "preview": "honestly I don't know",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_02_daniel_farfield.wav",
+  "label": "ambient",
+  "preview": "",
+  "scene": "office",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "noisy/clean_03_rishi_farfield.wav",
+  "label": "ambient",
+  "preview": "turn that down",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "vad/vad_04_3segs_floor.wav",
+  "label": "ambient",
+  "preview": "lunch at twelve",
+  "scene": "home",
+  "textFieldFocused": true,
+  "addressedRecently": false
+ },
+ {
+  "file": "vad/vad_05_4segs_floor.wav",
+  "label": "ambient",
+  "preview": "",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ },
+ {
+  "file": "vad/vad_06_5segs_floor.wav",
+  "label": "ambient",
+  "preview": "we'll see",
+  "scene": "home",
+  "textFieldFocused": false,
+  "addressedRecently": false
+ }
+]
