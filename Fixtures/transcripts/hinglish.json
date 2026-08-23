@@ -1,0 +1,20 @@
+{
+  "name": "hinglish",
+  "register": "chat",
+  "description": "Hindi + English in one breath (Devanagari + Latin). Expected single injected string in `expected`.",
+  "expected": "Kal meeting 10 बजे है, please deck भेज दो before lunch.",
+  "spans": [
+    { "text": "Kal", "confidence": 0.91, "audioStart": 0.00, "audioEnd": 0.30, "delayMs": 110 },
+    { "text": "meeting", "confidence": 0.97, "audioStart": 0.30, "audioEnd": 0.75, "delayMs": 120 },
+    { "text": "10", "confidence": 0.95, "audioStart": 0.75, "audioEnd": 0.95, "delayMs": 80 },
+    { "text": "बजे", "confidence": 0.88, "audioStart": 0.95, "audioEnd": 1.25, "delayMs": 140 },
+    { "text": "है,", "confidence": 0.90, "audioStart": 1.25, "audioEnd": 1.50, "delayMs": 100 },
+    { "text": "please", "confidence": 0.98, "audioStart": 1.70, "audioEnd": 2.00, "delayMs": 90 },
+    { "text": "deck", "confidence": 0.84, "audioStart": 2.00, "audioEnd": 2.30, "delayMs": 100,
+      "alternates": [ { "text": "desk", "score": 0.3, "source": "beam" } ] },
+    { "text": "भेज", "confidence": 0.86, "audioStart": 2.30, "audioEnd": 2.60, "delayMs": 130 },
+    { "text": "दो", "confidence": 0.92, "audioStart": 2.60, "audioEnd": 2.80, "delayMs": 90 },
+    { "text": "before", "confidence": 0.97, "audioStart": 2.90, "audioEnd": 3.20, "delayMs": 100 },
+    { "text": "lunch.", "confidence": 0.96, "audioStart": 3.20, "audioEnd": 3.60, "delayMs": 150 }
+  ]
+}
