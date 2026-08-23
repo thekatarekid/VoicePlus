@@ -71,7 +71,7 @@ private func roundTrip<T: Codable & Equatable>(_ value: T, sourceLocation: Sourc
 
     @Test func featureFlagRoundTripAndDefaults() throws {
         try roundTrip(FeatureFlag.all)
-        #expect(FeatureFlag.contextBiasing.defaultOn)
+        #expect(!FeatureFlag.contextBiasing.defaultOn) // P1.12 T2 kill-criteria decision (DECISIONS.md)
         #expect(FeatureFlag.voiceRepair.defaultOn)
         #expect(!FeatureFlag.dualPath.defaultOn)
         #expect(!FeatureFlag.cloudASR.defaultOn)

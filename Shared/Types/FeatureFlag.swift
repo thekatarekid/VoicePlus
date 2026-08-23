@@ -16,8 +16,11 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
     // MARK: Known flags
 
     /// Bet 2 — decode-time context biasing from screen/app vocabulary.
+    /// Default OFF since P1.12 T2 (see DECISIONS.md): on the real Parakeet decoder the biaser is a
+    /// post-hoc rescorer that cannot change the greedy path, so the Lab measured zero entity-recall
+    /// gain. Flip back once the decoder fork exposes logits (synthetic suite: 33% → 100% recall).
     public static let contextBiasing = FeatureFlag(
-        id: "contextBiasing", defaultOn: true,
+        id: "contextBiasing", defaultOn: false,
         description: "Bias the decoder toward on-screen and app-specific vocabulary (Bet 2)."
     )
     /// Bet 3 — spoken repair of the last utterance.

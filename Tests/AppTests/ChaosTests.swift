@@ -186,8 +186,8 @@ struct ChaosTests {
     // MARK: 10k-word session through the pipeline
 
     static func words(_ n: Int) -> [TranscriptSpan] {
-        let vocab = ["the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "and", "then", "um", "we", "ship",
-                     "the", "release", "on", "thursday", "period", "new", "line", "please", "review", "the", "numbers"]
+        let vocab = ["yesterday", "we", "walked", "along", "the", "river", "and", "talked", "about", "the", "garden", "um",
+                     "then", "we", "went", "home", "period", "new", "line", "dinner", "was", "pasta", "with", "basil"]
         var out: [TranscriptSpan] = []
         out.reserveCapacity(n)
         for i in 0..<n {
@@ -223,12 +223,14 @@ struct ChaosTests {
             let r = try await runner.run(Self.words(n), context: ctx)
             #expect(r.metrics.allSatisfy { $0.contractViolations.isEmpty })
             #expect(r.spans.count == n)
+            #expect(r.decision.route == .dictate, "both sizes must run the full stage chain")
             return Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
         }
         _ = try await timed(1_000) // warm
-        let t1k = try await timed(1_000)
+        let t1k = (try await timed(1_000) + (try await timed(1_000)) + (try await timed(1_000))) / 3
         let t10k = try await timed(10_000)
         print("single utterance: 1k=\(Int(t1k)) ms, 10k=\(Int(t10k)) ms (ratio \(String(format: "%.1f", t10k / max(t1k, 0.1))))")
-        #expect(t10k < max(t1k, 1) * 40, "10k words took \(t10k) ms vs 1k \(t1k) ms — worse than ~O(n)")
+        #expect(t10k < 2_000, "a 10k-word utterance must not stall the pipeline (was >90 s before P1.12)")
+        #expect(t10k < max(t1k, 2) * 40, "10k words took \(t10k) ms vs 1k \(t1k) ms — worse than ~O(n)")
     }
 }

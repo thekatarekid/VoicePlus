@@ -9,6 +9,10 @@ public struct LocalGatekeeper: GatekeeperClassifying {
 
     public var routeThreshold: Double = 0.6
     public var registerThreshold: Double = 0.55
+    /// Commands, transforms and questions are short. Past this many words the Bayes route
+    /// model is not consulted (its posterior saturates on long narration — P1.12 chaos finding);
+    /// long utterances are dictation unless an explicit rule fires.
+    public static let maxCommandWords = 40
 
     private let routeModel: NaiveBayesClassifier<Utterance.Route>
     private let registerModel: NaiveBayesClassifier<Utterance.Register>
@@ -29,7 +33,7 @@ public struct LocalGatekeeper: GatekeeperClassifying {
         var routeSource: GatekeeperDecision.Source
         if let hit = RouteRules.evaluate(words) {
             route = hit.route; routeConf = hit.confidence; routeSource = .rules
-        } else if let best = routeModel.best(text), best.probability >= routeThreshold {
+        } else if words.count <= Self.maxCommandWords, let best = routeModel.best(text), best.probability >= routeThreshold {
             route = best.label; routeConf = Float(best.probability); routeSource = .bayes
         } else {
             route = .dictate; routeConf = Float(routeModel.posterior(text)?[.dictate] ?? 0); routeSource = .fallback

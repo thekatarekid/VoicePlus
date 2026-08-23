@@ -5,18 +5,18 @@ import Testing
 @Suite struct ServicesTests {
     @Test func featureFlagDefaultsAndOverrides() throws {
         let service = FeatureFlagService.inMemory()
-        #expect(service.isEnabled(.contextBiasing))
+        #expect(service.isEnabled(.voiceRepair))
         #expect(!service.isEnabled(.cloudASR))
-        #expect(service.override(for: .contextBiasing) == nil)
+        #expect(service.override(for: .voiceRepair) == nil)
 
-        try service.setOverride(false, for: .contextBiasing)
-        #expect(!service.isEnabled(.contextBiasing))
-        #expect(service.override(for: .contextBiasing) == false)
-        #expect(service.snapshot()["contextBiasing"] == false)
+        try service.setOverride(false, for: .voiceRepair)
+        #expect(!service.isEnabled(.voiceRepair))
+        #expect(service.override(for: .voiceRepair) == false)
+        #expect(service.snapshot()["voiceRepair"] == false)
         #expect(service.snapshot().count == FeatureFlag.all.count)
 
-        try service.setOverride(nil, for: .contextBiasing)
-        #expect(service.isEnabled(.contextBiasing))
+        try service.setOverride(nil, for: .voiceRepair)
+        #expect(service.isEnabled(.voiceRepair))
         #expect(!service.isEnabled(id: "unknownFlag"))
     }
 

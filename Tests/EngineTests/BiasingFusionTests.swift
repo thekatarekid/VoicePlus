@@ -133,12 +133,12 @@ struct BiasingFusionTests {
         let h = ContextHarvester(sources: [AXTreeSource(provider: MockFocusedWindowText(["kubectl Kothari"]))])
         let off = BiasingController(harvester: h, vocabulary: vocab, flags: .inMemory(["contextBiasing": false]))
         #expect(off.makeBiaser() == nil)
-        let on = BiasingController(harvester: h, vocabulary: vocab, flags: .inMemory())
+        let on = BiasingController(harvester: h, vocabulary: vocab, flags: .inMemory(["contextBiasing": true]))
         let b = on.makeBiaser()
         #expect(b?.tree.entryCount == 2)
         #expect(on.lastEntries.map(\.text).sorted() == ["Kothari", "kubectl"])
         #expect(on.lastBuildMs < 60)
-        let noVocab = BiasingController(harvester: h, flags: .inMemory())
+        let noVocab = BiasingController(harvester: h, flags: .inMemory(["contextBiasing": true]))
         #expect(noVocab.makeBiaser() == nil)
     }
 
