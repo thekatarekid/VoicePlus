@@ -27,14 +27,26 @@ public struct CLIDetector: Sendable {
     public var searchPaths: [String]
     public init(searchPaths: [String]? = nil) {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        self.searchPaths = searchPaths ?? (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-            + ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.local/bin", "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.cargo/bin"]
+        let inherited = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        self.searchPaths = Self.sanitized(searchPaths ?? inherited
+            + ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.local/bin", "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.cargo/bin"])
+    }
+
+    /// Security review (P1.12 T5): only absolute directories are searched. An empty or relative
+    /// `PATH` entry ("", ".", "bin") would otherwise resolve against the app's working directory
+    /// and let a dropped `claude` binary there be executed with the user's CLI subscription.
+    static func sanitized(_ paths: [String]) -> [String] {
+        var seen = Set<String>()
+        return paths.filter { $0.hasPrefix("/") && !$0.contains("/../") && seen.insert($0).inserted }
     }
 
     public func locate(_ tool: CLITool) -> URL? {
+        guard !tool.name.contains("/") else { return nil }   // tool names are bare file names, never paths
         for dir in searchPaths {
             let url = URL(fileURLWithPath: dir).appendingPathComponent(tool.name)
-            if FileManager.default.isExecutableFile(atPath: url.path) { return url }
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue,
+               FileManager.default.isExecutableFile(atPath: url.path) { return url }
         }
         return nil
     }

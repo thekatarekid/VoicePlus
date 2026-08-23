@@ -22,6 +22,18 @@ func stubBinary(_ name: String, script: String) throws -> URL {
         #expect(found[0].costClass == .subscription && found[0].capabilities == [.pipeline])
     }
 
+    /// P1.12 T5: relative / empty PATH entries must never resolve a CLI against the working directory.
+    @Test func relativeAndEmptyPathEntriesAreIgnored() throws {
+        let bin = try stubBinary("codex", script: "cat")
+        let dir = bin.deletingLastPathComponent()
+        FileManager.default.changeCurrentDirectoryPath(dir.path)
+        #expect(CLIDetector(searchPaths: ["", ".", "bin", "../\(dir.lastPathComponent)"]).detectAll().isEmpty)
+        #expect(CLIDetector(searchPaths: ["/tmp/../\(dir.path)"]).detectAll().isEmpty)
+        #expect(CLIDetector(searchPaths: [dir.path, dir.path]).searchPaths == [dir.path])
+        #expect(CLIDetector(searchPaths: [dir.path]).detectAll().map(\.tool) == [.codex])
+        #expect(CLIDetector(searchPaths: [dir.path]).locate(CLITool(name: "../codex", arguments: [], promptOnStdin: true)) == nil)
+    }
+
     @Test func stdinPromptRoundTripsAndEnvIsSandboxed() async throws {
         // Echoes stdin back upper-cased, and fails if a secret leaked into env.
         let bin = try stubBinary("claude", script: #"[ -z "$LEAKED_SECRET" ] || exit 9; [ "$1" = "-p" ] || exit 8; tr a-z A-Z"#)

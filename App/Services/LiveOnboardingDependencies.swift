@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Engine
 import Foundation
+import Lab
 import Shared
 
 /// Onboarding's permission protocol over the app's TCC-backed `PermissionChecking`.
@@ -100,12 +101,20 @@ public final class ModelManagerTiers: ModelManaging {
 
     public func isInstalled(_ tier: ModelTier) -> Bool { presence[tier] ?? false }
 
+    /// Model downloads are the one egress path outside the provider table: they honour the
+    /// Data Panel kill switch and are logged to `network_log` like any other request (T3/T5).
     public func download(_ tier: ModelTier, progress: @escaping @Sendable (Double) -> Void) async throws {
         let ids = Self.models(for: tier)
         for (i, id) in ids.enumerated() {
+            if await manager.isPresent(id) { continue }
+            let d = ModelCatalog.descriptor(id)
+            let host = "huggingface.co"
+            try EgressGate.shared.check(host: host)
             let base = Double(i) / Double(ids.count)
             let share = 1.0 / Double(ids.count)
             _ = try await manager.ensureAvailable(id) { info in progress(base + info.fraction * share) }
+            _ = try? EgressGate.shared.log(stage: "model", provider: d.hfRepo, host: host, bytesOut: 0,
+                                           bytesIn: Int(d.approxBytes), purpose: "model download \(d.displayName)")
         }
         await refresh()
     }
