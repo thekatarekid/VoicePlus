@@ -40,7 +40,7 @@ let package = Package(
         .testTarget(name: "ProvidersTests", dependencies: ["Providers"], path: "Tests/ProvidersTests"),
         .testTarget(name: "LabTests", dependencies: ["Lab"], path: "Tests/LabTests"),
         .testTarget(name: "ActionsTests", dependencies: ["Actions"], path: "Tests/ActionsTests"),
-        .testTarget(name: "AppTests", dependencies: ["Shared"], path: "Tests/AppTests"),
+        .testTarget(name: "AppTests", dependencies: ["Shared", "VoicePlusApp"], path: "Tests/AppTests"),
     ],
     swiftLanguageVersions: [.v5]
 )
