@@ -29,7 +29,7 @@ public enum ModelManagerError: Error, Equatable {
 public actor ModelManager {
     public let root: URL
     private let fetchers: [ModelKind: ModelFetcher]
-    private let fileManager: FileManager
+    private var fileManager: FileManager { .default }
     private var loaded: [ModelID: LoadedModel] = [:]
     private var downloads: [ModelID: Task<URL, Error>] = [:]
     private var progress: [ModelID: Double] = [:]
@@ -38,10 +38,8 @@ public actor ModelManager {
 
     public init(root: URL = ModelCatalog.modelsRoot(),
                 fetchers: [ModelKind: ModelFetcher]? = nil,
-                externalCaches: [ModelID: [URL]]? = nil,
-                fileManager: FileManager = .default) {
+                externalCaches: [ModelID: [URL]]? = nil) {
         self.root = root
-        self.fileManager = fileManager
         self.fetchers = fetchers ?? [.finalTDT: FluidAudioFetcher(), .streamingEOU: FluidAudioFetcher(), .whisper: ManifestFetcher()]
         self.externalCaches = externalCaches ?? Self.defaultExternalCaches()
     }

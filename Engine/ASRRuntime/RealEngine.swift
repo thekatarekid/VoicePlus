@@ -184,3 +184,8 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         setState(.idle)
     }
 }
+
+extension RealEngine {
+    /// Test/diagnostic hook: samples captured so far in the current utterance.
+    public func bufferedSampleCount() async -> Int { await buffer.samples.count }
+}

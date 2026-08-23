@@ -40,12 +40,13 @@ public struct ModelManifest: Codable, Equatable, Sendable {
     /// Build a manifest by hashing every regular file under `folder` (excluding the manifest itself).
     public static func build(modelID: ModelID, hfRepo: String, folder: URL, fileManager: FileManager = .default) throws -> ModelManifest {
         var entries: [Entry] = []
+        let folder = folder.resolvingSymlinksInPath()
         let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
         if let en = fileManager.enumerator(at: folder, includingPropertiesForKeys: keys) {
             for case let url as URL in en {
                 let rv = try url.resourceValues(forKeys: Set(keys))
                 guard rv.isRegularFile == true, url.lastPathComponent != fileName else { continue }
-                let rel = url.path.replacingOccurrences(of: folder.path + "/", with: "")
+                let rel = url.resolvingSymlinksInPath().path.replacingOccurrences(of: folder.path + "/", with: "")
                 entries.append(Entry(path: rel, sha256: try SHA256Hasher.hexDigest(of: url), size: Int64(rv.fileSize ?? 0)))
             }
         }

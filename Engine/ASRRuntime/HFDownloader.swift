@@ -73,15 +73,25 @@ public struct HFDownloader: Sendable {
         try handle.seekToEnd()
         var written = offset
         var buffer = Data(); buffer.reserveCapacity(1 << 16)
-        for try await byte in bytes {
-            buffer.append(byte)
-            if buffer.count >= 1 << 16 {
-                try handle.write(contentsOf: buffer); written += Int64(buffer.count); buffer.removeAll(keepingCapacity: true)
-                onBytes?(written, total)
-                try Task.checkCancellation()
-            }
+        func flush() throws {
+            guard !buffer.isEmpty else { return }
+            try handle.write(contentsOf: buffer); written += Int64(buffer.count); buffer.removeAll(keepingCapacity: true)
         }
-        if !buffer.isEmpty { try handle.write(contentsOf: buffer); written += Int64(buffer.count) }
+        do {
+            for try await byte in bytes {
+                buffer.append(byte)
+                if buffer.count >= 1 << 16 {
+                    try flush()
+                    onBytes?(written, total)
+                    try Task.checkCancellation()
+                }
+            }
+        } catch {
+            // Keep what arrived so the next call resumes from here.
+            try? flush(); try? handle.close()
+            throw error
+        }
+        try flush()
         try handle.close()
         onBytes?(written, total)
 
