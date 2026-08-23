@@ -64,8 +64,8 @@ public enum PersonaDrafter {
         switch p.category {
         case .mail: parts.append("Professional but warm email voice")
         case .chat: parts.append("Relaxed chat voice")
-        case .code: parts.append("Terse, technical voice")
-        case .terminal: parts.append("Verbatim; no prose")
+        case .code: return "Terse, technical voice; keep identifiers and casing exactly as spoken."
+        case .terminal: return "Verbatim; no prose."
         case .prose: parts.append("Clear, natural prose")
         }
         let t = StyleStage.decisionThreshold

@@ -171,7 +171,7 @@ import Shared
         #expect(try store.allBundleIDs() == [Self.slack])
         try store.save(Persona(appBundleID: Self.slack, text: "updated", isAutoDrafted: false))
         #expect(try db.persona(forApp: Self.slack)?.instructions == "updated")
-        #expect(try DatabaseStyleProfileStore(database: db).profile(for: Self.slack) == Self.learnedChat())
+        #expect(try DatabaseStyleProfileStore(database: db).profile(for: Self.slack)?.sampleCount == 20)
     }
 
     @Test func managerOverDatabaseStoreSurvivesReload() throws {

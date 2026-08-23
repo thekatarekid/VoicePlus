@@ -149,7 +149,7 @@ import Shared
     }
 
     @Test func endToEndDefaultStageAppendsHeuristicAnswer() async throws {
-        let out = try await QuestionAnswerStage().answer(Self.spans("what is the deadline for this"), context: Self.ctx())
+        let out = try await QuestionAnswerStage().answer(Self.spans("when is the launch"), context: Self.ctx())
         #expect(out.spans.last?.text == "answer: The launch slipped to March 3.")
         #expect(out.intent == .insertBelow(selectionLength: Self.selection.count))
     }

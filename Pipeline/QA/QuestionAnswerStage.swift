@@ -52,7 +52,7 @@ public struct QuestionAnswerStage: PipelineStage {
     /// per paragraph; `nil` when nothing usable remains.
     public static func sanitize(_ raw: String) -> String? {
         var t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        for prefix in ["answer:", "Answer:", "ANSWER:", "A:"] where t.hasPrefix(prefix) {
+        while let prefix = ["answer:", "Answer:", "ANSWER:", "A:"].first(where: { t.hasPrefix($0) }) {
             t = String(t.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         t = t.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -140,11 +140,16 @@ public struct HeuristicAnswerer: QuestionAnswering {
         return Self.cannotAnswer
     }
 
+    /// Splits on terminal punctuation followed by whitespace/end (so "4.2%" and "e.g." survive).
     static func sentences(_ text: String) -> [String] {
         var out: [String] = []; var cur = ""
-        for ch in text {
+        let chars = Array(text)
+        for (i, ch) in chars.enumerated() {
             cur.append(ch)
-            if ".!?".contains(ch) || ch.isNewline { let t = cur.trimmingCharacters(in: .whitespacesAndNewlines); if !t.isEmpty { out.append(t) }; cur = "" }
+            let atEnd = i == chars.count - 1 || chars[i + 1].isWhitespace || chars[i + 1].isNewline
+            if (".!?".contains(ch) && atEnd) || ch.isNewline {
+                let t = cur.trimmingCharacters(in: .whitespacesAndNewlines); if !t.isEmpty { out.append(t) }; cur = ""
+            }
         }
         let t = cur.trimmingCharacters(in: .whitespacesAndNewlines); if !t.isEmpty { out.append(t) }
         return out
