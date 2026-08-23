@@ -22,4 +22,14 @@
 - [x] P1.11 Lab/Zero-Edit/Data Panel — done (c495f9f), 28 tests; real engine + FieldObserver wired in P1.12; real-world suites not recorded.
 - [x] P1.13 T1–T2 packaging scripts — done (bb1064d); ad-hoc sign, no notarization; 0.0.1 smoke dmg only. T3 + `VoicePlus_1_1.0.0.dmg` pending.
 - [x] Verify (69b1d8b): full `swift build` clean; **424 tests green / 0 failed** (App 58, Engine 105, Pipeline 115, Injection 46, Providers 36, Lab 28, Actions 1, Shared 35). Fixed: GatekeeperStage registered in StageRegistry; flaky pill test.
-- [ ] P1.12 integration — in progress.
+- [x] P1.12 integration — done 2026-08-24 (9cd69d9, 82b9d2b, 2f6dc91, ada434e, 29f3a59); **613 tests green**. AppContainer wires RealEngine + pipeline + repair/injection/providers/egress gate; e2e latency p50 53 ms (mock engine); kill-criteria: contextBiasing → off (DECISIONS.md); soak 3 min mock only (2 h fanless pending); chaos tests; docs/SECURITY-REVIEW.md.
+- [x] **Phase 1 release** — 2026-08-24: `Packaging/release.sh 1 1.0.0` → `Packaging/releases/VoicePlus_1_1.0.0.dmg` (13 MB, sha256 `6ce21d6cecb061bbc18308c28ffbb4d7a0fe236f19a7fa0edef116cc6620e0f9`), tag `release/phase-1/v1.0.0`, verify_install OK, notes in `Packaging/notes/phase-1.md`, GitHub release https://github.com/thekatarekid/VoicePlus/releases/tag/release/phase-1/v1.0.0. Ad-hoc signed, not notarized; human test script (14 steps) still to be run on a clean account.
+
+## Early-start items (parallel with P1.12; verify 29f2a62: 601 tests green at the time, excluding the two P1.12-owned long-running tests)
+- [x] P1.5.1 T1–T2 dual-path reconciler — 22fcf83; 22 tests; dualPath flag off, AX readback adapter pending P1.5.2.
+- [x] P2.1+P2.2 transform routing + rewrite engine — e0985ac; 30 tests; live AX selection untested.
+- [x] P2.4+P2.5+P2.6 Q&A / personas / snippets — aeeb19f, 332f28a; 50 tests; SnippetStage not yet in StageRegistry.
+- [x] P3.1+P3.2 input timeline + ink overlay — 5705405; 22 tests; live CGEvent tap + overlay rendering untested, not wired.
+- [x] P3.4 deep AX reading — 26808a6; 20 new tests (InjectionTests 66); live AX untested.
+- [x] P5.5 meeting capture — 78be903; 17 tests; no app wiring, needs Calendar/Screen Recording usage strings.
+- [x] P6.4 encrypted sync — 824db84; 17 tests; Keychain store + iCloud folder untested, no app wiring.

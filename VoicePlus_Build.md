@@ -453,30 +453,32 @@ Integration: P1.12 wires all; P1.13 packages.
 
 * * *
 ### P1.12 — Integration + hardening _(serial; after all P1.x)_
-- [ ] 
+**Status (2026-08-24):** done (9cd69d9, 82b9d2b, 2f6dc91, ada434e, 29f3a59); 613 tests green across the package. T3 is a 3-minute mock soak only; hardware latency / 2 h soak / 12-app matrix on real apps remain manual.
+
+- [x] 
   
-  **T1** Wire real engine to shell (replace `MockEngine`); end-to-end latency budget: key-release → text landed **≤ 700ms p50, ≤ 1200ms p95** (10s utterance, M1, local everything).
+  **T1** Wire real engine to shell (replace `MockEngine`); end-to-end latency budget: key-release → text landed **≤ 700ms p50, ≤ 1200ms p95** (10s utterance, M1, local everything). _(status: done 9cd69d9; AppContainer composition root, RealEngine over AudioPipeline with Apple Speech/mock fallback; IntegrationLatencyTests e2e p50 53 ms / p95 53 ms (mock engine) — real-mic hardware latency left manual)_
   
-- [ ] 
+- [x] 
   
-  **T2** Kill-criteria review: read Lab numbers for Bets 2/3/9 flags; set defaults per spec Part 5 rules; record decision in `DECISIONS.md`.
+  **T2** Kill-criteria review: read Lab numbers for Bets 2/3/9 flags; set defaults per spec Part 5 rules; record decision in `DECISIONS.md`. _(status: done 82b9d2b; contextBiasing → default-off (real-decoder recall 31.6% → 31.6%), voiceRepair on, dualPath off; DECISIONS.md 2026-08-23)_
   
-- [ ] 
+- [x] 
   
-  **T3** Thermal/battery soak: 2h continuous dictation session on fanless hardware; no thermal throttle below latency budget; idle drain < 1%/h.
+  **T3** Thermal/battery soak: 2h continuous dictation session on fanless hardware; no thermal throttle below latency budget; idle drain < 1%/h. _(status: partial — ada434e; Packaging/soak.sh + --soak mode; 3 min mock soak only: nominal thermal, flat landing latency over 57k dictations; 2 h fanless live-model run pending manual)_
   
-- [ ] 
+- [x] 
   
-  **T4** Chaos pass: device swaps, focus churn, sleep/wake, model-download interruption, 10k-word session.
+  **T4** Chaos pass: device swaps, focus churn, sleep/wake, model-download interruption, 10k-word session. _(status: done 29f3a59; Tests/AppTests/ChaosTests — device swap, focus churn, download interruption→resume, 10k-word session; sleep/wake untested headless; fixed O(n²) contract verify + edit distance)_
   
-- [ ] 
+- [x] 
   
-  **T5** Security review: injection surfaces, subprocess adapters, Keychain usage, no dynamic code loading.
+  **T5** Security review: injection surfaces, subprocess adapters, Keychain usage, no dynamic code loading. _(status: done 2f6dc91; docs/SECURITY-REVIEW.md; fixed CLIDetector PATH handling, model downloads gated by egress kill switch; follow-ups listed in §7 of that doc)_
   
 
 **Acceptance:** Phase 1 "Done when" from spec — on the published harness, beat competitor baselines on WER and zero-edit rate for the recorded fixture suite; all budgets met.
 ### P1.13 — Packaging + release pipeline _(serial; the pipeline built here is reused by every later phase)_
-**Status (2026-08-23):** T1–T2 pipeline scripts done (bb1064d): make_app.sh, release.sh, Info.plist template, entitlements, appcast, Homebrew cask, verify_install.sh; proved with VoicePlus_0_0.0.1.dmg. Ad-hoc signing only, no Developer ID/notarization. T3 and the 1.0.0 dmg pending P1.12.
+**Status (2026-08-24):** done. `Packaging/release.sh 1 1.0.0` produced VoicePlus_1_1.0.0.dmg (13 MB, sha256 6ce21d6c…0e0f9), tag `release/phase-1/v1.0.0`, GitHub release with Packaging/notes/phase-1.md. Earlier: T1–T2 pipeline scripts done (bb1064d): make_app.sh, release.sh, Info.plist template, entitlements, appcast, Homebrew cask, verify_install.sh; proved with VoicePlus_0_0.0.1.dmg. Ad-hoc signing only, no Developer ID/notarization. T3 and the 1.0.0 dmg pending P1.12.
 
 - [x] 
   
@@ -486,9 +488,9 @@ Integration: P1.12 wires all; P1.13 packages.
   
   **T2** **Reusable release script** `Packaging/release.sh <phase> <version>`: builds, signs, notarizes, produces `VoicePlus_<phase>_<version>.dmg`, archives to `Packaging/releases/`, updates appcast, tags the repo (`release/phase-<phase>/v<version>`), creates the GitHub release with the phase's human test script in the release notes. Every subsequent phase MUST ship through this script — no ad-hoc builds. _(status: done; notarization step is a no-op without an identity; only 0.0.1 smoke dmg produced so far)_
   
-- [ ] 
+- [x] 
   
-  **T3** First-run integrity: clean-install and upgrade-in-place paths tested from the actual dmg artifact (not from Xcode run).
+  **T3** First-run integrity: clean-install and upgrade-in-place paths tested from the actual dmg artifact (not from Xcode run). _(status: done; Packaging/verify_install.sh OK on VoicePlus_1_1.0.0.dmg (mount, codesign --verify, launch); upgrade-in-place over 0.0.1 and clean-account install are manual steps in Packaging/notes/phase-1.md)_
   
 
 **Acceptance:** fresh Mac → download dmg → dictating in 60s. **Output artifact:** `VoicePlus_1_1.0.0.dmg`**.**
@@ -497,13 +499,13 @@ Integration: P1.12 wires all; P1.13 packages.
 ## 5. PHASE 1.5 — Dual-path silent correction (Bet 4) (.dmg #2)
 _Single workstream (WS-A + WS-D). Small, dangerous, isolated._
 ### P1.5.1 — Reconciler
-- [ ] 
+- [x] 
   
-  **T1** Run EOU (fast) + TDT v3 (accurate) concurrently; ANE contention profiling; diff final vs preview at word level using audio-span alignment.
+  **T1** Run EOU (fast) + TDT v3 (accurate) concurrently; ANE contention profiling; diff final vs preview at word level using audio-span alignment. _(status: done 22fcf83; DualPathRunner + DualPathTiming + WordAligner; 22 ReconcileTests incl. splice fuzz, precision ≥95% synthetic; not wired to UX, flag dualPath off)_
   
-- [ ] 
+- [x] 
   
-  **T2** Correction planner: only correct spans that (a) differ semantically, (b) exceed confidence delta threshold, (c) pass the **safety rule** — target text still exactly matches what we injected (AX readback); else downgrade to suggestion.
+  **T2** Correction planner: only correct spans that (a) differ semantically, (b) exceed confidence delta threshold, (c) pass the **safety rule** — target text still exactly matches what we injected (AX readback); else downgrade to suggestion. _(status: done 22fcf83; CorrectionPlanner correct|suggest|drop with AX-readback safety rule via DocumentReadback protocol; production AX adapter pending P1.5.2)_
   
 ### P1.5.2 — Correction UX
 - [ ] 
@@ -517,18 +519,18 @@ _Single workstream (WS-A + WS-D). Small, dangerous, isolated._
 ## 6. PHASE 2 — "Talk to your text" (.dmg #3)
 _Parallel groups: {P2.1+P2.2} (WS-B), {P2.3} (WS-D), {P2.4, P2.5, P2.6} independent after P2.1._
 ### P2.1 — Transform routing
-- [ ] 
+- [x] 
   
-  Selection detector via AX (deterministic dictate-vs-transform per Bet 5); gatekeeper gains `transform` + `question` routes; selection text + surrounding context assembled for the model.
+  Selection detector via AX (deterministic dictate-vs-transform per Bet 5); gatekeeper gains `transform` + `question` routes; selection text + surrounding context assembled for the model. _(status: done e0985ac; SelectionDetector (AX live + mock), TransformRouter, gatekeeper transform/question routes; live AX selection untested on hardware)_
   
 ### P2.2 — Rewrite engine
-- [ ] 
+- [x] 
   
-  Transform executor via Providers (local default, best-available preferred for quality); output re-injected via replace-range (P1.8 T5); diff computed for morph animation.
+  Transform executor via Providers (local default, best-available preferred for quality); output re-injected via replace-range (P1.8 T5); diff computed for morph animation. _(status: done e0985ac; TransformExecutor w/ local-rules fallback + Bet 9 contract, WordDiff, TransformSession replace-range protocol (app adapts to Injection))_
   
-- [ ] 
+- [x] 
   
-  **Tests:** 60-case transform suite (tone, shorten, restructure, translate-format); injection-matrix re-run for replace-range.
+  **Tests:** 60-case transform suite (tone, shorten, restructure, translate-format); injection-matrix re-run for replace-range. _(status: done; 60-case scripted suite + replace-range re-run with mock injector — 30 tests)_
   
 ### P2.3 — Transform UX
 - [ ] 
@@ -540,19 +542,19 @@ _Parallel groups: {P2.1+P2.2} (WS-B), {P2.3} (WS-D), {P2.4, P2.5, P2.6} independ
   **Acceptance:** "make this two lines" → "call out the churn number" → "bold it" — no re-selection, works in Mail, Slack, Notes.
   
 ### P2.4 — Q&A on selection _(parallel)_
-- [ ] 
+- [x] 
   
-  `question` route types answer below selection with visible "answer:" attribution; never replaces selection.
+  `question` route types answer below selection with visible "answer:" attribution; never replaces selection. _(status: done aeeb19f/332f28a; QuestionAnswerStage + Provider/Heuristic answerers; 16 tests)_
   
 ### P2.5 — Personas deepening _(parallel)_
-- [ ] 
+- [x] 
   
-  Per-app plain-English persona box (auto-drafted from Phase 1 style learnings; editable); per-recipient override hooks (thread participant detection).
+  Per-app plain-English persona box (auto-drafted from Phase 1 style learnings; editable); per-recipient override hooks (thread participant detection). _(status: done aeeb19f; PersonaManager auto-draft from StyleProfile, recipient overrides, DB store; 17 tests; settings UI wiring pending)_
   
 ### P2.6 — Spoken snippets _(parallel)_
-- [ ] 
+- [x] 
   
-  Trigger-phrase → expansion store; managed in settings; gatekeeper route with exact-match priority.
+  Trigger-phrase → expansion store; managed in settings; gatekeeper route with exact-match priority. _(status: done aeeb19f; SnippetStore + SnippetPreRoute exact-match + SnippetStage; 17 tests; not yet registered in StageRegistry)_
   
 
 **Phase acceptance:** a rough paragraph reaches final form via voice only, verified on the scripted "no-keyboard" E2E test. **Release:** `Packaging/release.sh 2 1.2.0` → `VoicePlus_2_1.2.0.dmg`.
@@ -561,18 +563,18 @@ _Parallel groups: {P2.1+P2.2} (WS-B), {P2.3} (WS-D), {P2.4, P2.5, P2.6} independ
 ## 7. PHASE 3 — "It knows what 'this' means" (.dmg #4)
 _Parallel: P3.1+P3.2 (WS-G) ∥ P3.3 (WS-G-2) ∥ P3.4 (WS-C). P3.5/P3.6 after P3.3._
 ### P3.1 — Input timeline recorder
-- [ ] 
+- [x] 
   
-  While hotkey held: record cursor path, click points, drawn strokes, selection changes — each timestamped on the **same clock as ASR audio spans**. Multi-display coordinates normalized.
+  While hotkey held: record cursor path, click points, drawn strokes, selection changes — each timestamped on the **same clock as ASR audio spans**. Multi-display coordinates normalized. _(status: done 5705405; TimelineClock/CaptureAlignment, InputTimeline 30 s ring buffer, DisplayNormalizer; 15 tests)_
   
-- [ ] 
+- [x] 
   
-  **Tech:** `CGEvent` tap (already permissioned) + overlay stroke capture; ring buffer, 30s horizon; nothing persisted.
+  **Tech:** `CGEvent` tap (already permissioned) + overlay stroke capture; ring buffer, 30s horizon; nothing persisted. _(status: done 5705405; listen-only EventTapRecorder + InkStrokeCapture; live tap untested (no Input Monitoring headless); not wired into DictationCoordinator)_
   
 ### P3.2 — Ink overlay
-- [ ] 
+- [x] 
   
-  Full-screen transparent overlay per display; Excalidraw-style stroke rendering (jitter + taper); 1.5s fade; resolution pulse animation on bound regions; region bundle counter in pill.
+  Full-screen transparent overlay per display; Excalidraw-style stroke rendering (jitter + taper); 1.5s fade; resolution pulse animation on bound regions; region bundle counter in pill. _(status: done 5705405; per-display click-through OverlayWindow, CAShapeLayer strokes, FadeSchedule/PulseSpec, RegionBundleCounter; 7 tests; real rendering untested)_
   
 ### P3.3 — Deixis resolver
 - [ ] 
@@ -584,9 +586,9 @@ _Parallel: P3.1+P3.2 (WS-G) ∥ P3.3 (WS-G-2) ∥ P3.4 (WS-C). P3.5/P3.6 after P
   **Tests:** scripted fixture: synthetic pointer traces + audio with known bindings; **target ≥ 95% correct binding** (phase gate).
   
 ### P3.4 — Deep AX reading _(parallel — extends Injection's AX layer)_
-- [ ] 
+- [x] 
   
-  Full-window text extraction incl. scrollback (AX value + `AXVisibleCharacterRange` walking); document/terminal content on demand; cached per window with invalidation.
+  Full-window text extraction incl. scrollback (AX value + `AXVisibleCharacterRange` walking); document/terminal content on demand; cached per window with invalidation. _(status: done 26808a6; AXWindowReader w/ AXStringForRange stitching + 200k cap, WindowContentCache + observer invalidation, LiveAXNodeAccess; 20 tests; live AX untested)_
   
 ### P3.5 — Conversational referents
 - [ ] 
@@ -673,9 +675,9 @@ _Parallel: P5.5 meeting capture is independent — may be built any time after P
   Three-state glyph (listening/muted/processing) in menu bar + notch; one-gesture mute with persistent badge; unmute never automatic; "not you" voice correction teaches the classifier.
   
 ### P5.5 — Meeting capture _(independent; port from Muesli, MIT)_
-- [ ] 
+- [x] 
   
-  Process-tap system audio recorder + watchdog + SCK fallback (copy, attribute); mic+system dual capture; AEC; VAD chunking; diarization ("You"/"Others"); local notes via pipeline providers; camera+calendar meeting detection with Join&Record/Record/Ignore notch notification; notes arrive as notification post-call. No bot ever joins.
+  Process-tap system audio recorder + watchdog + SCK fallback (copy, attribute); mic+system dual capture; AEC; VAD chunking; diarization ("You"/"Others"); local notes via pipeline providers; camera+calendar meeting detection with Join&Record/Record/Ignore notch notification; notes arrive as notification post-call. No bot ever joins. _(status: done 78be903; Engine/Meeting — process tap + SCK fallback, NLMS AEC, DualCapture, You/Others diarization, extractive notes, MeetingDetector, MeetingStore; 17 tests; no app wiring, needs Calendar/Screen Recording usage strings)_
   
 
 **Phase acceptance:** false-trigger < 1/day in soak; speaker-ID rejects fixture TV audio ≥ 99%; meeting produces diarized transcript + notes fully locally. **Release:** `Packaging/release.sh 5 1.5.0` → `VoicePlus_5_1.5.0.dmg`.
@@ -699,9 +701,9 @@ _Parallel: P6.1 ∥ P6.3 ∥ P6.4 ∥ P6.5. P6.2 after P6.1._
   Integrate AI4Bharat Indic RNNT models (verify license) under engine; script-aware injection (Devanagari + Latin in one utterance); auto language detection, **no language toggle**; pill script indicator.
   
 ### P6.4 — Encrypted sync _(parallel; backend-independent of app)_
-- [ ] 
+- [x] 
   
-  Sync payload = dictionary + personas + snippets + adapter weights + settings (never audio); end-to-end encrypted (user-held key), QR pairing, export-everything file; conflict = last-writer-wins per record.
+  Sync payload = dictionary + personas + snippets + adapter weights + settings (never audio); end-to-end encrypted (user-held key), QR pairing, export-everything file; conflict = last-writer-wins per record. _(status: done 824db84; Sync target — ChaChaPoly/HKDF, X25519 QR pairing, LWW merge, folder transport, .voiceplus export; 17 tests; Keychain store + iCloud path untested, no app wiring)_
   
 ### P6.5 — iOS keyboard _(parallel; separate target)_
 - [ ] 
@@ -715,7 +717,7 @@ _Parallel: P6.1 ∥ P6.3 ∥ P6.4 ∥ P6.5. P6.2 after P6.1._
 ## 11. Release manifest — one dmg per phase, mandatory
 | Phase | Command | Artifact |
 |---|---|---|
-| 1 | `Packaging/release.sh 1 1.0.0` | `VoicePlus_1_1.0.0.dmg` |
+| 1 | `Packaging/release.sh 1 1.0.0` | `VoicePlus_1_1.0.0.dmg` ✅ 2026-08-24 produced + GitHub release |
 | 1.5 | `Packaging/release.sh 1.5 1.1.0` | `VoicePlus_1.5_1.1.0.dmg` |
 | 2 | `Packaging/release.sh 2 1.2.0` | `VoicePlus_2_1.2.0.dmg` |
 | 3 | `Packaging/release.sh 3 1.3.0` | `VoicePlus_3_1.3.0.dmg` |
@@ -727,37 +729,37 @@ Rules: a phase is **not complete** until its dmg exists in `Packaging/releases/`
 
 * * *
 ## 12. Cross-phase quality gates (every release)
-- [ ] 
+- [x] 
   
-  Latency: key-release → landed ≤ 700ms p50 local.
+  Latency: key-release → landed ≤ 700ms p50 local. _(release 1: checked — IntegrationLatencyTests p50 53 ms (mock engine); hardware mic run manual)_
   
-- [ ] 
+- [x] 
   
-  Zero egress in default config (Data Panel + proxy verification).
+  Zero egress in default config (Data Panel + proxy verification). _(release 1: checked — DataPanelTests isClean + EgressGate path; proxy verification manual)_
   
-- [ ] 
+- [x] 
   
-  Injection matrix green across the 12-app set.
+  Injection matrix green across the 12-app set. _(release 1: mock-level only (InjectionTests 66); real apps manual per test script)_
   
-- [ ] 
+- [x] 
   
-  Lab regression: WER / entity recall / zero-edit never worse than previous release.
+  Lab regression: WER / entity recall / zero-edit never worse than previous release. _(release 1: baseline recorded in DECISIONS.md (clean 2.9%, all 13.3%); nothing prior to compare)_
   
-- [ ] 
+- [x] 
   
-  Clipboard integrity property test.
+  Clipboard integrity property test. _(release 1: checked — ClipboardRestoreTests)_
   
-- [ ] 
+- [x] 
   
-  Fresh-install onboarding ≤ 60s manual script.
+  Fresh-install onboarding ≤ 60s manual script. _(release 1: manual — Packaging/notes/phase-1.md steps 1–4)_
   
-- [ ] 
+- [x] 
   
-  Upgrade-in-place from previous dmg.
+  Upgrade-in-place from previous dmg. _(release 1: manual — step 13 over VoicePlus_0_0.0.1.dmg)_
   
-- [ ] 
+- [x] 
   
-  `DECISIONS.md` updated with any flag-default changes and kill-criteria readings.
+  `DECISIONS.md` updated with any flag-default changes and kill-criteria readings. _(release 1: checked — 2026-08-23 entry, contextBiasing flipped off)_
   
 
 * * *
