@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Nightly dmg, 03:00 UTC.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+env:
+  # Swift 6 toolchain (swift-testing needs Xcode 16+).
+  DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: SwiftLint (if installed)
+        run: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict
+          else
+            echo "swiftlint not installed; skipping"
+          fi
+
+  nightly-dmg:
+    name: Nightly dmg
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: build-and-test
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release dmg
+        # Packaging/release.sh <phase> <version> is created by P1.13.
+        run: |
+          if [ -x Packaging/release.sh ]; then
+            Packaging/release.sh nightly "0.0.0-nightly.$(date -u +%Y%m%d)"
+          else
+            echo "Packaging/release.sh not present yet (P1.13); skipping dmg"
+          fi
+      - name: Upload dmg
+        if: hashFiles('Packaging/releases/*.dmg') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoicePlus-nightly
+          path: Packaging/releases/*.dmg
+          retention-days: 14
