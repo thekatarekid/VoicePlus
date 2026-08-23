@@ -33,41 +33,28 @@ public final class DecoderFinalRecognizer: FinalRecognizer, @unchecked Sendable 
     }
 }
 
-/// Parakeet Realtime EOU 120M streaming preview. Confidence is not exposed upstream.
+/// Parakeet Realtime EOU 120M streaming preview. Upstream chunks internally (160 ms, 50 %
+/// overlap) and exposes the running transcript via `getPartialTranscript()`; per-token
+/// confidence is not available on this path. `finish()` is never called here: the TDT final
+/// pass replaces the preview, so the EOU manager is simply `reset()` per utterance.
 public final class EOUPreviewRecognizer: PreviewRecognizer, @unchecked Sendable {
     private let manager: StreamingEouAsrManager
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
-    private let lock = NSLock()
-    private var pending: [Float] = []
-    private var latest = ""
-    private let chunkSamples: Int
 
-    public init(manager: StreamingEouAsrManager, chunkSize: StreamingChunkSize = .ms160) {
-        self.manager = manager
-        self.chunkSamples = chunkSize.chunkSamples
-    }
+    public init(manager: StreamingEouAsrManager) { self.manager = manager }
 
     public func feed(_ samples: [Float]) async throws -> String {
-        lock.withLock { pending.append(contentsOf: samples) }
-        while true {
-            let next: [Float]? = lock.withLock {
-                guard pending.count >= chunkSamples else { return nil }
-                let c = Array(pending.prefix(chunkSamples)); pending.removeFirst(chunkSamples); return c
-            }
-            guard let chunk = next else { break }
-            guard let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(chunk.count)) else { continue }
-            buf.frameLength = AVAudioFrameCount(chunk.count)
-            chunk.withUnsafeBufferPointer { buf.floatChannelData![0].update(from: $0.baseAddress!, count: chunk.count) }
-            let text = try await manager.process(audioBuffer: buf)
-            lock.withLock { latest = text }
+        guard !samples.isEmpty,
+              let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
+            return await manager.getPartialTranscript()
         }
-        return lock.withLock { latest }
+        buf.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { buf.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
+        _ = try await manager.process(audioBuffer: buf)
+        return await manager.getPartialTranscript()
     }
 
-    public func reset() async {
-        lock.withLock { pending.removeAll(); latest = "" }
-        await manager.reset()
-    }
+    public func reset() async { await manager.reset() }
 }
 
 /// Preview that echoes the final recognizer over the accumulated buffer every `interval` seconds

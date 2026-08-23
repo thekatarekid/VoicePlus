@@ -70,3 +70,67 @@ struct ASRGoldenTranscriptTests {
         #expect(mean <= 0.10)
     }
 }
+
+extension ASRGoldenTranscriptTests {
+    /// Streaming preview path with the real EOU 120M model; exercises `FluidAudioFetcher` when
+    /// VOICEPLUS_LIVE_MODELS=1 and the model is absent. Skipped otherwise.
+    @Test(.timeLimit(.minutes(30)))
+    func eouPreviewStreamsOnCleanFixture() async throws {
+        let manager = ModelManager()
+        let live = ProcessInfo.processInfo.environment["VOICEPLUS_LIVE_MODELS"] == "1"
+        if await !manager.isPresent(.parakeetEOU160) {
+            guard live else { print("SKIPPED: parakeet-realtime-eou-120m (160ms) not on disk; VOICEPLUS_LIVE_MODELS=1 downloads it."); return }
+            try await manager.ensureAvailable(.parakeetEOU160) { p in print("eou download \(Int(p.fraction * 100))%") }
+            #expect(await manager.verify(.parakeetEOU160).isEmpty)
+        }
+        let eou = try #require(try await manager.load(.parakeetEOU160).eouManager)
+        let preview = EOUPreviewRecognizer(manager: eou)
+        let fixtures = try #require(AppPaths.fixturesDirectory()).appendingPathComponent("audio/clean")
+        let samples = try SampleAudioSource.load16k(url: fixtures.appendingPathComponent("clean_01_samantha.wav"))
+        var partials: [String] = []
+        var i = 0
+        while i < samples.count {
+            let end = min(i + 1600, samples.count)
+            let t = try await preview.feed(Array(samples[i..<end]))
+            if t != partials.last { partials.append(t) }
+            i = end
+        }
+        print("EOU partials: \(partials)")
+        #expect(partials.count >= 2, "preview should grow incrementally")
+        let wer = wordErrorRate(reference: "Hey, just checking in. Are we still on for lunch tomorrow at noon?", hypothesis: partials.last ?? "")
+        print(String(format: "EOU final partial WER %.3f", wer))
+        #expect(wer <= 0.35)
+    }
+}
+
+extension ASRGoldenTranscriptTests {
+    /// End-to-end `RealEngine` on a fixture with whatever real models are on disk (TDT v3 [+ EOU]).
+    /// Acceptance: preview streams, final spans carry confidence + timestamps, final ≤ 400 ms after stop.
+    @Test(.timeLimit(.minutes(10)))
+    func realEngineEndToEndOnFixture() async throws {
+        let manager = ModelManager()
+        guard await manager.isPresent(.parakeetTDTv3) else { print("SKIPPED: no TDT v3 model on disk."); return }
+        let fixtures = try #require(AppPaths.fixturesDirectory()).appendingPathComponent("audio/clean")
+        let audio = try SampleAudioSource(url: fixtures.appendingPathComponent("clean_02_daniel.wav"), blockDuration: 0.05, realtime: true)
+        let engine = RealEngine(audio: audio, manager: manager)
+        let events = engine.events()
+        nonisolated(unsafe) var previews: [String] = []
+        let collector = Task { for await e in events { if case .state(.previewing(let t)) = e { previews.append(t) } } }
+        try await engine.prewarm()
+        let hasEOU = await manager.isPresent(.parakeetEOU160)
+        let finished = DispatchSemaphore(value: 0)
+        audio.onFinished = { finished.signal() }
+        try await engine.start(prewarm: false)
+        await withCheckedContinuation { c in DispatchQueue.global().async { finished.wait(); c.resume() } }
+        let t0 = Date()
+        let spans = try await engine.stop()
+        let latency = Date().timeIntervalSince(t0)
+        collector.cancel()
+        let wer = wordErrorRate(reference: "Please find the updated quarterly report attached to this email.", hypothesis: spans.joinedText)
+        print(String(format: "RealEngine e2e: eou=%@ previews=%d final latency %.0f ms WER %.3f | %@", hasEOU ? "yes" : "no", previews.count, latency * 1000, wer, spans.joinedText))
+        #expect(wer <= 0.2)
+        #expect(latency <= 0.4, "final must land within 400 ms of release")
+        #expect(spans.allSatisfy { $0.confidence > 0 && $0.audioRange.upperBound > 0 && $0.provenance == [.asr] })
+        #expect(!previews.isEmpty)
+    }
+}

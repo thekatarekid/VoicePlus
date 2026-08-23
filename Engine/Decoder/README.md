@@ -59,3 +59,20 @@ public protocol LogitBiaser: Sendable {
 `WordConfidence.aggregate(tokens)` groups sub-word tokens into words (`isWordStart` boundaries) and
 uses the **min-prob rule**: word confidence = min over its tokens' `probability`. Span audioRange
 = first token start … last token end. See `Engine/Confidence/WordConfidence.swift`.
+
+## Runtime layout (Engine/ASRRuntime)
+- `ModelManager` (actor): disk layout `~/Library/Application Support/VoicePlus/Models/<ModelID>/`, HF download with
+  byte-range resume (`HFDownloader`) + `voiceplus-manifest.json` (SHA256 per file), load/unload, `warmStart()`,
+  and warm-start discovery of FluidAudio's own cache. Catalog: TDT v3 (final), EOU 120M/160 ms (preview),
+  TDT-CTC 110M (bundled tiny), Whisper small (placeholder, no runtime).
+- `RealEngine` (`EngineProtocol`): `AudioSource` → `PreviewRecognizer` (EOU, cumulative partials → `.partial` +
+  `.previewing`) and on `stop()` a `FinalRecognizer` (TDT via the frozen `Decoder`) whose word spans replace the preview.
+- `BundledModel` / `RecognizerFactory`: first launch fetches the 110M model first, big models in the background;
+  until anything is on disk `AppleSpeechRecognizer` (on-device SFSpeechRecognizer) handles dictation.
+
+## Verified on this machine (2026-08-23, M-series, FluidAudio 0.15.6)
+`Fixtures/audio/clean` (12 TTS files) with Parakeet TDT v3 int8: **mean WER 2.9 %**, per-file final pass 100–190 ms;
+remaining errors are number formatting ("three thirty" → "3 30") and one name ("Priya" → "Kriya", confidence 0.95 vs ≥0.99
+for correct words). EOU 160 ms preview: incremental partials, 7.7 % WER on clean_01. `RealEngine` end-to-end: 10 preview
+updates, final landed 142 ms after stop, WER 0 on clean_02. Run: `swift test --filter ASRGoldenTranscriptTests`
+(skips without models; `VOICEPLUS_LIVE_MODELS=1` downloads them).

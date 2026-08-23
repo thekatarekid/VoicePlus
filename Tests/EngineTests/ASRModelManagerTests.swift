@@ -37,7 +37,10 @@ final class MockHTTPProtocol: URLProtocol {
         client?.urlProtocol(self, didLoad: body)
         if let failAfter, failAfter < data.count - start {
             Self.lock.withLock { Self.failAfterBytes = nil }
-            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            // Let the delivered bytes drain to the consumer before the connection "drops".
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { [self] in
+                client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            }
         } else {
             client?.urlProtocolDidFinishLoading(self)
         }
