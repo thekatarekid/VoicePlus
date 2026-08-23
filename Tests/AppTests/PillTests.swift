@@ -78,11 +78,15 @@ struct PillViewModelTests {
         let engine = MockEngine(fixture: fixture, delayScale: 0, prewarmMs: 0)
         var seen: [String] = []
         var reducer = PillStateReducer()
+        let events = engine.events()
         let task = Task {
-            for await event in engine.events() {
+            for await event in events {
                 if case .state(let s) = event { seen.append(reducer.reduce(s).caseName) }
             }
         }
+        // AsyncStream registers its continuation lazily on first iteration, so give the
+        // consumer task a turn on the main actor before start() emits `.listening`.
+        try await Task.sleep(nanoseconds: 20_000_000)
         try await engine.start(prewarm: true)
         try await Task.sleep(nanoseconds: 50_000_000)
         let final = try await engine.stop()

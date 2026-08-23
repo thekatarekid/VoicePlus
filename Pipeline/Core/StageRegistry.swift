@@ -4,6 +4,7 @@ import Shared
 /// for your stage and re-read the file before editing.
 public enum StageRegistry {
     public static let builtIn: [any PipelineStage] = [
+        GatekeeperStage(), // always first; PipelineRunner runs it separately and filters it out of the stage list
         ProseListFormatter(),
         EmailFormatter(),
         ChatFormatter(),
