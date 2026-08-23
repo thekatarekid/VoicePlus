@@ -55,7 +55,8 @@ public struct DoubleMetaphone: Sendable {
             slavoGermanic = str.contains("W") || str.contains("K") || str.contains("CZ") || str.contains("WITZ")
         }
 
-        func at(_ i: Int) -> Character { (i >= 0 && i < w.count) ? w[i] : "\0" }
+        /// Out-of-range reads return a space, like the reference implementation's padding.
+        func at(_ i: Int) -> Character { (i >= 0 && i < w.count) ? w[i] : " " }
         func isVowel(_ i: Int) -> Bool { vowels.contains(at(i)) }
         func string(_ start: Int, _ length: Int, _ list: [String]) -> Bool {
             guard start >= 0, length > 0, start + length <= w.count else { return false }

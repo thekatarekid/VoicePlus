@@ -172,7 +172,7 @@ public final class RepairSession: @unchecked Sendable {
             let ownPhonetic = dm.encode(span.text).matches(saidCodes) ? 0.6 : 0
             let ownSim = 0.5 * AlternateEnricher.similarity(own, key)
             score = max(score, Float(ownPhonetic), ownSim)
-            if own == key { score = 0 } // already says that
+            if own == key && span.text == said { score = 0 } // already says exactly that
             score += (1 - span.confidence) * 0.05 + (span.isLowConfidence ? 0.1 : 0)
             if best == nil || score > best!.score { best = (i, replacement, score) }
         }
@@ -182,7 +182,7 @@ public final class RepairSession: @unchecked Sendable {
         if b.score < 0.35, let lowest = u.spans.indices.min(by: { u.spans[$0].confidence < u.spans[$1].confidence }) {
             target = (lowest, said, b.score)
         }
-        if WordConfusionNetwork.normalize(u.spans[target.index].text) == key { return .noop(reason: "already \(said)") }
+        if u.spans[target.index].text == target.replacement { return .noop(reason: "already \(said)") }
         focusIndex = target.index
         cyclePosition[target.index] = (u.spans[target.index].alternates.firstIndex { WordConfusionNetwork.normalize($0.text) == WordConfusionNetwork.normalize(target.replacement) }.map { $0 + 1 }) ?? 0
         return replace(spanIndex: target.index, with: target.replacement, source: .repair)
@@ -200,7 +200,7 @@ public final class RepairSession: @unchecked Sendable {
         }.first ?? u.spans[i]
         var ring = [original.text] + original.alternates.map(\.text)
         var seen = Set<String>()
-        ring = ring.filter { seen.insert(WordConfusionNetwork.normalize($0)).inserted }
+        ring = ring.filter { seen.insert($0).inserted }
         guard ring.count > 1 else { return .noop(reason: "no alternates") }
         let pos = ((cyclePosition[i] ?? 0) + 1) % ring.count
         cyclePosition[i] = pos
@@ -275,8 +275,8 @@ public final class RepairSession: @unchecked Sendable {
         // Keep the full alternate set so the user can keep cycling; the displaced text
         // becomes an alternate of its own (tagged .repair) so it stays reachable.
         var alts = keepAlternates ?? old.alternates
-        alts.removeAll { WordConfusionNetwork.normalize($0.text) == WordConfusionNetwork.normalize(newText) }
-        if !alts.contains(where: { WordConfusionNetwork.normalize($0.text) == WordConfusionNetwork.normalize(old.text) }) {
+        alts.removeAll { $0.text == newText }
+        if !alts.contains(where: { $0.text == old.text }) {
             alts.append(Alternate(text: old.text, score: 0, source: .repair))
         }
         span.alternates = alts

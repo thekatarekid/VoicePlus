@@ -43,7 +43,7 @@ public enum RepairGrammar {
     static let snapCues: [[String]] = [
         ["no", "i", "said"], ["no", "i", "meant"], ["no", "its"], ["no", "it", "is"], ["no", "it's"], ["no", "that's"], ["no", "thats"],
         ["no", "not", "that"], ["nope", "i", "said"], ["nope", "its"], ["i", "said"], ["i", "meant"], ["it's", "spelled"], ["its", "spelled"],
-        ["no", "make", "it"], ["no", "make", "that"], ["change", "that", "to"], ["change", "it", "to"], ["make", "that"], ["make", "it"],
+        ["no", "make", "it"], ["no", "make", "that"], ["change", "that", "to"], ["change", "it", "to"],
         ["no"], ["nope"], ["should", "be"], ["that", "should", "be"], ["it", "should", "be"],
     ]
 
@@ -57,6 +57,7 @@ public enum RepairGrammar {
         }
         var out: [String] = cleaned.split(separator: " ").map(String.init)
         while let f = out.first, fillers.contains(f) { out.removeFirst() }
+        while out.count > 1, let l = out.last, fillers.contains(l) { out.removeLast() }
         return out
     }
 
