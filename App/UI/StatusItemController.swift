@@ -11,7 +11,12 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let hotkey: HotkeyService
     private let updater: UpdaterProtocol
     public var onOpenLab: (() -> Void)?
+    public var onOpenDataPanel: (() -> Void)?
+    public var onOpenSettings: (() -> Void)?
     public var onRecheckPermissions: (() -> Void)?
+    /// Live labels supplied by the composition root (P1.12); defaults keep shell tests unchanged.
+    public var activeModelName: () -> String = { "Mock engine (fixture)" }
+    public var micName: () -> String = { "Default microphone" }
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
 
     public init(flags: FeatureFlagService, database: AppDatabase?, coordinator: DictationCoordinator,
@@ -32,7 +37,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public func model() -> MenuModel {
         let stats = database.map { MenuModel.load(from: $0) } ?? (zeroEdit: 0, total: 0, wordsToday: 0)
         return MenuModel(zeroEditCount: stats.zeroEdit, totalCount: stats.total, wordsToday: stats.wordsToday,
-                         activeModel: "Mock engine (fixture)", micName: "Default microphone",
+                         activeModel: activeModelName(), micName: micName(),
                          micStatus: coordinator.lastMicQuality?.verdict, paused: coordinator.paused,
                          handsFree: coordinator.handsFree, hotkeyName: hotkey.binding.kind.displayName,
                          launchAtLogin: LaunchAtLogin.isEnabled)
@@ -92,6 +97,12 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         let lab = NSMenuItem(title: "Open the Lab…", action: #selector(openLab), keyEquivalent: "l")
         lab.target = self
         menu.addItem(lab)
+        let data = NSMenuItem(title: "Data Panel…", action: #selector(openDataPanel), keyEquivalent: "")
+        data.target = self
+        menu.addItem(data)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
         let perms = NSMenuItem(title: "Check permissions…", action: #selector(recheckPermissions), keyEquivalent: "")
         perms.target = self
         menu.addItem(perms)
@@ -139,6 +150,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func openLab() {
         onOpenLab?() ?? Log.app.info("Lab not wired yet (P1.11)")
     }
+
+    @objc private func openDataPanel() { onOpenDataPanel?() }
+
+    @objc private func openSettings() { onOpenSettings?() }
 
     @objc private func recheckPermissions() { onRecheckPermissions?() }
 

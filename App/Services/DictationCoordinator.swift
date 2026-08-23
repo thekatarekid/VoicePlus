@@ -1,15 +1,24 @@
 import AppKit
 import Combine
 import Foundation
+import Injection
 import Shared
 
-/// Wires hotkey actions → engine, engine events → pill, finals → history DB.
-/// Text "lands" on the pasteboard + history until P1.8's injection stack is integrated (P1.12).
+/// Wires hotkey actions → engine, engine events → pill, finals → `UtteranceLander`
+/// (pipeline → repair/injection → history). Without a lander (shell-only tests) text lands on
+/// the pasteboard + history as it did before P1.12.
 public final class DictationCoordinator {
     public let engine: any EngineProtocol
     public let database: AppDatabase?
     public let pill: PillPanelController
     public var onFinal: (([TranscriptSpan]) -> Void)?
+    /// Full landing path (P1.12). Nil → pasteboard fallback.
+    public var lander: UtteranceLander?
+    /// Called on hotkey-down before capture (bias-list refresh).
+    public var onPrepare: (() -> Void)?
+    /// Focus snapshot source; taken at key release so injection can abort on focus churn.
+    public var focusSnapshot: (() -> FocusSnapshot?)?
+    public var onLanded: ((LandingResult) -> Void)?
     public private(set) var lastMicQuality: MicQuality?
     public private(set) var handsFree = false
     public private(set) var paused = false
@@ -48,8 +57,14 @@ public final class DictationCoordinator {
         }
     }
 
+    public func noteMicQuality(_ quality: MicQuality) {
+        lastMicQuality = quality
+        if quality.verdict != .good { pill.model.apply(.warning(quality)) }
+    }
+
     public func start() {
         startedAt = Date()
+        onPrepare?()
         Task {
             do { try await engine.start(prewarm: true) } catch {
                 Log.app.error("engine start failed: \(error)")
@@ -60,10 +75,20 @@ public final class DictationCoordinator {
     public func finalize() {
         handsFree = false
         pill.model.handsFree = false
+        let focus = focusSnapshot?()
+        let started = startedAt
         Task {
             do {
                 let spans = try await engine.stop()
-                await MainActor.run { self.land(spans) }
+                if let lander {
+                    let result = await lander.land(spans, startedAt: started, focus: focus)
+                    await MainActor.run {
+                        self.onFinal?(spans)
+                        self.onLanded?(result)
+                    }
+                } else {
+                    await MainActor.run { self.land(spans) }
+                }
             } catch EngineError.notListening {
                 // Tap released before the engine finished prewarming — nothing to land.
             } catch {

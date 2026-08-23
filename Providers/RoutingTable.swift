@@ -42,6 +42,9 @@ public final class RoutingTable: @unchecked Sendable {
     private var choices: [StageID: RouteChoice] = [:]
     public let logger: NetworkLogger
     public let fallback: any Provider
+    /// Egress gate (Lab's kill switch, wired by the app). Consulted before every remote provider
+    /// call with a host label; `false` skips the provider as unavailable. Default: allow.
+    public var egressAllowed: @Sendable (String) -> Bool = { _ in true }
     public static let alwaysLocalStages: Set<StageID> = [.gatekeeper, .asr, .biasing, .injection]
 
     public init(providers: [any Provider], logger: NetworkLogger, fallback: any Provider = LocalRulesProvider()) {
@@ -80,6 +83,10 @@ public final class RoutingTable: @unchecked Sendable {
         var attempts: [(ProviderID, ProviderError?)] = []
         for p in chain(for: stage) {
             guard await p.isAvailable() else { attempts.append((p.id, .unavailable("not available"))); continue }
+            if p.isRemote, !egressAllowed(p.id.rawValue) {
+                Log.providers.notice("egress to \(p.id) blocked by kill switch")
+                attempts.append((p.id, .unavailable("blocked by egress kill switch"))); continue
+            }
             do {
                 let c = try await p.complete(stage: stage, spans: spans, context: context)
                 if p.isRemote {

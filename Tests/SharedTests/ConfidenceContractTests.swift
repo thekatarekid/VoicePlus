@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Shared
 
@@ -78,5 +79,41 @@ import Testing
         #expect(ConfidenceContract.verify(input: input, output: output) == [])
         #expect(output[0].text == "HELLO")
         #expect(output[1].needsRepair)
+    }
+
+    /// P1.12 hardening: the O(log n) coverage index must agree with the brute-force overlap rule
+    /// on random mixes of normal, touching, nested and zero-length ranges.
+    @Test("coverage index matches brute force", arguments: [1, 2, 3, 4, 5])
+    func coverageIndexMatchesBruteForce(seed: UInt64) {
+        var state = seed &* 0x9E3779B97F4A7C15
+        func next() -> Double {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Double((state >> 33) % 200) / 10 // 0.0 … 19.9 on a coarse grid → lots of exact touches
+        }
+        func span() -> TranscriptSpan {
+            let a = next(), b = next()
+            let zero = (state >> 20) % 4 == 0
+            return TranscriptSpan(text: "x", confidence: 0.9, audioRange: zero ? a...a : min(a, b)...max(a, b), provenance: [.asr])
+        }
+        for _ in 0..<40 {
+            let input = (0..<12).map { _ in span() }
+            let output = (0..<6).map { _ in span() }
+            let index = ConfidenceContract.CoverageIndex(output)
+            for i in input {
+                let brute = output.contains { ConfidenceContract.strictlyOverlaps($0.audioRange, i.audioRange) }
+                #expect(index.covers(i.audioRange) == brute, "\(i.audioRange) vs \(output.map(\.audioRange))")
+            }
+        }
+    }
+
+    @Test func verifyStaysFastOnTenThousandSpans() {
+        let input = (0..<10_000).map { i in
+            TranscriptSpan(text: "w\(i)", confidence: 0.9, audioRange: (Double(i) * 0.3)...(Double(i) * 0.3 + 0.3), provenance: [.asr])
+        }
+        let output = input.map { $0.touched(by: .formatterProse) }
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        #expect(ConfidenceContract.verify(input: input, output: output).isEmpty)
+        let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+        #expect(ms < 500, "verify took \(ms) ms for 10k spans")
     }
 }

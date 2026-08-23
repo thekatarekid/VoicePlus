@@ -45,18 +45,20 @@ public enum ConfidenceContract {
     /// audioRange no longer appears in the output at all is a violation).
     public static func verify(input: [TranscriptSpan], output: [TranscriptSpan]) -> [String] {
         var violations: [String] = []
+        let coverage = CoverageIndex(output)
 
-        for span in input {
-            let covered = output.contains { strictlyOverlaps($0.audioRange, span.audioRange) }
-            if !covered {
-                violations.append("audioRange \(span.audioRange) of \"\(span.text)\" was dropped")
-            }
+        for span in input where !coverage.covers(span.audioRange) {
+            violations.append("audioRange \(span.audioRange) of \"\(span.text)\" was dropped")
         }
+
+        // First input span per exact audioRange (same semantics as `input.first(where:)`, O(n)).
+        var byRange: [ClosedRange<TimeInterval>: TranscriptSpan] = [:]
+        for span in input where byRange[span.audioRange] == nil { byRange[span.audioRange] = span }
 
         for (index, out) in output.enumerated() {
             if out.provenance.isEmpty {
                 violations.append("output[\(index)] \"\(out.text)\" has empty provenance")
-            } else if let matching = input.first(where: { $0.audioRange == out.audioRange }) {
+            } else if let matching = byRange[out.audioRange] {
                 if out.provenance.count <= matching.provenance.count
                     || Array(out.provenance.prefix(matching.provenance.count)) != matching.provenance {
                     violations.append("output[\(index)] \"\(out.text)\" did not append provenance")
@@ -73,6 +75,49 @@ public enum ConfidenceContract {
         }
 
         return violations
+    }
+
+    /// O(log n) "is this input range covered by some output range" with exactly the
+    /// `strictlyOverlaps` semantics (P1.12 hardening: 10k-span utterances must not go quadratic).
+    struct CoverageIndex {
+        private let lowers: [TimeInterval]        // non-zero-length outputs sorted by lowerBound
+        private let prefixMaxUpper: [TimeInterval]
+        private let pointLowers: [TimeInterval]   // zero-length outputs, sorted
+
+        init(_ output: [TranscriptSpan]) {
+            let ranges = output.map(\.audioRange)
+            let spans = ranges.filter { $0.lowerBound != $0.upperBound }.sorted { $0.lowerBound < $1.lowerBound }
+            lowers = spans.map(\.lowerBound)
+            var running = -TimeInterval.infinity
+            prefixMaxUpper = spans.map { running = max(running, $0.upperBound); return running }
+            pointLowers = ranges.filter { $0.lowerBound == $0.upperBound }.map(\.lowerBound).sorted()
+        }
+
+        /// Number of elements of `xs` (sorted) that satisfy `pred` (pred is monotone: true then false).
+        private static func count(_ xs: [TimeInterval], while pred: (TimeInterval) -> Bool) -> Int {
+            var lo = 0, hi = xs.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if pred(xs[mid]) { lo = mid + 1 } else { hi = mid }
+            }
+            return lo
+        }
+
+        func covers(_ a: ClosedRange<TimeInterval>) -> Bool {
+            if a.lowerBound == a.upperBound {
+                // zero-length input: some output must contain the point.
+                let k = Self.count(lowers) { $0 <= a.lowerBound }
+                if k > 0, prefixMaxUpper[k - 1] >= a.lowerBound { return true }
+                return !pointLowers.isEmpty && Self.count(pointLowers) { $0 < a.lowerBound } < Self.count(pointLowers) { $0 <= a.lowerBound }
+            }
+            // non-zero input vs non-zero outputs: b.lower < a.upper && a.lower < b.upper
+            let k = Self.count(lowers) { $0 < a.upperBound }
+            if k > 0, prefixMaxUpper[k - 1] > a.lowerBound { return true }
+            // non-zero input vs zero-length outputs: a contains b.lower
+            let before = Self.count(pointLowers) { $0 < a.lowerBound }
+            let upTo = Self.count(pointLowers) { $0 <= a.upperBound }
+            return upTo > before
+        }
     }
 
     /// Overlap with positive duration; touching endpoints do not count. Zero-length spans

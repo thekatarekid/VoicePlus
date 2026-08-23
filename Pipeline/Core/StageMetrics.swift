@@ -75,21 +75,32 @@ public struct MultiLabSink: LabSink {
 }
 
 public enum EditDistance {
-    /// Character-level Levenshtein distance.
+    /// Above this many DP cells (after common prefix/suffix trimming) the exact distance is
+    /// replaced by the upper bound `max(lenA, lenB)` so a pathological hands-free utterance can
+    /// never stall the pipeline on instrumentation (P1.12 hardening).
+    public static let exactCellLimit = 4_000_000
+
+    /// Character-level Levenshtein distance. Common prefix/suffix are stripped first (formatters
+    /// usually touch a few characters), so the typical cost is tiny even for long utterances.
     public static func levenshtein(_ a: String, _ b: String) -> Int {
-        let a = Array(a.unicodeScalars), b = Array(b.unicodeScalars)
+        if a == b { return 0 }
+        var a = Array(a.unicodeScalars)[...], b = Array(b.unicodeScalars)[...]
+        while let x = a.first, let y = b.first, x == y { a = a.dropFirst(); b = b.dropFirst() }
+        while let x = a.last, let y = b.last, x == y { a = a.dropLast(); b = b.dropLast() }
         if a.isEmpty { return b.count }
         if b.isEmpty { return a.count }
-        var prev = Array(0...b.count)
-        var cur = [Int](repeating: 0, count: b.count + 1)
-        for i in 1...a.count {
+        if a.count * b.count > exactCellLimit { return max(a.count, b.count) }
+        let aa = Array(a), bb = Array(b)
+        var prev = Array(0...bb.count)
+        var cur = [Int](repeating: 0, count: bb.count + 1)
+        for i in 1...aa.count {
             cur[0] = i
-            for j in 1...b.count {
-                let cost = a[i - 1] == b[j - 1] ? 0 : 1
+            for j in 1...bb.count {
+                let cost = aa[i - 1] == bb[j - 1] ? 0 : 1
                 cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
             }
             swap(&prev, &cur)
         }
-        return prev[b.count]
+        return prev[bb.count]
     }
 }
