@@ -30,11 +30,15 @@ public final class MockHTTPTransport: HTTPTransport, @unchecked Sendable {
     public func enqueue(_ r: Response) { lock.lock(); queue.append(r); lock.unlock() }
 
     public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        lock.lock(); defer { lock.unlock() }
-        requests.append(request)
-        let r = queue.count > 1 ? queue.removeFirst() : (queue.first ?? Response())
+        let r = next(request)
         let http = HTTPURLResponse(url: request.url!, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         return (r.body, http)
+    }
+
+    private func next(_ request: URLRequest) -> Response {
+        lock.lock(); defer { lock.unlock() }
+        requests.append(request)
+        return queue.count > 1 ? queue.removeFirst() : (queue.first ?? Response())
     }
 
     /// Decoded JSON body of request `i` (for assertions on request shaping).
