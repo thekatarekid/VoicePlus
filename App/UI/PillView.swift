@@ -10,6 +10,9 @@ public final class PillViewModel: ObservableObject {
     /// P2.3 — transform ghost ("↩ / try again") + morph preview; nil outside a transform turn.
     @Published public var ghost: TransformGhost?
     @Published public var morph: MorphAnimationModel?
+    /// P6.3 — script indicator ("EN" / "हि" / "EN·हि"); empty = hidden.
+    @Published public var scriptBadge: String = ""
+
     public var onGhostAction: ((TransformGhost.Action) -> Void)?
     private var reducer = PillStateReducer()
     private var cancellables: Set<AnyCancellable> = []
@@ -58,6 +61,14 @@ public struct PillView: View {
             icon
             content
             Spacer(minLength: 0)
+            if !model.scriptBadge.isEmpty {
+                Text(model.scriptBadge)
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(.white.opacity(0.18)))
+                    .accessibilityIdentifier("pill.script")
+            }
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

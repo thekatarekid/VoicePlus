@@ -42,6 +42,10 @@ public struct DictationOutcome: Equatable, Sendable {
     public var wordsDictated: Int
     public var wordsEdited: Int
     public var landedAt: Date
+    /// P6.1 — what was dictated and what the field held after the user's edits, so the
+    /// adaptation loop can turn a post-dictation edit into a training pair.
+    public var originalText: String = ""
+    public var finalText: String?
     public var edited: Bool { wordsEdited > 0 }
 }
 
@@ -59,6 +63,8 @@ public final class ZeroEditTracker: @unchecked Sendable {
         public var baseline: String
         public var landedAt: Date
         public var maxEdited: Int
+        /// Last observed field value inside the window (P6.1 training-pair source).
+        public var lastValue: String?
     }
 
     public let window: TimeInterval
@@ -79,7 +85,7 @@ public final class ZeroEditTracker: @unchecked Sendable {
         guard let field = field ?? observer.focusedField() else { return }
         let baseline = observer.value(of: field) ?? text
         lock.lock()
-        pending[utteranceID] = Pending(utteranceID: utteranceID, field: field, text: text, baseline: baseline, landedAt: now, maxEdited: 0)
+        pending[utteranceID] = Pending(utteranceID: utteranceID, field: field, text: text, baseline: baseline, landedAt: now, maxEdited: 0, lastValue: nil)
         lock.unlock()
         finalizeExpired(at: now)
     }
@@ -104,6 +110,7 @@ public final class ZeroEditTracker: @unchecked Sendable {
         guard var p = pending[utteranceID], now.timeIntervalSince(p.landedAt) <= window else { return }
         let edits = WERScorer.score(reference: p.baseline, hypothesis: fieldValue).errors
         p.maxEdited = max(p.maxEdited, min(edits, Self.wordCount(p.text)))
+        if fieldValue != p.baseline { p.lastValue = fieldValue }
         pending[utteranceID] = p
     }
 
@@ -115,7 +122,8 @@ public final class ZeroEditTracker: @unchecked Sendable {
         for p in done { pending[p.utteranceID] = nil }
         let results = done.map {
             DictationOutcome(utteranceID: $0.utteranceID, field: $0.field, wordsDictated: Self.wordCount($0.text),
-                             wordsEdited: $0.maxEdited, landedAt: $0.landedAt)
+                             wordsEdited: $0.maxEdited, landedAt: $0.landedAt,
+                             originalText: $0.text, finalText: $0.lastValue)
         }
         outcomes.append(contentsOf: results)
         lock.unlock()

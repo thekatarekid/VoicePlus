@@ -45,6 +45,8 @@ public enum EngineFactory {
         public var audio: PipelineAudioSource?
         public var provider: BiasingRecognizerProvider?
         public var modelManager: ModelManager?
+        /// P6.3 — script-aware routing over the final recognizer (nil under the mock engine).
+        public var codeSwitch: CodeSwitchRouter?
     }
 
     public static func mockFixtureName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
@@ -91,6 +93,24 @@ public enum EngineFactory {
         case .appleSpeech: name = "Apple Speech (on-device)"
         }
         Log.engine.info("real engine: \(name), vad=\(vad.name)")
-        return Built(engine: engine, kind: .real(recognizer: name), audio: audio, provider: provider, modelManager: manager)
+        var built = Built(engine: engine, kind: .real(recognizer: name), audio: audio, provider: provider, modelManager: manager)
+        // P6.3 — code-switch router over the same final recognizer; the Indic backend loads
+        // only when its CoreML weights are installed (otherwise routing reports why).
+        let indicStatus = IndicASRAvailability.check(modelsDirectory: ModelCatalog.modelsRoot())
+        built.codeSwitch = CodeSwitchRouter(primary: LazyProviderFinalRecognizer(provider: provider),
+                                            indic: UnavailableIndicBackend(status: indicStatus))
+        if case .available(let path) = indicStatus { Log.engine.info("indic ASR weights present at \(path) (backend pending)") }
+        return built
+    }
+}
+
+/// P6.3 — `FinalRecognizer` face over the lazily-resolved provider recognizer, so the
+/// `CodeSwitchRouter` can be built before the model finishes loading.
+public final class LazyProviderFinalRecognizer: FinalRecognizer, @unchecked Sendable {
+    public let name = "provider-final"
+    private let provider: BiasingRecognizerProvider
+    public init(provider: BiasingRecognizerProvider) { self.provider = provider }
+    public func recognize(_ samples: [Float]) async throws -> [TranscriptSpan] {
+        try await provider.resolve().final.recognize(samples)
     }
 }

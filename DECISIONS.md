@@ -159,3 +159,59 @@ the P1.13 DMG; the script and the app mode are ready for it (`Packaging/soak.sh 
 - 2 h soak on fanless hardware (above).
 - Real-world fixture suites (`Lab/FIXTURES.md` backlog) before any kill decision is final —
   today's entity/technical numbers are from TTS audio.
+
+---
+
+## 2026-08-24 — Phases 3–6 integration (composition root)
+
+One code agent wired the already-unit-tested modules into the app, one phase per commit
+(P3 de94fc4, P4 cae24d4, P5 93f5369, P6 below). 930 → 959 tests, all green per phase;
+`swift run VoicePlusApp` verified after each.
+
+### Flag defaults after this review
+
+| Flag | Default | Change |
+|---|---|---|
+| `contextBiasing` | **off** | unchanged (kill criterion stands; `LearnedLexiconSource` now feeds the ranker when it flips on) |
+| `voiceRepair` | **on** | unchanged |
+| `dualPath` | **off** | unchanged |
+| `cloudASR` | **off** | unchanged |
+| `directedSpeech` | **off** (new, experimental) | added for P5.1 hands-free |
+
+### P3 — deixis
+Timeline recorder + ink overlay + deixis/referent resolvers wired: `contextLine` lands in
+`StageContext.extra`; ambiguity runs reverse elicitation (rings → clarifying pill text).
+Acceptance: "move this over there" resolves both referents across two displays in the
+scripted suite (Phase3AcceptanceTests). Live AX hit-testing/tap remain manual (TCC).
+
+### P4 — act domain
+Second key (default Right ⌘, own defaults key) holds the act domain open; deterministic
+catalogue (200 entries, bundled into the .app) → consent → executor; agent fallback is the
+native AX-only loop over a Providers-backed planner (unparseable plans give up, never
+guess). Fuzz result: 200 random irreversible submissions, zero unconfirmed executions;
+"open the PR tab and scroll to the failing check" passes over the mock action system.
+Consent policy stays code-only (no user config). Connector OAuth needs client IDs via
+environment; GitHub PAT path works without one.
+
+### P5 — hands-free
+**Harness reading (synthetic fixture corpus):** 12 addressed / 22 ambient clips →
+0 false triggers (0.0/day, ship bar < 1/day PASS), 1 missed address (8.3%).
+**Decision:** the ship bar is technically met but only on the synthetic corpus the
+classifier was hand-tuned against — the spec's bar requires the recorded home+office
+corpus. `directedSpeech` therefore ships **opt-in experimental (default off)**; flip only
+after a real-corpus soak holds < 1 false trigger/day. Speaker gate rejects fixture
+TV/noise audio at 100% in the acceptance suite; meeting capture produces diarized
+("You"/"Others") transcripts + extractive notes fully locally. Unmute is never automatic.
+Live always-on capture, Calendar/Screen-Recording usage strings and the notch prompt on
+real hardware remain manual.
+
+### P6 — adaptation, code-switch, sync
+Corrections + post-dictation edits (zero-edit tracker now carries original/final text) →
+`TrainingPairStore` → bias-list retrain (LoRA reports infeasible on-device, as designed) →
+regression-guard stage + ranker source. Acceptance: day-30 personal WER < day-1 through
+the wired loop; the corrected word is never re-mis-heard; Hinglish fixture lands as one
+mixed-script string with the `EN·हि` pill badge; profile round-trips export→import and QR
+pairing derives one shared key on both ends (key in Keychain, payload audited: no audio).
+Indic RNNT weights are not shipped: `CodeSwitchRouter` is wired with the
+`UnavailableIndicBackend` (routing reports why) until a backend lands — the merger/
+indicator/injection path works with the primary recognizer today.

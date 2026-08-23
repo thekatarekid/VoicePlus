@@ -34,7 +34,7 @@ let package = Package(
         .target(name: "KeyboardCore", dependencies: ["Shared"], path: "iOS/KeyboardCore"),
         .executableTarget(
             name: "VoicePlusApp",
-            dependencies: ["Shared", "Engine", "Pipeline", "Injection", "Providers", "Lab", "Actions"],
+            dependencies: ["Shared", "Engine", "Pipeline", "Injection", "Providers", "Lab", "Actions", "Sync"],
             path: "App"
         ),
         .testTarget(name: "SharedTests", dependencies: ["Shared"], path: "Tests/SharedTests"),
@@ -46,7 +46,7 @@ let package = Package(
         .testTarget(name: "ActionsTests", dependencies: ["Actions"], path: "Tests/ActionsTests"),
         .testTarget(name: "SyncTests", dependencies: ["Sync"], path: "Tests/SyncTests"),
         .testTarget(name: "KeyboardCoreTests", dependencies: ["KeyboardCore"], path: "Tests/KeyboardCoreTests"),
-        .testTarget(name: "AppTests", dependencies: ["Shared", "VoicePlusApp"], path: "Tests/AppTests"),
+        .testTarget(name: "AppTests", dependencies: ["Shared", "Sync", "VoicePlusApp"], path: "Tests/AppTests"),
     ],
     swiftLanguageVersions: [.v5]
 )

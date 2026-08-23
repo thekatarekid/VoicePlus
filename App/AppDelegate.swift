@@ -147,6 +147,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             session?.handle(action)
         }
         SettingsWindowController.connectorHub = container.connectorHub
+        SettingsWindowController.syncService = container.sync
+        // P6.2 — "Train by voice": ~2 s through the engine's audio tap → pronunciation store.
+        SettingsWindowController.trainByVoice = { [weak container] word in
+            guard let container, let adaptation = container.adaptation else { return nil }
+            container.audioTap.reset()
+            try? await container.engine.start(prewarm: true)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            _ = try? await container.engine.stop()
+            let samples = container.audioTap.samples
+            guard !samples.isEmpty else { return "Couldn't hear anything — try again." }
+            return adaptation.trainByVoice(word: word, samples: samples)
+        }
+        // P6.3 — script indicator into the pill badge.
+        container.codeSwitch.onIndicatorChange = { [weak self] label in
+            DispatchQueue.main.async { self?.pill.model.scriptBadge = label }
+        }
 
         // P5 — hands-free: wake-verb context flag rides the lander's augmenter chain; the
         // directed-speech gate opens the mic on addressed speech; hard mute pauses everything.
@@ -205,7 +221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         status.onOpenLab = { [weak container] in
             guard let container else { return }
-            LabWindowController.showLab(registry: container.labRegistry, database: container.database)
+            LabWindowController.showLab(registry: container.labRegistry, database: container.database,
+                                        personalWER: container.adaptation?.personalWER)
         }
         status.onOpenDataPanel = { [weak container] in
             guard let container else { return }

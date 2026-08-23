@@ -57,9 +57,14 @@ public final class AppContainer {
     public let handsFree: HandsFreeController
     public let wakeVerb: WakeVerbPreRoute
     public let meeting: MeetingCoordinator
+    /// P6 — personal adaptation loop, code-switching, encrypted sync.
+    public let adaptation: AdaptationService?
+    public let codeSwitch: CodeSwitchService
+    public let sync: SyncService
     public let audioTap = UtteranceAudioTap()
     private let recognizerProvider: BiasingRecognizerProvider?
     private var zeroEditTimer: Timer?
+    private var adaptTimer: Timer?
 
     public struct Options {
         public var environment: [String: String] = ProcessInfo.processInfo.environment
@@ -121,6 +126,11 @@ public final class AppContainer {
         // P2.6 snippets: exact-trigger pre-route ahead of every other rule, expansion first among stages.
         let snippetStore: any SnippetStoring = database.map { DatabaseSnippetStore(database: $0) } ?? InMemorySnippetStore()
         snippets = snippetStore
+
+        // P6.1 — adaptation loop: corrections + post-dictation edits → training pairs →
+        // personal lexicon (bias-list learning) → ranker source + regression guard stage.
+        let adaptationService = try? AdaptationService()
+        adaptation = adaptationService
         // P4.2 — the act hook runs first: while the second key holds the domain open (or a card
         // is pending) the utterance is a command, not text.
         // P5 — then "not you" (hands-free only) and the wake-verb grammar, then snippets.
@@ -130,7 +140,8 @@ public final class AppContainer {
         self.handsFree = handsFreeController
         let wakeVerbPre = WakeVerbPreRoute()
         self.wakeVerb = wakeVerbPre
-        let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore)] + StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
+        let guardStage = RegressionGuardStage(lexicon: { [weak adaptationService] in adaptationService?.loop.lexicon ?? PersonalLexicon() })
+        let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore), guardStage] + StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
             stage.id == .style ? StyleStage(store: styleStore) : stage
         }
         let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, handsFreeController, wakeVerbPre, SnippetPreRoute(store: snippetStore)]))
@@ -148,8 +159,14 @@ public final class AppContainer {
 
         // Zero-edit counter (P1.11) over AX readback.
         let zeroEditTracker: ZeroEditTracker? = database.map { db in
-            ZeroEditTracker(observer: AXFieldObserver(system: system)) { outcome in
+            ZeroEditTracker(observer: AXFieldObserver(system: system)) { [weak adaptationService] outcome in
                 do { try ZeroEditTracker.persist(outcome, to: db) } catch { Log.db.error("zero-edit persist failed: \(error)") }
+                // P6.1 — an edited landing becomes a training pair; a clean one still counts.
+                if outcome.edited, let final = outcome.finalText {
+                    adaptationService?.ingestEdit(utteranceID: outcome.utteranceID, original: outcome.originalText, edited: final)
+                } else if !outcome.edited {
+                    adaptationService?.recordCleanLanding(text: outcome.originalText)
+                }
             }
         }
         zeroEdit = zeroEditTracker
@@ -167,12 +184,15 @@ public final class AppContainer {
             ContactsSource(provider: LiveContacts()),
         ])
         if let database { harvester.add(CorrectionSource(store: DatabaseCorrectionStore(database: database))) }
+        if let adaptationService { harvester.add(LearnedLexiconSource(loop: adaptationService.loop)) }
         biasing = BiasingController(harvester: harvester, vocabulary: BiasVocabulary.discoverParakeet(), flags: flags)
 
         // Voice repair (P1.6, Bet 3): AX replace-range + correction log + zero-edit decrement.
         let dictionary = (try? database?.dictionaryTerms().map(\.term)) ?? []
+        let correctionFanout = CompositeCorrectionSink(sinks: [database.map { DatabaseCorrectionSink(database: $0) },
+                                                               adaptationService.map { AdaptationCorrectionSink(service: $0) }].compactMap { $0 })
         repair = RepairSession(replaceSink: InjectionReplaceRangeSink(system: system),
-                               correctionSink: database.map { DatabaseCorrectionSink(database: $0) },
+                               correctionSink: correctionFanout,
                                zeroEditSink: DatabaseZeroEditSink(database: database),
                                enricher: AlternateEnricher(userDictionary: dictionary))
 
@@ -183,7 +203,7 @@ public final class AppContainer {
                                        replaceSink: InjectionReplaceRangeSink(system: system),
                                        recognizers: built.provider.map { ProviderDualPathRecognizers(provider: $0) },
                                        samples: { [audioTap] in audioTap.samples })
-        correction.correctionLog = database.map { DatabaseCorrectionSink(database: $0) }
+        correction.correctionLog = correctionFanout
 
         // P3 — deixis service over the live AX hit-tester; referents from AX artifacts + contacts.
         let deixis = DeixisService(hitTester: LiveAXHitTester())
@@ -199,6 +219,11 @@ public final class AppContainer {
         lander.transform = transform
         lander.correction = correction
         lander.contextAugmenter = { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }
+        // P6.3 — script-aware final text + pill indicator; P6.4 — sync service.
+        let codeSwitchService = CodeSwitchService(router: built.codeSwitch)
+        codeSwitch = codeSwitchService
+        sync = SyncService(database: database, snippets: snippetStore, settings: settings)
+        lander.textFinalizer = { [weak codeSwitchService] spans in codeSwitchService?.finalize(spans) }
         lander.actClaimConsumer = { [weak actHook, weak handsFreeController] in
             let act = actHook?.consumeClaim() ?? false
             let notYou = handsFreeController?.consumeClaim() ?? false
@@ -257,6 +282,9 @@ public final class AppContainer {
 
         zeroEditTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak zeroEditTracker] _ in
             zeroEditTracker?.poll()
+        }
+        adaptTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak adaptationService] _ in
+            adaptationService?.retrainIfNeeded()
         }
         Log.app.info("container up: engine=\(String(describing: built.kind)) db=\(database != nil) providers=\(routing.allProviders.count)")
     }

@@ -12,6 +12,7 @@ public struct SettingsView: View {
     @ObservedObject var snippets: SnippetsViewModel
     @ObservedObject var corrections: CorrectionSettingsViewModel
     @ObservedObject var connectors: ConnectorsSettingsViewModel
+    @ObservedObject var sync: SyncSettingsViewModel
     let deps: OnboardingDependencies
     @Binding var selectedTab: SettingsTab
 
@@ -24,6 +25,7 @@ public struct SettingsView: View {
             SnippetsSettingsTab(model: snippets).padding(4).tabItem { Label("Snippets", systemImage: "text.quote") }.tag(SettingsTab.snippets)
             flagsTab.tabItem { Label("Flags", systemImage: "flag") }.tag(SettingsTab.flags)
             ConnectorsSettingsTab(model: connectors).tabItem { Label("Services", systemImage: "link") }.tag(SettingsTab.connectors)
+            SyncSettingsTab(model: sync).tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }.tag(SettingsTab.sync)
             dataTab.tabItem { Label("Data", systemImage: "network") }.tag(SettingsTab.data)
         }
         .frame(width: 560, height: 400)
@@ -96,6 +98,7 @@ public struct SettingsView: View {
 
     @State private var newTerm = ""
     @State private var importResult: ContactsImportOffer.Outcome?
+    @State private var trainToast: String?
 
     private var dictionaryTab: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -111,10 +114,25 @@ public struct SettingsView: View {
             HStack {
                 TextField("New term", text: $newTerm).onSubmit { if dictionary.add(term: newTerm) { newTerm = "" } }
                 Button("Add") { if dictionary.add(term: newTerm) { newTerm = "" } }
+                // P6.2 — say the word once; the clip becomes adaptation training data and the
+                // one-time "I'll remember …" toast confirms it.
+                if let train = SettingsWindowController.trainByVoice {
+                    Button("Train by voice…") {
+                        let word = newTerm
+                        guard !word.isEmpty else { trainToast = "Type the word first, then train."; return }
+                        trainToast = "Listening…"
+                        Task { trainToast = await train(word) ?? "Already remembered “\(word)”." }
+                    }
+                    .disabled(newTerm.isEmpty)
+                    .accessibilityIdentifier("dictionary.trainByVoice")
+                }
                 Spacer()
                 Button("Import names from Contacts…") {
                     Task { importResult = await dictionary.importContacts(store: deps.contacts, settings: deps.settingsStore) }
                 }
+            }
+            if let trainToast {
+                Text(trainToast).font(.caption).foregroundStyle(.teal).accessibilityIdentifier("dictionary.rememberToast")
             }
             if let importResult {
                 Text(describe(importResult)).font(.caption).foregroundStyle(.secondary)
@@ -184,4 +202,4 @@ struct DataRow: Identifiable {
     var purpose: String { record.purpose }
 }
 
-public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, connectors, data }
+public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, connectors, sync, data }

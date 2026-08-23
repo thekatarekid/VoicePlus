@@ -9,6 +9,10 @@ public enum SettingsWindowController {
     private static var tabModel: TabSelection?
     /// P4.6 — set by the composition root so the "Connected services" tab can drive OAuth.
     public static var connectorHub: ConnectorHub?
+    /// P6.4 — sync service for the Sync tab.
+    public static var syncService: SyncService?
+    /// P6.2 — records ~2 s of audio for `word` and returns the one-time remember-toast text.
+    public static var trainByVoice: ((String) async -> String?)?
 
     final class TabSelection: ObservableObject { @Published var tab: SettingsTab = .general }
 
@@ -27,6 +31,7 @@ public enum SettingsWindowController {
                 snippets: SnippetsViewModel(store: deps.database.map { DatabaseSnippetStore(database: $0) as any SnippetStoring } ?? InMemorySnippetStore()),
                 corrections: CorrectionSettingsViewModel(store: deps.settingsStore),
                 connectors: ConnectorsSettingsViewModel(hub: SettingsWindowController.connectorHub),
+                sync: SyncSettingsViewModel(service: SettingsWindowController.syncService),
                 deps: deps,
                 selectedTab: $selection.tab
             )

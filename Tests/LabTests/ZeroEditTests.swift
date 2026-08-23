@@ -16,7 +16,8 @@ import Shared
         tracker.poll(at: t0.addingTimeInterval(30))
         #expect(tracker.finalizeExpired(at: t0.addingTimeInterval(59)).isEmpty)
         let done = tracker.finalizeExpired(at: t0.addingTimeInterval(61))
-        #expect(done == [DictationOutcome(utteranceID: "u1", field: field, wordsDictated: 3, wordsEdited: 0, landedAt: t0)])
+        #expect(done == [DictationOutcome(utteranceID: "u1", field: field, wordsDictated: 3, wordsEdited: 0, landedAt: t0,
+                                          originalText: "Hello there team", finalText: nil)])
         #expect(tracker.pendingCount == 0)
     }
 

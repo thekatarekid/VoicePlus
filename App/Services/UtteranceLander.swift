@@ -47,6 +47,8 @@ public final class UtteranceLander: @unchecked Sendable {
     public var contextAugmenter: (([TranscriptSpan], StageContext) -> StageContext)?
     /// P4.2 — returns true (and consumes the claim) when the act pre-route hook took this utterance.
     public var actClaimConsumer: (() -> Bool)?
+    /// P6.3 — script-aware text assembly (code-switch merger); nil result keeps the joined text.
+    public var textFinalizer: (([TranscriptSpan]) -> String?)?
     /// Tests await the reconcile; the app runs it off the landing path.
     public var reconcileInline = false
 
@@ -152,7 +154,7 @@ public final class UtteranceLander: @unchecked Sendable {
         // Everything else types. (Transform / question routes arrive in Phase 2; until then the
         // gatekeeper's decision is logged and the text lands verbatim — never silently dropped.)
         let finalSpans = outSpans
-        let text = finalSpans.joinedText
+        let text = textFinalizer?(finalSpans) ?? finalSpans.joinedText
         result.text = text
         let caret = (try? system.focusedElement())?.selectedRange?.lowerBound ?? 0
         let outcome = injector.inject(InjectionRequest(text: text, utteranceID: id.uuidString, expectedFocus: focus))
