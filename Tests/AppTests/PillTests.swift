@@ -86,11 +86,12 @@ struct PillViewModelTests {
         }
         // AsyncStream registers its continuation lazily on first iteration, so give the
         // consumer task a turn on the main actor before start() emits `.listening`.
+        // Under a loaded parallel test run fixed sleeps are not enough, so poll (bounded ~5s).
         try await Task.sleep(nanoseconds: 20_000_000)
         try await engine.start(prewarm: true)
-        try await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<100 where !seen.contains("listening") { try await Task.sleep(nanoseconds: 50_000_000) }
         let final = try await engine.stop()
-        try await Task.sleep(nanoseconds: 20_000_000)
+        for _ in 0..<100 where seen.last != "hidden" { try await Task.sleep(nanoseconds: 50_000_000) }
         task.cancel()
         #expect(final.joinedText == "hello world")
         #expect(seen.contains("listening"))

@@ -39,7 +39,8 @@ private func collectUntilFinal(_ stream: AsyncStream<EngineEvent>) -> Task<[Engi
 
         try await engine.start(prewarm: true)
         // Let a few partials arrive, then stop: remaining spans must flush into the final result.
-        try await Task.sleep(nanoseconds: 30_000_000)
+        // Poll (bounded ~5s) rather than a fixed sleep so loaded parallel runs stay deterministic.
+        for _ in 0..<100 { if case .previewing = engine.state { break }; try await Task.sleep(nanoseconds: 50_000_000) }
         let final = try await engine.stop()
         let events = await collector.value
 

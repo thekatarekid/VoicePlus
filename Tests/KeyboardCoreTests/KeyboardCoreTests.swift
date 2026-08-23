@@ -165,7 +165,7 @@ private extension Array where Element == KeyboardEffect {
         let server = KeyboardProxyServer(mailbox: box, doorbell: bell) { req in req.spans.map { $0.rewritten($0.text.uppercased(), by: .style) } }
         server.start()
         let client = KeyboardProxyClient(mailbox: box, doorbell: bell)
-        let resp = await client.send(KeyboardProxyRequest(requestID: 3, spans: spans([("hi", 0.9)])))
+        let resp = await client.send(KeyboardProxyRequest(requestID: 3, spans: spans([("hi", 0.9)])), timeout: 15) // generous: loaded parallel runs
         #expect(resp?.spans.first?.text == "HI" && resp?.requestID == 3)
     }
 

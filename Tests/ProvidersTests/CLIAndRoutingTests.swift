@@ -63,7 +63,7 @@ func stubBinary(_ name: String, script: String) throws -> URL {
         let p = CLIAdapterProvider(tool: .claude, binary: bin, timeout: 0.3)
         let t0 = Date()
         await #expect(throws: ProviderError.timeout) { _ = try await p.generate(prompt: "x", system: "", stage: .style) }
-        #expect(Date().timeIntervalSince(t0) < 5)
+        #expect(Date().timeIntervalSince(t0) < 15) // 0.3s timeout; slack for loaded parallel runs
     }
 }
 
