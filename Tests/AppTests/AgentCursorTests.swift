@@ -1,5 +1,7 @@
 import Foundation
 import CoreGraphics
+import AppKit
+import QuartzCore
 import Testing
 @testable import VoicePlusApp
 
@@ -59,7 +61,6 @@ struct AgentCursorModelTests {
 @MainActor
 struct AgentCursorLayerTests {
     @Test func layerAnimatesWithoutTouchingPointer() {
-        let before = NSEvent.mouseLocation
         let host = CALayer(); host.bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
         let l = AgentCursorLayer()
         l.attach(to: host); l.attach(to: host)
@@ -76,7 +77,10 @@ struct AgentCursorLayerTests {
         #expect(!l.model.visible && l.model.wisps.isEmpty && l.root.opacity == 0)
         l.detach()
         #expect(host.sublayers?.isEmpty ?? true)
-        #expect(NSEvent.mouseLocation == before)                              // never moves the user's pointer
+        // Never moves the user's pointer: the live mouse is shared with a human, so assert statically.
+        let src = try! String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../App/Overlay/AgentCursor/AgentCursorLayer.swift"), encoding: .utf8)
+        for api in ["CGWarpMouseCursorPosition(", "CGDisplayMoveCursorToPoint(", "CGEventPost(", "NSCursor."] { #expect(!src.contains(api)) }
         _ = done
     }
 }
