@@ -51,4 +51,37 @@
 - [x] P6.3 code-switching — 11b9852; 23 tests; IndicConformer MIT verified, no CoreML weights shipped; hinglish fixture lands as one string.
 - [x] P6.5 iOS keyboard — db094ff, 14227c9; 22 KeyboardCore tests; UIKit/extension tree untestable here (no Xcode/iOS SDK), TestFlight manual.
 - [x] Verify (cceb7c0): whole package builds clean; **930 tests green / 0 failed**; app launches and runs 8 s without crash; four timing flakes de-flaked.
-- [ ] **Phases 3–6 app integration — in progress** (AppContainer/StatusItem/overlay wiring, second-key binding, connector registry, onboarding-2, catalog.json bundling).
+- [x] **Phases 3–6 app integration** — done 2026-08-24, one phase per commit, **930 → 959 tests green** (`swift run VoicePlusApp` verified after each):
+  - P3 (de94fc4): DeixisService on hotkey hold → contextLine in StageContext; AXReferentContext (deep window text → biasing + referents); per-display ink overlay, pulse rings + "which one?" elicitation with clarifying-text fallback. Phase3AcceptanceTests: two-display "move this over there". 936 tests.
+  - P4 (cae24d4): second key (default Right ⌘) → ActSessionController → ActRouter (200-action catalog bundled, consent engine, native agent backend over provider planner); ActPreRouteHook claims act utterances (never typed); undo toast + confirmation card + agent cursor; ConnectorHub with Keychain + loopback OAuth (1456) + GitHub PAT, Settings "Services" tab. Phase4AcceptanceTests: 200-case irreversible fuzz zero unconfirmed. 944 tests.
+  - P5 (93f5369): new `directedSpeech` flag (experimental, **default off** — synthetic-corpus-only pass, DECISIONS.md); HandsFreeController = directed × speaker gate × hard mute; wake verbs; "not you" teaching; three-state glyph + persistent hard mute; speaker enrollment (onboarding-2); MeetingCoordinator → notch prompt → local diarized notes. Phase5AcceptanceTests: 0 false triggers/day, TV rejection. 952 tests.
+  - P6 (df2c4d6): AdaptationService (corrections + edits → TrainingPairStore → bias-list retrain → learned lexicon + regression guard in the live pipeline); Lab "you" tab; "Train by voice" + RememberToast; CodeSwitchRouter/Service + EN·हि pill badge (Indic weights not shipped — UnavailableIndicBackend); SyncService + QR pairing + Settings "Sync" tab. Phase6AcceptanceTests: day-30 < day-1, Hinglish one-string, sync round-trip. 959 tests.
+- [x] **Phase 3 release** — 2026-08-24: `Packaging/releases/VoicePlus_3_1.3.0.dmg` (14 MB, sha256 `5344f3e9c8f90e7d012780af96d9c8ad3850cc11998901219f66a3c178da5969`), tag `release/phase-3/v1.3.0`, verify_install OK, notes `Packaging/notes/phase-3.md`, GitHub release updated with real notes; human test script (10 steps) pending.
+- [x] **Phase 4 release** — 2026-08-24: `Packaging/releases/VoicePlus_4_1.4.0.dmg` (14 MB, sha256 `98ec9cf4367b0e8ee1be0f16e5ae902c6b3bce8bae472603ad79a2826e8e5ecc`), tag `release/phase-4/v1.4.0`, verify_install OK, notes `Packaging/notes/phase-4.md`, GitHub release updated; human test script (12 steps) pending.
+- [x] **Phase 5 release** — 2026-08-24: `Packaging/releases/VoicePlus_5_1.5.0.dmg` (14 MB, sha256 `bfe33f9b99a243c3d256d82bb2db7b8f7ae062a1197ed807fda5c3a68074a3e0`), tag `release/phase-5/v1.5.0`, verify_install OK, notes `Packaging/notes/phase-5.md`, GitHub release updated; `directedSpeech` ships experimental/off; human test script (11 steps incl. real-corpus soak) pending.
+- [x] **Phase 6 release** — 2026-08-24: `Packaging/releases/VoicePlus_6_1.6.0.dmg` (14 MB, sha256 `66ae1e52b469a2b65a85761f16e5256865d7e707eed5bc68ae9ee1305310a1af`), tag `release/phase-6/v1.6.0`, verify_install OK, notes `Packaging/notes/phase-6.md`, GitHub release updated; no TestFlight build (iOS keyboard source-only without Xcode); human test script (11 steps) pending.
+
+## Status: all 7 phase releases complete
+
+Every phase of the build plan has shipped through `Packaging/release.sh`; checksums in `Packaging/releases/CHECKSUMS.txt`, notes in `Packaging/notes/`, tags + GitHub releases per phase. **959 automated tests green / 0 failed** at the final tag.
+
+| Artifact | Version | Tag |
+|---|---|---|
+| `VoicePlus_0_0.0.1.dmg` | 0.0.1 (pipeline smoke) | — |
+| `VoicePlus_1_1.0.0.dmg` | 1.0.0 | `release/phase-1/v1.0.0` |
+| `VoicePlus_1.5_1.1.0.dmg` | 1.1.0 | `release/phase-1.5/v1.1.0` |
+| `VoicePlus_2_1.2.0.dmg` | 1.2.0 | `release/phase-2/v1.2.0` |
+| `VoicePlus_3_1.3.0.dmg` | 1.3.0 | `release/phase-3/v1.3.0` |
+| `VoicePlus_4_1.4.0.dmg` | 1.4.0 | `release/phase-4/v1.4.0` |
+| `VoicePlus_5_1.5.0.dmg` | 1.5.0 | `release/phase-5/v1.5.0` |
+| `VoicePlus_6_1.6.0.dmg` | 1.6.0 | `release/phase-6/v1.6.0` |
+
+**Remaining manual / hardware-only verification** (from DECISIONS.md + the integration reports — automated coverage stops here):
+- Live mic → injection latency on real hardware, live AX paths (selection, hit-testing, deep window reads, LiveActionSystem) and all TCC grants (Microphone, Accessibility, Input Monitoring, Calendar, Screen Recording) — every phase's human test script on a clean account.
+- 2 h thermal/battery soak on fanless hardware with `VOICEPLUS_LIVE_MODELS=1` (`Packaging/soak.sh 120`; only the 3-min mock soak has run).
+- Real OAuth client IDs for the P4.6 connectors (env-supplied; only the GitHub PAT path works with zero setup) + live endpoint verification.
+- Directed-speech real-corpus soak (recorded home+office corpus, < 1 false trigger/day) before `directedSpeech` can default on — current pass is synthetic-only.
+- Indic RNNT CoreML weights for P6.3 (router ships with `UnavailableIndicBackend`); real Devanagari accuracy unmeasured until then.
+- iOS keyboard build via Xcode (xcodegen + archive + TestFlight) — source-only in v1.6.0; Mac→iPhone sync round-trip untested end-to-end.
+- Notarization + Developer ID signing + hardened runtime (all builds are ad-hoc signed) — pending an identity.
+- Real-world recorded fixture suites (`Lab/FIXTURES.md` backlog) — all kill-criteria/gate numbers to date are on synthetic TTS audio.

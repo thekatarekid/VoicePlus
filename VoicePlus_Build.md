@@ -581,11 +581,11 @@ _Parallel: P3.1+P3.2 (WS-G) ∥ P3.3 (WS-G-2) ∥ P3.4 (WS-C). P3.5/P3.6 after P
   Full-screen transparent overlay per display; Excalidraw-style stroke rendering (jitter + taper); 1.5s fade; resolution pulse animation on bound regions; region bundle counter in pill. _(status: done 5705405; per-display click-through OverlayWindow, CAShapeLayer strokes, FadeSchedule/PulseSpec, RegionBundleCounter; 7 tests; real rendering untested)_
   
 ### P3.3 — Deixis resolver
-**Status (2026-08-24):** built 1545752 — Actions/Deixis (DeixisTypes, AXHitTesting with Mock/Live hit tester, DeixisResolver: audio midpoint → CaptureAlignment → stroke region else pointer → AX hit-test → near-miss ranking with ambiguity flag). Phase gate: 120/120 synthetic cases across two displays (point/stroke/move-then-point) incl. "move this over there" both referents. LiveAXHitTester (needs Accessibility trust), overlay rings and coordinator wiring untested; app wiring in progress.
+**Status (2026-08-24):** built 1545752 — Actions/Deixis (DeixisTypes, AXHitTesting with Mock/Live hit tester, DeixisResolver: audio midpoint → CaptureAlignment → stroke region else pointer → AX hit-test → near-miss ranking with ambiguity flag). Phase gate: 120/120 synthetic cases across two displays (point/stroke/move-then-point) incl. "move this over there" both referents. Wired into the app 2026-08-24 (de94fc4): DeixisService on hotkey hold, contextLine into StageContext, overlay rings live. LiveAXHitTester remains manual (Accessibility TCC).
 
 - [x] 
   
-  Bind deictic words ("this/that/there/these") to timeline: word's audio timestamp → pointer position/stroke segment at that moment → AX hit-test → element/region reference passed to pipeline/actions. _(status: built + unit-tested; app wiring in progress)_
+  Bind deictic words ("this/that/there/these") to timeline: word's audio timestamp → pointer position/stroke segment at that moment → AX hit-test → element/region reference passed to pipeline/actions. _(status: done — wired de94fc4; contextLine lands via UtteranceLander.contextAugmenter, lastBindings kept for the P4 act path; Phase3AcceptanceTests)_
   
 - [x] 
   
@@ -597,159 +597,159 @@ _Parallel: P3.1+P3.2 (WS-G) ∥ P3.3 (WS-G-2) ∥ P3.4 (WS-C). P3.5/P3.6 after P
   Full-window text extraction incl. scrollback (AX value + `AXVisibleCharacterRange` walking); document/terminal content on demand; cached per window with invalidation. _(status: done 26808a6; AXWindowReader w/ AXStringForRange stitching + 200k cap, WindowContentCache + observer invalidation, LiveAXNodeAccess; 20 tests; live AX untested)_
   
 ### P3.5 — Conversational referents
-**Status (2026-08-24):** built 1545752 — Actions/Referents/ReferentResolver (Participant/VisibleArtifact providers, pronoun + "the deck/file" resolution by gender/kind/salience, ambiguity on close salience, contextLines); 5 tests. Only StaticReferentContext exercised; live AX participant/artifact providers pending app wiring.
+**Status (2026-08-24):** built 1545752 — Actions/Referents/ReferentResolver (Participant/VisibleArtifact providers, pronoun + "the deck/file" resolution by gender/kind/salience, ambiguity on close salience, contextLines); 5 tests. Wired 2026-08-24 (de94fc4): AXReferentContext feeds participants/artifacts from AXWindowReader + WindowContentCache; live AX itself manual (TCC).
 
 - [x] 
   
-  Resolver for "her/him/the deck/the file": thread participants + visible artifacts from AX context → pipeline context injection. _(status: built + unit-tested; app wiring in progress)_
+  Resolver for "her/him/the deck/the file": thread participants + visible artifacts from AX context → pipeline context injection. _(status: done — wired de94fc4 via AXReferentContext; Phase3AcceptanceTests)_
   
 ### P3.6 — Reverse elicitation
-**Status (2026-08-24):** built 1545752 — Actions/Elicitation/ReverseElicitation pure state machine (ask → prompting rings + "which one?" + deadline → point or speech answer → resolved; timeout → clarifying pill text; cancel); 5 tests. Ring rendering + coordinator wiring pending app integration.
+**Status (2026-08-24):** built 1545752 — Actions/Elicitation/ReverseElicitation pure state machine (ask → prompting rings + "which one?" + deadline → point or speech answer → resolved; timeout → clarifying pill text; cancel); 5 tests. Ring rendering + coordinator wiring done 2026-08-24 (de94fc4): pulse rings + "which one?" pill text with deadline tick → clarifying-text fallback.
 
 - [x] 
   
-  On ambiguous binding (two candidates within threshold): draw ring + "which one?" label; user points or speaks; answer feeds resolver; timeout falls back to clarifying text in pill. _(status: built + unit-tested; app wiring in progress)_
+  On ambiguous binding (two candidates within threshold): draw ring + "which one?" label; user points or speaks; answer feeds resolver; timeout falls back to clarifying text in pill. _(status: done — wired de94fc4; elicitation point/timeout covered in Phase3AcceptanceTests)_
   
 
-**Phase acceptance:** "move this over there" resolves both referents correctly ≥ 95% in the scripted suite; live demo across two displays. **Release:** `Packaging/release.sh 3 1.3.0` → `VoicePlus_3_1.3.0.dmg`.
+**Phase acceptance:** "move this over there" resolves both referents correctly ≥ 95% in the scripted suite; live demo across two displays. **Release:** `Packaging/release.sh 3 1.3.0` → `VoicePlus_3_1.3.0.dmg`. _(status:_ **_released 2026-08-24_** _—_ `Packaging/releases/VoicePlus_3_1.3.0.dmg` _14 MB, sha256_ `5344f3e9c8f90e7d012780af96d9c8ad3850cc11998901219f66a3c178da5969`_, tag_ `release/phase-3/v1.3.0`_, verify_install OK, notes_ `Packaging/notes/phase-3.md`_; scripted suite 120/120 = 100% + Phase3AcceptanceTests two-display resolution, 936 tests green at integration; live two-display demo is the human test script (10 steps))_
 
 * * *
 ## 8. PHASE 4 — "It does it, not just types it" (.dmg #5)
 _Parallel: P4.1 (deterministic) ∥ P4.3 (cursor) ∥ P4.4 (consent) ∥ P4.6 (connectors — one subagent per connector). P4.2 after P4.1; P4.5 after P4.1+P4.4._
 ### P4.1 — Deterministic action layer
-**Status (2026-08-24):** built c11f180 — Actions/Deterministic (ActionSystem protocol as the only OS door, FuzzyMatch, ActionCatalog + catalog.json, ActionExecutor precondition→execute→AX-readback, MockActionSystem, LiveActionSystem over NSWorkspace/AXUIElement/CGEvent gated on AXIsProcessTrusted); 14 tests. Phase gate 1398/1398. LiveActionSystem untested on hardware; make_app.sh must bundle catalog.json; app wiring in progress.
+**Status (2026-08-24):** built c11f180 — Actions/Deterministic (ActionSystem protocol as the only OS door, FuzzyMatch, ActionCatalog + catalog.json, ActionExecutor precondition→execute→AX-readback, MockActionSystem, LiveActionSystem over NSWorkspace/AXUIElement/CGEvent gated on AXIsProcessTrusted); 14 tests. Phase gate 1398/1398. Wired 2026-08-24 (cae24d4): ActRouter stack in AppContainer, make_app.sh bundles catalog.json. LiveActionSystem still untested on hardware.
 
 - [x] 
   
-  Action vocabulary over AX: click-by-name (fuzzy label match), focus app/tab/window/desktop, scroll, keystroke/shortcut, fill field, open URL/file. **Catalogue the 200 actions** (mine Infina's published command list as the spec of what matters). _(status: built + unit-tested; app wiring in progress)_ _(Infina's command list unreachable (404); 200-entry catalog.json composed: mac 72, browser 30, editor 32, chat 22, mail 22, files 22)_
+  Action vocabulary over AX: click-by-name (fuzzy label match), focus app/tab/window/desktop, scroll, keystroke/shortcut, fill field, open URL/file. **Catalogue the 200 actions** (mine Infina's published command list as the spec of what matters). _(status: done — wired cae24d4; catalog bundled into the .app)_ _(Infina's command list unreachable (404); 200-entry catalog.json composed: mac 72, browser 30, editor 32, chat 22, mail 22, files 22)_
   
 - [x] 
   
-  Each action: precondition check → execute → postcondition verify (AX readback). No model call on this path. _(status: built + unit-tested; app wiring in progress)_
+  Each action: precondition check → execute → postcondition verify (AX readback). No model call on this path. _(status: done — wired cae24d4 via ActionExecutor in AppContainer)_
   
 - [x] 
   
   **Tests:** action conformance matrix across 15 apps; **target ≥ 99% success** on catalogued actions (phase gate). _(status: done — 15 mock apps × catalogued actions = 1398 cells, 1398/1398 = 100.00% (746 readback-verified, 652 delivery-only))_
   
 ### P4.2 — Act routing (second key)
-**Status (2026-08-24):** built d4aa81c — Actions/ActRouting (ActDomainActivation/State, ActIntentParser: stop/confirm/cancel grammar → fuzzy catalogue match scoped by bundle id, compound/"can you…" → agentic goal, ConsentRequest bridge; ActRouter deterministic via ConsentEngine+ActionExecutor, agentic via AgentActionBackend); routing matrix 200/200 catalogue phrasings. Composition root still needs the 3-line GatekeeperPreRouting adapter + second-key binding (Actions does not link Pipeline).
+**Status (2026-08-24):** built d4aa81c — Actions/ActRouting (ActDomainActivation/State, ActIntentParser: stop/confirm/cancel grammar → fuzzy catalogue match scoped by bundle id, compound/"can you…" → agentic goal, ConsentRequest bridge; ActRouter deterministic via ConsentEngine+ActionExecutor, agentic via AgentActionBackend); routing matrix 200/200 catalogue phrasings. Composition root done 2026-08-24 (cae24d4): ActPreRouteHook 3-line gatekeeper adapter with explicit claim flag (claimed utterances never type), second key (configurable, default Right ⌘, own defaults key) via additive HotkeyService params.
 
 - [x] 
   
-  Second hotkey activates `act` domain (Bet 5: two keys); gatekeeper extends to action-intent parse → deterministic match first; unmatched → agentic fallback with visible plan. _(status: built + unit-tested; app wiring in progress)_
+  Second hotkey activates `act` domain (Bet 5: two keys); gatekeeper extends to action-intent parse → deterministic match first; unmatched → agentic fallback with visible plan. _(status: done — wired cae24d4; second-key gating + gatekeeper claim in Phase4AcceptanceTests)_
   
 ### P4.3 — Overlay agent cursor _(parallel)_
-**Status (2026-08-24):** built 7230706/e9a7cc2 — App/Overlay/AgentCursor (AgentCursorModel: position/glow/scale/seeded wisps; AgentCursorLayer CALayer host on InkLayerView, ActionAnimating glide/click/typing/highlight/dismiss; AgentCursorController routes to per-display OverlayWindow). "Never moves pointer" asserted statically (no CGWarp/CGEventPost/NSCursor). Live CA rendering untested; not yet hooked to action execution.
+**Status (2026-08-24):** built 7230706/e9a7cc2 — App/Overlay/AgentCursor (AgentCursorModel: position/glow/scale/seeded wisps; AgentCursorLayer CALayer host on InkLayerView, ActionAnimating glide/click/typing/highlight/dismiss; AgentCursorController routes to per-display OverlayWindow). "Never moves pointer" asserted statically (no CGWarp/CGEventPost/NSCursor). Hooked to action dispatch 2026-08-24 (cae24d4) via AgentCursorController (never moves the real pointer); live CA rendering untested headless.
 
 - [x] 
   
-  Tinted glowing pointer with trailing wisp, rendered on overlay; **never moves the user's pointer**; all deterministic/agentic actions animate through it. _(status: built + unit-tested; app wiring in progress)_
+  Tinted glowing pointer with trailing wisp, rendered on overlay; **never moves the user's pointer**; all deterministic/agentic actions animate through it. _(status: done — wired cae24d4)_
   
 ### P4.4 — Consent engine (Bet 7) _(parallel)_
-**Status (2026-08-24):** built 7230706 — Actions/Consent (ActionClassifier rule table exact id → prefix → category → conservative default irreversible; ConsentEngine: reversible executes, semi → 5s UndoToastModel + CompensatingActionRegistry, irreversible → ConfirmationCard with confirm(token) click or spoken "confirm"/cancel); ConsentTests incl. 2000-iteration fuzz: irreversible/unknown ids never execute unconfirmed. Toast/card UI and connector compensators pending app wiring.
+**Status (2026-08-24):** built 7230706 — Actions/Consent (ActionClassifier rule table exact id → prefix → category → conservative default irreversible; ConsentEngine: reversible executes, semi → 5s UndoToastModel + CompensatingActionRegistry, irreversible → ConfirmationCard with confirm(token) click or spoken "confirm"/cancel); ConsentTests incl. 2000-iteration fuzz: irreversible/unknown ids never execute unconfirmed. Toast/card UI wired 2026-08-24 (cae24d4): undo toast panel with 5s draining ring → ConsentEngine.undo; slide-out confirmation card (click or spoken confirm); agent cards await the click through NativeAgentBackend.confirmation.
 
 - [x] 
   
-  Action classifier: `reversible / semi / irreversible` (rule table + conservative default); reversible = just do; semi = 5s undo toast with draining ring + compensating action (e.g. delete sent Slack msg where API allows); irreversible = slide-out card requiring spoken "confirm" or click. Policy table in code, unit-tested, no user config. _(status: built + unit-tested; app wiring in progress)_
+  Action classifier: `reversible / semi / irreversible` (rule table + conservative default); reversible = just do; semi = 5s undo toast with draining ring + compensating action (e.g. delete sent Slack msg where API allows); irreversible = slide-out card requiring spoken "confirm" or click. Policy table in code, unit-tested, no user config. _(status: done — wired cae24d4; 200-case irreversible fuzz at router level, zero unconfirmed executions)_
   
 ### P4.5 — Agentic fallback
-**Status (2026-08-24):** built d4aa81c — Actions/Agent (AgentActionBackend protocol, AXSummary screenshot-free observation, 12-ActionKind tool vocabulary, PlannerLLM + ScriptedPlanner, NativeAgentBackend observe→plan→consent-gated execute loop with maxRounds/maxSteps, stop()/requestStop() cancelling in-flight planner + LIFO rollback, wall-clock watchdog; StepChips model). **Cua decision:** license clears (MIT root) but not imported — Python-first, screenshot+VM loop conflicts with the no-screenshots rule and the omni extra is AGPL; native loop shipped, Cua seam kept (Actions/Agent/README.md). 32 ActRouting+AgentBackend tests incl. 300-plan consent fuzz. Provider-backed planner, live AX observation and confirmation-card wiring pending.
+**Status (2026-08-24):** built d4aa81c — Actions/Agent (AgentActionBackend protocol, AXSummary screenshot-free observation, 12-ActionKind tool vocabulary, PlannerLLM + ScriptedPlanner, NativeAgentBackend observe→plan→consent-gated execute loop with maxRounds/maxSteps, stop()/requestStop() cancelling in-flight planner + LIFO rollback, wall-clock watchdog; StepChips model). **Cua decision:** license clears (MIT root) but not imported — Python-first, screenshot+VM loop conflicts with the no-screenshots rule and the omni extra is AGPL; native loop shipped, Cua seam kept (Actions/Agent/README.md). 32 ActRouting+AgentBackend tests incl. 300-plan consent fuzz. Provider-backed planner (RoutingTable-backed, Data-Panel-logged, DONE/GIVEUP parser that never guesses) + confirmation-card wiring done 2026-08-24 (cae24d4); live AX observation manual.
 
 - [x] 
   
-  `AgentActionBackend` protocol; Cua backend **only if license clears** (P4.0 task: verify), else native loop (screenshot-free: AX tree + action vocabulary as tools, local or provider LLM planning); step plan → chips UI; every step through consent engine; "stop" kills mid-flight (hard timeout + rollback of queued steps). _(status: built + unit-tested; app wiring in progress)_
+  `AgentActionBackend` protocol; Cua backend **only if license clears** (P4.0 task: verify), else native loop (screenshot-free: AX tree + action vocabulary as tools, local or provider LLM planning); step plan → chips UI; every step through consent engine; "stop" kills mid-flight (hard timeout + rollback of queued steps). _(status: done — wired cae24d4; PR-tab+scroll agentic flow passes over MockActionSystem in Phase4AcceptanceTests)_
   
 ### P4.6 — Native connectors _(fully parallel — one subagent each)_
-**Status (2026-08-24):** built 7d99f8d/ae74b25 (Common + Slack/Gmail/Google Calendar) and 583138f (Linear/Notion/GitHub) — Actions/Connectors: Connector protocol (matches(target), perform → performed|fallbackToUI), ConnectorOAuth PKCE S256 + refresh, ConnectorClient (bearer, one 401→refresh retry, every call → NetworkLogRecord stage `act.connector` for the Data Panel), ConnectorRegistry, HTTPTransport + mocks; Slack chat.postMessage/search, Gmail send/draft/search, Calendar insert/list, Linear GraphQL, Notion REST, GitHub REST + device flow/PAT. 74 tests (40 + 34). Untested live: real OAuth browser flows (loopback listener lives in the app), real endpoints, Keychain; registry registration pending app wiring.
+**Status (2026-08-24):** built 7d99f8d/ae74b25 (Common + Slack/Gmail/Google Calendar) and 583138f (Linear/Notion/GitHub) — Actions/Connectors: Connector protocol (matches(target), perform → performed|fallbackToUI), ConnectorOAuth PKCE S256 + refresh, ConnectorClient (bearer, one 401→refresh retry, every call → NetworkLogRecord stage `act.connector` for the Data Panel), ConnectorRegistry, HTTPTransport + mocks; Slack chat.postMessage/search, Gmail send/draft/search, Calendar insert/list, Linear GraphQL, Notion REST, GitHub REST + device flow/PAT. 74 tests (40 + 34). Wired 2026-08-24 (cae24d4): ConnectorHub with Keychain secret store, loopback OAuth receiver (port 1456), GitHub PAT path, Settings 'Services' tab with OAuth start buttons; every call → Data Panel. Still untested live: real OAuth client IDs (env-supplied, none bundled), real endpoints, Keychain on hardware.
 
 - [x] 
   
-  Slack, Gmail, Google Calendar, Linear, Notion, GitHub: OAuth per service, minimal scopes; actions (send/draft/create/comment) route via API when target matches, else UI automation. Every call → Data Panel. _(status: built + unit-tested; app wiring in progress)_
+  Slack, Gmail, Google Calendar, Linear, Notion, GitHub: OAuth per service, minimal scopes; actions (send/draft/create/comment) route via API when target matches, else UI automation. Every call → Data Panel. _(status: done — wired cae24d4; live OAuth needs client IDs via environment, GitHub PAT works without one)_
   
 
-**Phase acceptance:** deterministic path ≥ 99% on the 200-action catalogue; "open the PR tab and scroll to the failing check" works live; irreversible actions never execute unconfirmed (fuzz-tested). **Release:** `Packaging/release.sh 4 1.4.0` → `VoicePlus_4_1.4.0.dmg`.
+**Phase acceptance:** deterministic path ≥ 99% on the 200-action catalogue; "open the PR tab and scroll to the failing check" works live; irreversible actions never execute unconfirmed (fuzz-tested). **Release:** `Packaging/release.sh 4 1.4.0` → `VoicePlus_4_1.4.0.dmg`. _(status:_ **_released 2026-08-24_** _—_ `Packaging/releases/VoicePlus_4_1.4.0.dmg` _14 MB, sha256_ `98ec9cf4367b0e8ee1be0f16e5ae902c6b3bce8bae472603ad79a2826e8e5ecc`_, tag_ `release/phase-4/v1.4.0`_, verify_install OK, notes_ `Packaging/notes/phase-4.md`_; conformance 1398/1398 = 100%, 200-case irreversible fuzz zero unconfirmed, PR-tab flow over mock action system, 944 tests green at integration; live run is the human test script (12 steps))_
 
 * * *
 ## 9. PHASE 5 — "No hotkey at all" (.dmg #6)
 _Parallel: P5.5 meeting capture is independent — may be built any time after Phase 1. P5.1 ∥ P5.3 ∥ P5.4; P5.2 after P5.1._
 ### P5.1 — Directed-speech detection _(research item — timebox, wake-verb fallback guaranteed ship)_
-**Status (2026-08-24):** built cb383c7 — Engine/DirectedSpeech (RollingAudioRing 10 s RAM-only with wipe(), feature extractor SNR/level/energy slope/autocorr voicing/ZCR/onset rate + KeywordSpotter + field-focused/addressed-recently context, logistic DirectedSpeechClassifier with online SGD from markNotYou()/markWasMe(), Detector, Harness). Corpus is synthetic macOS TTS (prosody alone barely separates; content+context cues carry the result). Mic/VAD path and pill "not you" UI pending app wiring.
+**Status (2026-08-24):** built cb383c7 — Engine/DirectedSpeech (RollingAudioRing 10 s RAM-only with wipe(), feature extractor SNR/level/energy slope/autocorr voicing/ZCR/onset rate + KeywordSpotter + field-focused/addressed-recently context, logistic DirectedSpeechClassifier with online SGD from markNotYou()/markWasMe(), Detector, Harness). Corpus is synthetic macOS TTS (prosody alone barely separates; content+context cues carry the result). Wired 2026-08-24 (93f5369): HandsFreeController gates capture behind the new `directedSpeech` flag (experimental, default off); "not you" is a hands-free-only pre-route hook (claimed, never typed). Live mic path manual.
 
 - [x] 
   
-  Always-on lightweight path: VAD → tiny on-device classifier (prosody + content features + gaze-free context: is a text field focused, was the machine addressed recently). Nothing stored or transmitted; rolling 10s buffer, RAM only. _(status: built + unit-tested; app wiring in progress)_
+  Always-on lightweight path: VAD → tiny on-device classifier (prosody + content features + gaze-free context: is a text field focused, was the machine addressed recently). Nothing stored or transmitted; rolling 10s buffer, RAM only. _(status: done — wired 93f5369; directed × speaker gate × hard mute must all agree before the mic opens)_
   
 - [x] 
   
   **Metric harness first:** false-trigger rate / missed-address rate on a recorded home+office corpus. **Ship bar: < 1 false trigger/day** simulated; below bar → mode stays opt-in "experimental". _(status: done — harness over Fixtures/directed (34 entries: 12 addressed, 19 noisy + 3 VAD-floor ambient): 0 false triggers / 0.0 per simulated day (400 ambient utterances/day), missed-address 1/12 = 8.3% with hand-initialised weights; after one "not you" pass 0 FT, after full pass 0 FT / 0 missed. Ship bar passes on the synthetic corpus only, so mode stays opt-in_ `engine.directedSpeech.experimental` _(default off))_
   
 ### P5.2 — Wake-verb grammar
-**Status (2026-08-24):** built 5de5b55 — Pipeline/WakeVerb (WakeVerbGrammar "type/write/dictate …", "send[ it|that]", " …"/"in|to|tell …"; WakeVerbPreRoute active only when `input.mode == handsFree`, forces .dictate; WakeVerbStage blanks wake tokens preserving audioRange/confidence/provenance; WakeVerbHintModel full hint 10 uses, fades over 5). 47 tests with P5.1. Hands-free mode flag + pill hint display pending app wiring.
+**Status (2026-08-24):** built 5de5b55 — Pipeline/WakeVerb (WakeVerbGrammar "type/write/dictate …", "send[ it|that]", " …"/"in|to|tell …"; WakeVerbPreRoute active only when `input.mode == handsFree`, forces .dictate; WakeVerbStage blanks wake tokens preserving audioRange/confidence/provenance; WakeVerbHintModel full hint 10 uses, fades over 5). 47 tests with P5.1. Wired 2026-08-24 (93f5369): WakeVerbPreRoute + WakeVerbStage registered; `input.mode=handsFree` stamped by the lander's augmenter chain from the coordinator's double-tap state.
 
 - [x] 
   
-  Infina-pattern reliable fallback: leading verbs `"type …"`, `"send"`, `"<appname> …"` parsed by gatekeeper in hands-free mode; printed inside pill first 10 uses, then fades. _(status: built + unit-tested; app wiring in progress)_
+  Infina-pattern reliable fallback: leading verbs `"type …"`, `"send"`, `"<appname> …"` parsed by gatekeeper in hands-free mode; printed inside pill first 10 uses, then fades. _(status: done — wired 93f5369; wake-verb strip covered in Phase5AcceptanceTests)_
   
 ### P5.3 — Speaker identification _(parallel)_
-**Status (2026-08-24):** built b1047f1 — Engine/Speaker (SpeakerEmbedding cosine for FluidAudio WeSpeaker when models on disk / gaussian MFCC mean+std fallback, SpeakerEnrollment 3 prompts → centroid profile persisted as JSON without audio, SpeakerGate user/other/unknown). Rejection suite on fixture TTS voices: **84/84 non-enrolled utterances rejected = 100% (bar ≥99%)**, own-voice acceptance 31/33 = 93.9%. Raw MFCC cosine gave 0% rejection, hence the Gaussian summary (threshold 0.5). WeSpeaker path compiled but untested (models absent); onboarding-2 screen pending.
+**Status (2026-08-24):** built b1047f1 — Engine/Speaker (SpeakerEmbedding cosine for FluidAudio WeSpeaker when models on disk / gaussian MFCC mean+std fallback, SpeakerEnrollment 3 prompts → centroid profile persisted as JSON without audio, SpeakerGate user/other/unknown). Rejection suite on fixture TTS voices: **84/84 non-enrolled utterances rejected = 100% (bar ≥99%)**, own-voice acceptance 31/33 = 93.9%. Raw MFCC cosine gave 0% rejection, hence the Gaussian summary (threshold 0.5). WeSpeaker path compiled but untested (models absent); onboarding-2 enrollment window wired 2026-08-24 (93f5369): 3 prompted takes through the engine audio tap → centroid profile → HandsFreeController.install.
 
 - [x] 
   
-  Speaker embedding (diarization models already in engine) enrolled during onboarding-2; non-user speech ignored in hands-free; TV/podcast rejection test suite. _(status: built + unit-tested; app wiring in progress)_
+  Speaker embedding (diarization models already in engine) enrolled during onboarding-2; non-user speech ignored in hands-free; TV/podcast rejection test suite. _(status: done — wired 93f5369; TV-noise rejection in Phase5AcceptanceTests)_
   
 ### P5.4 — Ambient state + hard mute _(parallel)_
-**Status (2026-08-24):** built 961ec70 — App/Ambient (AmbientStateModel with distinct SF Symbols for menu bar + notch, mute is a hard latch that wins over processing and is never auto-released, persistent MUTED badge, MuteController + MuteStore so relaunch stays muted, NotYouCorrection → DirectedSpeechTeacher + speaker-profile negatives). 14 tests with P5.3. StatusItem/notch wiring pending.
+**Status (2026-08-24):** built 961ec70 — App/Ambient (AmbientStateModel with distinct SF Symbols for menu bar + notch, mute is a hard latch that wins over processing and is never auto-released, persistent MUTED badge, MuteController + MuteStore so relaunch stays muted, NotYouCorrection → DirectedSpeechTeacher + speaker-profile negatives). 14 tests with P5.3. StatusItem wiring done 2026-08-24 (93f5369): three-state glyph override + hard-mute menu item (persistent badge, mute pauses the coordinator, unmute never automatic).
 
 - [x] 
   
-  Three-state glyph (listening/muted/processing) in menu bar + notch; one-gesture mute with persistent badge; unmute never automatic; "not you" voice correction teaches the classifier. _(status: built + unit-tested; app wiring in progress)_
+  Three-state glyph (listening/muted/processing) in menu bar + notch; one-gesture mute with persistent badge; unmute never automatic; "not you" voice correction teaches the classifier. _(status: done — wired 93f5369)_
   
 ### P5.5 — Meeting capture _(independent; port from Muesli, MIT)_
 - [x] 
   
-  Process-tap system audio recorder + watchdog + SCK fallback (copy, attribute); mic+system dual capture; AEC; VAD chunking; diarization ("You"/"Others"); local notes via pipeline providers; camera+calendar meeting detection with Join&Record/Record/Ignore notch notification; notes arrive as notification post-call. No bot ever joins. _(status: done 78be903; Engine/Meeting — process tap + SCK fallback, NLMS AEC, DualCapture, You/Others diarization, extractive notes, MeetingDetector, MeetingStore; 17 tests; no app wiring, needs Calendar/Screen Recording usage strings)_
+  Process-tap system audio recorder + watchdog + SCK fallback (copy, attribute); mic+system dual capture; AEC; VAD chunking; diarization ("You"/"Others"); local notes via pipeline providers; camera+calendar meeting detection with Join&Record/Record/Ignore notch notification; notes arrive as notification post-call. No bot ever joins. _(status: done 78be903; Engine/Meeting — process tap + SCK fallback, NLMS AEC, DualCapture, You/Others diarization, extractive notes, MeetingDetector, MeetingStore; 17 tests; wired 93f5369 2026-08-24 — MeetingCoordinator: camera+calendar → MeetingDetector → notch prompt → MeetingSession → local extractive notes → notification; Calendar/Screen-Recording usage strings + notch prompt on real hardware manual)_
   
 
-**Phase acceptance:** false-trigger < 1/day in soak; speaker-ID rejects fixture TV audio ≥ 99%; meeting produces diarized transcript + notes fully locally. **Release:** `Packaging/release.sh 5 1.5.0` → `VoicePlus_5_1.5.0.dmg`.
+**Phase acceptance:** false-trigger < 1/day in soak; speaker-ID rejects fixture TV audio ≥ 99%; meeting produces diarized transcript + notes fully locally. **Release:** `Packaging/release.sh 5 1.5.0` → `VoicePlus_5_1.5.0.dmg`. _(status:_ **_released 2026-08-24_** _—_ `Packaging/releases/VoicePlus_5_1.5.0.dmg` _14 MB, sha256_ `bfe33f9b99a243c3d256d82bb2db7b8f7ae062a1197ed807fda5c3a68074a3e0`_, tag_ `release/phase-5/v1.5.0`_, verify_install OK, notes_ `Packaging/notes/phase-5.md`_; harness 0 false triggers/day but synthetic corpus only →_ `directedSpeech` _ships experimental/off (DECISIONS.md), speaker rejection 84/84 = 100%, diarized meeting notes local, 952 tests green at integration; real-corpus soak is human test step 10)_
 
 * * *
 ## 10. PHASE 6 — "It sounds like you" (.dmg #7 + mobile)
 _Parallel: P6.1 ∥ P6.3 ∥ P6.4 ∥ P6.5. P6.2 after P6.1._
 ### P6.1 — Personal adaptation loop
-**Status (2026-08-24):** built d07fac1/af25cb7 — Engine/Adapt (TrainingPairStore JSONL + WAV clips under AppPaths/Adapt, ingest(CorrectionRecord) + ingestEdit via word-level diff, eraseAll; AdapterTrainer: BiasListLearner with saturating weights feeding Biasing via LearnedLexiconSource, LoRAAdapterStub returning .infeasible → LabRunRecord (on-device fine-tune judged infeasible with CoreML inference-only graphs), AdaptationLoop try-LoRA-then-bias-list with persisted lexicon.json; PersonalWERTracker per day for Lab "you" tab). 27 Adapt tests incl. synthetic day-30 < day-1 replay. Live audio provider over the capture ring pending app wiring.
+**Status (2026-08-24):** built d07fac1/af25cb7 — Engine/Adapt (TrainingPairStore JSONL + WAV clips under AppPaths/Adapt, ingest(CorrectionRecord) + ingestEdit via word-level diff, eraseAll; AdapterTrainer: BiasListLearner with saturating weights feeding Biasing via LearnedLexiconSource, LoRAAdapterStub returning .infeasible → LabRunRecord (on-device fine-tune judged infeasible with CoreML inference-only graphs), AdaptationLoop try-LoRA-then-bias-list with persisted lexicon.json; PersonalWERTracker per day for Lab "you" tab). 27 Adapt tests incl. synthetic day-30 < day-1 replay. Wired 2026-08-24 (df2c4d6): AdaptationService — corrections + post-dictation edits (ZeroEditTracker now reports original/final) → TrainingPairStore → periodic retrain → LearnedLexiconSource + RegressionGuardStage in the live pipeline; Lab 'you' tab shows the day-by-day table + trend.
 
 - [x] 
   
-  Corrections (repair events, post-dictation edits) accumulate as paired (audio-span, corrected-text) training data — **on device**; periodic adapter fine-tune (LoRA-style on decoder/joint, or bias-list learning if fine-tune infeasible on-device — Lab decides); personal-WER tracked per user in Lab "you" tab. _(status: built + unit-tested; app wiring in progress)_
+  Corrections (repair events, post-dictation edits) accumulate as paired (audio-span, corrected-text) training data — **on device**; periodic adapter fine-tune (LoRA-style on decoder/joint, or bias-list learning if fine-tune infeasible on-device — Lab decides); personal-WER tracked per user in Lab "you" tab. _(status: done — wired df2c4d6; day-30 < day-1 proven through the wired loop in Phase6AcceptanceTests)_
   
 ### P6.2 — Learned lexicon
-**Status (2026-08-24):** built d07fac1/af25cb7 — Engine/Adapt/LearnedLexicon (PronunciationCapture storing WAV + trainByVoice pair, RememberToastModel once-per-word persisted never-repeat set, RegressionGuard stage `adapt.lexicon` with exact/Double-Metaphone substitution carrying confidence/audioRange, original kept as alternate); regression fixture: corrected word never re-mis-heard. Toast UI pending app wiring.
+**Status (2026-08-24):** built d07fac1/af25cb7 — Engine/Adapt/LearnedLexicon (PronunciationCapture storing WAV + trainByVoice pair, RememberToastModel once-per-word persisted never-repeat set, RegressionGuard stage `adapt.lexicon` with exact/Double-Metaphone substitution carrying confidence/audioRange, original kept as alternate); regression fixture: corrected word never re-mis-heard. Wired 2026-08-24 (df2c4d6): 'Train by voice' in dictionary settings (engine audio tap → PronunciationCapture) + one-time RememberToast, never repeats per word.
 
 - [x] 
   
-  Pronunciation capture ("Train by voice" — say the word, store the audio); one-time "I'll remember _Kothari_" toast; never repeat for same word. _(status: built + unit-tested; app wiring in progress)_
+  Pronunciation capture ("Train by voice" — say the word, store the audio); one-time "I'll remember _Kothari_" toast; never repeat for same word. _(status: done — wired df2c4d6)_
   
 ### P6.3 — Code-switching _(parallel)_
-**Status (2026-08-24):** built 11b9852 — Engine/CodeSwitch (Script classifier, streaming LanguageDetector script + romanized-Hindi n-grams → english/hindi/mixed with no toggle, ScriptAwareMerger → ScriptSegments with spacing/punctuation and provenance `codeswitch.merge`, IndicASRBackend protocol + availability check for indic-conformer-600m CoreML, CodeSwitchRouter, ScriptIndicatorModel EN / हि / EN·हि with hysteresis). License verified: IndicConformer-600m-multilingual is MIT; no official CoreML export (Muesli's RNNT conversion copyable with attribution); weights not shipped. 23 tests incl. hinglish fixture landing as one string. Real Indic backend untested (no weights); app wiring pending.
+**Status (2026-08-24):** built 11b9852 — Engine/CodeSwitch (Script classifier, streaming LanguageDetector script + romanized-Hindi n-grams → english/hindi/mixed with no toggle, ScriptAwareMerger → ScriptSegments with spacing/punctuation and provenance `codeswitch.merge`, IndicASRBackend protocol + availability check for indic-conformer-600m CoreML, CodeSwitchRouter, ScriptIndicatorModel EN / हि / EN·हि with hysteresis). License verified: IndicConformer-600m-multilingual is MIT; no official CoreML export (Muesli's RNNT conversion copyable with attribution); weights not shipped. 23 tests incl. hinglish fixture landing as one string. Wired 2026-08-24 (df2c4d6): CodeSwitchRouter built in EngineFactory, CodeSwitchService as the lander's textFinalizer, ScriptIndicator badge in the pill. Indic weights not shipped — UnavailableIndicBackend reports why; merger/indicator/injection work with the primary recognizer.
 
 - [x] 
   
-  Integrate AI4Bharat Indic RNNT models (verify license) under engine; script-aware injection (Devanagari + Latin in one utterance); auto language detection, **no language toggle**; pill script indicator. _(status: built + unit-tested; app wiring in progress)_
+  Integrate AI4Bharat Indic RNNT models (verify license) under engine; script-aware injection (Devanagari + Latin in one utterance); auto language detection, **no language toggle**; pill script indicator. _(status: done — wired df2c4d6; Hinglish fixture lands as one mixed-script string with the EN·हि badge in Phase6AcceptanceTests; real Indic backend pending weights)_
   
 ### P6.4 — Encrypted sync _(parallel; backend-independent of app)_
 - [x] 
   
-  Sync payload = dictionary + personas + snippets + adapter weights + settings (never audio); end-to-end encrypted (user-held key), QR pairing, export-everything file; conflict = last-writer-wins per record. _(status: done 824db84; Sync target — ChaChaPoly/HKDF, X25519 QR pairing, LWW merge, folder transport, .voiceplus export; 17 tests; Keychain store + iCloud path untested, no app wiring)_
+  Sync payload = dictionary + personas + snippets + adapter weights + settings (never audio); end-to-end encrypted (user-held key), QR pairing, export-everything file; conflict = last-writer-wins per record. _(status: done 824db84; Sync target — ChaChaPoly/HKDF, X25519 QR pairing, LWW merge, folder transport, .voiceplus export; 17 tests; wired df2c4d6 2026-08-24 — SyncService with Keychain key, QR pairing view, folder-transport picker, export/import-everything, Settings 'Sync' tab; Keychain on hardware + iCloud folder still untested live)_
   
 ### P6.5 — iOS keyboard _(parallel; separate target)_
 **Status (2026-08-24):** built db094ff/14227c9 — iOS/KeyboardCore as a macOS-testable SwiftPM target (hold-to-talk state machine with advanceToNextInputMode/dismiss, repair fan-out copy, pill model, persona picker, versioned JSON proxy over App Group file mailbox + Darwin doorbell, KeyboardASR + mock) and an XcodeGen source tree (iOS/project.yml: app + keyboard extension, App Groups, RequestsOpenAccess; SFSpeech on-device ASR, ParakeetCoreMLASR slot). Package.swift additive: products Pipeline + KeyboardCore, target KeyboardCore + KeyboardCoreTests (22 tests). **Untestable here: no Xcode/iOS SDK** — UIKit/SwiftUI/SFSpeech/App Group code uncompiled, expect minor fixes on first xcodegen build; TestFlight archive is manual on an Xcode machine. Proxy answers only while the companion app is alive; keyboard lands raw ASR after 1.5 s.
 
 - [x] 
   
-  Keyboard extension: hold-to-talk pill, same repair fan-out, personas; on-device ASR (small Parakeet via CoreML) with app-proxy for heavier pipeline; instant return to previous keyboard (kill the Aqua focus-dance). _(status: built + unit-tested; app wiring in progress)_
+  Keyboard extension: hold-to-talk pill, same repair fan-out, personas; on-device ASR (small Parakeet via CoreML) with app-proxy for heavier pipeline; instant return to previous keyboard (kill the Aqua focus-dance). _(status: built + unit-tested;_ **_ships source-only_** _— no Xcode/iOS SDK on this machine, so v1.6.0 has no TestFlight build; xcodegen + archive are manual on an Xcode machine)_
   
 
-**Phase acceptance:** day-30 personal WER < day-1 (provable in Lab); corrected word never re-mis-heard in regression fixture; Hindi+English single-breath fixture lands correctly; profile round-trips Mac→iPhone via QR. **Release:** `Packaging/release.sh 6 1.6.0` → `VoicePlus_6_1.6.0.dmg` + iOS TestFlight build.
+**Phase acceptance:** day-30 personal WER < day-1 (provable in Lab); corrected word never re-mis-heard in regression fixture; Hindi+English single-breath fixture lands correctly; profile round-trips Mac→iPhone via QR. **Release:** `Packaging/release.sh 6 1.6.0` → `VoicePlus_6_1.6.0.dmg` + iOS TestFlight build. _(status:_ **_released 2026-08-24_** _—_ `Packaging/releases/VoicePlus_6_1.6.0.dmg` _14 MB, sha256_ `66ae1e52b469a2b65a85761f16e5256865d7e707eed5bc68ae9ee1305310a1af`_, tag_ `release/phase-6/v1.6.0`_, verify_install OK, notes_ `Packaging/notes/phase-6.md`_; day-30 < day-1 through the wired loop, corrected word never re-mis-heard, Hinglish lands as one string with EN·हि badge, export/import + QR key-agreement round-trip (Mac→Mac; Mac→iPhone needs the iOS build), 959 tests green;_ **_no TestFlight build_** _— iOS keyboard is source-only without Xcode)_
 
 * * *
 ## 11. Release manifest — one dmg per phase, mandatory
@@ -758,10 +758,10 @@ _Parallel: P6.1 ∥ P6.3 ∥ P6.4 ∥ P6.5. P6.2 after P6.1._
 | 1 | `Packaging/release.sh 1 1.0.0` | `VoicePlus_1_1.0.0.dmg` ✅ 2026-08-24 produced + GitHub release |
 | 1.5 | `Packaging/release.sh 1.5 1.1.0` | `VoicePlus_1.5_1.1.0.dmg` ✅ 2026-08-24 produced + GitHub release |
 | 2 | `Packaging/release.sh 2 1.2.0` | `VoicePlus_2_1.2.0.dmg` ✅ 2026-08-24 produced + GitHub release |
-| 3 | `Packaging/release.sh 3 1.3.0` | `VoicePlus_3_1.3.0.dmg` |
-| 4 | `Packaging/release.sh 4 1.4.0` | `VoicePlus_4_1.4.0.dmg` |
-| 5 | `Packaging/release.sh 5 1.5.0` | `VoicePlus_5_1.5.0.dmg` |
-| 6 | `Packaging/release.sh 6 1.6.0` | `VoicePlus_6_1.6.0.dmg` (+ TestFlight) |
+| 3 | `Packaging/release.sh 3 1.3.0` | `VoicePlus_3_1.3.0.dmg` ✅ 2026-08-24 produced + GitHub release |
+| 4 | `Packaging/release.sh 4 1.4.0` | `VoicePlus_4_1.4.0.dmg` ✅ 2026-08-24 produced + GitHub release |
+| 5 | `Packaging/release.sh 5 1.5.0` | `VoicePlus_5_1.5.0.dmg` ✅ 2026-08-24 produced + GitHub release |
+| 6 | `Packaging/release.sh 6 1.6.0` | `VoicePlus_6_1.6.0.dmg` ✅ 2026-08-24 produced + GitHub release (TestFlight not produced — iOS keyboard source-only without Xcode) |
 
 Rules: a phase is **not complete** until its dmg exists in `Packaging/releases/`, is installable on a clean machine, and passes the phase's human test script. Patch releases within a phase bump the patch version (`VoicePlus_2_1.2.1.dmg`). Do not begin the next phase's integration until the current phase's dmg is produced — parallel _development_ of later-phase items may continue per Section 3.3.
 
@@ -769,35 +769,35 @@ Rules: a phase is **not complete** until its dmg exists in `Packaging/releases/`
 ## 12. Cross-phase quality gates (every release)
 - [x] 
   
-  Latency: key-release → landed ≤ 700ms p50 local. _(release 1: checked — IntegrationLatencyTests p50 53 ms (mock engine); hardware mic run manual)_
+  Latency: key-release → landed ≤ 700ms p50 local. _(release 1: checked — IntegrationLatencyTests p50 53 ms (mock engine); hardware mic run manual)_ _(releases 3–6: checked — IntegrationLatencyTests green in the 959-test run with the new stages registered; hardware mic run still manual)_
   
 - [x] 
   
-  Zero egress in default config (Data Panel + proxy verification). _(release 1: checked — DataPanelTests isClean + EgressGate path; proxy verification manual)_
+  Zero egress in default config (Data Panel + proxy verification). _(release 1: checked — DataPanelTests isClean + EgressGate path; proxy verification manual)_ _(releases 3–6: checked — egress gate unchanged; new act.connector/planner calls all Data-Panel-logged; sync payload audited (no audio); proxy verification manual)_
   
 - [x] 
   
-  Injection matrix green across the 12-app set. _(release 1: mock-level only (InjectionTests 66); real apps manual per test script)_
+  Injection matrix green across the 12-app set. _(release 1: mock-level only (InjectionTests 66); real apps manual per test script)_ _(releases 3–6: mock-level — injection suites green in the 959 run; real 12-app matrix manual per each phase's test script)_
   
 - [x] 
   
-  Lab regression: WER / entity recall / zero-edit never worse than previous release. _(release 1: baseline recorded in DECISIONS.md (clean 2.9%, all 13.3%); nothing prior to compare)_
+  Lab regression: WER / entity recall / zero-edit never worse than previous release. _(release 1: baseline recorded in DECISIONS.md (clean 2.9%, all 13.3%); nothing prior to compare)_ _(releases 3–6: checked at suite level — golden/regression-guard tests green in the 959 run and P6's RegressionGuardStage protects corrected words; full Lab harness re-run on real audio manual)_
   
 - [x] 
   
-  Clipboard integrity property test. _(release 1: checked — ClipboardRestoreTests)_
+  Clipboard integrity property test. _(release 1: checked — ClipboardRestoreTests)_ _(releases 3–6: checked — ClipboardRestoreTests green in the 959 run)_
   
 - [x] 
   
-  Fresh-install onboarding ≤ 60s manual script. _(release 1: manual — Packaging/notes/phase-1.md steps 1–4)_
+  Fresh-install onboarding ≤ 60s manual script. _(release 1: manual — Packaging/notes/phase-1.md steps 1–4)_ _(releases 3–6: manual — install steps in each phase's notes)_
   
 - [x] 
   
-  Upgrade-in-place from previous dmg. _(release 1: manual — step 13 over VoicePlus_0_0.0.1.dmg)_
+  Upgrade-in-place from previous dmg. _(release 1: manual — step 13 over VoicePlus_0_0.0.1.dmg)_ _(releases 3–6: verify_install.sh (mount/codesign/launch) passed per dmg; in-place upgrade over the previous phase's dmg manual — step 1 of each test script)_
   
 - [x] 
   
-  `DECISIONS.md` updated with any flag-default changes and kill-criteria readings. _(release 1: checked — 2026-08-23 entry, contextBiasing flipped off)_
+  `DECISIONS.md` updated with any flag-default changes and kill-criteria readings. _(release 1: checked — 2026-08-23 entry, contextBiasing flipped off)_ _(releases 3–6: checked — 2026-08-24 entry: directedSpeech added experimental/off, all other defaults unchanged)_
   
 
 * * *
