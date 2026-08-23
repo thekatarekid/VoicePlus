@@ -33,3 +33,22 @@
 - [x] P3.4 deep AX reading — 26808a6; 20 new tests (InjectionTests 66); live AX untested.
 - [x] P5.5 meeting capture — 78be903; 17 tests; no app wiring, needs Calendar/Screen Recording usage strings.
 - [x] P6.4 encrypted sync — 824db84; 17 tests; Keychain store + iCloud folder untested, no app wiring.
+
+## Phase 1.5 + Phase 2
+- [x] P1.5.2 Correction UX + P2.3 Transform UX — done 2026-08-24 (d80decf, c15b495); 36 tests incl. the no-keyboard E2E chain ("make this two lines" → "call out the churn number" → "bold it", zero keystrokes). Reconciler + AX readback wired in AppContainer behind `dualPath` (default off); Snippets tab, persona auto-draft, silent-corrections switches in Settings.
+- [x] **Phase 1.5 release** — 2026-08-24: `Packaging/release.sh 1.5 1.1.0` → `Packaging/releases/VoicePlus_1.5_1.1.0.dmg` (14 MB, sha256 `451351335368748bc27ac7dffa2659d259332ffe9e3baef5fd138617d2e3db31`), tag `release/phase-1.5/v1.1.0`, verify_install OK, notes `Packaging/notes/phase-1.5.md`, GitHub release https://github.com/thekatarekid/VoicePlus/releases/tag/release/phase-1.5/v1.1.0. `dualPath` ships off (in-app reconciler preview is the landed text stand-in; real EOU+TDT disagreement rate unmeasured on hardware); human test script (11 steps) pending.
+- [x] **Phase 2 release** — 2026-08-24: `Packaging/release.sh 2 1.2.0` → `Packaging/releases/VoicePlus_2_1.2.0.dmg` (14 MB, sha256 `ff450a8ca29c89f0072fa45185e602e9c4ab05dda2c3781ce177f945893d9840`), tag `release/phase-2/v1.2.0`, verify_install OK, notes `Packaging/notes/phase-2.md`, GitHub release https://github.com/thekatarekid/VoicePlus/releases/tag/release/phase-2/v1.2.0. Live AX selection / Mail-Slack-Notes untested on hardware; human test script (13 steps) pending.
+
+## Phases 3–6 development wave (2026-08-24; built + unit-tested, not yet wired into the app)
+- [x] P3.3+P3.5+P3.6 deixis / referents / reverse elicitation — 1545752; 29 tests; deixis fixture 120/120 (gate ≥95%); LiveAXHitTester + overlay rings untested.
+- [x] P4.1 deterministic action layer — c11f180; 14 tests; 200-action catalogue; conformance 1398/1398 = 100% across 15 mock apps (gate ≥99%); LiveActionSystem untested.
+- [x] P4.2+P4.5 act routing + native agent backend — d4aa81c; 32 tests; routing matrix 200/200; 300-plan consent fuzz clean; Cua: MIT but not imported (screenshot/VM loop), native loop shipped.
+- [x] P4.3+P4.4 agent cursor + consent engine — 7230706, e9a7cc2; 14 tests; 2000-iteration fuzz: irreversible/unknown never execute unconfirmed; cursor never moves pointer (static check); live rendering untested.
+- [x] P4.6 connectors Slack/Gmail/Calendar (7d99f8d, ae74b25; 40 tests) + Linear/Notion/GitHub (583138f; 34 tests); every call logged `act.connector`; live OAuth/endpoints/Keychain untested.
+- [x] P5.1+P5.2 directed speech + wake verbs — cb383c7, 5de5b55; 47 tests; harness 0 false triggers/day, missed-address 1/12 on synthetic corpus → stays opt-in experimental; hands-free flag wiring pending.
+- [x] P5.3+P5.4 speaker ID + ambient/mute — b1047f1, 961ec70; 14 tests; rejection 84/84 = 100% (bar ≥99%), own-voice 31/33; WeSpeaker path untested (no models); Gaussian MFCC fallback.
+- [x] P6.1+P6.2 adaptation loop + learned lexicon — d07fac1, af25cb7; 27 tests; LoRA infeasible on-device → bias-list learner; day-30 < day-1 synthetic replay; regression fixture green.
+- [x] P6.3 code-switching — 11b9852; 23 tests; IndicConformer MIT verified, no CoreML weights shipped; hinglish fixture lands as one string.
+- [x] P6.5 iOS keyboard — db094ff, 14227c9; 22 KeyboardCore tests; UIKit/extension tree untestable here (no Xcode/iOS SDK), TestFlight manual.
+- [x] Verify (cceb7c0): whole package builds clean; **930 tests green / 0 failed**; app launches and runs 8 s without crash; four timing flakes de-flaked.
+- [ ] **Phases 3–6 app integration — in progress** (AppContainer/StatusItem/overlay wiring, second-key binding, connector registry, onboarding-2, catalog.json bundling).
