@@ -26,6 +26,18 @@ public struct ProviderDualPathRecognizers: DualPathRecognizers {
     }
 }
 
+/// Preview stand-in for the reconciler: "what we injected" is the *landed* text (after the
+/// pipeline's formatting), not the raw EOU hypothesis — so the planner's layout matches the
+/// document and the safety rule compares like with like. The live preview already ran during
+/// capture; re-running it here would only add ANE contention.
+final class LandedTextPreview: PreviewRecognizer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _text = ""
+    var text: String { get { lock.withLock { _text } } set { lock.withLock { _text = newValue } } }
+    func feed(_ samples: [Float]) async throws -> String { text }
+    func reset() async {}
+}
+
 /// P1.5.2 glue: runs `DualPathReconciler` after a landing when `FeatureFlag.dualPath` is on
 /// and corrections are enabled for the app; applied/suggested events land in the ledger
 /// (overlay + menu + voice undo). Everything is guarded so a mock engine or missing AX is a no-op.
@@ -41,6 +53,7 @@ public final class CorrectionService: @unchecked Sendable {
     public var correctionLog: CorrectionSink?
     private let lock = NSLock()
     private var reconciler: DualPathReconciler?
+    private let landedPreview = LandedTextPreview()
     public private(set) var lastTiming: DualPathTiming?
 
     public init(ledger: CorrectionLedger, flags: FeatureFlagService, settings: SettingsStore, readback: DocumentReadback,
@@ -59,7 +72,7 @@ public final class CorrectionService: @unchecked Sendable {
     private func resolveReconciler() async -> DualPathReconciler? {
         if let r = lock.withLock({ reconciler }) { return r }
         guard let recognizers, let pair = try? await recognizers.resolve() else { return nil }
-        let runner = DualPathRunner(preview: pair.preview, final: pair.final)
+        let runner = DualPathRunner(preview: landedPreview, final: pair.final)
         runner.onTiming = { [weak self] t in self?.lock.withLock { self?.lastTiming = t } }
         let r = DualPathReconciler(runner: runner, planner: planner,
                                    applier: CorrectionApplier(replaceSink: replaceSink, eventSink: ledger, correctionLog: correctionLog),
@@ -70,10 +83,11 @@ public final class CorrectionService: @unchecked Sendable {
 
     /// Run after a successful landing. `fieldOffset` = caret where the text was injected.
     @discardableResult
-    public func reconcile(utteranceID: UUID, fieldOffset: Int, bundleID: String?) async -> [CorrectionEvent] {
-        guard isEnabled(for: bundleID) else { return [] }
+    public func reconcile(utteranceID: UUID, landedText: String, fieldOffset: Int, bundleID: String?) async -> [CorrectionEvent] {
+        guard isEnabled(for: bundleID), !landedText.isEmpty else { return [] }
         let audio = samples()
         guard !audio.isEmpty, let reconciler = await resolveReconciler() else { return [] }
+        landedPreview.text = landedText
         ledger.currentAppBundleID = bundleID
         do {
             let (plan, events) = try await reconciler.reconcile(utteranceID: utteranceID, samples: audio, fieldOffset: fieldOffset, readback: readback)

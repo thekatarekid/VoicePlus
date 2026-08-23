@@ -112,7 +112,7 @@ public struct TransformPillReducer: Equatable, Sendable {
             morph = m
             ghost = TransformGhost(instruction: instruction, before: before, after: after, shownAt: now, lifetime: ghostLifetime)
             warmSince = now
-            words = WordDiff.tokens(after).count
+            words = after.split(whereSeparator: { $0.isWhitespace }).count
             state = .transform(.init(editingWords: words, stage: .done(changed: m.changedCount)))
         case .noChange:
             warmSince = now; ghost = nil

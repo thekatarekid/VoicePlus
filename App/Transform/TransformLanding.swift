@@ -50,6 +50,13 @@ public final class TransformLanding: @unchecked Sendable {
     public var clock: () -> Date = Date.init
     private var lastInstruction: [TranscriptSpan]?
     private var lastContext: StageContext?
+    private var lastTurnAt: Date?
+
+    /// Chained-turn window (P2.3, 8 s) measured on `clock` so the pill and tests agree.
+    public var isWarm: Bool {
+        guard let t = lastTurnAt, session.selection != nil else { return false }
+        return clock().timeIntervalSince(t) < session.warmWindow
+    }
 
     public init(session: TransformSession, detector: any SelectionDetecting, qa: QuestionAnswerStage, system: SystemAccess, injector: any Injector) {
         self.session = session; self.detector = detector; self.qa = qa; self.system = system; self.injector = injector
@@ -59,7 +66,7 @@ public final class TransformLanding: @unchecked Sendable {
     /// that turns an utterance into a transform/question.
     public func route(_ decision: GatekeeperDecision) -> TransformRouteDecision {
         let fresh = detector.currentSelection()
-        let sel = (fresh?.isMeaningful == true) ? fresh : (session.isWarm ? session.selection : nil)
+        let sel = (fresh?.isMeaningful == true) ? fresh : (isWarm ? session.selection : nil)
         return TransformRouter.decide(gatekeeper: decision, selection: sel)
     }
 
@@ -91,6 +98,7 @@ public final class TransformLanding: @unchecked Sendable {
     private func run(_ spans: [TranscriptSpan], context: StageContext) async -> TransformSession.Step {
         do {
             let step = try await session.run(instruction: spans, context: context, now: clock())
+            lastTurnAt = clock()
             switch step {
             case .applied(let result, _):
                 onEvent?(.applied(instruction: result.request.instructionText, before: result.request.selection.text, after: result.output, diff: result.diff))
@@ -109,7 +117,7 @@ public final class TransformLanding: @unchecked Sendable {
     @discardableResult
     public func undo() -> TransformReplaceOutcome? {
         let o = session.undoLast()
-        if o?.succeeded == true { onEvent?(.undone) }
+        if o?.succeeded == true { lastTurnAt = clock(); onEvent?(.undone) }
         return o
     }
 

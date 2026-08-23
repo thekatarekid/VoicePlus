@@ -16,7 +16,7 @@ public final class SnippetsViewModel: ObservableObject {
     @discardableResult
     public func save(id: String? = nil, trigger: String, body: String) -> Bool {
         do {
-            try store.save(Snippet(id: id ?? UUID().uuidString, trigger: trigger.trimmingCharacters(in: .whitespaces), body: body))
+            try store.upsert(Snippet(id: id ?? UUID().uuidString, trigger: trigger.trimmingCharacters(in: .whitespaces), body: body))
             lastError = nil; reload(); return true
         } catch { lastError = Self.describe(error); return false }
     }

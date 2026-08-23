@@ -67,12 +67,14 @@ struct CorrectionUXTests {
     }
 
     @Test func revertRefusedWhenDocumentChanged() {
-        let sink = InMemoryReplaceRangeSink(document: "send Kotharis now")
+        let system = MockSystemAccess()
+        system.field = .init(value: "send Kotari now")
+        let sink = InjectionReplaceRangeSink(system: system)
         let ledger = CorrectionLedger()
         ledger.correction(Self.event("Cotari", "Kothari", at: 5))
         let o = ledger.revert(ledger.all[0], via: sink)
         #expect(!o.succeeded && ledger.all[0].status == .applied)
-        #expect(sink.document == "send Kotharis now")
+        #expect(system.field.value == "send Kotari now")
     }
 
     @Test func latestRevertableHonoursUndoWindow() {
@@ -238,7 +240,7 @@ struct CorrectionServiceTests {
         let system = MockSystemAccess()
         system.field = .init(value: "Hi. send Cotari now")
         let svc = Self.service(system: system)
-        let events = await svc.reconcile(utteranceID: UUID(), fieldOffset: 4, bundleID: "com.apple.Notes")
+        let events = await svc.reconcile(utteranceID: UUID(), landedText: "send Cotari now", fieldOffset: 4, bundleID: "com.apple.Notes")
         #expect(events.map(\.kind) == [.applied])
         #expect(system.field.value == "Hi. send Kothari now")
         #expect(svc.ledger.all.first?.now == "Kothari" && svc.ledger.all.first?.appBundleID == "com.apple.Notes")
@@ -249,7 +251,7 @@ struct CorrectionServiceTests {
         let system = MockSystemAccess()
         system.field = .init(value: "send Cotariii now")
         let svc = Self.service(system: system)
-        let events = await svc.reconcile(utteranceID: UUID(), fieldOffset: 0, bundleID: nil)
+        let events = await svc.reconcile(utteranceID: UUID(), landedText: "send Cotari now", fieldOffset: 0, bundleID: nil)
         #expect(events.first?.kind == .suggested(.safetyMismatch))
         #expect(system.field.value == "send Cotariii now")
         #expect(svc.ledger.all.first?.isRevertable == false)
@@ -259,14 +261,14 @@ struct CorrectionServiceTests {
         let system = MockSystemAccess()
         system.field = .init(value: "send Cotari now")
         let off = Self.service(system: system, flags: .inMemory([FeatureFlag.dualPath.id: false]))
-        #expect(await off.reconcile(utteranceID: UUID(), fieldOffset: 0, bundleID: nil).isEmpty)
+        #expect(await off.reconcile(utteranceID: UUID(), landedText: "send Cotari now", fieldOffset: 0, bundleID: nil).isEmpty)
         let settings = InMemorySettingsStore()
         CorrectionSettings.setEnabled(false, for: "com.apple.mail", store: settings)
         let perApp = Self.service(system: system, settings: settings)
-        #expect(await perApp.reconcile(utteranceID: UUID(), fieldOffset: 0, bundleID: "com.apple.mail").isEmpty)
+        #expect(await perApp.reconcile(utteranceID: UUID(), landedText: "send Cotari now", fieldOffset: 0, bundleID: "com.apple.mail").isEmpty)
         #expect(!perApp.isEnabled(for: "com.apple.mail") && perApp.isEnabled(for: "com.apple.Notes"))
         let silent = Self.service(system: system, samples: [])
-        #expect(await silent.reconcile(utteranceID: UUID(), fieldOffset: 0, bundleID: nil).isEmpty)
+        #expect(await silent.reconcile(utteranceID: UUID(), landedText: "send Cotari now", fieldOffset: 0, bundleID: nil).isEmpty)
         #expect(system.field.value == "send Cotari now")
     }
 
@@ -277,7 +279,8 @@ struct CorrectionServiceTests {
         let repair = RepairSession(replaceSink: InjectionReplaceRangeSink(system: system))
         let lander = UtteranceLander(pipeline: PipelineRunner.standard(), injector: TextInjector(system: system),
                                      system: system, repair: repair, flags: flags, database: nil)
-        // Preview = what the engine's final happened to say here ("Cotari"); the accurate pass says Kothari.
+        // The landed (formatted) text stands in as the preview; the accurate pass says Kothari.
+        // Case/punctuation-only differences ("Send"/"send", "now."/"now") are dropped by the planner.
         let svc = CorrectionService(ledger: CorrectionLedger(), flags: flags, settings: InMemorySettingsStore(),
                                     readback: InjectionDocumentReadback(system: system), replaceSink: InjectionReplaceRangeSink(system: system),
                                     recognizers: ScriptedRecognizers(preview: "send Cotari now", final: Self.finalSpans),
@@ -287,12 +290,12 @@ struct CorrectionServiceTests {
         let spans = [TranscriptSpan(text: "send", confidence: 0.9, audioRange: 0...0.3), TranscriptSpan(text: "Cotari", confidence: 0.9, audioRange: 0.3...0.7),
                      TranscriptSpan(text: "now", confidence: 0.9, audioRange: 0.7...1)]
         let r = await lander.land(spans, startedAt: Date(), focus: system.frontmost)
-        #expect(r.landed && system.field.value == "send Kothari now")
+        #expect(r.landed && system.field.value == "Send Kothari now.")
         #expect(svc.ledger.all.count == 1 && svc.ledger.all[0].status == .applied)
 
         let undo = await lander.land([TranscriptSpan(text: "put it back", confidence: 0.95, audioRange: 1...1.5)], startedAt: Date(), focus: system.frontmost)
         #expect(undo.revertedCorrection?.status == .reverted && undo.injection == nil)
-        #expect(system.field.value == "send Cotari now")
+        #expect(system.field.value == "Send Cotari now.")
     }
 
     @Test func utteranceTapAccumulatesAndResets() {

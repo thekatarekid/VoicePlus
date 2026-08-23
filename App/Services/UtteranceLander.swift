@@ -95,7 +95,7 @@ public final class UtteranceLander: @unchecked Sendable {
 
         // P2.3 — a selection turns the utterance into a transform / question (Bet 5). The raw
         // spans are the instruction: formatters must not rewrite what the user asked for.
-        if let transform, decision.route != .repairCommand || transform.session.isWarm {
+        if let transform, decision.route != .repairCommand || transform.isWarm {
             let outcome = await transform.handle(spans, decision: decision, context: ctx)
             if outcome != .notHandled {
                 result.transform = outcome
@@ -151,8 +151,8 @@ public final class UtteranceLander: @unchecked Sendable {
             }
             // Bet 4 — accurate pass reconciles the landed text; off the landing path in the app.
             if let correction, correction.isEnabled(for: bundleID) {
-                if reconcileInline { await correction.reconcile(utteranceID: id, fieldOffset: caret, bundleID: bundleID) }
-                else { Task { await correction.reconcile(utteranceID: id, fieldOffset: caret, bundleID: bundleID) } }
+                if reconcileInline { await correction.reconcile(utteranceID: id, landedText: text, fieldOffset: caret, bundleID: bundleID) }
+                else { Task { await correction.reconcile(utteranceID: id, landedText: text, fieldOffset: caret, bundleID: bundleID) } }
             }
         }
         if let database {
