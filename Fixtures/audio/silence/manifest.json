@@ -1,0 +1,16 @@
+[
+  {
+    "file": "silence_digital_5s.wav",
+    "transcript": "",
+    "suite": "silence",
+    "speaker": "none",
+    "notes": "all-zero samples, 5 s"
+  },
+  {
+    "file": "silence_lownoise_5s.wav",
+    "transcript": "",
+    "suite": "silence",
+    "speaker": "none",
+    "notes": "pink noise ~-60 dBFS, 5 s; expected: no speech detected"
+  }
+]

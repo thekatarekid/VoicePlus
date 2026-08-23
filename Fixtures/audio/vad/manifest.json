@@ -1,0 +1,44 @@
+[
+  {
+    "file": "vad_01_3segs.wav",
+    "transcript": "Hey, just checking in. Are we still on for lunch tomorrow at noon? Please find the updated quarterly report attached to this email. I think the best approach is to start small and iterate from there.",
+    "suite": "vad",
+    "speaker": "Daniel/Rishi/Samantha",
+    "notes": "3 speech spans, gaps 0.5-3 s; see labels.json"
+  },
+  {
+    "file": "vad_02_4segs.wav",
+    "transcript": "Thanks for your help yesterday, it really made a difference. Can you send me the address of the restaurant we talked about? The meeting has been moved to three thirty on Wednesday afternoon. I will be out of office next week and will reply when I am back.",
+    "suite": "vad",
+    "speaker": "Daniel/Rishi/Samantha",
+    "notes": "4 speech spans, gaps 0.5-3 s; see labels.json"
+  },
+  {
+    "file": "vad_03_5segs.wav",
+    "transcript": "I will be out of office next week and will reply when I am back. Let me know if you have any questions about the proposal. Sounds good to me, see you at the station around eight. We should probably book the flights before prices go up again. Dear Priya, thank you for the invitation, I would be glad to attend.",
+    "suite": "vad",
+    "speaker": "Daniel/Rishi/Samantha",
+    "notes": "5 speech spans, gaps 0.5-3 s; see labels.json"
+  },
+  {
+    "file": "vad_04_3segs_floor.wav",
+    "transcript": "We should probably book the flights before prices go up again. Dear Priya, thank you for the invitation, I would be glad to attend. Remind me to call the dentist on Monday morning before ten.",
+    "suite": "vad",
+    "speaker": "Daniel/Rishi/Samantha",
+    "notes": "3 speech spans, gaps 0.5-3 s, +pink floor 30 dB SNR; see labels.json"
+  },
+  {
+    "file": "vad_05_4segs_floor.wav",
+    "transcript": "Hey, just checking in. Are we still on for lunch tomorrow at noon? Please find the updated quarterly report attached to this email. I think the best approach is to start small and iterate from there. Thanks for your help yesterday, it really made a difference.",
+    "suite": "vad",
+    "speaker": "Daniel/Rishi/Samantha",
+    "notes": "4 speech spans, gaps 0.5-3 s, +pink floor 30 dB SNR; see labels.json"
+  },
+  {
+    "file": "vad_06_5segs_floor.wav",
+    "transcript": "Thanks for your help yesterday, it really made a difference. Can you send me the address of the restaurant we talked about? The meeting has been moved to three thirty on Wednesday afternoon. I will be out of office next week and will reply when I am back. Let me know if you have any questions about the proposal.",
+    "suite": "vad",
+    "speaker": "Daniel/Rishi/Samantha",
+    "notes": "5 speech spans, gaps 0.5-3 s, +pink floor 30 dB SNR; see labels.json"
+  }
+]

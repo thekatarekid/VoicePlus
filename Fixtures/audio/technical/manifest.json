@@ -1,0 +1,72 @@
+[
+  {
+    "file": "technical_01_samantha.wav",
+    "transcript": "git commit dash m quote fix login bug end quote",
+    "suite": "technical",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_02_daniel.wav",
+    "transcript": "snake case user id equals request dot params dot user id",
+    "suite": "technical",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_03_rishi.wav",
+    "transcript": "camel case get user profile returns an optional user",
+    "suite": "technical",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_04_samantha.wav",
+    "transcript": "cd tilde slash Documents slash VoiceInput and run swift build",
+    "suite": "technical",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_05_daniel.wav",
+    "transcript": "open slash etc slash hosts with sudo nano",
+    "suite": "technical",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_06_rishi.wav",
+    "transcript": "npm install dash dash save dev typescript",
+    "suite": "technical",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_07_samantha.wav",
+    "transcript": "kebab case voice dash plus dash app dot swift",
+    "suite": "technical",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_08_daniel.wav",
+    "transcript": "grep dash r n todo space dot space pipe head",
+    "suite": "technical",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_09_rishi.wav",
+    "transcript": "export PATH equals dollar HOME slash bin colon dollar PATH",
+    "suite": "technical",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "technical_10_samantha.wav",
+    "transcript": "let transcript colon array of transcript span equals empty array",
+    "suite": "technical",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  }
+]

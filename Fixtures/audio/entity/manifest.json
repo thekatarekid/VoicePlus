@@ -1,0 +1,72 @@
+[
+  {
+    "file": "entity_01_samantha.wav",
+    "transcript": "TeamViewer AG reported strong growth in the enterprise segment this year.",
+    "suite": "entity",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_02_daniel.wav",
+    "transcript": "Mister Kothari will join the call from the Mumbai office at four.",
+    "suite": "entity",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_03_rishi.wav",
+    "transcript": "Run kubectl get pods to check whether the deployment is healthy.",
+    "suite": "entity",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_04_samantha.wav",
+    "transcript": "We switched the summarizer from gpt-4o to a smaller local model.",
+    "suite": "entity",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_05_daniel.wav",
+    "transcript": "Anthropic published a new paper on interpretability last week.",
+    "suite": "entity",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_06_rishi.wav",
+    "transcript": "The app stores transcripts in SQLite through GRDB.",
+    "suite": "entity",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_07_samantha.wav",
+    "transcript": "FluidAudio wraps the Parakeet model with Core ML on Apple Silicon.",
+    "suite": "entity",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_08_daniel.wav",
+    "transcript": "Hindi is written in the Devanagari script, which has many ligatures.",
+    "suite": "entity",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_09_rishi.wav",
+    "transcript": "Sundar Pichai announced the new chips at the developer conference.",
+    "suite": "entity",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "entity_10_samantha.wav",
+    "transcript": "My shell is Zsh, but the deploy script still assumes bash.",
+    "suite": "entity",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  }
+]

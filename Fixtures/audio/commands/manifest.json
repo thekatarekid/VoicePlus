@@ -1,0 +1,72 @@
+[
+  {
+    "file": "commands_01_samantha.wav",
+    "transcript": "no, Thursday",
+    "suite": "commands",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_02_daniel.wav",
+    "transcript": "scratch that",
+    "suite": "commands",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_03_rishi.wav",
+    "transcript": "put it back",
+    "suite": "commands",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_04_samantha.wav",
+    "transcript": "not that one",
+    "suite": "commands",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_05_daniel.wav",
+    "transcript": "make this shorter",
+    "suite": "commands",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_06_rishi.wav",
+    "transcript": "delete the last sentence",
+    "suite": "commands",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_07_samantha.wav",
+    "transcript": "undo that",
+    "suite": "commands",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_08_daniel.wav",
+    "transcript": "replace Monday with Friday",
+    "suite": "commands",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_09_rishi.wav",
+    "transcript": "make it more formal",
+    "suite": "commands",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "commands_10_samantha.wav",
+    "transcript": "new paragraph",
+    "suite": "commands",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  }
+]

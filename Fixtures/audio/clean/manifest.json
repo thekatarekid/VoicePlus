@@ -1,0 +1,86 @@
+[
+  {
+    "file": "clean_01_samantha.wav",
+    "transcript": "Hey, just checking in. Are we still on for lunch tomorrow at noon?",
+    "suite": "clean",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_02_daniel.wav",
+    "transcript": "Please find the updated quarterly report attached to this email.",
+    "suite": "clean",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_03_rishi.wav",
+    "transcript": "I think the best approach is to start small and iterate from there.",
+    "suite": "clean",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_04_samantha.wav",
+    "transcript": "Thanks for your help yesterday, it really made a difference.",
+    "suite": "clean",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_05_daniel.wav",
+    "transcript": "Can you send me the address of the restaurant we talked about?",
+    "suite": "clean",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_06_rishi.wav",
+    "transcript": "The meeting has been moved to three thirty on Wednesday afternoon.",
+    "suite": "clean",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_07_samantha.wav",
+    "transcript": "I will be out of office next week and will reply when I am back.",
+    "suite": "clean",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_08_daniel.wav",
+    "transcript": "Let me know if you have any questions about the proposal.",
+    "suite": "clean",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_09_rishi.wav",
+    "transcript": "Sounds good to me, see you at the station around eight.",
+    "suite": "clean",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_10_samantha.wav",
+    "transcript": "We should probably book the flights before prices go up again.",
+    "suite": "clean",
+    "speaker": "Samantha",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_11_daniel.wav",
+    "transcript": "Dear Priya, thank you for the invitation, I would be glad to attend.",
+    "suite": "clean",
+    "speaker": "Daniel",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  },
+  {
+    "file": "clean_12_rishi.wav",
+    "transcript": "Remind me to call the dentist on Monday morning before ten.",
+    "suite": "clean",
+    "speaker": "Rishi",
+    "notes": "macOS say TTS, trimmed, RMS-normalised to -20 dBFS"
+  }
+]

@@ -1,0 +1,10 @@
+[
+  {
+    "file": "clipping_x4.wav",
+    "transcript": "Can you send me the address of the restaurant we talked about?",
+    "suite": "clipping",
+    "speaker": "Daniel",
+    "source": "clean_05_daniel.wav",
+    "notes": "gain +12 dB then hard clipped to int16; expect clipping-detector to flag"
+  }
+]

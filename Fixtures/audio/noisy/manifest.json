@@ -1,0 +1,154 @@
+[
+  {
+    "file": "clean_01_samantha_snr10db_pink.wav",
+    "transcript": "Hey, just checking in. Are we still on for lunch tomorrow at noon?",
+    "suite": "noisy",
+    "speaker": "Samantha",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_01_samantha.wav"
+  },
+  {
+    "file": "clean_01_samantha_snr00db_white.wav",
+    "transcript": "Hey, just checking in. Are we still on for lunch tomorrow at noon?",
+    "suite": "noisy",
+    "speaker": "Samantha",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_01_samantha.wav"
+  },
+  {
+    "file": "clean_02_daniel_snr10db_pink.wav",
+    "transcript": "Please find the updated quarterly report attached to this email.",
+    "suite": "noisy",
+    "speaker": "Daniel",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_02_daniel.wav"
+  },
+  {
+    "file": "clean_02_daniel_snr00db_white.wav",
+    "transcript": "Please find the updated quarterly report attached to this email.",
+    "suite": "noisy",
+    "speaker": "Daniel",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_02_daniel.wav"
+  },
+  {
+    "file": "clean_03_rishi_snr10db_pink.wav",
+    "transcript": "I think the best approach is to start small and iterate from there.",
+    "suite": "noisy",
+    "speaker": "Rishi",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_03_rishi.wav"
+  },
+  {
+    "file": "clean_03_rishi_snr00db_white.wav",
+    "transcript": "I think the best approach is to start small and iterate from there.",
+    "suite": "noisy",
+    "speaker": "Rishi",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_03_rishi.wav"
+  },
+  {
+    "file": "clean_04_samantha_snr10db_pink.wav",
+    "transcript": "Thanks for your help yesterday, it really made a difference.",
+    "suite": "noisy",
+    "speaker": "Samantha",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_04_samantha.wav"
+  },
+  {
+    "file": "clean_04_samantha_snr00db_white.wav",
+    "transcript": "Thanks for your help yesterday, it really made a difference.",
+    "suite": "noisy",
+    "speaker": "Samantha",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_04_samantha.wav"
+  },
+  {
+    "file": "clean_05_daniel_snr10db_pink.wav",
+    "transcript": "Can you send me the address of the restaurant we talked about?",
+    "suite": "noisy",
+    "speaker": "Daniel",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_05_daniel.wav"
+  },
+  {
+    "file": "clean_05_daniel_snr00db_white.wav",
+    "transcript": "Can you send me the address of the restaurant we talked about?",
+    "suite": "noisy",
+    "speaker": "Daniel",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_05_daniel.wav"
+  },
+  {
+    "file": "clean_06_rishi_snr10db_pink.wav",
+    "transcript": "The meeting has been moved to three thirty on Wednesday afternoon.",
+    "suite": "noisy",
+    "speaker": "Rishi",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_06_rishi.wav"
+  },
+  {
+    "file": "clean_06_rishi_snr00db_white.wav",
+    "transcript": "The meeting has been moved to three thirty on Wednesday afternoon.",
+    "suite": "noisy",
+    "speaker": "Rishi",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_06_rishi.wav"
+  },
+  {
+    "file": "clean_07_samantha_snr10db_pink.wav",
+    "transcript": "I will be out of office next week and will reply when I am back.",
+    "suite": "noisy",
+    "speaker": "Samantha",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_07_samantha.wav"
+  },
+  {
+    "file": "clean_07_samantha_snr00db_white.wav",
+    "transcript": "I will be out of office next week and will reply when I am back.",
+    "suite": "noisy",
+    "speaker": "Samantha",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_07_samantha.wav"
+  },
+  {
+    "file": "clean_08_daniel_snr10db_pink.wav",
+    "transcript": "Let me know if you have any questions about the proposal.",
+    "suite": "noisy",
+    "speaker": "Daniel",
+    "notes": "pink noise mixed at 10 dB SNR (seed 20260823)",
+    "source": "clean_08_daniel.wav"
+  },
+  {
+    "file": "clean_08_daniel_snr00db_white.wav",
+    "transcript": "Let me know if you have any questions about the proposal.",
+    "suite": "noisy",
+    "speaker": "Daniel",
+    "notes": "white noise mixed at 0 dB SNR (seed 20260823)",
+    "source": "clean_08_daniel.wav"
+  },
+  {
+    "file": "clean_01_samantha_farfield.wav",
+    "transcript": "Hey, just checking in. Are we still on for lunch tomorrow at noon?",
+    "suite": "noisy",
+    "speaker": "Samantha",
+    "notes": "far-field sim: -9 dB, 3 echoes (23/61/110 ms), 1-pole LPF, pink floor 18 dB SNR",
+    "source": "clean_01_samantha.wav"
+  },
+  {
+    "file": "clean_02_daniel_farfield.wav",
+    "transcript": "Please find the updated quarterly report attached to this email.",
+    "suite": "noisy",
+    "speaker": "Daniel",
+    "notes": "far-field sim: -9 dB, 3 echoes (23/61/110 ms), 1-pole LPF, pink floor 18 dB SNR",
+    "source": "clean_02_daniel.wav"
+  },
+  {
+    "file": "clean_03_rishi_farfield.wav",
+    "transcript": "I think the best approach is to start small and iterate from there.",
+    "suite": "noisy",
+    "speaker": "Rishi",
+    "notes": "far-field sim: -9 dB, 3 echoes (23/61/110 ms), 1-pole LPF, pink floor 18 dB SNR",
+    "source": "clean_03_rishi.wav"
+  }
+]
