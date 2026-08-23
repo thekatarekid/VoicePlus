@@ -1,0 +1,16 @@
+{
+  "name": "chat_noisy",
+  "register": "chat",
+  "micQuality": { "snr": 9.5, "clipping": 0.02, "lowLevel": false, "verdict": "poor" },
+  "spans": [
+    { "text": "yeah", "confidence": 0.83, "audioStart": 0.00, "audioEnd": 0.30, "delayMs": 100 },
+    { "text": "I'll", "confidence": 0.79, "audioStart": 0.30, "audioEnd": 0.50, "delayMs": 70 },
+    { "text": "ping", "confidence": 0.90, "audioStart": 0.50, "audioEnd": 0.75, "delayMs": 80 },
+    { "text": "Kothari", "confidence": 0.29, "audioStart": 0.75, "audioEnd": 1.30, "delayMs": 180,
+      "alternates": [ { "text": "Kotari", "score": 0.28, "source": "beam" }, { "text": "go to re", "score": 0.27, "source": "beam" }, { "text": "Kothari", "score": 0.40, "source": "userDictionary" } ] },
+    { "text": "after", "confidence": 0.94, "audioStart": 1.40, "audioEnd": 1.70, "delayMs": 100 },
+    { "text": "standup", "confidence": 0.47, "audioStart": 1.70, "audioEnd": 2.20, "delayMs": 160,
+      "alternates": [ { "text": "stand up", "score": 0.45, "source": "beam" }, { "text": "sand up", "score": 0.10, "source": "beam" } ] },
+    { "text": "lol", "confidence": 0.88, "audioStart": 2.40, "audioEnd": 2.70, "delayMs": 100 }
+  ]
+}

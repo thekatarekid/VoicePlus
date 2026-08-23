@@ -1,0 +1,19 @@
+{
+  "name": "code_comment",
+  "register": "code",
+  "spans": [
+    { "text": "returns", "confidence": 0.96, "audioStart": 0.00, "audioEnd": 0.40, "delayMs": 130 },
+    { "text": "nil", "confidence": 0.71, "audioStart": 0.40, "audioEnd": 0.60, "delayMs": 80,
+      "alternates": [ { "text": "nill", "score": 0.20, "source": "beam" }, { "text": "kneel", "score": 0.12, "source": "beam" } ] },
+    { "text": "when", "confidence": 0.99, "audioStart": 0.60, "audioEnd": 0.80, "delayMs": 70 },
+    { "text": "the", "confidence": 0.99, "audioStart": 0.80, "audioEnd": 0.90, "delayMs": 40 },
+    { "text": "cache", "confidence": 0.88, "audioStart": 0.90, "audioEnd": 1.25, "delayMs": 110 },
+    { "text": "is", "confidence": 0.99, "audioStart": 1.25, "audioEnd": 1.35, "delayMs": 40 },
+    { "text": "cold", "confidence": 0.94, "audioStart": 1.35, "audioEnd": 1.70, "delayMs": 110 },
+    { "text": "otherwise", "confidence": 0.97, "audioStart": 1.90, "audioEnd": 2.40, "delayMs": 160 },
+    { "text": "the", "confidence": 0.99, "audioStart": 2.40, "audioEnd": 2.50, "delayMs": 40 },
+    { "text": "memoized", "confidence": 0.44, "audioStart": 2.50, "audioEnd": 3.10, "delayMs": 180,
+      "alternates": [ { "text": "memo eyes", "score": 0.40, "source": "beam" }, { "text": "memorized", "score": 0.38, "source": "beam" } ] },
+    { "text": "value", "confidence": 0.97, "audioStart": 3.10, "audioEnd": 3.50, "delayMs": 120 }
+  ]
+}

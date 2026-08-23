@@ -1,0 +1,19 @@
+{
+  "name": "email_reply",
+  "register": "email",
+  "spans": [
+    { "text": "Hi", "confidence": 0.98, "audioStart": 0.00, "audioEnd": 0.25, "delayMs": 120 },
+    { "text": "Priya,", "confidence": 0.62, "audioStart": 0.25, "audioEnd": 0.70, "delayMs": 140,
+      "alternates": [ { "text": "Pria,", "score": 0.31, "source": "beam" }, { "text": "Preya,", "score": 0.22, "source": "beam" } ] },
+    { "text": "thanks", "confidence": 0.97, "audioStart": 0.80, "audioEnd": 1.10, "delayMs": 110 },
+    { "text": "for", "confidence": 0.99, "audioStart": 1.10, "audioEnd": 1.25, "delayMs": 60 },
+    { "text": "the", "confidence": 0.99, "audioStart": 1.25, "audioEnd": 1.35, "delayMs": 50 },
+    { "text": "update.", "confidence": 0.95, "audioStart": 1.35, "audioEnd": 1.80, "delayMs": 130 },
+    { "text": "Let's", "confidence": 0.93, "audioStart": 2.00, "audioEnd": 2.30, "delayMs": 120 },
+    { "text": "sync", "confidence": 0.91, "audioStart": 2.30, "audioEnd": 2.60, "delayMs": 90 },
+    { "text": "with", "confidence": 0.98, "audioStart": 2.60, "audioEnd": 2.80, "delayMs": 60 },
+    { "text": "TeamViewer", "confidence": 0.38, "audioStart": 2.80, "audioEnd": 3.50, "delayMs": 200,
+      "alternates": [ { "text": "team fuel h e", "score": 0.35, "source": "beam" }, { "text": "team viewer", "score": 0.30, "source": "beam" } ] },
+    { "text": "tomorrow.", "confidence": 0.96, "audioStart": 3.50, "audioEnd": 4.10, "delayMs": 150 }
+  ]
+}
