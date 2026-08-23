@@ -131,7 +131,24 @@ other than dictate are now only considered for utterances ≤ 40 words.
 
 Spec asks for 2 h on fanless hardware; this machine has fans and the run here is 3 minutes via
 `Packaging/soak.sh 3` (headless `VoicePlusApp --soak`, mock engine at 4× fixture pace → full
-landing path, sampling every 5 s). Result: see the "Soak" block appended below by the run.
+landing path, sampling every 5 s). Result (`Packaging/soak/20260823-235321.tsv`):
+
+| t | thermal | process CPU | RSS | dictations | landed p50 | p95 |
+|---|---|---|---|---|---|---|
+| 5 s | nominal | 99.7% | 44 MB | 3,550 | 1.4 ms | 1.7 ms |
+| 60 s | nominal | 99.5% | 144 MB | 23,399 | 3.5 ms | 6.2 ms |
+| 120 s | nominal | 99.9% | 190 MB | 40,596 | 2.9 ms | 5.1 ms |
+| 175 s | nominal | 99.7% | 301 MB | 57,282 | 2.8 ms | 5.3 ms |
+
+Thermal state never left `nominal` at a deliberately saturated 100% core (the loop never
+idles — ~330 dictations/s, ~1,000× a human rate); landing latency is flat, so no per-dictation
+accumulation on the hot path. RSS grows ≈4.5 KB per dictation: the in-memory SQLite history
+(dictation + injection-outcome rows) plus `ZeroEditTracker.outcomes`; at human rates that is
+~2 MB/day and the production DB is on disk. First run of the script found a harness artifact —
+the mock field grew without bound, making AX readback O(document) (latency 6 → 60 ms, RSS
+516 MB over 5.7k) — the soak now gives each dictation a fresh field. Idle drain is not
+measurable from this mode (no audio tap, no model); `pmset -g batt` is sampled to the
+`.system.log` for the real run.
 What this does *not* cover: the ANE/CPU load of the real decoder and the audio tap. A 2 h run
 with `VOICEPLUS_LIVE_MODELS=1` on an M1 MacBook Air is **pending manual verification** before
 the P1.13 DMG; the script and the app mode are ready for it (`Packaging/soak.sh 120`).

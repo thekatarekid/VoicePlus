@@ -53,7 +53,7 @@ public enum SoakRunner {
 
     /// Runs for `minutes`; returns the samples (also printed as TSV lines as they happen).
     public static func run(minutes: Double, fixture: String = "email_reply", sampleEvery: TimeInterval = 5,
-                           delayScale: Double = 0.25, output: @escaping (String) -> Void = { print($0) }) async -> [Sample] {
+                           delayScale: Double = 0.25, output: @escaping (String) -> Void = { print($0); fflush(stdout) }) async -> [Sample] {
         let engine = (try? MockEngine(fixtureNamed: fixture, delayScale: delayScale))
             ?? MockEngine(fixture: TranscriptFixture(name: "inline", spans: [
                 .init(text: "Soak test utterance number one.", confidence: 0.95, audioStart: 0, audioEnd: 2, delayMs: 200),
@@ -62,7 +62,8 @@ public enum SoakRunner {
         options.database = try? AppDatabase.inMemory()
         options.flags = .inMemory()
         options.settings = InMemorySettingsStore()
-        options.system = MockSystemAccess()
+        let system = MockSystemAccess()
+        options.system = system
         options.discoverProviders = false
         options.environment["VOICEPLUS_FIXTURE"] = fixture
         let container = await AppContainer.build(options: options)
@@ -79,6 +80,9 @@ public enum SoakRunner {
 
         while Date() < deadline {
             let startedAt = Date()
+            // A fresh field per dictation: otherwise the mock document grows without bound and AX
+            // readback cost (O(document)) dominates, which is not what a soak should measure.
+            system.field = MockSystemAccess.Field()
             do {
                 try await engine.start(prewarm: true)
                 let spans = try await engine.stop()
