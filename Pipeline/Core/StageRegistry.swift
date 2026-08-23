@@ -8,6 +8,8 @@ public enum StageRegistry {
         EmailFormatter(),
         ChatFormatter(),
         CodeFormatter(),
+        TerminalFormatter(),
+        StyleStage(), // P1.7 T7 — runs after formatters (style is the last pass, Bet 8)
     ]
 
     /// All registered stages, in registration order (used by `PipelineRunner.standard`).
