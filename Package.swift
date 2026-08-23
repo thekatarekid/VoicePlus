@@ -28,6 +28,7 @@ let package = Package(
         .target(name: "Providers", dependencies: ["Shared"], path: "Providers"),
         .target(name: "Lab", dependencies: ["Shared"], path: "Lab"),
         .target(name: "Actions", dependencies: ["Shared"], path: "Actions"),
+        .target(name: "Sync", dependencies: ["Shared"], path: "Sync"),
         .executableTarget(
             name: "VoicePlusApp",
             dependencies: ["Shared", "Engine", "Pipeline", "Injection", "Providers", "Lab", "Actions"],
@@ -40,6 +41,7 @@ let package = Package(
         .testTarget(name: "ProvidersTests", dependencies: ["Providers"], path: "Tests/ProvidersTests"),
         .testTarget(name: "LabTests", dependencies: ["Lab"], path: "Tests/LabTests"),
         .testTarget(name: "ActionsTests", dependencies: ["Actions"], path: "Tests/ActionsTests"),
+        .testTarget(name: "SyncTests", dependencies: ["Sync"], path: "Tests/SyncTests"),
         .testTarget(name: "AppTests", dependencies: ["Shared", "VoicePlusApp"], path: "Tests/AppTests"),
     ],
     swiftLanguageVersions: [.v5]
