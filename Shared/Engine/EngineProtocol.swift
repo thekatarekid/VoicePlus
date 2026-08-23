@@ -56,17 +56,20 @@ public final class EngineEventBroadcaster: @unchecked Sendable {
 
     public func subscribe() -> AsyncStream<EngineEvent> {
         let id = UUID()
-        return AsyncStream { continuation in
-            lock.lock()
-            continuations[id] = continuation
-            lock.unlock()
-            continuation.onTermination = { [weak self] _ in
-                guard let self else { return }
-                self.lock.lock()
-                self.continuations[id] = nil
-                self.lock.unlock()
-            }
+        // Register eagerly (not inside the lazy `AsyncStream { }` builder, which only runs on
+        // first iteration) so events sent between `subscribe()` and the consumer's first
+        // `for await` are buffered instead of lost.
+        let (stream, continuation) = AsyncStream<EngineEvent>.makeStream()
+        lock.lock()
+        continuations[id] = continuation
+        lock.unlock()
+        continuation.onTermination = { [weak self] _ in
+            guard let self else { return }
+            self.lock.lock()
+            self.continuations[id] = nil
+            self.lock.unlock()
         }
+        return stream
     }
 
     public func send(_ event: EngineEvent) {
