@@ -1,0 +1,6 @@
+.build*/
+*.dmg.tmp
+.DS_Store
+.swiftpm/
+Packaging/build/
+Models/
