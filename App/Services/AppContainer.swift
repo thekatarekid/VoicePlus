@@ -1,3 +1,4 @@
+import Actions
 import AppKit
 import Engine
 import Foundation
@@ -40,6 +41,9 @@ public final class AppContainer {
     public let personas: PersonaManager
     /// P1.5.2
     public let correction: CorrectionService
+    /// P3 — timeline recorder + deixis/referent resolution + AX window text feed.
+    public let deixis: DeixisService
+    public let axWindowText: AXReaderWindowText
     public let audioTap = UtteranceAudioTap()
     private let recognizerProvider: BiasingRecognizerProvider?
     private var zeroEditTimer: Timer?
@@ -129,9 +133,13 @@ public final class AppContainer {
         zeroEdit = zeroEditTracker
 
         // Biasing (P1.5, Bet 2): harvest AX text / recent words / corrections / contacts when the flag is on.
+        // P3.4: the AX source now reads through AXWindowReader + WindowContentCache (deep text,
+        // scrollback-capable, observer-invalidated) instead of the shallow live walker.
         recentWords = RecentWordsRing()
+        let axWindowText = AXReaderWindowText(system: system)
+        self.axWindowText = axWindowText
         let harvester = ContextHarvester(sources: [
-            AXTreeSource(provider: LiveAXFocusedWindowText()),
+            AXTreeSource(provider: axWindowText),
             recentWords,
             CodeSymbolSource(provider: LiveAXOpenDocuments()),
             ContactsSource(provider: LiveContacts()),
@@ -155,11 +163,20 @@ public final class AppContainer {
                                        samples: { [audioTap] in audioTap.samples })
         correction.correctionLog = database.map { DatabaseCorrectionSink(database: $0) }
 
+        // P3 — deixis service over the live AX hit-tester; referents from AX artifacts + contacts.
+        let deixis = DeixisService(hitTester: LiveAXHitTester())
+        deixis.windowText = { [weak axWindowText] in axWindowText?.windowText() }
+        let referentContext = AXReferentContext(text: axWindowText, contacts: LiveContacts())
+        deixis.participants = referentContext
+        deixis.artifacts = referentContext
+        self.deixis = deixis
+
         lander = UtteranceLander(pipeline: pipeline, injector: injector, system: system, repair: repair, flags: flags,
                                  database: database, zeroEdit: zeroEditTracker, recentWords: recentWords)
         lander.personaManager = personas
         lander.transform = transform
         lander.correction = correction
+        lander.contextAugmenter = { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }
 
         labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, biasing: biasing)
 

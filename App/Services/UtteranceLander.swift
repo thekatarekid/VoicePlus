@@ -43,6 +43,8 @@ public final class UtteranceLander: @unchecked Sendable {
     public var transform: TransformLanding?
     /// P1.5.2 — dual-path silent correction after landing + "put it back".
     public var correction: CorrectionService?
+    /// P3 — deixis/referent resolution injects `contextLine` (+ window text) before the pipeline runs.
+    public var contextAugmenter: (([TranscriptSpan], StageContext) -> StageContext)?
     /// Tests await the reconcile; the app runs it off the landing path.
     public var reconcileInline = false
 
@@ -75,7 +77,8 @@ public final class UtteranceLander: @unchecked Sendable {
         let t0 = clock()
         let id = UUID()
         let bundleID = focus?.bundleID ?? system.frontmostApp()?.bundleID
-        let ctx = context(bundleID: bundleID)
+        var ctx = context(bundleID: bundleID)
+        if let contextAugmenter { ctx = contextAugmenter(spans, ctx) }
         var result = LandingResult(utteranceID: id, route: .none, register: .unknown, text: "", injection: nil,
                                    repair: nil, pipelineMs: 0, totalMs: 0)
         guard !spans.isEmpty, !spans.joinedText.trimmingCharacters(in: .whitespaces).isEmpty else { return result }

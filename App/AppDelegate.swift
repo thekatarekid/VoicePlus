@@ -1,3 +1,4 @@
+import Actions
 import AppKit
 import Shared
 
@@ -10,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var container: AppContainer?
     private var transformPill: TransformPillDriver?
     private var correctionOverlay: CorrectionOverlayController?
+    private var inkOverlay: InkOverlayController?
     private let hotkey = HotkeyService()
     private let pill = PillPanelController()
     private let updater: UpdaterProtocol = NoopUpdater()
@@ -68,7 +70,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         correctionOverlay = overlay
 
-        hotkey.onAction = { [weak coordinator] action in coordinator?.handle(action) }
+        // P3 — ink overlay per display; strokes render as the tap records them; region bundle
+        // counter surfaces in the pill; deixis capture brackets the hotkey hold.
+        let inkOverlay = InkOverlayController()
+        self.inkOverlay = inkOverlay
+        container.deixis.attachRecorder(normalizer: .current(), inkSink: inkOverlay)
+        inkOverlay.onBundleChanged = { [weak self] text in
+            guard let text else { return }
+            self?.pill.model.present(.preview(text: text))
+        }
+        container.deixis.onElicitationChange = { [weak self] state in
+            Task { @MainActor in self?.presentElicitation(state) }
+        }
+
+        hotkey.onAction = { [weak coordinator, weak container, weak inkOverlay] action in
+            switch action {
+            case .startCapture:
+                container?.deixis.beginCapture()
+                Task { @MainActor in inkOverlay?.show() }
+            case .finalize, .cancelCapture:
+                container?.deixis.endCapture()
+                Task { @MainActor in inkOverlay?.hide() }
+            case .enterHandsFree:
+                break
+            }
+            coordinator?.handle(action)
+        }
 
         let status = StatusItemController(flags: container.flags, database: container.database, coordinator: coordinator,
                                           hotkey: hotkey, updater: updater)
@@ -102,6 +129,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             runPermissions()
         }
         Log.app.info("VoicePlus up: \(container.activeModelName) (Shared \(SharedModule.version))")
+    }
+
+    /// P3.6 — reverse elicitation: pulse rings on the candidates + "which one?" in the pill;
+    /// timeout falls back to clarifying text (the state machine produces it).
+    @MainActor
+    private func presentElicitation(_ state: ElicitationState) {
+        switch state {
+        case .prompting(let prompt):
+            inkOverlay?.show()
+            for candidate in prompt.candidates {
+                inkOverlay?.pulse(BoundRegion(frame: candidate.ring, displayID: candidate.displayID))
+            }
+            let labels = prompt.candidates.map(\.label).joined(separator: " / ")
+            pill.model.present(.preview(text: "\(prompt.question) \(labels)"))
+            // Drive the deadline: a tick after the timeout resolves .prompting → .timedOut.
+            let deadline = prompt.deadline
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.1) { [weak self] in
+                guard let container = self?.container else { return }
+                container.deixis.elicit(.tick(now: max(deadline + 0.01, container.deixis.clock.now())))
+            }
+        case .timedOut(let clarifyingText, _):
+            pill.model.present(.preview(text: clarifyingText))
+            inkOverlay?.hide()
+        case .resolved, .cancelled, .idle:
+            inkOverlay?.hide()
+        }
     }
 
     private func runPermissions() {
