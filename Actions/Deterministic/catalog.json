@@ -1,0 +1,3123 @@
+[
+ {
+  "id": "mac.open_app",
+  "phrasings": [
+   "open {arg}",
+   "launch {arg}",
+   "switch to {arg}",
+   "go to {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {},
+  "apps": []
+ },
+ {
+  "id": "mac.app.finder",
+  "phrasings": [
+   "open finder",
+   "show finder"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Finder"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.safari",
+  "phrasings": [
+   "open safari",
+   "show safari"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Safari"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.chrome",
+  "phrasings": [
+   "open chrome",
+   "show chrome"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Chrome"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.slack",
+  "phrasings": [
+   "open slack",
+   "show slack"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Slack"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.mail",
+  "phrasings": [
+   "open mail",
+   "show mail"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Mail"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.notes",
+  "phrasings": [
+   "open notes",
+   "show notes"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Notes"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.terminal",
+  "phrasings": [
+   "open terminal",
+   "show terminal"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Terminal"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.messages",
+  "phrasings": [
+   "open messages",
+   "show messages"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Messages"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.calendar",
+  "phrasings": [
+   "open calendar",
+   "show calendar"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Calendar"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app.xcode",
+  "phrasings": [
+   "open xcode",
+   "show xcode"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusApp",
+  "params": {
+   "name": "Xcode"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.next_window",
+  "phrasings": [
+   "next window",
+   "cycle window",
+   "other window"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusWindow",
+  "params": {
+   "target": "next"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.focus_window",
+  "phrasings": [
+   "focus window {arg}",
+   "switch to window {arg}",
+   "show window {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusWindow",
+  "params": {},
+  "apps": []
+ },
+ {
+  "id": "mac.minimize",
+  "phrasings": [
+   "minimize window",
+   "minimize",
+   "hide this window"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "windowOp",
+  "params": {
+   "op": "minimize"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.restore",
+  "phrasings": [
+   "restore window",
+   "unminimize"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "windowOp",
+  "params": {
+   "op": "restore"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.zoom_window",
+  "phrasings": [
+   "zoom window",
+   "maximize",
+   "maximize window"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "windowOp",
+  "params": {
+   "op": "zoom"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.fullscreen",
+  "phrasings": [
+   "full screen",
+   "enter full screen",
+   "toggle full screen"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "windowOp",
+  "params": {
+   "op": "fullscreen"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.close_window",
+  "phrasings": [
+   "close window",
+   "close this window"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "windowOp",
+  "params": {
+   "op": "close"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.space_left",
+  "phrasings": [
+   "desktop left",
+   "previous desktop",
+   "space left",
+   "move left a space"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "left"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.space_right",
+  "phrasings": [
+   "desktop right",
+   "next desktop",
+   "space right",
+   "move right a space"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "right"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.space_1",
+  "phrasings": [
+   "desktop 1",
+   "go to desktop 1",
+   "space 1"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "1"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.space_2",
+  "phrasings": [
+   "desktop 2",
+   "go to desktop 2",
+   "space 2"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "2"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.space_3",
+  "phrasings": [
+   "desktop 3",
+   "go to desktop 3",
+   "space 3"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "3"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.mission_control",
+  "phrasings": [
+   "mission control",
+   "show all windows"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "missionControl"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.show_desktop",
+  "phrasings": [
+   "show desktop",
+   "show the desktop"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "showDesktop"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.app_expose",
+  "phrasings": [
+   "app expose",
+   "show app windows"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "switchSpace",
+  "params": {
+   "move": "appExpose"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.open_url",
+  "phrasings": [
+   "open url {arg}",
+   "open website {arg}",
+   "go to url {arg}",
+   "browse to {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "openURL",
+  "params": {
+   "argSlot": "url"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.open_file",
+  "phrasings": [
+   "open file {arg}",
+   "open path {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "openFile",
+  "params": {
+   "argSlot": "path"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.open_downloads",
+  "phrasings": [
+   "open downloads",
+   "open downloads folder"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "openFile",
+  "params": {
+   "path": "~/Downloads"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.open_documents",
+  "phrasings": [
+   "open documents",
+   "open documents folder"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "openFile",
+  "params": {
+   "path": "~/Documents"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_up",
+  "phrasings": [
+   "scroll up",
+   "page up a bit"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "up",
+   "amount": "3"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_down",
+  "phrasings": [
+   "scroll down",
+   "page down a bit"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "down",
+   "amount": "3"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_left",
+  "phrasings": [
+   "scroll left"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "left",
+   "amount": "3"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_right",
+  "phrasings": [
+   "scroll right"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "right",
+   "amount": "3"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_top",
+  "phrasings": [
+   "scroll to top",
+   "go to top",
+   "jump to top"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "top",
+   "amount": "3"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_bottom",
+  "phrasings": [
+   "scroll to bottom",
+   "go to bottom",
+   "jump to bottom"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "bottom",
+   "amount": "3"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_down_lot",
+  "phrasings": [
+   "scroll down a lot",
+   "scroll way down"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "down",
+   "amount": "8"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.scroll_up_lot",
+  "phrasings": [
+   "scroll up a lot",
+   "scroll way up"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "scroll",
+  "params": {
+   "direction": "up",
+   "amount": "8"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.type_text",
+  "phrasings": [
+   "type {arg}",
+   "insert text {arg}",
+   "write {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "typeText",
+  "params": {
+   "argSlot": "value"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click",
+  "phrasings": [
+   "click {arg}",
+   "press {arg}",
+   "tap {arg}",
+   "hit {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "argSlot": "name"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_ok",
+  "phrasings": [
+   "click ok",
+   "okay",
+   "confirm dialog"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "OK"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_cancel",
+  "phrasings": [
+   "click cancel",
+   "dismiss"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Cancel"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_done",
+  "phrasings": [
+   "click done",
+   "done"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Done"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_next",
+  "phrasings": [
+   "click next",
+   "next"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Next"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_back",
+  "phrasings": [
+   "click back",
+   "go back"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Back"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_continue",
+  "phrasings": [
+   "click continue",
+   "continue"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Continue"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_delete",
+  "phrasings": [
+   "click delete"
+  ],
+  "category": "mac",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Delete"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.click_submit",
+  "phrasings": [
+   "click submit",
+   "submit"
+  ],
+  "category": "mac",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Submit"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.fill_field",
+  "phrasings": [
+   "fill {arg}",
+   "set field {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "argSlot": "value"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.fill_search",
+  "phrasings": [
+   "search for {arg}",
+   "search {arg}",
+   "look up {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Search",
+   "argSlot": "value"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.focus_tab",
+  "phrasings": [
+   "switch to tab {arg}",
+   "go to tab {arg}",
+   "tab {arg}"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusTab",
+  "params": {},
+  "apps": []
+ },
+ {
+  "id": "mac.next_tab",
+  "phrasings": [
+   "next tab"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusTab",
+  "params": {
+   "target": "next"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.previous_tab",
+  "phrasings": [
+   "previous tab",
+   "last tab"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "focusTab",
+  "params": {
+   "target": "previous"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.quit_app",
+  "phrasings": [
+   "quit",
+   "quit app",
+   "quit this app"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+q"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.hide_app",
+  "phrasings": [
+   "hide app",
+   "hide this app"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+h"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.new_window",
+  "phrasings": [
+   "new window",
+   "open new window"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+n"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.spotlight",
+  "phrasings": [
+   "spotlight",
+   "open spotlight",
+   "search mac"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+space"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.screenshot",
+  "phrasings": [
+   "take a screenshot",
+   "screenshot"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+4"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.lock_screen",
+  "phrasings": [
+   "lock screen",
+   "lock my mac"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+ctrl+q"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.emoji",
+  "phrasings": [
+   "emoji picker",
+   "insert emoji"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+ctrl+space"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.press_enter",
+  "phrasings": [
+   "press enter",
+   "hit enter",
+   "press return"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "return"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.press_escape",
+  "phrasings": [
+   "press escape",
+   "escape",
+   "cancel"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "escape"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.press_tab",
+  "phrasings": [
+   "press tab",
+   "next field"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "tab"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.press_delete",
+  "phrasings": [
+   "press delete",
+   "backspace"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "delete"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.copy",
+  "phrasings": [
+   "copy",
+   "copy that",
+   "copy selection"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+c"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.cut",
+  "phrasings": [
+   "cut",
+   "cut that"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+x"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.paste",
+  "phrasings": [
+   "paste",
+   "paste that"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+v"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.paste_plain",
+  "phrasings": [
+   "paste plain",
+   "paste without formatting",
+   "paste and match style"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+opt+shift+v"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.undo",
+  "phrasings": [
+   "undo",
+   "undo that"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+z"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.redo",
+  "phrasings": [
+   "redo",
+   "redo that"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+z"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.select_all",
+  "phrasings": [
+   "select all",
+   "select everything"
+  ],
+  "category": "mac",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+a"
+  },
+  "apps": []
+ },
+ {
+  "id": "mac.save",
+  "phrasings": [
+   "save",
+   "save file",
+   "save this"
+  ],
+  "category": "mac",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+s"
+  },
+  "apps": []
+ },
+ {
+  "id": "browser.open_github",
+  "phrasings": [
+   "open github"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "openURL",
+  "params": {
+   "url": "https://github.com"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.open_gmail",
+  "phrasings": [
+   "open gmail"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "openURL",
+  "params": {
+   "url": "https://mail.google.com"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.google",
+  "phrasings": [
+   "google {arg}",
+   "search google for {arg}"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "openURL",
+  "params": {
+   "argSlot": "url"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_sign_in",
+  "phrasings": [
+   "sign in",
+   "click sign in",
+   "log in"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Sign in"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_accept_cookies",
+  "phrasings": [
+   "accept cookies"
+  ],
+  "category": "browser",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Accept all"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_reject_cookies",
+  "phrasings": [
+   "reject cookies",
+   "decline cookies"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Reject all"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_play",
+  "phrasings": [
+   "play",
+   "click play"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Play"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_checks",
+  "phrasings": [
+   "open checks",
+   "show checks",
+   "click checks"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Checks"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_files_changed",
+  "phrasings": [
+   "files changed",
+   "show files changed"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Files changed"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_merge",
+  "phrasings": [
+   "merge pull request",
+   "click merge"
+  ],
+  "category": "browser",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Merge pull request"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_approve",
+  "phrasings": [
+   "approve",
+   "click approve"
+  ],
+  "category": "browser",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Approve"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.click_comment",
+  "phrasings": [
+   "click comment",
+   "add comment"
+  ],
+  "category": "browser",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Comment"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.search_site",
+  "phrasings": [
+   "site search {arg}",
+   "search site for {arg}"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Search",
+   "argSlot": "value"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.pr_tab",
+  "phrasings": [
+   "open the pr tab",
+   "go to the pull request tab",
+   "pull request tab"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "focusTab",
+  "params": {
+   "target": "Pull Request"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.new_tab",
+  "phrasings": [
+   "new tab",
+   "open new tab"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+t"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.close_tab",
+  "phrasings": [
+   "close tab",
+   "close this tab"
+  ],
+  "category": "browser",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+w"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.reopen_tab",
+  "phrasings": [
+   "reopen tab",
+   "reopen closed tab",
+   "restore tab"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+t"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.reload",
+  "phrasings": [
+   "reload",
+   "refresh",
+   "reload page"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+r"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.hard_reload",
+  "phrasings": [
+   "hard reload",
+   "force refresh"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+r"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.back",
+  "phrasings": [
+   "back",
+   "go back a page",
+   "previous page"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+["
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.forward",
+  "phrasings": [
+   "forward",
+   "go forward",
+   "next page"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+]"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.address_bar",
+  "phrasings": [
+   "address bar",
+   "focus address bar",
+   "url bar"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+l"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.bookmark",
+  "phrasings": [
+   "bookmark this",
+   "bookmark page",
+   "add bookmark"
+  ],
+  "category": "browser",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+d"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.history",
+  "phrasings": [
+   "show history",
+   "history"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+y"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.downloads",
+  "phrasings": [
+   "show downloads",
+   "downloads"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+opt+l"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.private_window",
+  "phrasings": [
+   "private window",
+   "incognito",
+   "new private window"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+n"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.dev_tools",
+  "phrasings": [
+   "developer tools",
+   "dev tools",
+   "inspect"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+opt+i"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.reader",
+  "phrasings": [
+   "reader view",
+   "reader mode"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+r"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.tab_1",
+  "phrasings": [
+   "first tab"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+1"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "browser.tab_last",
+  "phrasings": [
+   "final tab"
+  ],
+  "category": "browser",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+9"
+  },
+  "apps": [
+   "browser"
+  ]
+ },
+ {
+  "id": "editor.click_commit",
+  "phrasings": [
+   "commit",
+   "click commit"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Commit"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.click_sync",
+  "phrasings": [
+   "sync changes",
+   "push",
+   "click sync"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Sync Changes"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.click_run_button",
+  "phrasings": [
+   "click run",
+   "run button"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Run"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.search_files",
+  "phrasings": [
+   "search files for {arg}",
+   "find in project {arg}"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Search",
+   "argSlot": "value"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.command_palette",
+  "phrasings": [
+   "command palette",
+   "open command palette"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+p"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.quick_open",
+  "phrasings": [
+   "quick open",
+   "go to file",
+   "open file by name"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+p"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.go_to_line",
+  "phrasings": [
+   "go to line",
+   "jump to line"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "ctrl+g"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.go_to_symbol",
+  "phrasings": [
+   "go to symbol"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+o"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.go_to_definition",
+  "phrasings": [
+   "go to definition",
+   "jump to definition"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "f12"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.find_references",
+  "phrasings": [
+   "find references",
+   "show references"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "shift+f12"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.rename_symbol",
+  "phrasings": [
+   "rename symbol",
+   "rename this"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "f2"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.format_document",
+  "phrasings": [
+   "format document",
+   "format file",
+   "format code"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "shift+opt+f"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.toggle_comment",
+  "phrasings": [
+   "comment line",
+   "toggle comment",
+   "comment this"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+/"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.toggle_sidebar",
+  "phrasings": [
+   "toggle sidebar",
+   "hide sidebar",
+   "show sidebar"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+b"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.toggle_terminal",
+  "phrasings": [
+   "toggle terminal",
+   "show terminal panel",
+   "open terminal panel"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "ctrl+`"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.toggle_panel",
+  "phrasings": [
+   "toggle panel",
+   "show problems"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+j"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.split_editor",
+  "phrasings": [
+   "split editor",
+   "split right"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+\\"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.close_editor",
+  "phrasings": [
+   "close editor",
+   "close file"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+w"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.save_all",
+  "phrasings": [
+   "save all",
+   "save all files"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+opt+s"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.move_line_up",
+  "phrasings": [
+   "move line up"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "opt+up"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.move_line_down",
+  "phrasings": [
+   "move line down"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "opt+down"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.duplicate_line",
+  "phrasings": [
+   "duplicate line",
+   "copy line down"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "shift+opt+down"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.multi_cursor_next",
+  "phrasings": [
+   "select next occurrence",
+   "add next match"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+d"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.select_all_occurrences",
+  "phrasings": [
+   "select all occurrences",
+   "select all matches"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+l"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.fold",
+  "phrasings": [
+   "fold",
+   "collapse block",
+   "fold region"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+opt+["
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.unfold",
+  "phrasings": [
+   "unfold",
+   "expand block",
+   "unfold region"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+opt+]"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.indent",
+  "phrasings": [
+   "indent",
+   "indent line"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+]"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.outdent",
+  "phrasings": [
+   "outdent",
+   "dedent",
+   "unindent"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+["
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.search_project",
+  "phrasings": [
+   "search project",
+   "search in files",
+   "search everywhere"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+f"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.run",
+  "phrasings": [
+   "run",
+   "run file",
+   "run project"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "ctrl+f5"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.debug",
+  "phrasings": [
+   "debug",
+   "start debugging"
+  ],
+  "category": "editor",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "f5"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "editor.toggle_breakpoint",
+  "phrasings": [
+   "toggle breakpoint",
+   "set breakpoint"
+  ],
+  "category": "editor",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "f9"
+  },
+  "apps": [
+   "editor"
+  ]
+ },
+ {
+  "id": "chat.click_send",
+  "phrasings": [
+   "click send",
+   "press send button"
+  ],
+  "category": "chat",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Send"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.click_reply_thread",
+  "phrasings": [
+   "reply in thread",
+   "open thread"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Reply in thread"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.click_join",
+  "phrasings": [
+   "join call",
+   "join meeting",
+   "join"
+  ],
+  "category": "chat",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Join"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.click_leave_channel",
+  "phrasings": [
+   "leave channel"
+  ],
+  "category": "chat",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Leave channel"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.click_delete_message",
+  "phrasings": [
+   "delete message"
+  ],
+  "category": "chat",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Delete message"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.click_pin",
+  "phrasings": [
+   "pin message",
+   "pin this"
+  ],
+  "category": "chat",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Pin"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.click_general",
+  "phrasings": [
+   "go to general",
+   "open general"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "general"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.threads_tab",
+  "phrasings": [
+   "open threads tab",
+   "threads tab"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "focusTab",
+  "params": {
+   "target": "Threads"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.message_field",
+  "phrasings": [
+   "message {arg}",
+   "say {arg}"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Message",
+   "argSlot": "value"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.search_people",
+  "phrasings": [
+   "find person {arg}",
+   "open dm with {arg}"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Search",
+   "argSlot": "value"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.send",
+  "phrasings": [
+   "send",
+   "send message",
+   "send it"
+  ],
+  "category": "chat",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "return"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.newline",
+  "phrasings": [
+   "new line",
+   "line break"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "shift+return"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.quick_switch",
+  "phrasings": [
+   "quick switcher",
+   "jump to channel",
+   "jump to conversation"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+k"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.unread",
+  "phrasings": [
+   "show unreads",
+   "unread messages",
+   "all unreads"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+a"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.threads",
+  "phrasings": [
+   "show threads",
+   "threads"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+t"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.mentions",
+  "phrasings": [
+   "show mentions",
+   "mentions"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+m"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.dms",
+  "phrasings": [
+   "direct messages",
+   "show dms"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+k"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.prev_channel",
+  "phrasings": [
+   "previous channel",
+   "back a channel"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "opt+up"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.next_channel",
+  "phrasings": [
+   "next channel",
+   "forward a channel"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "opt+down"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.next_unread",
+  "phrasings": [
+   "next unread",
+   "next unread channel"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "opt+shift+down"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.edit_last",
+  "phrasings": [
+   "edit last message",
+   "edit my last message"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "up"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "chat.search_chat",
+  "phrasings": [
+   "search messages",
+   "search chat"
+  ],
+  "category": "chat",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+g"
+  },
+  "apps": [
+   "chat"
+  ]
+ },
+ {
+  "id": "mail.click_reply",
+  "phrasings": [
+   "click reply"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Reply"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.click_send",
+  "phrasings": [
+   "click send email",
+   "send button"
+  ],
+  "category": "mail",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Send"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.click_archive",
+  "phrasings": [
+   "click archive"
+  ],
+  "category": "mail",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Archive"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.click_unsubscribe",
+  "phrasings": [
+   "unsubscribe"
+  ],
+  "category": "mail",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Unsubscribe"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.click_schedule",
+  "phrasings": [
+   "schedule send",
+   "send later"
+  ],
+  "category": "mail",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Send Later"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.fill_to",
+  "phrasings": [
+   "to {arg}",
+   "address to {arg}",
+   "send to {arg}"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "To",
+   "argSlot": "value"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.fill_subject",
+  "phrasings": [
+   "subject {arg}",
+   "set subject {arg}"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Subject",
+   "argSlot": "value"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.fill_search",
+  "phrasings": [
+   "search my mail for {arg}",
+   "find emails {arg}"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Search",
+   "argSlot": "value"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.inbox_tab",
+  "phrasings": [
+   "open inbox tab"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "focusTab",
+  "params": {
+   "target": "Inbox"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.compose",
+  "phrasings": [
+   "compose",
+   "new email",
+   "new mail",
+   "write email"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+n"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.reply_key",
+  "phrasings": [
+   "reply",
+   "reply to this"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+r"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.reply_all",
+  "phrasings": [
+   "reply all",
+   "reply to all"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+r"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.forward_mail",
+  "phrasings": [
+   "forward this",
+   "forward email",
+   "forward message"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+f"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.send_mail",
+  "phrasings": [
+   "send email",
+   "send the email",
+   "send mail"
+  ],
+  "category": "mail",
+  "reversibility": "irreversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+d"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.archive",
+  "phrasings": [
+   "archive",
+   "archive this",
+   "archive message"
+  ],
+  "category": "mail",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "ctrl+cmd+a"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.delete_mail",
+  "phrasings": [
+   "delete email",
+   "delete this email",
+   "trash it"
+  ],
+  "category": "mail",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "delete"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.mark_unread",
+  "phrasings": [
+   "mark unread",
+   "mark as unread"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+u"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.flag",
+  "phrasings": [
+   "flag",
+   "flag this",
+   "flag message"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+l"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.junk",
+  "phrasings": [
+   "mark as junk",
+   "junk",
+   "spam"
+  ],
+  "category": "mail",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+j"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.next_message",
+  "phrasings": [
+   "next message",
+   "next email"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "down"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.prev_message",
+  "phrasings": [
+   "previous message",
+   "previous email"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "up"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "mail.inbox",
+  "phrasings": [
+   "go to inbox",
+   "inbox",
+   "show inbox"
+  ],
+  "category": "mail",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+1"
+  },
+  "apps": [
+   "mail"
+  ]
+ },
+ {
+  "id": "files.click_open",
+  "phrasings": [
+   "click open",
+   "open button"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Open"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.click_replace",
+  "phrasings": [
+   "click replace",
+   "replace file"
+  ],
+  "category": "files",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Replace"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.click_keep_both",
+  "phrasings": [
+   "keep both"
+  ],
+  "category": "files",
+  "reversibility": "semi",
+  "kind": "click",
+  "params": {
+   "name": "Keep Both"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.click_empty_trash_btn",
+  "phrasings": [
+   "confirm empty trash",
+   "click empty trash"
+  ],
+  "category": "files",
+  "reversibility": "irreversible",
+  "kind": "click",
+  "params": {
+   "name": "Empty Trash"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.fill_filename",
+  "phrasings": [
+   "name it {arg}",
+   "file name {arg}",
+   "save as name {arg}"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Save As",
+   "argSlot": "value"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.fill_search",
+  "phrasings": [
+   "find file {arg}",
+   "search finder for {arg}"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "fillField",
+  "params": {
+   "name": "Search",
+   "argSlot": "value"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.recents_tab",
+  "phrasings": [
+   "recents",
+   "show recents"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "focusTab",
+  "params": {
+   "target": "Recents"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.favorites",
+  "phrasings": [
+   "favorites",
+   "show favorites"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "click",
+  "params": {
+   "name": "Favorites"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.new_folder",
+  "phrasings": [
+   "new folder",
+   "create folder",
+   "make a folder"
+  ],
+  "category": "files",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+n"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.go_up",
+  "phrasings": [
+   "go up",
+   "parent folder",
+   "enclosing folder"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+up"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.rename",
+  "phrasings": [
+   "rename",
+   "rename file"
+  ],
+  "category": "files",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "return"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.move_to_trash",
+  "phrasings": [
+   "move to trash",
+   "trash this",
+   "delete file"
+  ],
+  "category": "files",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+delete"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.empty_trash",
+  "phrasings": [
+   "empty trash",
+   "empty the trash"
+  ],
+  "category": "files",
+  "reversibility": "irreversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+delete"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.duplicate",
+  "phrasings": [
+   "duplicate",
+   "duplicate file",
+   "copy file"
+  ],
+  "category": "files",
+  "reversibility": "semi",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+d"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.get_info",
+  "phrasings": [
+   "get info",
+   "show info",
+   "file info"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+i"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.quick_look",
+  "phrasings": [
+   "quick look",
+   "preview",
+   "peek"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "space"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.show_hidden",
+  "phrasings": [
+   "show hidden files",
+   "toggle hidden files"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+."
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.list_view",
+  "phrasings": [
+   "list view"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+2"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.column_view",
+  "phrasings": [
+   "column view"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+3"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.go_desktop",
+  "phrasings": [
+   "go to desktop folder",
+   "desktop folder"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+d"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.go_downloads",
+  "phrasings": [
+   "go to downloads",
+   "downloads folder"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+opt+l"
+  },
+  "apps": [
+   "files"
+  ]
+ },
+ {
+  "id": "files.go_applications",
+  "phrasings": [
+   "go to applications",
+   "applications folder"
+  ],
+  "category": "files",
+  "reversibility": "reversible",
+  "kind": "shortcut",
+  "params": {
+   "keys": "cmd+shift+a"
+  },
+  "apps": [
+   "files"
+  ]
+ }
+]
