@@ -101,7 +101,9 @@ public struct RegressionGuard: Sendable {
 
     public func correction(for text: String) -> String? {
         let k = text.lowercased().trimmingCharacters(in: .punctuationCharacters)
-        guard !k.isEmpty, !protected.contains(k) else { return nil }
+        guard !k.isEmpty else { return nil }
+        // Already the learned term: only normalise casing ("kothari" -> "Kothari").
+        if protected.contains(k) { let t = lexicon.terms[k]!.text; return t == text.trimmingCharacters(in: .punctuationCharacters) ? nil : t }
         if let v = lexicon.variants[k] { return v.corrected }
         guard !k.contains(" ") else { return nil }
         let codes = DoubleMetaphone(maxLength: metaphoneLength).encode(k)
