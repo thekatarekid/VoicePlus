@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>VoicePlus</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIdentifier</key>
+    <string>in.adityakatare.voiceplus</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>VoicePlus</string>
+    <key>CFBundleDisplayName</key>
+    <string>VoicePlus</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__BUILD__</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Aditya Katare. All rights reserved.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>VoicePlus listens to your microphone to transcribe your dictation entirely on this Mac.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>VoicePlus reads contact names locally so dictated names are spelled correctly.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>VoicePlus sends keystrokes and text to the app you are dictating into.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>VoicePlus uses Accessibility to insert dictated text at your cursor in other apps.</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/thekatarekid/VoicePlus/releases/latest/download/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+</dict>
+</plist>

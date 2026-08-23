@@ -51,13 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build release dmg
-        # Packaging/release.sh <phase> <version> is created by P1.13.
-        run: |
-          if [ -x Packaging/release.sh ]; then
-            Packaging/release.sh nightly "0.0.0-nightly.$(date -u +%Y%m%d)"
-          else
-            echo "Packaging/release.sh not present yet (P1.13); skipping dmg"
-          fi
+        # P1.13 pipeline: ad-hoc signed, no tag/GitHub release for nightlies.
+        run: Packaging/release.sh nightly "0.0.0-nightly.$(date -u +%Y%m%d)" --no-github
       - name: Upload dmg
         if: hashFiles('Packaging/releases/*.dmg') != ''
         uses: actions/upload-artifact@v4

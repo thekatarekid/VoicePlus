@@ -1,5 +1,5 @@
 .build*/
-*.dmg.tmp
+*.tmp.dmg
 .DS_Store
 .swiftpm/
 Packaging/build/

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>VoicePlus</title>
+    <link>https://github.com/thekatarekid/VoicePlus</link>
+    <description>VoicePlus releases (appcast is UNSIGNED — Sparkle EdDSA key not available)</description>
+    <language>en</language>
+    <item>
+      <title>VoicePlus 0.0.1 (phase 0)</title>
+      <pubDate>Sun, 23 Aug 2026 16:52:56 +0000</pubDate>
+      <sparkle:version>202608231652</sparkle:version>
+      <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:channel>release</sparkle:channel>
+      <sparkle:releaseNotesLink>https://github.com/thekatarekid/VoicePlus/releases/tag/release/phase-0/v0.0.1</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/thekatarekid/VoicePlus/releases/download/release%2Fphase-0%2Fv0.0.1/VoicePlus_0_0.0.1.dmg" length="11698298" type="application/octet-stream" />
+      <!-- unsigned: no sparkle:edSignature (no EdDSA key on this machine) -->
+    </item>
+  </channel>
+</rss>
