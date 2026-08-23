@@ -1,0 +1,61 @@
+# Engine/Decoder — frozen interface (P1.3 T1)
+
+**Status: FROZEN as of P1.3 T1.** Additive changes only (new optional protocol members with
+default implementations). P1.5 (biasing) and P1.6 (beam/alternates) build against this file:
+`Engine/Decoder/Decoder.swift`.
+
+## Types
+
+| Type | Purpose |
+|---|---|
+| `DecodedToken { tokenId, text, logProb, startTime, endTime }` | One sub-word token. `logProb` is natural log (≤ 0). `text` keeps the SentencePiece word marker `▁`; use `isWordStart` / `strippedText`. Times are seconds from utterance start, absolute (chunk offset already applied), 80 ms quantised for Parakeet. |
+| `EncoderFrames { values, frameCount, hiddenSize, frameDuration, timeOffset }` | Row-major `[frames][hidden]` encoder output. `timeOffset` is the chunk start in seconds. |
+| `PrefixState { tokenIds, text, frameIndex }` | What has been decoded so far; passed to the biaser at each step. |
+| `DecodeResult { tokens, score, text }` | `score` = Σ logProb; `text` = tokenizer-joined text. |
+
+## Protocols
+
+```swift
+public protocol Decoder: AnyObject, Sendable {
+    var name: String { get }
+    var biaser: LogitBiaser? { get set }
+    func decode(encoderFrames: EncoderFrames) async throws -> DecodeResult
+    func reset() async
+}
+
+public protocol LogitBiaser: Sendable {
+    func boost(tokenIds: [Int], prefixState: PrefixState) -> [Int: Float]   // additive log-prob bonus per candidate id
+}
+```
+
+### Contract
+- A `Decoder` is stateful per utterance. Call `reset()` between utterances; chunks of one
+  utterance go through `decode` in order and each returns only the *new* tokens for that chunk.
+- `decode` never returns blank tokens. Tokens are in time order.
+- `biaser.boost` is called once per non-blank emission step with the **top-K candidate ids** the
+  joint exposes (Parakeet TDT v3 CoreML joint returns `top_k_ids/top_k_logits`; full-vocab logits
+  are not available — see `docs/research/fluidaudio-api.md`). Bonus is added to the raw logit of the
+  matching candidate before re-argmax; ids not in the returned dict get 0. The chosen token's
+  `logProb` reflects the *unbiased* softmax probability so confidence stays honest (Bet 9).
+- Biaser implementations must be pure/cheap; they are called thousands of times per utterance.
+
+## Implementations
+- `FluidAudioTDTDecoder` (`Engine/Decoder/FluidAudioTDTDecoder.swift`) — adapter over the upstream
+  FluidAudio 0.15.x greedy TDT path. Upstream does **not** expose `decodeWithTimings` or a per-step
+  hook publicly, so the adapter:
+  1. Runs full utterances through `AsrManager.transcribe(_:decoderState:)` and maps
+     `ASRResult.tokenTimings` → `[DecodedToken]` (`logProb = log(confidence)`).
+  2. Applies the installed `LogitBiaser` in a **post-hoc rescoring pass** over each token (the
+     only candidate id is the chosen one, so a biaser can only re-score, not re-pick). When the
+     FluidAudio fork patch (`TdtDecoderV3.decodeWithTimings` hook at `~:280`) lands, the adapter
+     switches to per-step biasing with zero API change for callers.
+  `EncoderFrames` for this adapter are **not** raw encoder output: `FluidAudioTDTDecoder.decode`
+  expects `EncoderFrames` produced by `FluidAudioTDTDecoder.frames(fromSamples:)` (samples packed,
+  hiddenSize 1, frameDuration 1/16000), because the upstream runs preprocessor+encoder+decoder
+  as one unit. A raw-frames path is the fork follow-up.
+- `MockDecoder` (tests + `Lab`) — replays scripted `[DecodedToken]`, honours `biaser`.
+
+## Word confidence (Engine/Confidence)
+`WordConfidence.aggregate(tokens)` groups sub-word tokens into words (`isWordStart` boundaries) and
+uses the **min-prob rule**: word confidence = min over its tokens' `probability`. Span audioRange
+= first token start … last token end. See `Engine/Confidence/WordConfidence.swift`.
