@@ -59,6 +59,11 @@ if [ -d "$ROOT/Fixtures/transcripts" ]; then
   mkdir -p "$CONTENTS/Resources/Fixtures"
   cp -R "$ROOT/Fixtures/transcripts" "$CONTENTS/Resources/Fixtures/"
 fi
+# P4.1 — deterministic action catalogue: ActionCatalog.defaultURL() falls back to
+# Bundle.main.resourceURL/catalog.json when the source checkout isn't present.
+if [ -f "$ROOT/Actions/Deterministic/catalog.json" ]; then
+  cp "$ROOT/Actions/Deterministic/catalog.json" "$CONTENTS/Resources/catalog.json"
+fi
 # SwiftPM resource bundles (Module_Target.bundle) sit next to the binary.
 shopt -s nullglob
 for b in "$BUILD_DIR"/*.bundle; do

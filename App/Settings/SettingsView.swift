@@ -11,6 +11,7 @@ public struct SettingsView: View {
     @ObservedObject var data: DataPanelViewModel
     @ObservedObject var snippets: SnippetsViewModel
     @ObservedObject var corrections: CorrectionSettingsViewModel
+    @ObservedObject var connectors: ConnectorsSettingsViewModel
     let deps: OnboardingDependencies
     @Binding var selectedTab: SettingsTab
 
@@ -22,6 +23,7 @@ public struct SettingsView: View {
             dictionaryTab.tabItem { Label("Dictionary", systemImage: "character.book.closed") }.tag(SettingsTab.dictionary)
             SnippetsSettingsTab(model: snippets).padding(4).tabItem { Label("Snippets", systemImage: "text.quote") }.tag(SettingsTab.snippets)
             flagsTab.tabItem { Label("Flags", systemImage: "flag") }.tag(SettingsTab.flags)
+            ConnectorsSettingsTab(model: connectors).tabItem { Label("Services", systemImage: "link") }.tag(SettingsTab.connectors)
             dataTab.tabItem { Label("Data", systemImage: "network") }.tag(SettingsTab.data)
         }
         .frame(width: 560, height: 400)
@@ -182,4 +184,4 @@ struct DataRow: Identifiable {
     var purpose: String { record.purpose }
 }
 
-public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, data }
+public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, connectors, data }

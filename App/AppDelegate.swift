@@ -12,7 +12,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var transformPill: TransformPillDriver?
     private var correctionOverlay: CorrectionOverlayController?
     private var inkOverlay: InkOverlayController?
+    private var actSession: ActSessionController?
+    private var consentPanels: ConsentPanelsController?
+    private var agentCursor: AgentCursorController?
     private let hotkey = HotkeyService()
+    /// P4.2 — second key opens the act domain (Bet 5: two keys, never inferred from phrasing).
+    private let actHotkey = HotkeyService(bindingKey: HotkeyService.actBindingDefaultsKey,
+                                          defaultBinding: HotkeyBinding(kind: .rightCommand))
     private let pill = PillPanelController()
     private let updater: UpdaterProtocol = NoopUpdater()
     private let flags = FeatureFlagService.local()
@@ -97,6 +103,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator?.handle(action)
         }
 
+        // P4 — act session behind the second key: consent panels, agent cursor, step chips.
+        let panels = ConsentPanelsController()
+        panels.consent = container.consentEngine
+        panels.router = container.actRouter
+        consentPanels = panels
+        container.consentEngine.onToast = { token, toast in
+            Task { @MainActor in panels.showToast(token, toast) }
+        }
+        let agent = container.agentBackend
+        container.consentEngine.onCard = { [weak agent] _, card in
+            // The agent presents its own card through `confirmation`; only the deterministic
+            // path surfaces cards from here.
+            guard agent?.isRunning != true else { return }
+            Task { @MainActor in panels.showCard(card) }
+        }
+        agent.confirmation = { card in await panels.requestAgentConfirmation(card) }
+        agent.onChips = { [weak self] chips in
+            Task { @MainActor in self?.pill.model.present(.preview(text: chips.pillText)) }
+        }
+
+        let cursor = AgentCursorController(overlay: inkOverlay)
+        agentCursor = cursor
+        let session = ActSessionController(engine: container.engine, router: container.actRouter,
+                                           state: container.actState)
+        session.contextLines = { [weak container] in container?.deixis.actContextLines ?? [] }
+        session.onDispatch = { [weak self, weak container] dispatch in
+            Task { @MainActor in self?.showActDispatch(dispatch, container: container) }
+        }
+        actSession = session
+        container.actHook.onRoute = { [weak session] route in
+            Task { await session?.route(route) }
+        }
+        actHotkey.onAction = { [weak session, weak inkOverlay, weak container] action in
+            if case .startCapture = action {
+                container?.deixis.beginCapture()
+                Task { @MainActor in inkOverlay?.show() }
+            }
+            if case .finalize = action { container?.deixis.endCapture(); Task { @MainActor in inkOverlay?.hide() } }
+            if case .cancelCapture = action { container?.deixis.endCapture(); Task { @MainActor in inkOverlay?.hide() } }
+            session?.handle(action)
+        }
+        SettingsWindowController.connectorHub = container.connectorHub
+
         let status = StatusItemController(flags: container.flags, database: container.database, coordinator: coordinator,
                                           hotkey: hotkey, updater: updater)
         status.activeModelName = { [weak container] in container?.activeModelName ?? "—" }
@@ -131,6 +180,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.app.info("VoicePlus up: \(container.activeModelName) (Shared \(SharedModule.version))")
     }
 
+    /// P4 — act feedback: pill text per dispatch; the agent cursor animates the action
+    /// (it never moves the real pointer — `AgentCursorTests` enforce that).
+    @MainActor
+    private func showActDispatch(_ dispatch: ActDispatch, container: AppContainer?) {
+        let anchor = container?.deixis.lastBindings.first?.anchor.map { CGPoint(x: $0.x, y: $0.y) }
+            ?? NSScreen.main.map { CGPoint(x: $0.frame.midX, y: $0.frame.midY) } ?? .zero
+        switch dispatch {
+        case .deterministic(let result, let outcome):
+            inkOverlay?.show()
+            agentCursor?.glide(to: anchor, then: { [weak self] in self?.agentCursor?.click(at: anchor) })
+            if case .awaitingConfirmation = outcome {
+                pill.model.present(.preview(text: "Confirm to proceed — say “confirm” or click"))
+            } else if let result, result.outcome.isSuccess {
+                pill.model.present(.preview(text: "Done: \(result.request.catalogID ?? result.request.kind.rawValue)"))
+            } else if let result {
+                pill.model.present(.preview(text: "Couldn't do that (\(result.request.kind.rawValue))"))
+            }
+        case .agentic(let report):
+            pill.model.present(.preview(text: "Agent: \(String(describing: report.status))"))
+        case .stopped:
+            pill.model.present(.preview(text: "Stopped"))
+        case .cancelled:
+            pill.model.present(.preview(text: "Cancelled"))
+            consentPanels?.dismissCard()
+        case .confirmed:
+            pill.model.present(.preview(text: "Confirmed"))
+            consentPanels?.dismissCard()
+        case .ignored:
+            break
+        }
+    }
+
     /// P3.6 — reverse elicitation: pulse rings on the candidates + "which one?" in the pill;
     /// timeout falls back to clarifying text (the state machine produces it).
     @MainActor
@@ -162,10 +243,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let caps = PermissionPlanner.capabilities(matrix)
             self.statusItem?.capabilities = caps
-            if caps.canUseGlobalHotkey { self.hotkey.start() } else { self.hotkey.stop() }
+            if caps.canUseGlobalHotkey {
+                self.hotkey.start()
+                self.actHotkey.start()
+            } else {
+                self.hotkey.stop()
+                self.actHotkey.stop()
+            }
             Log.app.info("permissions: \(matrix.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: " "))")
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) { hotkey.stop() }
+    func applicationWillTerminate(_ notification: Notification) {
+        hotkey.stop()
+        actHotkey.stop()
+    }
 }

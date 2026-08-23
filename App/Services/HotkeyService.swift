@@ -8,6 +8,8 @@ import Shared
 /// Requires Input Monitoring; `start()` returns false (and the app falls back to the menu item) without it.
 public final class HotkeyService {
     public static let bindingDefaultsKey = "hotkeyBinding"
+    /// P4.2 — the second (act) key persists under its own key; default Right ⌘.
+    public static let actBindingDefaultsKey = "actHotkeyBinding"
 
     public var onAction: ((HotkeyStateMachine.Action) -> Void)?
     public private(set) var machine: HotkeyStateMachine
@@ -18,20 +20,24 @@ public final class HotkeyService {
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private let defaults: UserDefaults
+    private let bindingKey: String
 
-    public init(defaults: UserDefaults = .standard, timing: HotkeyStateMachine.Timing = .default) {
+    public init(defaults: UserDefaults = .standard, timing: HotkeyStateMachine.Timing = .default,
+                bindingKey: String = HotkeyService.bindingDefaultsKey,
+                defaultBinding: HotkeyBinding = .default) {
         self.defaults = defaults
+        self.bindingKey = bindingKey
         self.machine = HotkeyStateMachine(timing: timing)
-        if let raw = defaults.string(forKey: Self.bindingDefaultsKey), let kind = HotkeyBinding.Kind(rawValue: raw) {
+        if let raw = defaults.string(forKey: bindingKey), let kind = HotkeyBinding.Kind(rawValue: raw) {
             binding = HotkeyBinding(kind: kind)
         } else {
-            binding = .default
+            binding = defaultBinding
         }
     }
 
     public func setBinding(_ kind: HotkeyBinding.Kind) {
         binding = HotkeyBinding(kind: kind)
-        defaults.set(kind.rawValue, forKey: Self.bindingDefaultsKey)
+        defaults.set(kind.rawValue, forKey: bindingKey)
         machine.reset()
     }
 

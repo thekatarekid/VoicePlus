@@ -44,6 +44,15 @@ public final class AppContainer {
     /// P3 — timeline recorder + deixis/referent resolution + AX window text feed.
     public let deixis: DeixisService
     public let axWindowText: AXReaderWindowText
+    /// P4 — act domain: catalogue + consent + executor + agent behind the second key.
+    public let actState = ActDomainState()
+    public let actHook: ActPreRouteHook
+    public let consentEngine: ConsentEngine
+    public let actionSystem: ActionSystem
+    public let actRouter: ActRouter
+    public let agentBackend: NativeAgentBackend
+    public let connectorHub: ConnectorHub
+    public let connectors: ConnectorRegistry
     public let audioTap = UtteranceAudioTap()
     private let recognizerProvider: BiasingRecognizerProvider?
     private var zeroEditTimer: Timer?
@@ -111,7 +120,11 @@ public final class AppContainer {
         let stages: [any PipelineStage] = [SnippetStage(store: snippetStore)] + StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
             stage.id == .style ? StyleStage(store: styleStore) : stage
         }
-        let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [SnippetPreRoute(store: snippetStore)]))
+        // P4.2 — the act hook runs first: while the second key holds the domain open (or a card
+        // is pending) the utterance is a command, not text.
+        let actHook = ActPreRouteHook()
+        self.actHook = actHook
+        let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, SnippetPreRoute(store: snippetStore)]))
         pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
 
         // P2.5 personas: the same rows Settings edits, auto-drafted from style learnings.
@@ -177,6 +190,35 @@ public final class AppContainer {
         lander.transform = transform
         lander.correction = correction
         lander.contextAugmenter = { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }
+        lander.actClaimConsumer = { [weak actHook] in actHook?.consumeClaim() ?? false }
+
+        // P4 — deterministic action layer + consent + agent, all over one AX action system.
+        // catalog.json resolves from the source tree in dev and from Contents/Resources in the
+        // bundle (make_app.sh copies it); an empty catalogue still boots (agent-only).
+        let actionSystem: ActionSystem = LiveActionSystem()
+        self.actionSystem = actionSystem
+        let catalog: ActionCatalog
+        do { catalog = try ActionCatalog.load() } catch {
+            Log.app.error("action catalog missing: \(error)")
+            catalog = ActionCatalog(entries: [])
+        }
+        let consent = ConsentEngine()
+        consentEngine = consent
+        let executor = ActionExecutor(system: actionSystem)
+        let agent = NativeAgentBackend(planner: ProviderPlanner(providers: providerRouting),
+                                       executor: executor, consent: consent)
+        agentBackend = agent
+        let parser = ActIntentParser(catalog: catalog, activation: actState)
+        actRouter = ActRouter(parser: parser, consent: consent, executor: executor, agent: agent)
+        actHook.parser = parser
+
+        // P4.6 — connectors: Keychain tokens, loopback OAuth, every call → Data Panel.
+        let hub = ConnectorHub(log: { record in
+            guard let database else { return }
+            do { _ = try database.insert(record) } catch { Log.db.error("connector log failed: \(error)") }
+        })
+        connectorHub = hub
+        connectors = hub.registry()
 
         labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, biasing: biasing)
 

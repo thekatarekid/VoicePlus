@@ -7,6 +7,8 @@ import SwiftUI
 public enum SettingsWindowController {
     private static var window: NSWindow?
     private static var tabModel: TabSelection?
+    /// P4.6 — set by the composition root so the "Connected services" tab can drive OAuth.
+    public static var connectorHub: ConnectorHub?
 
     final class TabSelection: ObservableObject { @Published var tab: SettingsTab = .general }
 
@@ -24,6 +26,7 @@ public enum SettingsWindowController {
                 data: DataPanelViewModel(database: deps.database),
                 snippets: SnippetsViewModel(store: deps.database.map { DatabaseSnippetStore(database: $0) as any SnippetStoring } ?? InMemorySnippetStore()),
                 corrections: CorrectionSettingsViewModel(store: deps.settingsStore),
+                connectors: ConnectorsSettingsViewModel(hub: SettingsWindowController.connectorHub),
                 deps: deps,
                 selectedTab: $selection.tab
             )

@@ -45,6 +45,8 @@ public final class UtteranceLander: @unchecked Sendable {
     public var correction: CorrectionService?
     /// P3 — deixis/referent resolution injects `contextLine` (+ window text) before the pipeline runs.
     public var contextAugmenter: (([TranscriptSpan], StageContext) -> StageContext)?
+    /// P4.2 — returns true (and consumes the claim) when the act pre-route hook took this utterance.
+    public var actClaimConsumer: (() -> Bool)?
     /// Tests await the reconcile; the app runs it off the landing path.
     public var reconcileInline = false
 
@@ -95,6 +97,19 @@ public final class UtteranceLander: @unchecked Sendable {
         }
         result.route = decision.route
         result.register = decision.register
+
+        // P4.2 — the act pre-route hook claimed the utterance (adapter returns route .none):
+        // the text is a command, never typed; the act session already received it. The claim
+        // flag is authoritative even when the gatekeeper's budget guard replaced the decision
+        // with the dictate fallback (debug builds can exceed the 15 ms budget on a cold parse).
+        // Plain route-.none decisions (fillers-only) carry no claim and land verbatim as before.
+        if actClaimConsumer?() == true {
+            result.route = Utterance.Route.none
+            result.text = outSpans.joinedText
+            result.totalMs = ms(since: t0)
+            Log.app.info("act domain claimed utterance (\(result.text.count) chars)")
+            return result
+        }
 
         // P2.3 — a selection turns the utterance into a transform / question (Bet 5). The raw
         // spans are the instruction: formatters must not rewrite what the user asked for.
