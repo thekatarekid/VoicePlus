@@ -11,15 +11,26 @@ public struct ScreenMetrics: Equatable, Sendable {
     public var notchWidth: CGFloat?
     /// Menu bar height (visibleFrame delta) for notch-less displays.
     public var menuBarHeight: CGFloat
+    /// The screen's `visibleFrame` (menu bar, notch and Dock excluded) when known.
+    public var visibleFrame: CGRect?
 
-    public init(frame: CGRect, topInset: CGFloat = 0, notchWidth: CGFloat? = nil, menuBarHeight: CGFloat = 24) {
+    public init(frame: CGRect, topInset: CGFloat = 0, notchWidth: CGFloat? = nil, menuBarHeight: CGFloat = 24,
+                visibleFrame: CGRect? = nil) {
         self.frame = frame
         self.topInset = topInset
         self.notchWidth = notchWidth
         self.menuBarHeight = menuBarHeight
+        self.visibleFrame = visibleFrame
     }
 
     public var hasNotch: Bool { topInset > 0 }
+
+    /// Area a regular window may occupy: the real `visibleFrame` when known, else the frame minus
+    /// the forbidden top band (better than nothing — a window placed here still clears the notch).
+    public var usableFrame: CGRect {
+        visibleFrame ?? CGRect(x: frame.minX, y: frame.minY, width: frame.width,
+                               height: max(0, frame.height - topBand))
+    }
 
     /// Band at the top of the display nothing may be drawn into: the camera-housing safe area on a
     /// notched built-in display, the menu bar otherwise. `max` matters — with the menu bar auto-hidden

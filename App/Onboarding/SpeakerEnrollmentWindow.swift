@@ -92,7 +92,7 @@ public enum SpeakerEnrollmentWindowController {
 
     public static func show(model: SpeakerEnrollmentViewModel) {
         if let window {
-            window.makeKeyAndOrderFront(nil)
+            WindowPlacement.place(window, label: "enrollment (reshow)")
             return
         }
         let host = NSHostingController(rootView: SpeakerEnrollmentView(model: model))
@@ -100,9 +100,7 @@ public enum SpeakerEnrollmentWindowController {
         w.title = "Voice enrollment"
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
-        w.center()
-        w.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        WindowPlacement.place(w, label: "enrollment")
         window = w
     }
 

@@ -21,10 +21,10 @@ enum PrePromptWindow {
             choice(c)
         }
         window.contentView = NSHostingView(rootView: PrePromptView(permission: permission, choice: finish))
-        window.center()
         windows.append(window)
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        // Same latent dead end as onboarding: `center()` targets NSScreen.main, which may be a
+        // display showing a full-screen Space.
+        WindowPlacement.place(window, label: "pre-prompt (\(permission.rawValue))")
     }
 }
 

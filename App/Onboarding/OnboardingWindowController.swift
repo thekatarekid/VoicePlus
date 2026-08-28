@@ -9,8 +9,9 @@ public enum OnboardingWindowController {
 
     public static func show(dependencies: OnboardingDependencies, onFinished: ((Bool) -> Void)? = nil) {
         if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            // Re-showing must re-place too: the display arrangement (or the active Space) may have
+            // changed since the window was created.
+            WindowPlacement.place(window, label: "onboarding (reshow)")
             return
         }
         let model = OnboardingViewModel(dependencies: dependencies)
@@ -21,9 +22,9 @@ public enum OnboardingWindowController {
         w.styleMask = [.titled, .closable, .fullSizeContentView]
         w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
-        w.center()
-        w.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Never `center()`: that centres on NSScreen.main, which on this user's machine was an
+        // AirPlay display running a full-screen Space — window off-screen, app apparently dead.
+        WindowPlacement.place(w, label: "onboarding")
         window = w
         viewModel = model
     }

@@ -57,7 +57,8 @@ public final class PillPanelController {
             notchWidth = max(0, screen.frame.width - (left.width + right.width))
         }
         return ScreenMetrics(frame: screen.frame, topInset: screen.safeAreaInsets.top, notchWidth: notchWidth,
-                             menuBarHeight: max(0, screen.frame.maxY - screen.visibleFrame.maxY))
+                             menuBarHeight: max(0, screen.frame.maxY - screen.visibleFrame.maxY),
+                             visibleFrame: screen.visibleFrame)
     }
 
     /// One-shot startup diagnostic: where the pill will land on every attached display, and whether that
