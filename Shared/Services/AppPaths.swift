@@ -14,18 +14,22 @@ public enum AppPaths {
         supportDirectory().appendingPathComponent("voiceplus.sqlite")
     }
 
-    /// Directory of bundled/dev fixtures, resolved from the package root when running from source.
+    /// Directory of bundled/dev fixtures.
+    ///
+    /// The shipped bundle is tried *first*: the `#filePath`-relative source checkout below does not
+    /// exist on a user's Mac, so looking there first meant every dev build exercised a lookup no
+    /// user ever takes — the shipping path was only ever tested by shipping.
     public static func fixturesDirectory() -> URL? {
-        // Walk up from this source file to the package root (works for `swift test` / `swift run`).
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<3 { url.deleteLastPathComponent() }
-        let candidate = url.appendingPathComponent("Fixtures", isDirectory: true)
-        if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
         // Packaged app: Fixtures copied next to the executable's Resources.
         if let resources = Bundle.main.resourceURL?.appendingPathComponent("Fixtures"),
            FileManager.default.fileExists(atPath: resources.path) {
             return resources
         }
+        // Source checkout (`swift test` / `swift run`): walk up from this file to the package root.
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<3 { url.deleteLastPathComponent() }
+        let candidate = url.appendingPathComponent("Fixtures", isDirectory: true)
+        if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
         return nil
     }
 }

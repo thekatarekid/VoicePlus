@@ -46,11 +46,13 @@ public struct ActionCatalog: Sendable {
         } }
     }
 
+    /// Bundle first, source checkout second: the `#filePath` copy does not exist on a user's Mac,
+    /// so trying it first left the shipping lookup unexercised by every dev build.
     public static func defaultURL() -> URL? {
+        if let r = Bundle.main.resourceURL?.appendingPathComponent("catalog.json"), FileManager.default.fileExists(atPath: r.path) { return r }
         var url = URL(fileURLWithPath: #filePath); url.deleteLastPathComponent()
         let local = url.appendingPathComponent("catalog.json")
         if FileManager.default.fileExists(atPath: local.path) { return local }
-        if let r = Bundle.main.resourceURL?.appendingPathComponent("catalog.json"), FileManager.default.fileExists(atPath: r.path) { return r }
         return nil
     }
 
