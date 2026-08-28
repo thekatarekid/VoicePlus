@@ -1,5 +1,6 @@
 import AppKit
 import Engine
+import Shared
 import SwiftUI
 
 /// P5.5 — notch prompt: "Meeting? Join & Record / Record / Ignore". Borderless panel under the
@@ -9,6 +10,17 @@ public final class MeetingPromptPanel {
     private var panel: NSPanel?
     public var onChoice: ((MeetingPrompt.Choice) -> Void)?
 
+    /// Requested size; the notch rule may clamp it on a narrow display.
+    nonisolated public static let panelSize = CGSize(width: 380, height: 66)
+
+    /// Where the prompt goes on a given display. Same rule as the pill (`NotchGeometry.topBand`):
+    /// the top edge sits at the bottom of the forbidden band, so on a notched MacBook the panel is
+    /// never drawn behind the camera housing. The old code used `screen.frame.maxY - height - 8`,
+    /// which put its top ~30 pt behind the housing.
+    nonisolated public static func frame(on metrics: ScreenMetrics) -> CGRect {
+        NotchGeometry.layout(for: metrics, size: panelSize).shown
+    }
+
     public init() {}
 
     public func show(_ prompt: MeetingPrompt) {
@@ -17,7 +29,10 @@ public final class MeetingPromptPanel {
             self?.onChoice?(choice)
             self?.dismiss()
         }
-        let size = NSSize(width: 380, height: 66)
+        // Host screen rule, like the pill: the display under the mouse, falling back to main.
+        let rect = PillPanelController.currentMetrics().map(Self.frame(on:))
+            ?? CGRect(origin: .zero, size: Self.panelSize)
+        let size = rect.size
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
@@ -28,10 +43,8 @@ public final class MeetingPromptPanel {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.contentView = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
-        if let screen = NSScreen.main {
-            let f = screen.frame
-            panel.setFrameOrigin(NSPoint(x: f.midX - size.width / 2, y: f.maxY - size.height - 8))
-        }
+        panel.setFrame(rect, display: true)
+        Log.app.info("meeting prompt placement: frame=\(NSStringFromRect(rect))")
         panel.orderFrontRegardless()
         self.panel = panel
     }
