@@ -16,6 +16,13 @@ public final class PillViewModel: ObservableObject {
     public var onGhostAction: ((TransformGhost.Action) -> Void)?
     private var reducer = PillStateReducer()
     private var cancellables: Set<AnyCancellable> = []
+    /// When real captured levels are arriving, `.listening(level:)` must not push a second bar for
+    /// the same audio (the waveform would advance at double rate).
+    private var lastCapturedLevel: Date?
+    private var capturedLevelsAreLive: Bool {
+        guard let lastCapturedLevel else { return false }
+        return Date().timeIntervalSince(lastCapturedLevel) < 0.5
+    }
 
     public init() {}
 
@@ -23,14 +30,24 @@ public final class PillViewModel: ObservableObject {
     public func bind(engineState: AnyPublisher<EngineState, Never>, audioLevel: AnyPublisher<Float, Never>? = nil) {
         cancellables.removeAll()
         engineState.receive(on: DispatchQueue.main).sink { [weak self] s in self?.apply(s) }.store(in: &cancellables)
-        audioLevel?.receive(on: DispatchQueue.main).sink { [weak self] level in self?.waveform.push(level: level) }
+        audioLevel?.receive(on: DispatchQueue.main).sink { [weak self] level in self?.push(capturedLevel: level) }
             .store(in: &cancellables)
+    }
+
+    /// A level measured from captured audio. Unlike `EngineState.listening(level:)` these keep
+    /// coming while the pill shows a preview, so the waveform no longer freezes mid-utterance.
+    public func push(capturedLevel level: Float) {
+        lastCapturedLevel = Date()
+        waveform.push(level: level)
     }
 
     public func apply(_ engineState: EngineState) {
         let new = reducer.reduce(engineState)
-        if case .listening(let level) = engineState { waveform.push(level: level) }
-        if case .idle = engineState { waveform.reset() }
+        if case .listening(let level) = engineState, !capturedLevelsAreLive { waveform.push(level: level) }
+        if case .idle = engineState {
+            waveform.reset()
+            lastCapturedLevel = nil
+        }
         state = new
     }
 

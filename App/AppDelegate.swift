@@ -56,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         container.audio?.onMicQuality = { [weak coordinator] q in
             DispatchQueue.main.async { coordinator?.noteMicQuality(q) }
         }
+        // The pill waveform runs off real captured audio for the whole utterance (levels from
+        // `EngineState` stop at the first preview). No pipeline (mock engine) → engine states.
+        if let audio = container.audio { coordinator.bindWaveform(to: audio) }
         self.coordinator = coordinator
 
         // P2.3 — transform pill (tint, "editing N words", ghost, 8 s warm window).

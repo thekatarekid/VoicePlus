@@ -1,7 +1,25 @@
+import Combine
 import Foundation
 import Testing
 import Shared
 @testable import Engine
+
+/// An `AudioSource` the test drives by hand, so level timing is deterministic.
+final class ManualAudioSource: AudioSource, @unchecked Sendable {
+    var sink: ((UnsafeBufferPointer<Float>) -> Void)?
+    func prewarm() throws {}
+    func start() throws {}
+    func stop() {}
+    func push(_ samples: [Float]) { samples.withUnsafeBufferPointer { sink?($0) } }
+}
+
+/// Thread-safe record of (level, engine state at publish time).
+final class LevelLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [(level: Float, state: String)] = []
+    func append(level: Float, state: String) { lock.withLock { storage.append((level, state)) } }
+    var entries: [(level: Float, state: String)] { lock.withLock { storage } }
+}
 
 final class ScriptedFinal: FinalRecognizer, @unchecked Sendable {
     let name = "scripted"
@@ -89,6 +107,36 @@ struct ASRRealEngineTests {
         #expect(try await p.feed([Float](repeating: 0, count: 4000)) == "")
         #expect(try await p.feed([Float](repeating: 0, count: 4000)) == "x")
         #expect(final.received.count == 8000)
+    }
+
+    /// FIX 3: level emission used to be gated on `case .listening = state`, so the moment the first
+    /// preview moved the state to `.previewing` the pill's waveform stopped receiving anything for
+    /// the rest of the utterance. Levels now ride their own publisher and keep flowing.
+    @Test func levelsKeepFlowingAfterAPreviewMovesTheStateOffListening() async throws {
+        let audio = ManualAudioSource()
+        let engine = RealEngine(audio: audio,
+                                provider: StaticRecognizerProvider(final: ScriptedFinal(spans: []),
+                                                                   preview: ScriptedPreview()))
+        let seen = LevelLog()
+        let subscription = engine.audioLevels.sink { [weak engine] level in
+            seen.append(level: level, state: engine?.state.caseName ?? "gone")
+        }
+        defer { subscription.cancel() }
+
+        try await engine.start(prewarm: true)
+        audio.push([Float](repeating: 0.2, count: 3_200))     // 0.2 s → a preview is scheduled
+        for _ in 0..<300 where engine.state.caseName != "previewing" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(engine.state.caseName == "previewing")
+
+        try await Task.sleep(nanoseconds: 120_000_000)        // clear the 100 ms level-emit gate
+        audio.push([Float](repeating: 0.3, count: 1_600))
+        _ = try? await engine.stop()
+
+        #expect(seen.entries.contains { $0.state == "previewing" },
+                "no level published while previewing — the waveform freezes mid-utterance")
+        #expect(seen.entries.allSatisfy { $0.level >= 0 && $0.level <= 1 })
     }
 
     @Test func fixtureWavLoadsAs16k() throws {

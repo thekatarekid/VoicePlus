@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Engine
 import Foundation
 import Injection
 import Shared
@@ -24,12 +25,22 @@ public final class DictationCoordinator {
     public private(set) var paused = false
     private var eventTask: Task<Void, Never>?
     private var startedAt = Date()
+    /// The pill's waveform feed. `bind(engineState:)` alone left `audioLevel` nil, so the only
+    /// levels the pill ever saw came from `EngineState.listening(level:)` — which stops the instant
+    /// a preview arrives, freezing the waveform mid-utterance.
+    private let capturedLevels = PassthroughSubject<Float, Never>()
+    private var levelSource: AnyCancellable?
 
     public init(engine: any EngineProtocol, database: AppDatabase?, pill: PillPanelController) {
         self.engine = engine
         self.database = database
         self.pill = pill
-        pill.model.bind(engineState: engine.statePublisher)
+        pill.model.bind(engineState: engine.statePublisher, audioLevel: capturedLevels.eraseToAnyPublisher())
+        // Engines that publish levels for the whole utterance drive the waveform directly; the mock
+        // engine (VOICEPLUS_FIXTURE) publishes none and keeps falling back to `.listening(level:)`.
+        if let publishing = engine as? AudioLevelPublishing {
+            levelSource = publishing.audioLevels.sink { [capturedLevels] level in capturedLevels.send(level) }
+        }
         eventTask = Task { [weak self] in
             for await event in engine.events() {
                 guard let self else { return }
@@ -39,6 +50,15 @@ public final class DictationCoordinator {
     }
 
     deinit { eventTask?.cancel() }
+
+    /// Drive the pill waveform straight from the capture pipeline's `.level(rms:)` channel — the
+    /// same signal the onboarding mic meter uses, so the two agree. Replaces the engine-level
+    /// subscription so a bar is never pushed twice for the same audio.
+    public func bindWaveform(to audio: PipelineAudioSource) {
+        levelSource?.cancel()
+        levelSource = nil
+        audio.onLevel = { [capturedLevels] level in capturedLevels.send(level) }
+    }
 
     public func setPaused(_ paused: Bool) {
         self.paused = paused

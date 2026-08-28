@@ -53,6 +53,14 @@ actor UtteranceBuffer {
     func drain() async { await previewTask?.value }
 }
 
+/// Engines that publish captured input level continuously, not just while the state machine happens
+/// to sit in `.listening`. Consumers (the pill waveform) bind this instead of reading levels out of
+/// `EngineState`, which stops carrying them the moment a preview arrives.
+public protocol AudioLevelPublishing: AnyObject {
+    /// Normalised 0…1 input level, ≈10 per second while capturing.
+    var audioLevels: AnyPublisher<Float, Never> { get }
+}
+
 /// The real `EngineProtocol` implementation (P1.3 T4): audio → streaming preview (EOU) into the
 /// pill, and on release a final TDT pass whose spans replace the preview (no dual-path yet — Bet 4
 /// is Phase 1.5).
@@ -66,6 +74,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     private var recognizers: (final: FinalRecognizer, preview: PreviewRecognizer?)?
     private var listening = false
     private var lastLevelEmit = Date.distantPast
+    private let levelSubject = PassthroughSubject<Float, Never>()
     /// Seconds per preview block handed to the preview recognizer.
     public var previewBlock: TimeInterval = 0.16
     private var previewPending: [Float] = []
@@ -81,6 +90,8 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
 
     public var state: EngineState { stateSubject.value }
     public var statePublisher: AnyPublisher<EngineState, Never> { stateSubject.eraseToAnyPublisher() }
+    /// Input level for the whole utterance — `.listening` *and* `.previewing`.
+    public var audioLevels: AnyPublisher<Float, Never> { levelSubject.eraseToAnyPublisher() }
     public func events() -> AsyncStream<EngineEvent> { broadcaster.subscribe() }
 
     private func setState(_ s: EngineState) {
@@ -129,9 +140,15 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         lock.unlock()
 
         Task { await buffer.append(block) }
-        if emitLevel, case .listening = state {
+        if emitLevel {
             let rms = sqrt(block.reduce(0) { $0 + $1 * $1 } / Float(max(block.count, 1)))
-            setState(.listening(level: min(1, rms * 4)))
+            let level = min(1, rms * 4)
+            // Levels flow for the whole utterance. `EngineState` can only carry a level in
+            // `.listening`, and the first preview moves the state to `.previewing` — publishing the
+            // level separately is what keeps the pill's waveform alive past that point (a state
+            // update here would instead throw the preview text away every 100 ms).
+            levelSubject.send(level)
+            if case .listening = state { setState(.listening(level: level)) }
         }
         if let toPreview, let preview {
             Task { [weak self] in
@@ -184,6 +201,8 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         setState(.idle)
     }
 }
+
+extension RealEngine: AudioLevelPublishing {}
 
 extension RealEngine {
     /// Test/diagnostic hook: samples captured so far in the current utterance.
