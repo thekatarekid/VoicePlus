@@ -1,15 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  VoicePlus is NOT sandboxed: it needs Accessibility (AX) injection, a global
+  CGEventTap hotkey (Input Monitoring) and system-audio capture, none of which
+  are reachable from inside the App Sandbox.
+
+  The com.apple.security.device.* / personal-information.* keys are the
+  sandbox-style resource entitlements. They are inert for an unsandboxed app but
+  are what the *hardened runtime* consults, so they must be present now that
+  make_app.sh signs with the hardened runtime enabled.
+
+  Neither Input Monitoring (kTCCServiceListenEvent) nor Accessibility
+  (kTCCServiceAccessibility) has an entitlement or an Info.plist key. Both are
+  granted by the user in System Settings against the app's code signature.
+  See Packaging/SIGNING.md.
+-->
 <plist version="1.0">
 <dict>
-    <!-- Not sandboxed: the app needs Accessibility (AX) injection + global hotkeys. -->
     <key>com.apple.security.app-sandbox</key>
     <false/>
+
+    <!-- Microphone (AVAudioEngine / AVCaptureDevice). -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- CoreMediaIO camera-in-use polling (no video frames are read). -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <!-- CNContactStore name biasing. -->
     <key>com.apple.security.personal-information.addressbook</key>
     <true/>
+    <!-- EKEventStore meeting detection. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    <!-- Apple Events text injection into the frontmost app. -->
     <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Hardened runtime exceptions.
+         Required because the signature is ad-hoc: an ad-hoc signature has no
+         Team ID, so library validation would refuse to load any embedded
+         framework (FluidAudio ships a binary xcframework). Drop this key the
+         moment a real Developer ID identity is available. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
 </dict>
 </plist>

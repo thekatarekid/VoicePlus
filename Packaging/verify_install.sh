@@ -30,6 +30,39 @@ codesign -vv --deep --strict "$APP" 2>&1 | sed 's/^/  /'
 /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist" | grep -qx in.adityakatare.voiceplus || fail "bundle id"
 VER="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")"
 echo "[verify] version $VER"
+case "$VER" in ''|*'__'*|*'${'*) fail "version placeholder was not substituted: '$VER'" ;; esac
+/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist" | grep -qE '^[0-9]' || fail "CFBundleVersion"
+/usr/libexec/PlistBuddy -c "Print :LSUIElement" "$APP/Contents/Info.plist" | grep -qx true || fail "LSUIElement"
+/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist" | grep -q . || fail "LSMinimumSystemVersion"
+
+# TCC: a missing usage string silently suppresses the permission prompt.
+echo "[verify] TCC usage descriptions"
+for k in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription \
+         NSContactsUsageDescription NSCalendarsFullAccessUsageDescription \
+         NSCalendarsUsageDescription NSCameraUsageDescription \
+         NSAppleEventsUsageDescription NSAccessibilityUsageDescription \
+         NSLocalNetworkUsageDescription; do
+  /usr/libexec/PlistBuddy -c "Print :$k" "$APP/Contents/Info.plist" >/dev/null 2>&1 \
+    || fail "Info.plist missing $k (see Packaging/SIGNING.md)"
+done
+echo "[verify]   all 9 present"
+
+# Signature must identify itself as the app's own bundle id, or TCC cannot match it.
+codesign -dvvv "$APP" 2>&1 | grep -qx 'Identifier=in.adityakatare.voiceplus' \
+  || fail "codesign Identifier != CFBundleIdentifier"
+codesign -d --entitlements :- "$APP" 2>/dev/null | grep -q 'com.apple.security.device.audio-input' \
+  || fail "audio-input entitlement missing"
+
+# Self-containment: nothing may point back at the build machine.
+echo "[verify] self-containment"
+while IFS= read -r macho; do
+  otool -L "$macho" | awk 'NR>1 {print $1}' | grep -Ev '^(/usr/lib/|/System/|@rpath/|@executable_path/|@loader_path/)' \
+    && fail "$macho links a non-portable path"
+  otool -l "$macho" | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}' \
+    | grep -Ev '^(@executable_path|@loader_path|/usr/lib|/System/)' \
+    && fail "$macho has a non-portable LC_RPATH"
+done < <(find "$APP" -type f -perm +111 -exec sh -c 'file -b "$1" | grep -q Mach-O && echo "$1"' _ {} \;)
+echo "[verify]   no /Users, /Library/Developer or build-dir references"
 
 pkill -x VoicePlus 2>/dev/null || true
 echo "[verify] launching"
