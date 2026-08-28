@@ -27,13 +27,13 @@ echo "[verify] clean install -> $APPS"
 cp -R "$MNT/VoicePlus.app" "$APPS/"
 APP="$APPS/VoicePlus.app"
 codesign -vv --deep --strict "$APP" 2>&1 | sed 's/^/  /'
-/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist" | grep -qx in.adityakatare.voiceplus || fail "bundle id"
+grep -qx in.adityakatare.voiceplus <<<"$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist")" || fail "bundle id"
 VER="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")"
 echo "[verify] version $VER"
 case "$VER" in ''|*'__'*|*'${'*) fail "version placeholder was not substituted: '$VER'" ;; esac
-/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist" | grep -qE '^[0-9]' || fail "CFBundleVersion"
-/usr/libexec/PlistBuddy -c "Print :LSUIElement" "$APP/Contents/Info.plist" | grep -qx true || fail "LSUIElement"
-/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist" | grep -q . || fail "LSMinimumSystemVersion"
+grep -qE '^[0-9]' <<<"$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")" || fail "CFBundleVersion"
+grep -qx true <<<"$(/usr/libexec/PlistBuddy -c "Print :LSUIElement" "$APP/Contents/Info.plist")" || fail "LSUIElement"
+grep -q . <<<"$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist")" || fail "LSMinimumSystemVersion"
 
 # TCC: a missing usage string silently suppresses the permission prompt.
 echo "[verify] TCC usage descriptions"
@@ -48,9 +48,13 @@ done
 echo "[verify]   all 9 present"
 
 # Signature must identify itself as the app's own bundle id, or TCC cannot match it.
-codesign -dvvv "$APP" 2>&1 | grep -qx 'Identifier=in.adityakatare.voiceplus' \
+# NB: capture first, then grep. Under `set -o pipefail` a `| grep -q` can SIGPIPE
+# the producer the moment grep finds its match, turning a PASS into a flaky FAIL.
+sig_out="$(codesign -dvvv "$APP" 2>&1 || true)"
+grep -qx 'Identifier=in.adityakatare.voiceplus' <<<"$sig_out" \
   || fail "codesign Identifier != CFBundleIdentifier"
-codesign -d --entitlements :- "$APP" 2>/dev/null | grep -q 'com.apple.security.device.audio-input' \
+ent_out="$(codesign -d --entitlements :- "$APP" 2>/dev/null || true)"
+grep -q 'com.apple.security.device.audio-input' <<<"$ent_out" \
   || fail "audio-input entitlement missing"
 
 # Self-containment: nothing may point back at the build machine.
