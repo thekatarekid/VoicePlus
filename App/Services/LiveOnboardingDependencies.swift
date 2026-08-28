@@ -23,6 +23,7 @@ public final class LivePermissionChecker: OnboardingPermissionChecking {
         case .granted: return .granted
         case .denied: return .denied
         case .notDetermined: return .notDetermined
+        case .awaitingUserAction: return .awaitingUserAction
         }
     }
 
@@ -37,27 +38,98 @@ public final class LivePermissionChecker: OnboardingPermissionChecking {
     }
 
     public func openSystemSettings(for permission: OnboardingPermission) {
-        NSWorkspace.shared.open(permission.settingsURL)
+        PermissionSettingsOpener.open(permission.core)
     }
 }
 
-/// Mic-check meter: runs the engine's capture path and maps `.listening(level:)` to 0…1.
-/// Cancels (never finalises) on stop so nothing is typed during onboarding.
+/// Mic-check meter fed by the audio pipeline's own `.level(rms:)` channel — the one built for this
+/// and, until now, consumed by nobody.
+///
+/// It deliberately does *not* touch the ASR engine: `RealEngine.start(prewarm:)` resolves the CoreML
+/// model first (which the mic-check step runs *before* the model step, so it can fail outright),
+/// emits one synthetic `listening(level: 0)` before any sample exists, and stops emitting levels the
+/// moment a preview recognizer moves the state to `.previewing`. Metering the pipeline directly also
+/// guarantees no recognizer runs and nothing can be typed during onboarding.
+public final class PipelineMicLevelPublisher: MicLevelPublishing {
+    private let audio: PipelineAudioSource
+    private let subject = CurrentValueSubject<MicCheckSignal, Never>(.starting)
+    private var reader: Task<Void, Never>?
+    private var blocks = 0
+
+    public init(audio: PipelineAudioSource) { self.audio = audio }
+
+    public var signalPublisher: AnyPublisher<MicCheckSignal, Never> { subject.eraseToAnyPublisher() }
+
+    public func startMonitoring() {
+        subject.send(.starting)
+        blocks = 0
+        let events = audio.pipeline.events()
+        reader = Task { [weak self] in
+            for await event in events {
+                guard let self else { return }
+                switch event {
+                case .level(let rms):
+                    self.blocks += 1
+                    if self.blocks == 1 { Log.app.info("mic check: first audio block reached the meter") }
+                    // Same normalisation the pill uses, so the two meters agree.
+                    self.subject.send(.level(min(1, rms * 4)))
+                case .stopped:
+                    return
+                default:
+                    break
+                }
+            }
+        }
+        do {
+            try audio.start()
+            Log.app.info("mic check: capture started on \(self.audio.deviceName ?? "default device")")
+        } catch {
+            // The old code logged this and left the UI claiming "very quiet" forever.
+            Log.app.error("mic check could not start capture: \(error)")
+            subject.send(.failed(Self.describe(error)))
+        }
+    }
+
+    public func stopMonitoring() {
+        reader?.cancel()
+        reader = nil
+        audio.stop()
+        Log.app.debug("mic check: capture stopped after \(self.blocks) audio blocks")
+    }
+
+    static func describe(_ error: Error) -> String {
+        guard let capture = error as? AudioCaptureError else { return String(describing: error) }
+        switch capture {
+        case .noInputDevice:
+            return "No input device is available to VoicePlus. Microphone permission may be granted to an older copy of this app."
+        default:
+            return String(describing: capture)
+        }
+    }
+}
+
+/// Fallback meter for builds with no live pipeline (mock engine). Marked as not-real capture so the
+/// mic-check screen cannot claim a working microphone on the strength of a fixture.
 public final class EngineMicLevelPublisher: MicLevelPublishing {
     private let engine: any EngineProtocol
-    private let subject = PassthroughSubject<Float, Never>()
+    private let subject = CurrentValueSubject<MicCheckSignal, Never>(.starting)
     private var cancellable: AnyCancellable?
 
     public init(engine: any EngineProtocol) { self.engine = engine }
 
-    public var levelPublisher: AnyPublisher<Float, Never> { subject.eraseToAnyPublisher() }
+    public var signalPublisher: AnyPublisher<MicCheckSignal, Never> { subject.eraseToAnyPublisher() }
+    public var isRealCapture: Bool { false }
 
     public func startMonitoring() {
+        subject.send(.starting)
         cancellable = engine.statePublisher.sink { [subject] state in
-            if case .listening(let level) = state { subject.send(level) }
+            if case .listening(let level) = state, level > 0 { subject.send(.level(level)) }
         }
-        Task { [engine] in
-            do { try await engine.start(prewarm: true) } catch { Log.app.notice("mic check could not start capture: \(error)") }
+        Task { [engine, subject] in
+            do { try await engine.start(prewarm: true) } catch {
+                Log.app.error("mic check could not start capture: \(error)")
+                subject.send(.failed(String(describing: error)))
+            }
         }
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Shared
 
@@ -41,23 +42,48 @@ public struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let p = model.machine.currentPermission {
                 Text(p.title).font(.title.bold())
-                Text(p.why)
+                Text(p.why).font(.callout)
                 switch model.machine.permissionPhase {
                 case .explain:
                     Button("Allow \(p.title)") { model.send(.allow(p)) }.keyboardShortcut(.defaultAction)
                 case .requesting:
-                    ProgressView("Waiting for macOS…")
-                case .denied:
-                    Label("Not granted yet. \(p.consequenceIfSkipped)", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    HStack {
-                        Button("Open System Settings") { model.openSettings(for: p) }
-                        Button("Verify") { model.send(.verify(p)) }.keyboardShortcut(.defaultAction)
-                        Button("Skip this one") { model.send(.next) }
-                    }
+                    ProgressView("Asking macOS…")
+                case .needsSystemSettings(let attempts):
+                    needsSettings(p, attempts: attempts)
                 }
             }
             permissionChecklist
+        }
+    }
+
+    /// The one phase that can follow a request. It always offers three ways forward, so the step can
+    /// never dead-end the way "Allow" alone did.
+    @ViewBuilder private func needsSettings(_ p: OnboardingPermission, attempts: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if attempts == 0 {
+                Label("macOS only asks once. Turn VoicePlus on in \(p.settingsListName), then come back — this screen notices on its own.",
+                      systemImage: "arrow.up.forward.app")
+                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            } else {
+                // A re-check that still says no, for a build macOS has seen before, is the stale-row
+                // signature: this app is ad-hoc signed, so TCC matches it by cdhash and every new
+                // build looks like a different app to the old entry.
+                Label("Still off. macOS is probably remembering an older copy of VoicePlus.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Text("In \(p.settingsListName), select VoicePlus, remove it with the “–” button, then add it again with “+”. This build is signed ad-hoc, so each update looks like a new app to macOS.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button("Copy reset command") { model.copyResetCommand(for: p) }
+                    Text(PermissionDiagnostics.summary()).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Text(p.consequenceIfSkipped).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Open System Settings") { model.openSettings(for: p) }.buttonStyle(.borderedProminent)
+                Button("Re-check") { model.send(.verify(p)) }.keyboardShortcut(.defaultAction)
+            }
         }
     }
 
@@ -65,12 +91,21 @@ public struct OnboardingView: View {
         HStack(spacing: 14) {
             ForEach(OnboardingPermission.allCases) { p in
                 let status = model.machine.statuses[p] ?? .notDetermined
-                Label(p.title, systemImage: status == .granted ? "checkmark.circle.fill" : (status == .denied ? "xmark.circle" : "circle"))
-                    .foregroundStyle(status == .granted ? .green : .secondary)
+                Label(p.title, systemImage: Self.checklistSymbol(status))
+                    .foregroundStyle(status == .granted ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
                     .font(.caption)
             }
         }
         .padding(.top, 8)
+    }
+
+    static func checklistSymbol(_ status: OnboardingPermissionStatus) -> String {
+        switch status {
+        case .granted: return "checkmark.circle.fill"
+        case .denied: return "xmark.circle"
+        case .awaitingUserAction: return "ellipsis.circle"
+        case .notDetermined: return "circle"
+        }
     }
 
     private var micCheck: some View {
@@ -79,12 +114,48 @@ public struct OnboardingView: View {
             Text("Try: \"Testing, one two three.\" The bar should move as you talk.")
             MicLevelMeter(level: model.micLevel)
             switch model.machine.micVerdict {
-            case .waiting: Text("Listening…").foregroundStyle(.secondary)
-            case .tooQuiet: Label("Very quiet. Is the right mic selected in System Settings › Sound?", systemImage: "speaker.slash").foregroundStyle(.orange)
-            case .good: Label("Sounds good.", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-            case .clipping: Label("Too loud — it's clipping. Move the mic a little further away.", systemImage: "waveform.badge.exclamationmark").foregroundStyle(.orange)
+            case .waiting:
+                Text("Listening…").foregroundStyle(.secondary)
+            case .noAudio:
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("No sound is reaching VoicePlus.", systemImage: "waveform.slash").foregroundStyle(.orange)
+                    Text("Capture started but not one audio block arrived. That is usually a microphone grant macOS has stopped honouring for this build, not the volume. Re-grant VoicePlus in Privacy & Security › Microphone, or pick a different input in Sound.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    micRecoveryButtons
+                }
+            case .tooQuiet:
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Audio is arriving, but it's very quiet.", systemImage: "speaker.slash").foregroundStyle(.orange)
+                    Text("Check the input level for the right mic in System Settings › Sound.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    micRecoveryButtons
+                }
+            case .good:
+                Label("Sounds good.", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            case .clipping:
+                Label("Too loud — it's clipping. Move the mic a little further away.", systemImage: "waveform.badge.exclamationmark").foregroundStyle(.orange)
+            case .unavailable(let reason):
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Couldn't start the microphone.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(reason).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    micRecoveryButtons
+                }
+            }
+            if !model.deps.micLevel.isRealCapture {
+                Label("Simulated meter — no real capture is running in this build.", systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var micRecoveryButtons: some View {
+        HStack {
+            Button("Open Sound settings") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!) }
+            Button("Open Microphone privacy") { model.openSettings(for: .microphone) }
+            Button("Try again") { model.send(.verify(.microphone)) }
+        }
+        .font(.caption)
     }
 
     private var modelChoice: some View {
@@ -175,10 +246,15 @@ public struct OnboardingView: View {
         HStack {
             if model.step != .welcome && model.step != .done { Button("Back") { model.send(.back) } }
             Spacer()
-            if model.step != .done { Button("Skip") { model.send(.skip) } }
+            // The permissions step has its own per-permission advance below; a global "Skip" there
+            // used to jump past every remaining permission, which is why Accessibility was unreachable.
+            if model.step != .done && model.step != .permissions { Button("Skip") { model.send(.skip) } }
             switch model.step {
             case .welcome: Button("Get started") { model.send(.next) }.keyboardShortcut(.defaultAction)
-            case .permissions: EmptyView()
+            case .permissions:
+                Button(model.machine.permissionPhase == .explain ? "Skip this one" : "Continue anyway") {
+                    model.send(.next)
+                }
             case .micCheck: Button("Continue") { model.send(.next) }.keyboardShortcut(.defaultAction)
             case .modelChoice: Button("Continue") { model.send(.next) }
             case .firstDictation: Button(model.machine.landedText == nil ? "Continue" : "Finish") { model.send(.next) }

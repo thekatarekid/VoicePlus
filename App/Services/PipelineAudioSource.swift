@@ -13,6 +13,9 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     public let pipeline: AudioPipeline
     public var onMicQuality: (@Sendable (MicQuality) -> Void)?
     public var onDeviceChanged: (@Sendable (AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
+    /// Normalised 0…1 input level, one per ≈50 ms block. The pipeline has always emitted
+    /// `.level(rms:)`; this forwards it so meters don't have to infer level from engine state.
+    public var onLevel: (@Sendable (Float) -> Void)?
     /// Seconds to wait for the async pipeline start before giving up (a hung HAL must not hang the hotkey).
     public var startTimeout: TimeInterval = 3
     /// Tests replaying fixtures set this false; live capture keeps the TCC check.
@@ -51,6 +54,8 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
                 case .audio(let samples, _):
                     self.utteranceTap?.append(samples)
                     samples.withUnsafeBufferPointer { self.sink?($0) }
+                case .level(let rms):
+                    self.onLevel?(min(1, rms * 4))
                 case .micQuality(let q):
                     self.onMicQuality?(q)
                 case .deviceChanged(let from, let to):
@@ -72,7 +77,12 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
             done.signal()
         }
         if done.wait(timeout: .now() + startTimeout) == .timedOut {
-            Log.engine.warning("audio pipeline start timed out after \(startTimeout)s; continuing without audio")
+            // Reporting success for a pipeline that never started is what let the mic check show a
+            // dead meter under a "listening" label. A timeout is a start failure.
+            Log.engine.error("audio pipeline start timed out after \(startTimeout)s")
+            lock.withLock { running = false }
+            forwarder?.cancel()
+            throw AudioCaptureError.engineStartFailed("start timed out after \(startTimeout)s")
         }
         if let error = box.error {
             lock.withLock { running = false }

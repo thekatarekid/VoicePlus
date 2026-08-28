@@ -9,15 +9,38 @@ public struct OnboardingStateMachine: Equatable, Sendable {
 
     /// Sub-state of the permissions step for the permission currently in focus.
     public enum PermissionPhase: Equatable, Sendable {
-        /// Showing the "why" + Allow button.
+        /// Showing the "why" + Allow button. Only ever the *pre-request* state.
         case explain
-        /// System prompt in flight.
+        /// Request issued; waiting for the (fast, usually unhelpful) answer.
         case requesting
-        /// Denied: show "Open System Settings" + "Verify" buttons.
-        case denied
+        /// The request did not grant it. macOS will not ask again for this code identity, so this
+        /// phase always offers: Open System Settings, Re-check, Continue anyway. `recheckAttempts`
+        /// counts re-checks that came back still-not-granted; >0 shows the stale-TCC recovery copy.
+        case needsSystemSettings(recheckAttempts: Int)
+
+        public var isNeedsSystemSettings: Bool {
+            if case .needsSystemSettings = self { return true }
+            return false
+        }
     }
 
-    public enum MicVerdict: Equatable, Sendable { case waiting, tooQuiet, good, clipping }
+    public enum MicVerdict: Equatable, Sendable {
+        /// Capture is up; not enough audio yet to judge.
+        case waiting
+        /// Capture reported success but no sample ever arrived — the stale-grant / wrong-device shape.
+        case noAudio
+        /// Real audio arrived for long enough and it is genuinely quiet.
+        case tooQuiet
+        case good
+        case clipping
+        /// Capture could not start; carries the real error.
+        case unavailable(String)
+    }
+
+    /// Seconds of real audio the meter must have seen before a "too quiet" verdict is honest. The
+    /// view model owns the clock and sends `.micSettled` when it elapses — a block *count* would be
+    /// at the mercy of how the pipeline coalesces buffers.
+    public static let settleSeconds: TimeInterval = 1.5
 
     public enum DownloadState: Equatable, Sendable {
         case notStarted, downloading(Double), installed, failed(String)
@@ -30,7 +53,17 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case allow(OnboardingPermission)
         case permissionResult(OnboardingPermission, OnboardingPermissionStatus)
         case verify(OnboardingPermission)
+        /// Background poll (0.5 s timer / app re-activation). Advances on a grant, but never moves the
+        /// phase backwards or counts as a failed re-check — the user did not press anything.
+        case statusRefreshed(OnboardingPermission, OnboardingPermissionStatus)
+        /// A real audio block was measured (normalised 0…1).
         case micLevel(Float)
+        /// Capture is up but nothing arrived within the grace period.
+        case micNoAudio
+        /// `settleSeconds` of real audio have now been heard, so a quiet verdict would be honest.
+        case micSettled
+        /// Capture failed to start, with the underlying reason.
+        case micFailed(String)
         case choose(ModelTier)
         case downloadProgress(Double)
         case downloadFinished
@@ -42,6 +75,8 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case requestPermission(OnboardingPermission)
         case checkPermission(OnboardingPermission)
         case openSystemSettings(OnboardingPermission)
+        /// Persist "macOS has been asked for this once" so a later launch skips the useless Allow button.
+        case rememberRequested(OnboardingPermission)
         case startMicMonitoring
         case stopMicMonitoring
         case startDownload(ModelTier)
@@ -56,6 +91,13 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     public private(set) var statuses: [OnboardingPermission: OnboardingPermissionStatus] = [:]
     public private(set) var micVerdict: MicVerdict = .waiting
     public private(set) var peakLevel: Float = 0
+    /// How many real audio blocks the mic check has seen. Zero means the meter has never been fed.
+    public private(set) var micLevelEvents = 0
+    /// True once enough real audio has been heard to judge "quiet" honestly.
+    public private(set) var micSettled = false
+    /// Permissions that have been requested at least once (persisted across launches): macOS will not
+    /// notify again for them, so the "Allow" button would be a lie on a second run.
+    public private(set) var requestedPermissions: Set<OnboardingPermission> = []
     public private(set) var chosenTier: ModelTier?
     public private(set) var download: DownloadState = .notStarted
     public private(set) var landedText: String?
@@ -63,8 +105,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
 
     public static let permissionOrder = OnboardingPermission.allCases
 
-    public init(initialStatuses: [OnboardingPermission: OnboardingPermissionStatus] = [:]) {
+    public init(initialStatuses: [OnboardingPermission: OnboardingPermissionStatus] = [:],
+                alreadyRequested: Set<OnboardingPermission> = []) {
         statuses = initialStatuses
+        requestedPermissions = alreadyRequested
         permissionIndex = Self.firstUndecidedIndex(in: initialStatuses)
     }
 
@@ -98,26 +142,53 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         // Permissions
         case (.permissions, .allow(let p)) where p == currentPermission:
             permissionPhase = .requesting
-            return [.requestPermission(p)]
+            requestedPermissions.insert(p)
+            return [.requestPermission(p), .rememberRequested(p)]
         case (.permissions, .permissionResult(let p, let status)):
             statuses[p] = status
+            requestedPermissions.insert(p)
             guard p == currentPermission else { return [] }
-            switch status {
-            case .granted: return advancePermission()
-            case .denied: permissionPhase = .denied; return []
-            case .notDetermined: permissionPhase = .explain; return []
+            guard status != .granted else { return advancePermission() }
+            // Anything that isn't a grant lands in the one phase that always has a way forward.
+            // A re-check that comes back ungranted increments the counter, which switches the copy
+            // to the stale-TCC recovery instructions instead of repeating the same advice.
+            if case .needsSystemSettings(let n) = permissionPhase {
+                permissionPhase = .needsSystemSettings(recheckAttempts: n + 1)
+            } else {
+                permissionPhase = .needsSystemSettings(recheckAttempts: 0)
             }
+            return []
+        case (.permissions, .statusRefreshed(let p, let status)):
+            statuses[p] = status
+            guard p == currentPermission, status == .granted else { return [] }
+            return advancePermission()
         case (.permissions, .verify(let p)) where p == currentPermission:
             return [.checkPermission(p)]
         case (.permissions, .next):
-            // "Skip this one" for a denied/undecided permission.
+            // "Continue anyway" / "Skip this one": advance exactly one permission, never the step.
             return advancePermission()
 
         // Mic check
         case (.micCheck, .micLevel(let level)):
+            micLevelEvents += 1
             peakLevel = max(peakLevel, level)
-            micVerdict = Self.verdict(for: level, peak: peakLevel)
+            micVerdict = Self.verdict(for: level, peak: peakLevel, settled: micSettled)
             return []
+        case (.micCheck, .micSettled):
+            micSettled = true
+            if micLevelEvents > 0 { micVerdict = Self.verdict(for: 0, peak: peakLevel, settled: true) }
+            return []
+        case (.micCheck, .micNoAudio):
+            // Only meaningful while nothing has ever arrived; a late timer must not undo a good verdict.
+            if micLevelEvents == 0 { micVerdict = .noAudio }
+            return []
+        case (.micCheck, .micFailed(let reason)):
+            micVerdict = .unavailable(reason)
+            return []
+        case (.micCheck, .verify):
+            // "Try again" on the mic-check screen.
+            peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
+            return [.stopMicMonitoring, .startMicMonitoring]
         case (.micCheck, .next):
             return enter(.modelChoice)
 
@@ -159,11 +230,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         switch next {
         case .permissions:
             permissionIndex = Self.firstUndecidedIndex(in: statuses)
-            permissionPhase = .explain
             if permissionIndex >= Self.permissionOrder.count { return effects + enter(.micCheck) }
+            permissionPhase = Self.initialPhase(for: Self.permissionOrder[permissionIndex], requested: requestedPermissions)
         case .micCheck:
             if statuses[.microphone] != .granted { step = .modelChoice; return effects }  // no mic → nothing to meter
-            peakLevel = 0; micVerdict = .waiting
+            peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
             effects.append(.startMicMonitoring)
         case .firstDictation:
             effects.append(.beginGuidedDictation)
@@ -175,20 +246,30 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     }
 
     private mutating func advancePermission() -> [SideEffect] {
+        if let p = currentPermission, statuses[p] != .granted { skippedSteps.insert(.permissions) }
         permissionIndex += 1
-        permissionPhase = .explain
         while let p = currentPermission, statuses[p] == .granted { permissionIndex += 1 }
-        if currentPermission == nil { return enter(.micCheck) }
+        guard let next = currentPermission else { return enter(.micCheck) }
+        permissionPhase = Self.initialPhase(for: next, requested: requestedPermissions)
         return []
     }
 
+    /// A permission macOS has already been asked for cannot be prompted again for this code identity,
+    /// so re-showing "Allow" would be a dead end by construction: start in the Settings phase instead.
+    static func initialPhase(for p: OnboardingPermission,
+                             requested: Set<OnboardingPermission>) -> PermissionPhase {
+        requested.contains(p) ? .needsSystemSettings(recheckAttempts: 0) : .explain
+    }
+
     private mutating func skipCurrent() -> [SideEffect] {
-        skippedSteps.insert(step)
         switch step {
-        case .welcome, .permissions: return enter(.micCheck)
-        case .micCheck: return enter(.modelChoice)
-        case .modelChoice: return enter(.firstDictation)
-        case .firstDictation, .done: return enter(.done)
+        // Skipping on the permissions step skips *this* permission, not the whole step — otherwise
+        // the third permission (Accessibility) is unreachable whenever the second one stalls.
+        case .permissions: return advancePermission()
+        case .welcome: skippedSteps.insert(step); return enter(.micCheck)
+        case .micCheck: skippedSteps.insert(step); return enter(.modelChoice)
+        case .modelChoice: skippedSteps.insert(step); return enter(.firstDictation)
+        case .firstDictation, .done: skippedSteps.insert(step); return enter(.done)
         }
     }
 
@@ -206,9 +287,12 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         permissionOrder.firstIndex { statuses[$0] != .granted } ?? permissionOrder.count
     }
 
-    static func verdict(for level: Float, peak: Float) -> MicVerdict {
+    /// Only ever called with a level that came from a real audio block. "Quiet" is withheld until
+    /// enough blocks have arrived to mean it — the old code returned `.tooQuiet` from the single
+    /// synthetic `level: 0` the engine emitted at start, before any sample existed.
+    static func verdict(for level: Float, peak: Float, settled: Bool) -> MicVerdict {
         if level >= 0.98 { return .clipping }
-        if peak < 0.08 { return .tooQuiet }
-        return .good
+        if peak >= 0.08 { return .good }
+        return settled ? .tooQuiet : .waiting
     }
 }

@@ -309,9 +309,14 @@ public final class AppContainer {
     /// Onboarding / Settings dependencies over the live services.
     public func onboardingDependencies(permissions: PermissionChecking) -> OnboardingDependencies {
         let models: ModelManaging = modelManager.map { ModelManagerTiers(manager: $0, settings: settings) } ?? OnboardingMockModelManager()
+        // Meter the audio pipeline directly when there is one: the engine-state meter needs the ASR
+        // model (which the mic-check step runs before) and reports a level of 0 before any sample.
+        let micLevel: MicLevelPublishing = audio.map { PipelineMicLevelPublisher(audio: $0) }
+            ?? EngineMicLevelPublisher(engine: engine)
+        Log.app.info("onboarding mic meter: \(audio != nil ? "audio pipeline (real capture)" : "engine state (simulated)")")
         return OnboardingDependencies(
             permissions: LivePermissionChecker(checker: permissions),
-            micLevel: EngineMicLevelPublisher(engine: engine),
+            micLevel: micLevel,
             models: models,
             engine: engine,
             database: database,

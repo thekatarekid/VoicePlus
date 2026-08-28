@@ -25,20 +25,42 @@ public enum Permission: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
-    /// Deep link into System Settings › Privacy & Security for the permission.
-    public var settingsURL: URL {
-        let anchor: String
+    /// `revealElementKeyName` used by macOS' SecurityPrivacyExtension for this service.
+    public var settingsAnchor: String {
         switch self {
-        case .microphone: anchor = "Privacy_Microphone"
-        case .accessibility: anchor = "Privacy_Accessibility"
-        case .inputMonitoring: anchor = "Privacy_ListenEvent"
+        case .microphone: return "Privacy_Microphone"
+        case .accessibility: return "Privacy_Accessibility"
+        case .inputMonitoring: return "Privacy_ListenEvent"
         }
-        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
+    }
+
+    /// Deep link into System Settings › Privacy & Security for the permission.
+    public var settingsURL: URL { PermissionSettingsLink.urls(anchor: settingsAnchor)[0] }
+
+    /// Modern pane id first, legacy `Security.prefPane` second. `NSWorkspace.open` returns false for a
+    /// pane id the running macOS doesn't know, so callers walk the list until one opens.
+    public var settingsURLs: [URL] { PermissionSettingsLink.urls(anchor: settingsAnchor) }
+}
+
+/// One source of truth for the System Settings deep links (shared with `OnboardingPermission`).
+/// Anchors verified against `/System/Library/ExtensionKit/Extensions/SecurityPrivacyExtension.appex`
+/// `TCCServiceList.plist` on macOS 26.6.2.
+public enum PermissionSettingsLink {
+    public static func urls(anchor: String) -> [URL] {
+        [
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?\(anchor)",
+            "x-apple.systempreferences:com.apple.preference.security?\(anchor)",
+        ].compactMap(URL.init(string:))
     }
 }
 
 public enum PermissionStatus: String, Codable, Equatable, Sendable {
     case notDetermined, granted, denied
+    /// The request was issued but macOS did not (and will not) answer synchronously — the user has to
+    /// flip the switch in System Settings. `CGRequestListenEventAccess()` and
+    /// `AXIsProcessTrustedWithOptions(prompt:)` *always* land here on a first call: they return the
+    /// current authorization in microseconds and merely post a notification. Never a dead end.
+    case awaitingUserAction
 }
 
 public typealias PermissionMatrix = [Permission: PermissionStatus]
@@ -61,7 +83,7 @@ public enum PermissionPlanner {
             switch matrix[permission] ?? .notDetermined {
             case .granted: continue
             case .notDetermined: return .prePrompt(permission)
-            case .denied: return .openSettings(permission)
+            case .denied, .awaitingUserAction: return .openSettings(permission)
             }
         }
         return .allGranted

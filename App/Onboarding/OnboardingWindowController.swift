@@ -29,6 +29,8 @@ public enum OnboardingWindowController {
     }
 
     public static func close() {
+        // Closing mid-mic-check must not leave capture (and the poll timer) running.
+        viewModel?.teardown()
         window?.close()
         window = nil
         viewModel = nil

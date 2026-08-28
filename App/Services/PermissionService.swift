@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import ApplicationServices
 import Foundation
+import Security
 import Shared
 
 /// Abstracts the three system checks so the orchestrator and tests don't touch TCC directly.
@@ -38,20 +39,80 @@ public final class SystemPermissionChecker: PermissionChecking {
         }
     }
 
+    /// Fire-and-forget on macOS: only `true` is trustworthy. `CGRequestListenEventAccess()` and
+    /// `AXIsProcessTrustedWithOptions(prompt:)` are *not* blocking consent dialogs — they return the
+    /// current authorization synchronously (measured 0.005 s on a first call, 0.000 s after) and at
+    /// most post a notification. Once any TCC row exists for the bundle id — which for an ad-hoc
+    /// signed build means "any earlier build, because the cdhash changed" — they return `false`
+    /// silently forever. So `false` becomes `.awaitingUserAction`, never `.notDetermined`, and the
+    /// caller keeps polling `status(of:)` instead of waiting for a callback that never comes.
     public func request(_ permission: Permission, completion: @escaping (PermissionStatus) -> Void) {
+        // The notification is only attributed to (and revealed for) a foreground app.
+        NSApp?.activate(ignoringOtherApps: true)
         switch permission {
         case .microphone:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async { completion(granted ? .granted : .denied) }
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                DispatchQueue.main.async {
+                    guard !granted else { completion(.granted); return }
+                    // A hard "Don't Allow" is a real denial; anything else still needs Settings.
+                    completion(self?.status(of: .microphone) == .denied ? .denied : .awaitingUserAction)
+                }
             }
         case .accessibility:
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            let trusted = AXIsProcessTrustedWithOptions(options)
-            completion(trusted ? .granted : .notDetermined)
+            _ = AXIsProcessTrustedWithOptions(options)
+            completion(AXIsProcessTrusted() ? .granted : .awaitingUserAction)
         case .inputMonitoring:
-            let granted = CGRequestListenEventAccess()
-            completion(granted ? .granted : .notDetermined)
+            _ = CGRequestListenEventAccess()
+            completion(CGPreflightListenEventAccess() ? .granted : .awaitingUserAction)
         }
+    }
+}
+
+/// Opens the Privacy & Security pane for a permission, trying the modern pane id before the legacy
+/// one (still installed on macOS 26 as `Security.prefPane`).
+public enum PermissionSettingsOpener {
+    @discardableResult
+    public static func open(_ permission: Permission) -> Bool {
+        for url in permission.settingsURLs where NSWorkspace.shared.open(url) { return true }
+        Log.app.warning("could not open System Settings for \(permission.rawValue)")
+        return false
+    }
+}
+
+/// The app's TCC code identity. An ad-hoc signature has no Team ID, so TCC stores a bare
+/// `cdhash H"…"` requirement: every rebuild produces a new hash and silently fails to match the
+/// stored grant. Logged at launch and shown in the onboarding recovery panel so a stale row is
+/// recognisable instead of looking like a broken button.
+public enum PermissionDiagnostics {
+    public static var bundleIdentifier: String { Bundle.main.bundleIdentifier ?? "unknown" }
+
+    /// Short hex cdhash of the running code, or nil when it cannot be read.
+    public static func codeHash() -> String? {
+        var codeRef: SecCode?
+        guard SecCodeCopySelf(SecCSFlags(), &codeRef) == errSecSuccess, let codeRef else { return nil }
+        var staticRef: SecStaticCode?
+        guard SecCodeCopyStaticCode(codeRef, SecCSFlags(), &staticRef) == errSecSuccess, let staticRef else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticRef, SecCSFlags(rawValue: 0), &info) == errSecSuccess,
+              let dict = info as? [String: Any],
+              let data = dict[kSecCodeInfoUnique as String] as? Data else { return nil }
+        return data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    public static func summary() -> String {
+        "\(bundleIdentifier) cdhash=\(codeHash() ?? "unavailable")"
+    }
+
+    /// The command that clears a stale row. Shown for copy/paste — never run from the app.
+    public static func resetCommand(for permission: Permission) -> String {
+        let service: String
+        switch permission {
+        case .microphone: service = "Microphone"
+        case .accessibility: service = "Accessibility"
+        case .inputMonitoring: service = "ListenEvent"
+        }
+        return "tccutil reset \(service) \(bundleIdentifier)"
     }
 }
 
@@ -84,11 +145,15 @@ public final class PermissionOrchestrator {
     public let checker: PermissionChecking
     public var presentPrePrompt: (Permission, @escaping (PrePromptChoice) -> Void) -> Void
     public var openSettings: (Permission) -> Void
+    /// Called after `openSettings` so the walk can resume the moment the user flips the switch,
+    /// instead of stopping there. The closure polls and invokes its callback once granted; nil (the
+    /// default, used by tests) keeps the old stop-and-report behaviour.
+    public var watchUntilGranted: ((Permission, @escaping () -> Void) -> Void)?
     public private(set) var log: [String] = []
 
     public init(checker: PermissionChecking,
                 presentPrePrompt: @escaping (Permission, @escaping (PrePromptChoice) -> Void) -> Void,
-                openSettings: @escaping (Permission) -> Void = { NSWorkspace.shared.open($0.settingsURL) }) {
+                openSettings: @escaping (Permission) -> Void = { PermissionSettingsOpener.open($0) }) {
         self.checker = checker
         self.presentPrePrompt = presentPrePrompt
         self.openSettings = openSettings
@@ -111,7 +176,7 @@ public final class PermissionOrchestrator {
         case .openSettings(let permission):
             log.append("settings:\(permission.rawValue)")
             openSettings(permission)
-            completion(matrix)
+            resumeAfterSettings(permission, skipped: skipped, completion: completion)
         case .prePrompt(let permission):
             log.append("preprompt:\(permission.rawValue)")
             presentPrePrompt(permission) { [weak self] choice in
@@ -126,14 +191,63 @@ public final class PermissionOrchestrator {
                         if status == .granted {
                             self.step(skipped: skipped, completion: completion)
                         } else {
-                            // Denied (or AX/IM not yet toggled): send to Settings, stop here; caller re-verifies later.
+                            // Denied, or AX/IM not toggled yet (the usual case — see `request`).
+                            // Send the user to Settings and keep watching so this never dead-ends.
                             self.log.append("settings:\(permission.rawValue)")
                             self.openSettings(permission)
-                            completion(self.matrix)
+                            self.resumeAfterSettings(permission, skipped: skipped, completion: completion)
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Report now (so capabilities update immediately) and, when a watcher is installed, continue the
+    /// walk as soon as the permission is actually granted in System Settings.
+    private func resumeAfterSettings(_ permission: Permission, skipped: Set<Permission>,
+                                     completion: @escaping (PermissionMatrix) -> Void) {
+        completion(matrix)
+        guard let watch = watchUntilGranted else { return }
+        watch(permission) { [weak self] in
+            guard let self else { return }
+            self.log.append("granted-after-settings:\(permission.rawValue)")
+            self.step(skipped: skipped, completion: completion)
+        }
+    }
+}
+
+/// Polls `status(of:)` on a timer until a permission is granted (or the deadline passes). This is the
+/// only public mechanism for Input Monitoring — there is no notification for `kTCCServiceListenEvent`.
+@MainActor
+public final class PermissionPoller {
+    private let checker: PermissionChecking
+    private var timer: Timer?
+    public var interval: TimeInterval = 0.5
+    public var timeout: TimeInterval = 300
+
+    public init(checker: PermissionChecking) { self.checker = checker }
+
+    public func watch(_ permission: Permission, granted: @escaping () -> Void) {
+        cancel()
+        guard checker.status(of: permission) != .granted else { granted(); return }
+        let deadline = Date().addingTimeInterval(timeout)
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] t in
+            MainActor.assumeIsolated {
+                guard let self else { t.invalidate(); return }
+                if self.checker.status(of: permission) == .granted {
+                    t.invalidate(); self.timer = nil
+                    Log.app.info("permission granted while polling: \(permission.rawValue)")
+                    granted()
+                } else if Date() >= deadline {
+                    t.invalidate(); self.timer = nil
+                }
+            }
+        }
+    }
+
+    public func cancel() {
+        timer?.invalidate()
+        timer = nil
     }
 }

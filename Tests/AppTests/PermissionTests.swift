@@ -25,6 +25,40 @@ struct PermissionMatrixTests {
         #expect(Permission.inputMonitoring.settingsURL.absoluteString.contains("Privacy_ListenEvent"))
         for p in Permission.allCases { #expect(!p.rationale.isEmpty) }
     }
+
+    /// `awaitingUserAction` is the honest answer for Input Monitoring / Accessibility (see
+    /// `SystemPermissionChecker.request`); it must route to Settings, never back to a fresh prompt.
+    @Test func awaitingUserActionRoutesToSettings() {
+        #expect(PermissionPlanner.nextStep([.microphone: .granted, .inputMonitoring: .awaitingUserAction])
+                == .openSettings(.inputMonitoring))
+        let caps = PermissionPlanner.capabilities([.microphone: .granted, .inputMonitoring: .awaitingUserAction])
+        #expect(caps.needsMenuFallback)   // dictation still works from the menu bar
+        #expect(PermissionPlanner.missing([.inputMonitoring: .awaitingUserAction]).contains(.inputMonitoring))
+    }
+
+    /// Modern pane id first, legacy `Security.prefPane` as the fallback. Anchors are the
+    /// `revealElementKeyName` values macOS 26 ships in TCCServiceList.plist.
+    @Test func settingsDeepLinksPreferTheModernPaneAndKeepALegacyFallback() {
+        for p in Permission.allCases {
+            let urls = p.settingsURLs.map(\.absoluteString)
+            #expect(urls.count == 2)
+            #expect(urls[0].contains("com.apple.settings.PrivacySecurity.extension"))
+            #expect(urls[1].contains("com.apple.preference.security"))
+            #expect(urls.allSatisfy { $0.hasSuffix("?\(p.settingsAnchor)") })
+            #expect(p.settingsURL == p.settingsURLs[0])
+        }
+        #expect(Permission.inputMonitoring.settingsAnchor == "Privacy_ListenEvent")
+        #expect(Permission.accessibility.settingsAnchor == "Privacy_Accessibility")
+        // Onboarding shares the same links rather than keeping a second copy.
+        #expect(OnboardingPermission.inputMonitoring.settingsURLs == Permission.inputMonitoring.settingsURLs)
+    }
+
+    @Test func diagnosticsNameTheIdentityAndTheResetCommand() {
+        #expect(PermissionDiagnostics.summary().contains(PermissionDiagnostics.bundleIdentifier))
+        #expect(PermissionDiagnostics.resetCommand(for: .inputMonitoring).hasPrefix("tccutil reset ListenEvent "))
+        #expect(PermissionDiagnostics.resetCommand(for: .accessibility).contains("Accessibility"))
+        #expect(PermissionDiagnostics.resetCommand(for: .microphone).contains("Microphone"))
+    }
 }
 
 @Suite("Permission orchestrator")
@@ -53,6 +87,31 @@ struct PermissionOrchestratorTests {
         #expect(checker.requested == [.accessibility])
         #expect(opened == [.accessibility])
         #expect(o.log.contains("skip:inputMonitoring"))
+    }
+
+    /// The orchestrator behind the menu-bar "Check permissions…" used to stop dead after opening
+    /// System Settings. With a watcher installed it resumes the walk on the grant.
+    @Test func watcherResumesTheWalkAfterSystemSettings() {
+        let checker = MockPermissionChecker(statuses: [.microphone: .granted], grantOnRequest: [.accessibility])
+        var opened: [Permission] = []
+        var pending: [(Permission, () -> Void)] = []
+        let o = PermissionOrchestrator(checker: checker, presentPrePrompt: { _, done in done(.proceed) },
+                                       openSettings: { opened.append($0) })
+        o.watchUntilGranted = { p, granted in pending.append((p, granted)) }
+        var matrices: [PermissionMatrix] = []
+        o.run { matrices.append($0) }
+        // Input Monitoring refused → Settings opened, and a watch armed rather than giving up.
+        #expect(opened == [.inputMonitoring])
+        #expect(pending.count == 1)
+        #expect(matrices.count == 1)
+
+        // The user grants it in System Settings; the poller fires.
+        checker.statuses[.inputMonitoring] = .granted
+        pending.removeFirst().1()
+        #expect(checker.requested == [.inputMonitoring, .accessibility])
+        #expect(o.log.contains("granted-after-settings:inputMonitoring"))
+        #expect(matrices.last?[.accessibility] == .granted)
+        #expect(o.log.last == "all granted")
     }
 
     @Test func systemCheckerReportsWithoutPrompting() {

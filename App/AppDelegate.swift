@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
     private var coordinator: DictationCoordinator?
     private var orchestrator: PermissionOrchestrator?
+    private var permissionPoller: PermissionPoller?
     private var container: AppContainer?
     private var transformPill: TransformPillDriver?
     private var correctionOverlay: CorrectionOverlayController?
@@ -235,7 +236,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusItem = status
 
-        orchestrator = PermissionOrchestrator(checker: permissionChecker, presentPrePrompt: PrePromptWindow.present)
+        let orchestrator = PermissionOrchestrator(checker: permissionChecker, presentPrePrompt: PrePromptWindow.present)
+        // macOS answers Input Monitoring / Accessibility only in System Settings, so "Check
+        // permissions…" polls instead of stopping the walk after opening the pane.
+        let poller = PermissionPoller(checker: permissionChecker)
+        permissionPoller = poller
+        orchestrator.watchUntilGranted = { permission, granted in
+            Task { @MainActor in poller.watch(permission, granted: granted) }
+        }
+        self.orchestrator = orchestrator
+        // An ad-hoc signature makes TCC match this app by cdhash, which changes with every build.
+        Log.app.info("code identity: \(PermissionDiagnostics.summary())")
         if OnboardingWindowController.isNeeded(settings: container.settings) {
             OnboardingWindowController.show(dependencies: container.onboardingDependencies(permissions: permissionChecker)) { [weak self] _ in
                 self?.runPermissions()

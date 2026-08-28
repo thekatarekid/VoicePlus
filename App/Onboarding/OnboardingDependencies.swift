@@ -38,19 +38,33 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
         }
     }
 
-    public var settingsURL: URL {
-        let anchor: String
+    /// Same three permissions as `Permission`; onboarding keeps its own enum so P1.1 can rewrite the
+    /// core independently, but the System Settings links come from one place.
+    var core: Permission {
         switch self {
-        case .microphone: anchor = "Privacy_Microphone"
-        case .accessibility: anchor = "Privacy_Accessibility"
-        case .inputMonitoring: anchor = "Privacy_ListenEvent"
+        case .microphone: return .microphone
+        case .inputMonitoring: return .inputMonitoring
+        case .accessibility: return .accessibility
         }
-        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
+    }
+
+    public var settingsURL: URL { core.settingsURL }
+    public var settingsURLs: [URL] { core.settingsURLs }
+
+    /// Shown in the recovery panel when a re-check still comes back ungranted.
+    public var settingsListName: String {
+        switch self {
+        case .microphone: return "Privacy & Security › Microphone"
+        case .inputMonitoring: return "Privacy & Security › Input Monitoring"
+        case .accessibility: return "Privacy & Security › Accessibility"
+        }
     }
 }
 
 public enum OnboardingPermissionStatus: String, Codable, Equatable, Sendable {
     case notDetermined, granted, denied
+    /// Requested, but macOS answers this one only in System Settings. See `PermissionStatus`.
+    case awaitingUserAction
 }
 
 /// Wired by P1.1 / P1.12 to the real `PermissionService`.
@@ -63,11 +77,30 @@ public protocol OnboardingPermissionChecking: AnyObject {
 
 // MARK: - Mic level
 
-/// Publishes a normalised 0…1 input level for the mic-check meter.
+/// What the mic-check screen learns from the capture stack. The distinction between "capture is up
+/// but no sample has arrived" and "samples are arriving and they're quiet" is the whole point: a
+/// denied/stale microphone grant produces a *successful* `AVAudioEngine.start()` and zero tap
+/// callbacks, which the old EngineState-derived meter reported as "very quiet".
+public enum MicCheckSignal: Equatable, Sendable {
+    /// Capture requested; nothing has arrived yet.
+    case starting
+    /// A real audio block was measured. `level` is normalised 0…1.
+    case level(Float)
+    /// Capture could not start, or failed after starting.
+    case failed(String)
+}
+
+/// Publishes the mic-check signal for the meter.
 public protocol MicLevelPublishing: AnyObject {
-    var levelPublisher: AnyPublisher<Float, Never> { get }
+    var signalPublisher: AnyPublisher<MicCheckSignal, Never> { get }
     func startMonitoring()
     func stopMonitoring()
+    /// False when the meter is synthetic (mock engine): the UI must not claim a real mic works.
+    var isRealCapture: Bool { get }
+}
+
+public extension MicLevelPublishing {
+    var isRealCapture: Bool { true }
 }
 
 // MARK: - Models
@@ -186,12 +219,16 @@ public final class OnboardingMockPermissionChecker: OnboardingPermissionChecking
 }
 
 public final class OnboardingMockMicLevelPublisher: MicLevelPublishing {
-    public let subject = PassthroughSubject<Float, Never>()
+    public let subject = CurrentValueSubject<MicCheckSignal, Never>(.starting)
     public private(set) var monitoring = false
+    public var isRealCapture = true
     public init() {}
-    public var levelPublisher: AnyPublisher<Float, Never> { subject.eraseToAnyPublisher() }
+    public var signalPublisher: AnyPublisher<MicCheckSignal, Never> { subject.eraseToAnyPublisher() }
     public func startMonitoring() { monitoring = true }
     public func stopMonitoring() { monitoring = false }
+    /// Test convenience: push a level as if a real audio block had arrived.
+    public func send(_ level: Float) { subject.send(.level(level)) }
+    public func fail(_ reason: String) { subject.send(.failed(reason)) }
 }
 
 public final class OnboardingMockModelManager: ModelManaging {
