@@ -20,6 +20,19 @@ public struct ScreenMetrics: Equatable, Sendable {
     }
 
     public var hasNotch: Bool { topInset > 0 }
+
+    /// Band at the top of the display nothing may be drawn into: the camera-housing safe area on a
+    /// notched built-in display, the menu bar otherwise. `max` matters — with the menu bar auto-hidden
+    /// (or in a full-screen space) the visibleFrame delta collapses to 0 while `safeAreaInsets.top`
+    /// stays at the housing height, and on an external display there is no inset but there is a menu bar.
+    public var topBand: CGFloat { max(max(topInset, menuBarHeight), 0) }
+
+    /// The physical camera housing in global coordinates; `nil` on notch-less displays.
+    /// Nothing drawn inside this rect is visible — there is no panel behind it.
+    public var notchRect: CGRect? {
+        guard hasNotch, let width = notchWidth, width > 0 else { return nil }
+        return CGRect(x: frame.midX - width / 2, y: frame.maxY - topInset, width: width, height: topInset)
+    }
 }
 
 /// Pure placement math for the pill (T2 "notch-aware placement").
@@ -43,18 +56,33 @@ public enum NotchGeometry {
         }
     }
 
-    /// Centers the pill under the notch (or at the top-center of the screen below the menu bar when there is
-    /// no notch). With a notch the pill is at least as wide as the notch so it visually "grows" out of it.
+    /// Horizontal margin kept between the pill and the edges of a narrow display.
+    static let edgeMargin: CGFloat = 8
+
+    /// Centers the pill horizontally and hangs it off the bottom edge of the display's forbidden top
+    /// band (`ScreenMetrics.topBand`), so it is never drawn beneath the camera housing on a notched
+    /// MacBook and sits just below the menu bar everywhere else. The pill still spans at least the
+    /// notch width so it reads as "attached to" the notch rather than floating under it.
     public static func layout(for metrics: ScreenMetrics, size requested: CGSize = defaultSize) -> Layout {
         var size = requested
         if let notchWidth = metrics.notchWidth, metrics.hasNotch {
             size.width = max(size.width, notchWidth + 24)
         }
-        let centerX = metrics.frame.midX
-        let top = metrics.frame.maxY
-        let yOffset: CGFloat = metrics.hasNotch ? 0 : metrics.menuBarHeight
-        let shown = CGRect(x: centerX - size.width / 2, y: top - yOffset - size.height, width: size.width, height: size.height)
-        let retracted = CGRect(x: shown.minX, y: top, width: size.width, height: size.height)
+        size.width = min(size.width, max(64, metrics.frame.width - 2 * edgeMargin))
+        size.height = min(size.height, max(1, metrics.frame.height - metrics.topBand - edgeMargin))
+
+        // The one rule: the pill's top edge is the bottom of the forbidden band.
+        let topBoundary = metrics.frame.maxY - metrics.topBand
+        var x = metrics.frame.midX - size.width / 2
+        let minX = metrics.frame.minX + edgeMargin
+        let maxX = metrics.frame.maxX - size.width - edgeMargin
+        if maxX >= minX { x = min(max(x, minX), maxX) }
+
+        let shown = CGRect(x: x, y: topBoundary - size.height, width: size.width, height: size.height)
+        // Retract by rolling up to the band boundary rather than translating off the top of the screen:
+        // a retracted frame above `topBoundary` would drag the pill straight through the camera housing
+        // on every slide in/out.
+        let retracted = CGRect(x: x, y: topBoundary - 1, width: size.width, height: 1)
         return Layout(shown: shown, retracted: retracted, cornerRadius: metrics.hasNotch ? 18 : 12)
     }
 
