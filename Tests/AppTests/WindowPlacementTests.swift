@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Testing
 @testable import VoicePlusApp
@@ -83,6 +84,21 @@ struct WindowPlacementTests {
         let f = WindowPlacement.frame(size: CGSize(width: 1200, height: 900), on: small)
         #expect(f == small.usableFrame)
         #expect(small.usableFrame.contains(f))
+    }
+
+    /// A window built from an `NSHostingController` has a 1x0 frame until first layout. Centring
+    /// *that* is an invisible window of its own (observed on the 1.6.2 bundle before this guard):
+    /// the size has to come from the content.
+    @Test @MainActor func degenerateWindowSizeFallsBackToTheContentSize() {
+        let sized = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 420, height: 220),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        #expect(WindowPlacement.intendedSize(of: sized).width >= 420)
+
+        let empty = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        let size = WindowPlacement.intendedSize(of: empty)
+        #expect(size.width >= 2 && size.height >= 2)
+        let f = WindowPlacement.frame(size: size, on: builtIn)
+        #expect(f.width >= 2 && f.height >= 2)
     }
 
     /// Without a known visibleFrame the fallback still keeps the window clear of the notch band.

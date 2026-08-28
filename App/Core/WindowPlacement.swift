@@ -45,21 +45,52 @@ public enum WindowPlacement {
     public static func place(_ window: NSWindow, label: String, activate: Bool = true) {
         let screens = NSScreen.screens.map(PillPanelController.metrics(for:))
         let main = NSScreen.main.map(PillPanelController.metrics(for:))
-        if let host = hostScreen(screens: screens, main: main) {
-            window.setFrame(frame(size: window.frame.size, on: host), display: true)
-        } else {
+        guard let host = hostScreen(screens: screens, main: main) else {
             window.center()
+            window.makeKeyAndOrderFront(nil)
+            return
         }
+        let placed = frame(size: intendedSize(of: window), on: host)
+        window.setFrame(placed, display: true)
         // Without `.moveToActiveSpace` the window is ordered front on the Space it was created on;
         // if that Space is a full-screen app on another display the user never sees it.
         window.collectionBehavior.insert(.moveToActiveSpace)
         if activate { NSApp.activate(ignoringOtherApps: true) }
         window.makeKeyAndOrderFront(nil)
+        // SwiftUI can resize the window when it is first displayed; keep it centred on the host
+        // screen at whatever size it settled on (position only — never fight the content's size).
+        if window.frame.size != placed.size {
+            window.setFrameOrigin(frame(size: window.frame.size, on: host).origin)
+        }
         Log.app.info("""
             window placement: \(label) frame=\(NSStringFromRect(window.frame)) \
             screen=\(window.screen?.localizedName ?? "none") visible=\(window.isVisible) \
             onscreen=\(window.occlusionState.contains(.visible)) \
             displays=\(NSScreen.screens.map { $0.localizedName }.joined(separator: ", "))
             """)
+        // `occlusionState` is only meaningful once the window server has composited the window, so
+        // the "is it actually on screen?" half of the diagnostic has to come a beat later. This is
+        // the line that told us the 1.6.0 onboarding window was never visible.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak window] in
+            guard let window else { return }
+            Log.app.info("""
+                window settled: \(label) frame=\(NSStringFromRect(window.frame)) \
+                screen=\(window.screen?.localizedName ?? "none") visible=\(window.isVisible) \
+                onscreen=\(window.occlusionState.contains(.visible)) key=\(window.isKeyWindow)
+                """)
+        }
+    }
+
+    /// The size to place. A window built from an `NSHostingController` has a 1x0 frame until it is
+    /// first laid out, and blindly centring *that* is its own invisible-window bug — measure the
+    /// content instead.
+    static func intendedSize(of window: NSWindow) -> CGSize {
+        let current = window.frame.size
+        if current.width >= 2, current.height >= 2 { return current }
+        let view = window.contentViewController?.view ?? window.contentView
+        view?.layoutSubtreeIfNeeded()
+        let fitting = view?.fittingSize ?? .zero
+        guard fitting.width >= 2, fitting.height >= 2 else { return CGSize(width: 480, height: 320) }
+        return window.frameRect(forContentRect: CGRect(origin: .zero, size: fitting)).size
     }
 }
