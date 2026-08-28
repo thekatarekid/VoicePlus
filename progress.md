@@ -61,6 +61,39 @@
 - [x] **Phase 5 release** — 2026-08-24: `Packaging/releases/VoicePlus_5_1.5.0.dmg` (14 MB, sha256 `bfe33f9b99a243c3d256d82bb2db7b8f7ae062a1197ed807fda5c3a68074a3e0`), tag `release/phase-5/v1.5.0`, verify_install OK, notes `Packaging/notes/phase-5.md`, GitHub release updated; `directedSpeech` ships experimental/off; human test script (11 steps incl. real-corpus soak) pending.
 - [x] **Phase 6 release** — 2026-08-24: `Packaging/releases/VoicePlus_6_1.6.0.dmg` (14 MB, sha256 `66ae1e52b469a2b65a85761f16e5256865d7e707eed5bc68ae9ee1305310a1af`), tag `release/phase-6/v1.6.0`, verify_install OK, notes `Packaging/notes/phase-6.md`, GitHub release updated; no TestFlight build (iOS keyboard source-only without Xcode); human test script (11 steps) pending.
 
+## Post-release bug fixes (user-reported, 2026-08-29)
+
+First install of a 1.6.0-class build on **real hardware** (notched MacBook, macOS 26.6.2) — onboarding could not be completed. Three bugs reported, all fixed and released as 1.6.1 + 1.6.2.
+
+| # | Reported symptom | Root cause (one line) |
+|---|---|---|
+| 1 | "Allow Input Monitoring" did nothing; Accessibility never reachable | `CGRequestListenEventAccess()`/`AXIsProcessTrustedWithOptions` are non-blocking status reads, not dialogs — they return `false` instantly once *any* TCC row exists for the bundle id (ad-hoc cdhash identity), and Skip advanced past **all** remaining permissions instead of one. Compounded by six TCC-critical `Info.plist` usage strings being missing, which makes macOS refuse silently with no prompt and no log. |
+| 2 | Mic-check level bar never moved; always "Very quiet…" despite mic granted + correct device | Onboarding metered `EngineState`, not audio: `RealEngine` emits one synthetic `.listening(level: 0)` before any sample exists, pinning the verdict to `.tooQuiet` forever, while the pipeline's `.level(rms:)` channel had no consumer at all. |
+| 3 | Notch pill rendered under the physical camera housing (only its ends visible) | The notched branch placed the pill's top edge at `screen.frame.maxY`, so its top 38 pt across the housing's 220 pt had no panel behind it. |
+
+Fix commits (seven):
+- `1acf570` Packaging: TCC-critical `Info.plist` keys (`NSSpeechRecognition`, `NSContacts`, `NSCalendarsFullAccess`/`NSCalendars`, `NSCamera`, `NSLocalNetwork`, `NSAccessibility` — all missing), hardened-runtime ad-hoc signing, non-relocatable `LC_RPATH` (build-machine toolchain) stripped, bundle self-containment audit; `make_app.sh` now fails the build if a usage string is missing.
+- `17ac108` BUG 1 + BUG 2: permission steps never dead-end (Open System Settings deep link, 0.5 s live status poll, Re-check, Continue anyway, stale-TCC recovery copy, **per-permission** Skip); mic meter driven by `PipelineMicLevelPublisher` off the real audio level channel, capture errors surfaced, "too quiet" withheld until real audio is heard.
+- `f1c5db8` BUG 3: pill hangs off the bottom of the screen's forbidden top band (`NotchGeometry` topBand rule); retract rolls up to that boundary; re-layout on `didChangeScreenParameters`.
+- `532e116` Onboarding window opened off-screen on an external display running a full-screen Space (`NSWindow.center()` centres on `NSScreen.main`) → new `WindowPlacement` pins to built-in/primary, clamps to `visibleFrame`, `.moveToActiveSpace`.
+- `7e82ace` Meeting prompt panel had the same notch occlusion as the pill.
+- `7a629a4` Pill waveform dead: `bind(engineState:)` called without `audioLevel:`, so levels were never passed to the pill and stopped at `.previewing`; `RealEngine` now publishes levels for the whole utterance and the app drives the pill from `PipelineAudioSource.onLevel`.
+- `69a12c7` + `2f44d9c` Bundle-first fixture/catalog lookup (was source-checkout first, so installs took an untested path); and: an `NSHostingController` window has a 1×0 frame until first layout, so onboarding was centred as a 1×0 invisible window — size from content, re-centre on resize, log `window settled:`.
+
+Releases:
+- `Packaging/releases/VoicePlus_6_1.6.1.dmg` (15 MB, sha256 `020958a94e1af2b51831a0ece5b1d11c09e89d2aaaf2020f821ccdddd134d612`), tag `release/phase-6/v1.6.1`, verify_install OK, notes `Packaging/notes/phase-6-1.6.1.md`.
+- `Packaging/releases/VoicePlus_6_1.6.2.dmg` (15 MB, sha256 `651ace2609b30309ef13334437bdc2c67ef1af824155b33cff8e589d206ac486`), tag `release/phase-6/v1.6.2`, verify_install OK, notes `Packaging/notes/phase-6-1.6.2.md`. **This is the build to install.**
+
+**1006 automated tests green / 0 failed** at `release/phase-6/v1.6.2`.
+
+Outstanding manual items (not verified on real hardware — all instrumented, `log stream --predicate 'subsystem == "in.adityakatare.voiceplus"'`):
+- Audio actually arriving from the physical mic at the mic-check step (`mic check: capture started on …`, `mic check: first audio block reached the meter`).
+- The permission poll against real TCC (`onboarding poll: …`) — tested against a mock status source only.
+- Multi-display window placement (`window settled: …`) — verified on the built-in display; the AirPlay/full-screen-Space case not re-reproduced.
+- Pill waveform during live dictation.
+- **User action required on every update:** remove the stale `VoicePlus` rows from Input Monitoring **and** Accessibility (or run `Packaging/reset_tcc.sh`) before launching a new build — ad-hoc cdhash identity changes each build and a stale row denies silently. Only Developer ID signing + notarization cures this.
+- Note: an agent ran `defaults delete in.adityakatare.voiceplus` during debugging, clearing saved preferences (onboarding-completed flag, hotkey choice, routing overrides) — onboarding re-runs and those need re-picking.
+
 ## Status: all 7 phase releases complete
 
 Every phase of the build plan has shipped through `Packaging/release.sh`; checksums in `Packaging/releases/CHECKSUMS.txt`, notes in `Packaging/notes/`, tags + GitHub releases per phase. **959 automated tests green / 0 failed** at the final tag.
