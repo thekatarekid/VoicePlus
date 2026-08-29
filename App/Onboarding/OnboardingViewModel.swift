@@ -55,11 +55,31 @@ public final class OnboardingViewModel: ObservableObject {
 
     public var step: OnboardingStateMachine.Step { machine.step }
 
+    /// Last (permission, phase) pair we logged, so the 0.5 s poll cannot spam the log: a tick that
+    /// changes nothing produces nothing.
+    private var loggedPermissionFocus: (permission: OnboardingPermission, phase: OnboardingStateMachine.PermissionPhase)?
+
     public func send(_ event: OnboardingStateMachine.Event) {
         let before = machine.step
         let effects = machine.handle(event)
         for effect in effects { perform(effect) }
         if machine.step != before || before == .permissions { syncPermissionPolling() }
+        logPermissionTransition()
+    }
+
+    /// FIX B — one line whenever a permission step is entered or advanced. Without it the phase
+    /// chosen by `initialPhase` was never recorded anywhere, so the 1.6.2 microphone regression
+    /// (opening on the settings-recovery phase, where the Allow button that calls
+    /// `AVCaptureDevice.requestAccess` does not exist) was invisible in the user's own logs — the
+    /// happy path logged nothing at all, and a verifier could not tell the two phases apart.
+    private func logPermissionTransition() {
+        let focus = machine.permissionFocus
+        guard focus?.permission != loggedPermissionFocus?.permission
+                || focus?.phase != loggedPermissionFocus?.phase else { return }
+        loggedPermissionFocus = focus
+        guard let focus else { return }
+        let status = machine.statuses[focus.permission] ?? .notDetermined
+        Log.app.info("\(OnboardingStateMachine.transitionLog(permission: focus.permission, status: status, phase: focus.phase))")
     }
 
     // MARK: Permission polling

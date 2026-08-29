@@ -2,6 +2,76 @@ import Foundation
 import Testing
 @testable import VoicePlusApp
 
+/// FIX B — the phase a permission step opens on is now recorded. The 1.6.2 microphone regression
+/// was a *phase* choice: `initialPhase` sent a notDetermined microphone to the settings-recovery
+/// screen, whose panel has no Allow button and therefore no route to
+/// `AVCaptureDevice.requestAccess`. Nothing logged that choice, so the happy path and the dead end
+/// were indistinguishable in the user's own logs and a verifier could not tell which one ran.
+@Suite("FIX B — onboarding permission transitions are observable")
+struct OnboardingTransitionLogTests {
+    typealias M = OnboardingStateMachine
+
+    @Test func lineNamesPermissionLiveStatusAndChosenPhase() {
+        #expect(M.transitionLog(permission: .microphone, status: .notDetermined, phase: .explain)
+                == "onboarding: microphone status=notDetermined phase=explain")
+        #expect(M.transitionLog(permission: .microphone, status: .notDetermined,
+                                phase: .needsSystemSettings(recheckAttempts: 0))
+                == "onboarding: microphone status=notDetermined phase=needsSystemSettings(recheck=0)")
+        #expect(M.transitionLog(permission: .accessibility, status: .denied,
+                                phase: .needsSystemSettings(recheckAttempts: 3))
+                == "onboarding: accessibility status=denied phase=needsSystemSettings(recheck=3)")
+        #expect(M.transitionLog(permission: .inputMonitoring, status: .awaitingUserAction, phase: .requesting)
+                == "onboarding: inputMonitoring status=awaitingUserAction phase=requesting")
+    }
+
+    /// The exact pair the two 1.6.2 outcomes differ by — identical before this line existed.
+    @Test func theRegressionAndTheFixNowReadDifferently() {
+        let fixed = M(initialStatuses: [.microphone: .notDetermined], alreadyRequested: [.microphone])
+        var m = fixed
+        m.handle(.next)
+        let focus = m.permissionFocus
+        #expect(focus?.permission == .microphone)
+        #expect(focus?.phase == .explain, "promptable + notDetermined must open on the Allow button")
+        #expect(M.transitionLog(permission: .microphone, status: .notDetermined, phase: focus!.phase)
+                != M.transitionLog(permission: .microphone, status: .notDetermined,
+                                   phase: .needsSystemSettings(recheckAttempts: 0)))
+    }
+
+    /// Focus is nil off the permissions step, which is what stops the view model logging elsewhere.
+    @Test func focusIsOnlyEverSetOnThePermissionsStep() {
+        var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
+        #expect(m.permissionFocus == nil, "welcome has no permission in focus")
+        m.handle(.next)
+        #expect(m.step == .micCheck, "all granted skips straight past permissions")
+        #expect(m.permissionFocus == nil)
+    }
+
+    /// One line per transition: entering, requesting, and each advance are all distinct pairs, and
+    /// a repeated status refresh that changes nothing produces the same pair (so nothing is logged).
+    @Test func everyAdvanceIsADistinctPairAndASteadyPollIsNot() {
+        var m = M()
+        m.handle(.next)
+        var seen: [String] = []
+        func note() {
+            guard let f = m.permissionFocus else { return }
+            let line = M.transitionLog(permission: f.permission,
+                                       status: m.statuses[f.permission] ?? .notDetermined, phase: f.phase)
+            if line != seen.last { seen.append(line) }
+        }
+        note()
+        m.handle(.allow(.microphone)); note()
+        // Two poll ticks that learn nothing new must not add a line.
+        m.handle(.statusRefreshed(.microphone, .notDetermined)); note()
+        m.handle(.statusRefreshed(.microphone, .notDetermined)); note()
+        m.handle(.permissionResult(.microphone, .granted)); note()
+
+        // Three transitions, not five: the two steady polls in the middle add nothing.
+        #expect(seen == ["onboarding: microphone status=notDetermined phase=explain",
+                         "onboarding: microphone status=notDetermined phase=requesting",
+                         "onboarding: inputMonitoring status=notDetermined phase=explain"])
+    }
+}
+
 @Suite("Onboarding state machine (P1.9 T1/T2)")
 struct OnboardingStateMachineTests {
     typealias M = OnboardingStateMachine

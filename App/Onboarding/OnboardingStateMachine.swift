@@ -22,6 +22,16 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             if case .needsSystemSettings = self { return true }
             return false
         }
+
+        /// Short, stable name for the log. The 1.6.2 microphone regression was a *phase* choice
+        /// nothing ever recorded, so it could not be seen in the user's own logs.
+        public var logLabel: String {
+            switch self {
+            case .explain: return "explain"
+            case .requesting: return "requesting"
+            case .needsSystemSettings(let n): return "needsSystemSettings(recheck=\(n))"
+            }
+        }
     }
 
     public enum MicVerdict: Equatable, Sendable {
@@ -323,6 +333,21 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .modelChoice: return statuses[.microphone] == .granted ? enter(.micCheck) : enter(.permissions)
         case .firstDictation: return enter(.modelChoice)
         }
+    }
+
+    /// The one line emitted per permission transition. Pure on purpose — the state machine stays
+    /// side-effect free, the view model does the emitting.
+    public static func transitionLog(permission: OnboardingPermission,
+                                     status: OnboardingPermissionStatus,
+                                     phase: PermissionPhase) -> String {
+        "onboarding: \(permission.rawValue) status=\(status.rawValue) phase=\(phase.logLabel)"
+    }
+
+    /// Which permission the permissions step is focused on, and in which phase — nil off the step.
+    /// The view model logs whenever this pair changes, which is exactly "entered or advanced".
+    public var permissionFocus: (permission: OnboardingPermission, phase: PermissionPhase)? {
+        guard step == .permissions, let p = currentPermission else { return nil }
+        return (p, permissionPhase)
     }
 
     static func firstUndecidedIndex(in statuses: [OnboardingPermission: OnboardingPermissionStatus]) -> Int {
