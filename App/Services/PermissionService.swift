@@ -51,11 +51,18 @@ public final class SystemPermissionChecker: PermissionChecking {
         NSApp?.activate(ignoringOtherApps: true)
         switch permission {
         case .microphone:
+            // Microphone is *promptable*: this is a genuine asynchronous consent dialog, and calling
+            // it is the only thing that ever puts VoicePlus into Privacy & Security › Microphone —
+            // that pane has no "+" button. So report exactly what TCC says afterwards, with three
+            // outcomes rather than two: `.granted`, `.denied` (a real Don't Allow — terminal, but the
+            // row and its switch now exist), or `.notDetermined` (the dialog never appeared or was
+            // dismissed — retryable). Folding the third case into `.awaitingUserAction` is what used
+            // to push the microphone into the settings-recovery phase permanently, pointing the user
+            // at a list the app was not in and could not be added to.
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
                 DispatchQueue.main.async {
                     guard !granted else { completion(.granted); return }
-                    // A hard "Don't Allow" is a real denial; anything else still needs Settings.
-                    completion(self?.status(of: .microphone) == .denied ? .denied : .awaitingUserAction)
+                    completion(self?.status(of: .microphone) ?? .notDetermined)
                 }
             }
         case .accessibility:

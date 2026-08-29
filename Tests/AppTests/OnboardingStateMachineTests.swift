@@ -142,8 +142,9 @@ struct OnboardingStateMachineTests {
         #expect(m.currentPermission == nil)
     }
 
-    /// A permission macOS has already been asked for on an earlier launch skips the useless Allow
-    /// button, since no prompt can ever appear again for this code identity.
+    /// A *non-promptable* permission macOS has already been asked for on an earlier launch skips the
+    /// useless Allow button: `CGRequestListenEventAccess()` can never raise a dialog, so re-offering
+    /// one would be the lie. This must NOT generalise to promptable services — see the suite below.
     @Test func alreadyRequestedPermissionStartsInSettingsPhase() {
         var m = M(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
         m.handle(.next)
@@ -312,6 +313,146 @@ struct OnboardingStateMachineTests {
     }
 }
 
+/// The 1.6.2 microphone regression: the onboarding screen opened straight on the settings-recovery
+/// phase, so `AVCaptureDevice.requestAccess(for: .audio)` — reachable only from the `.explain`
+/// phase's Allow button — was never called. Because that call is the ONLY way an app appears in
+/// System Settings › Privacy & Security › Microphone (the pane has no "+"), the user could not
+/// escape: `tccutil reset Microphone` cleared TCC but not the persisted "asked once" flag, so every
+/// relaunch landed on the same dead end telling them to enable an app that was not in the list.
+@Suite("Promptable vs non-promptable permissions (1.6.3 regression)")
+struct PromptablePermissionTests {
+    typealias M = OnboardingStateMachine
+
+    @Test func onlyMicrophoneIsPromptable() {
+        #expect(OnboardingPermission.microphone.isPromptable)
+        #expect(!OnboardingPermission.inputMonitoring.isPromptable)
+        #expect(!OnboardingPermission.accessibility.isPromptable)
+        // Same fact, one source of truth, so the core matrix and onboarding can never disagree.
+        #expect(Permission.microphone.isPromptable)
+        #expect(!Permission.inputMonitoring.isPromptable)
+        #expect(!Permission.accessibility.isPromptable)
+    }
+
+    /// THE regression, at the unit level: the persisted flag must never suppress a real request for a
+    /// promptable service whose live status is `notDetermined`.
+    @Test func askedOnceFlagDoesNotSuppressAPromptableRequest() {
+        var m = M(initialStatuses: [.microphone: .notDetermined], alreadyRequested: [.microphone])
+        m.handle(.next)
+        #expect(m.currentPermission == .microphone)
+        #expect(m.permissionPhase == .explain, "a notDetermined microphone must offer the real request")
+        #expect(!m.permissionPhase.isNeedsSystemSettings)
+        // …and the Allow button really does reach the API.
+        #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
+    }
+
+    /// Generalised: for every promptable service, `notDetermined` means "ask", flag or no flag; for
+    /// every non-promptable one the flag still short-circuits to the recovery phase.
+    @Test func initialPhaseSplitsOnPromptability() {
+        for p in OnboardingPermission.allCases {
+            let flagged = M.initialPhase(for: p, requested: [p], status: .notDetermined)
+            #expect(flagged == (p.isPromptable ? .explain : .needsSystemSettings(recheckAttempts: 0)),
+                    "\(p.rawValue) with the asked-once flag and a notDetermined status")
+            #expect(M.initialPhase(for: p, requested: [], status: .notDetermined) == .explain)
+            // A real denial is a real denial for everyone: the row exists, so Settings can fix it.
+            #expect(M.initialPhase(for: p, requested: [p], status: .denied)
+                    == .needsSystemSettings(recheckAttempts: 0))
+        }
+    }
+
+    /// A dialog that was dismissed leaves TCC undecided. Retrying is the only cure, so the screen has
+    /// to stay on the Allow button rather than filing it under "go to System Settings".
+    @Test func dismissedPromptStaysRetryableInsteadOfBecomingASettingsProblem() {
+        var m = M()
+        m.handle(.next)
+        m.handle(.allow(.microphone))
+        #expect(m.handle(.permissionResult(.microphone, .notDetermined)) == [])
+        #expect(m.permissionPhase == .explain)
+        #expect(m.currentPermission == .microphone)
+        #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
+        // The same answer from a non-promptable service is genuinely a Settings problem.
+        var im = M(initialStatuses: [.microphone: .granted])
+        im.handle(.next)
+        im.handle(.allow(.inputMonitoring))
+        im.handle(.permissionResult(.inputMonitoring, .notDetermined))
+        #expect(im.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
+    }
+
+    /// "Re-check" on an undecided promptable service must re-invoke the API, not re-read a status
+    /// that can never change on its own — the in-app escape hatch for anyone already stuck.
+    @Test func recheckReAsksMacOSForAnUndecidedPromptableService() {
+        var m = M(initialStatuses: [.microphone: .denied], alreadyRequested: [.microphone])
+        m.handle(.next)
+        #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
+        // Denied: the row exists, so a status read is the right question.
+        #expect(m.handle(.verify(.microphone)) == [.checkPermission(.microphone)])
+        // Undecided: no row exists, so a status read can only ever return the same nothing — only
+        // the API can create the row. Re-check must therefore ask macOS for real.
+        var undecided = M(initialStatuses: [.microphone: .awaitingUserAction], alreadyRequested: [.microphone])
+        undecided.handle(.next)
+        undecided.handle(.statusRefreshed(.microphone, .notDetermined))
+        #expect(undecided.handle(.verify(.microphone))
+                == [.requestPermission(.microphone), .rememberRequested(.microphone)])
+        #expect(undecided.permissionPhase == .requesting)
+        // Never for a non-promptable one: there is no API that could prompt.
+        var im = M(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
+        im.handle(.next)
+        #expect(im.handle(.verify(.inputMonitoring)) == [.checkPermission(.inputMonitoring)])
+    }
+
+    /// `tccutil reset Microphone` drops the status back to `notDetermined` behind the app's back. The
+    /// poll must notice, drop the stale flag and put the Allow button back — without any clicking.
+    @Test func tccResetSelfHealsTheStalePhaseAndFlag() {
+        var m = M(initialStatuses: [.microphone: .denied], alreadyRequested: [.microphone])
+        m.handle(.next)
+        #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
+        #expect(m.requestedPermissions.contains(.microphone))
+        #expect(m.handle(.statusRefreshed(.microphone, .notDetermined)) == [.forgetRequested(.microphone)])
+        #expect(m.permissionPhase == .explain)
+        #expect(!m.requestedPermissions.contains(.microphone))
+        #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
+        // A non-promptable service has nothing to heal into: no prompt exists for it either way.
+        var im = M(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
+        im.handle(.next)
+        #expect(im.handle(.statusRefreshed(.inputMonitoring, .notDetermined)) == [])
+        #expect(im.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
+    }
+
+    // MARK: Copy — the old text was wrong on both counts for the microphone
+
+    @Test func promptableRecoveryCopyNeverSendsTheUserToAPaneWithNoPlusButton() {
+        let undecided = OnboardingPermission.microphone.recoveryCopy(status: .notDetermined, attempts: 0)
+        let text = undecided.headline + (undecided.detail ?? "")
+        #expect(!text.contains("only asks once"), "false: after a tccutil reset macOS asks again")
+        #expect(!text.contains("“+”") || text.contains("no “+” button"),
+                "the Microphone pane has no “+”, so the user cannot add the app by hand")
+        #expect(undecided.retryTitle == "Ask macOS again", "the only cure must be one button away")
+        #expect(undecided.showsResetCommand)
+        // Escalation must not silently reintroduce the wrong advice.
+        let escalated = OnboardingPermission.microphone.recoveryCopy(status: .notDetermined, attempts: 3)
+        #expect(escalated == undecided)
+        #expect(!escalated.headline.contains("only asks once"))
+    }
+
+    @Test func deniedMicrophoneCopyPointsAtTheSwitchThatNowExists() {
+        let denied = OnboardingPermission.microphone.recoveryCopy(status: .denied, attempts: 0)
+        #expect(denied.headline.contains("Privacy & Security › Microphone"))
+        #expect(denied.retryTitle == nil, "after a Don't Allow the dialog cannot be reopened")
+        #expect(!denied.showsResetCommand)
+        #expect(!denied.headline.contains("only asks once"))
+    }
+
+    @Test func nonPromptableCopyKeepsTheSettingsFirstInstructions() {
+        for p in OnboardingPermission.allCases where !p.isPromptable {
+            let first = p.recoveryCopy(status: .awaitingUserAction, attempts: 0)
+            #expect(first.headline.contains(p.settingsListName))
+            #expect(first.retryTitle == nil, "no API can prompt for \(p.rawValue)")
+            let escalated = p.recoveryCopy(status: .awaitingUserAction, attempts: 2)
+            #expect(escalated.detail?.contains("“+”") == true, "these panes really do have +/–")
+            #expect(escalated.showsResetCommand)
+        }
+    }
+}
+
 @Suite("Onboarding view model integration")
 @MainActor
 struct OnboardingViewModelTests {
@@ -406,6 +547,58 @@ struct OnboardingViewModelTests {
         #expect(second.machine.currentPermission == .inputMonitoring)
         #expect(second.machine.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
         second.teardown()
+    }
+
+    /// The user's exact broken state, end to end: `onboarding.requested.microphone == 1` left over
+    /// from an earlier build, microphone status back to `notDetermined` after `tccutil reset`. The
+    /// app MUST still reach the real request API — that call is the only thing that puts VoicePlus
+    /// into System Settings › Privacy & Security › Microphone. Before the fix this asserted zero
+    /// requests and a `needsSystemSettings` phase with no Allow button anywhere on screen.
+    @Test func staleAskedOnceFlagStillReachesTheRealMicrophoneRequest() async throws {
+        let store = InMemorySettingsStore()
+        store.set(true, for: "onboarding.requested.microphone")
+        store.set(true, for: "onboarding.requested.inputMonitoring")
+        var deps = OnboardingDependencies.mock()
+        deps.settingsStore = store
+        let vm = OnboardingViewModel(dependencies: deps)
+        let checker = try #require(deps.permissions as? OnboardingMockPermissionChecker)
+        #expect(checker.status(of: .microphone) == .notDetermined)
+
+        vm.send(.next)
+        #expect(vm.machine.currentPermission == .microphone)
+        #expect(vm.machine.permissionPhase == .explain, "the Allow button is the only path to requestAccess")
+        #expect(checker.requests.isEmpty)
+
+        vm.send(.allow(.microphone))
+        try await waitUntil { vm.machine.statuses[.microphone] == .granted }
+        #expect(checker.requests == [.microphone], "AVCaptureDevice.requestAccess must actually be called")
+        // Input Monitoring is non-promptable, so its flag legitimately keeps the recovery-first shape.
+        #expect(vm.machine.currentPermission == .inputMonitoring)
+        #expect(vm.machine.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
+        vm.teardown()
+    }
+
+    /// And the in-app escape hatch for a build that is already installed: a promptable service whose
+    /// TCC row was deleted heals back to the Allow button on the next 0.5 s poll, clearing the stale
+    /// flag from disk so the dead end cannot come back on the next launch — no Terminal required.
+    @Test func resetMicrophoneHealsBackToTheAllowButtonWhileTheAppIsRunning() async throws {
+        let store = InMemorySettingsStore()
+        var deps = OnboardingDependencies.mock(permissionResults: [.microphone: .denied])
+        deps.settingsStore = store
+        let vm = OnboardingViewModel(dependencies: deps)
+        let checker = try #require(deps.permissions as? OnboardingMockPermissionChecker)
+        vm.send(.next)
+        vm.send(.allow(.microphone))
+        try await waitUntil { vm.machine.permissionPhase.isNeedsSystemSettings }
+        #expect(store.bool("onboarding.requested.microphone") == true)
+
+        // `tccutil reset Microphone in.adityakatare.voiceplus` — the row disappears.
+        checker.statuses[.microphone] = .notDetermined
+        try await waitUntil(timeoutMs: 4000) { vm.machine.permissionPhase == .explain }
+        #expect(store.bool("onboarding.requested.microphone") == false, "the stale flag must not survive")
+        vm.send(.allow(.microphone))
+        try await waitUntil { checker.requests.count == 2 }
+        vm.teardown()
     }
 
     /// BUG 2 through the view model: a capture that fails to start says why, instead of the meter

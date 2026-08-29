@@ -25,6 +25,28 @@ public enum Permission: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
+    /// Whether macOS has a real consent dialog for this service.
+    ///
+    /// **Promptable** (`true`): the `request…` API puts an asynchronous dialog in front of the user —
+    /// `AVCaptureDevice.requestAccess(for: .audio)`, `SFSpeechRecognizer.requestAuthorization`,
+    /// `CNContactStore.requestAccess`, `EKEventStore.requestFullAccessToEvents`, camera,
+    /// notifications. Critically, **calling that API is the only way the app ever appears in its
+    /// System Settings list**: those panes have no "+" button, so a user cannot add the app by hand.
+    /// Never route a promptable service to a "turn it on in System Settings" recovery screen before
+    /// the API has actually been called — that is an unrecoverable dead end (the 1.6.2 microphone
+    /// regression), and it stays a dead end after `tccutil reset` because there is no row to toggle.
+    ///
+    /// **Non-promptable** (`false`): `CGRequestListenEventAccess()` and
+    /// `AXIsProcessTrustedWithOptions(prompt:)` return the current authorization synchronously and at
+    /// most post a notification. The user must flip the switch themselves — and those two panes do
+    /// have "+" / "–" buttons, so the settings-recovery UI is the right (and only) shape for them.
+    public var isPromptable: Bool {
+        switch self {
+        case .microphone: return true
+        case .accessibility, .inputMonitoring: return false
+        }
+    }
+
     /// `revealElementKeyName` used by macOS' SecurityPrivacyExtension for this service.
     public var settingsAnchor: String {
         switch self {

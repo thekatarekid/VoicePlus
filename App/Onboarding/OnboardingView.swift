@@ -56,23 +56,20 @@ public struct OnboardingView: View {
         }
     }
 
-    /// The one phase that can follow a request. It always offers three ways forward, so the step can
-    /// never dead-end the way "Allow" alone did.
+    /// The one phase that can follow a request. It always offers a way forward, so the step can never
+    /// dead-end the way "Allow" alone did — and, since 1.6.3, the copy is per-service: a promptable
+    /// service is never told to add itself to a pane that has no "+" button, and is always given a
+    /// button that re-invokes the real system request.
     @ViewBuilder private func needsSettings(_ p: OnboardingPermission, attempts: Int) -> some View {
+        let copy = p.recoveryCopy(status: model.machine.statuses[p] ?? .notDetermined, attempts: attempts)
         VStack(alignment: .leading, spacing: 10) {
-            if attempts == 0 {
-                Label("macOS only asks once. Turn VoicePlus on in \(p.settingsListName), then come back — this screen notices on its own.",
-                      systemImage: "arrow.up.forward.app")
-                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            } else {
-                // A re-check that still says no, for a build macOS has seen before, is the stale-row
-                // signature: this app is ad-hoc signed, so TCC matches it by cdhash and every new
-                // build looks like a different app to the old entry.
-                Label("Still off. macOS is probably remembering an older copy of VoicePlus.",
-                      systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                Text("In \(p.settingsListName), select VoicePlus, remove it with the “–” button, then add it again with “+”. This build is signed ad-hoc, so each update looks like a new app to macOS.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Label(copy.headline, systemImage: attempts == 0 ? "arrow.up.forward.app" : "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            if let detail = copy.detail {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if copy.showsResetCommand {
                 HStack(spacing: 8) {
                     Button("Copy reset command") { model.copyResetCommand(for: p) }
                     Text(PermissionDiagnostics.summary()).font(.caption2.monospaced()).foregroundStyle(.secondary)
@@ -81,8 +78,17 @@ public struct OnboardingView: View {
             }
             Text(p.consequenceIfSkipped).font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("Open System Settings") { model.openSettings(for: p) }.buttonStyle(.borderedProminent)
-                Button("Re-check") { model.send(.verify(p)) }.keyboardShortcut(.defaultAction)
+                // The escape hatch for anyone already stuck: `.allow` re-issues the real request from
+                // this phase too, which is the only thing that can register the app with TCC.
+                if let retry = copy.retryTitle {
+                    Button(retry) { model.send(.allow(p)) }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    Button("Open System Settings") { model.openSettings(for: p) }
+                    Button("Re-check") { model.send(.verify(p)) }
+                } else {
+                    Button("Open System Settings") { model.openSettings(for: p) }.buttonStyle(.borderedProminent)
+                    Button("Re-check") { model.send(.verify(p)) }.keyboardShortcut(.defaultAction)
+                }
             }
         }
     }

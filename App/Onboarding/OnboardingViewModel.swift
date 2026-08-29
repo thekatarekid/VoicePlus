@@ -126,6 +126,9 @@ public final class OnboardingViewModel: ObservableObject {
             deps.permissions.openSystemSettings(for: p)
         case .rememberRequested(let p):
             deps.settingsStore.set(true, for: Self.requestedKey(p))
+        case .forgetRequested(let p):
+            Log.app.info("onboarding: \(p.rawValue) is notDetermined again — clearing the stale asked-once flag")
+            deps.settingsStore.set(false, for: Self.requestedKey(p))
         case .startMicMonitoring:
             micLevel = 0
             // Subscribe *before* starting: a publisher that emits synchronously during start()

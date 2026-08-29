@@ -77,6 +77,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case openSystemSettings(OnboardingPermission)
         /// Persist "macOS has been asked for this once" so a later launch skips the useless Allow button.
         case rememberRequested(OnboardingPermission)
+        /// Clear that flag: TCC went back to `notDetermined` behind our back (`tccutil reset`, a
+        /// reinstall), so the recorded attempt no longer describes any state macOS holds.
+        case forgetRequested(OnboardingPermission)
         case startMicMonitoring
         case stopMicMonitoring
         case startDownload(ModelTier)
@@ -149,9 +152,16 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             requestedPermissions.insert(p)
             guard p == currentPermission else { return [] }
             guard status != .granted else { return advancePermission() }
-            // Anything that isn't a grant lands in the one phase that always has a way forward.
-            // A re-check that comes back ungranted increments the counter, which switches the copy
-            // to the stale-TCC recovery instructions instead of repeating the same advice.
+            // A promptable service that is *still* undecided means the dialog never landed (dismissed,
+            // or the call raced a reset). Retrying is the only cure — System Settings cannot help,
+            // because with no TCC row the app is not in that list and the pane has no "+" to add it.
+            if p.isPromptable, status == .notDetermined {
+                permissionPhase = .explain
+                return []
+            }
+            // Anything else lands in the one phase that always has a way forward. A re-check that
+            // comes back ungranted increments the counter, which switches the copy to the stale-TCC
+            // recovery instructions instead of repeating the same advice.
             if case .needsSystemSettings(let n) = permissionPhase {
                 permissionPhase = .needsSystemSettings(recheckAttempts: n + 1)
             } else {
@@ -160,9 +170,26 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             return []
         case (.permissions, .statusRefreshed(let p, let status)):
             statuses[p] = status
-            guard p == currentPermission, status == .granted else { return [] }
-            return advancePermission()
+            guard p == currentPermission else { return [] }
+            guard status != .granted else { return advancePermission() }
+            // TCC dropped back to undecided while we were sitting in the recovery phase — the
+            // `tccutil reset` signature. For a promptable service the prompt is available again, so
+            // both the phase and the persisted "asked once" flag that put us here are stale. Heal.
+            if p.isPromptable, status == .notDetermined, permissionPhase.isNeedsSystemSettings {
+                permissionPhase = .explain
+                requestedPermissions.remove(p)
+                return [.forgetRequested(p)]
+            }
+            return []
         case (.permissions, .verify(let p)) where p == currentPermission:
+            // "Re-check" on a promptable service macOS has not decided is not a status question: a
+            // status read can never change on its own, and for the microphone the API call is the
+            // only thing that puts VoicePlus into the System Settings list at all. Ask for real.
+            if p.isPromptable, (statuses[p] ?? .notDetermined) == .notDetermined {
+                permissionPhase = .requesting
+                requestedPermissions.insert(p)
+                return [.requestPermission(p), .rememberRequested(p)]
+            }
             return [.checkPermission(p)]
         case (.permissions, .next):
             // "Continue anyway" / "Skip this one": advance exactly one permission, never the step.
@@ -231,7 +258,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .permissions:
             permissionIndex = Self.firstUndecidedIndex(in: statuses)
             if permissionIndex >= Self.permissionOrder.count { return effects + enter(.micCheck) }
-            permissionPhase = Self.initialPhase(for: Self.permissionOrder[permissionIndex], requested: requestedPermissions)
+            let p = Self.permissionOrder[permissionIndex]
+            permissionPhase = Self.initialPhase(for: p, requested: requestedPermissions,
+                                                status: statuses[p] ?? .notDetermined)
         case .micCheck:
             if statuses[.microphone] != .granted { step = .modelChoice; return effects }  // no mic → nothing to meter
             peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
@@ -250,15 +279,28 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         permissionIndex += 1
         while let p = currentPermission, statuses[p] == .granted { permissionIndex += 1 }
         guard let next = currentPermission else { return enter(.micCheck) }
-        permissionPhase = Self.initialPhase(for: next, requested: requestedPermissions)
+        permissionPhase = Self.initialPhase(for: next, requested: requestedPermissions,
+                                            status: statuses[next] ?? .notDetermined)
         return []
     }
 
-    /// A permission macOS has already been asked for cannot be prompted again for this code identity,
-    /// so re-showing "Allow" would be a dead end by construction: start in the Settings phase instead.
+    /// Which phase a permission opens on.
+    ///
+    /// For a **promptable** service, `notDetermined` ALWAYS means "offer the real request", whatever
+    /// the persisted flag claims. The flag records a past attempt, not a TCC state, and TCC can be
+    /// reset behind its back — which is exactly the 1.6.2 regression: `onboarding.requested.microphone`
+    /// survived a `tccutil reset Microphone`, so the screen opened on the settings-recovery phase, the
+    /// only path to `AVCaptureDevice.requestAccess` (the Allow button, rendered in `.explain`) was
+    /// never shown, the app never registered with TCC, and it could therefore never appear in the
+    /// Microphone pane — which has no "+" to add it with. A permanent dead end.
+    ///
+    /// For a **non-promptable** service the old rule stands: macOS will not prompt for it at all, so
+    /// an "Allow" button on a second run would itself be the lie.
     static func initialPhase(for p: OnboardingPermission,
-                             requested: Set<OnboardingPermission>) -> PermissionPhase {
-        requested.contains(p) ? .needsSystemSettings(recheckAttempts: 0) : .explain
+                             requested: Set<OnboardingPermission>,
+                             status: OnboardingPermissionStatus) -> PermissionPhase {
+        if p.isPromptable, status == .notDetermined { return .explain }
+        return requested.contains(p) ? .needsSystemSettings(recheckAttempts: 0) : .explain
     }
 
     private mutating func skipCurrent() -> [SideEffect] {
