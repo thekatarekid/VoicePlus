@@ -268,6 +268,29 @@ public final class OnboardingViewModel: ObservableObject {
         }
     }
 
+    /// Headless self-test for the FIX B phase line: `VoicePlus --onboarding-selftest`.
+    ///
+    /// Same rationale as `PermissionDiagnostics.runRequestCLI` — the thing worth checking is what a
+    /// *build* writes to the log on the real code path, and no unit test can see that. This walks
+    /// the real view model from welcome through every permission with the **live** TCC checker, so
+    /// each `onboarding: <permission> status=… phase=…` line lands in the log with no window, no
+    /// click, and (because `.next` only ever advances) no authorization request.
+    @discardableResult
+    public static func runPhaseSelfTest() -> Int32 {
+        var deps = OnboardingDependencies.mock()
+        deps.permissions = LivePermissionChecker(checker: SystemPermissionChecker())
+        // The real persisted `onboarding.requested.*` flags, because a stale one combined with a
+        // live notDetermined status *was* the 1.6.2 dead end — a self-test over an empty store
+        // could never reproduce the case it exists to expose. Writes are dropped so reporting on
+        // the state can never change it.
+        deps.settingsStore = ReadOnlySettingsStore(UserDefaultsSettingsStore())
+        let vm = OnboardingViewModel(dependencies: deps)
+        vm.send(.next)
+        while vm.step == .permissions { vm.send(.next) }
+        vm.teardown()
+        return 0
+    }
+
     public func acceptContactsImport() {
         Task { [weak self] in
             guard let self else { return }

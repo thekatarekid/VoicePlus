@@ -26,6 +26,17 @@ public final class InMemorySettingsStore: SettingsStore {
     public func set(_ value: Bool, for key: String) { values[key] = value }
 }
 
+/// Reads through to a real store but discards every write. For diagnostics that must report on
+/// persisted state without being able to change it.
+public final class ReadOnlySettingsStore: SettingsStore {
+    private let backing: SettingsStore
+    public init(_ backing: SettingsStore) { self.backing = backing }
+    public func string(_ key: String) -> String? { backing.string(key) }
+    public func bool(_ key: String) -> Bool? { backing.bool(key) }
+    public func set(_ value: String?, for key: String) {}
+    public func set(_ value: Bool, for key: String) {}
+}
+
 public enum SettingsKeys {
     public static let onboardingCompleted = "onboarding.completed"
     public static let hotkey = "hotkey.choice"

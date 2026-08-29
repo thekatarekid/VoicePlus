@@ -25,6 +25,13 @@ if let permission = PermissionDiagnostics.parseRequestCLI(CommandLine.arguments)
     exit(PermissionDiagnostics.runRequestCLI(permission))
 }
 
+// Headless onboarding-phase self-test: `VoicePlusApp --onboarding-selftest`. Writes the FIX B
+// phase line for every permission using the live TCC statuses, so which phase a build actually
+// enters can be read straight out of the log instead of inferred.
+if CommandLine.arguments.contains("--onboarding-selftest") {
+    exit(MainActor.assumeIsolated { OnboardingViewModel.runPhaseSelfTest() })
+}
+
 Log.app.info("VoicePlus starting (Shared \(SharedModule.version))")
 let app = NSApplication.shared
 let delegate = AppDelegate()

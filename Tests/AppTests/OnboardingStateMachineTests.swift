@@ -37,6 +37,23 @@ struct OnboardingTransitionLogTests {
                                    phase: .needsSystemSettings(recheckAttempts: 0)))
     }
 
+    /// `--onboarding-selftest` reads the user's real persisted flags — a stale one *was* the 1.6.2
+    /// dead end — so it must be structurally unable to write to them.
+    @Test func theSelfTestsSettingsViewReadsThroughButSwallowsWrites() {
+        let backing = InMemorySettingsStore()
+        backing.set(true, for: "onboarding.requested.microphone")
+        backing.set("fn", for: SettingsKeys.hotkey)
+        let readOnly = ReadOnlySettingsStore(backing)
+
+        #expect(readOnly.bool("onboarding.requested.microphone") == true)
+        #expect(readOnly.string(SettingsKeys.hotkey) == "fn")
+
+        readOnly.set(false, for: "onboarding.requested.microphone")
+        readOnly.set("rightCommand", for: SettingsKeys.hotkey)
+        #expect(backing.bool("onboarding.requested.microphone") == true, "a diagnostic must not rewrite user state")
+        #expect(backing.string(SettingsKeys.hotkey) == "fn")
+    }
+
     /// Focus is nil off the permissions step, which is what stops the view model logging elsewhere.
     @Test func focusIsOnlyEverSetOnThePermissionsStep() {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
