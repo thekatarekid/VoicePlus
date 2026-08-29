@@ -82,16 +82,38 @@ Fix commits (seven):
 
 Releases:
 - `Packaging/releases/VoicePlus_6_1.6.1.dmg` (15 MB, sha256 `020958a94e1af2b51831a0ece5b1d11c09e89d2aaaf2020f821ccdddd134d612`), tag `release/phase-6/v1.6.1`, verify_install OK, notes `Packaging/notes/phase-6-1.6.1.md`.
-- `Packaging/releases/VoicePlus_6_1.6.2.dmg` (15 MB, sha256 `651ace2609b30309ef13334437bdc2c67ef1af824155b33cff8e589d206ac486`), tag `release/phase-6/v1.6.2`, verify_install OK, notes `Packaging/notes/phase-6-1.6.2.md`. **This is the build to install.**
+- `Packaging/releases/VoicePlus_6_1.6.2.dmg` (15 MB, sha256 `651ace2609b30309ef13334437bdc2c67ef1af824155b33cff8e589d206ac486`), tag `release/phase-6/v1.6.2`, verify_install OK, notes `Packaging/notes/phase-6-1.6.2.md`. **Superseded — this build cannot grant Microphone at all, see 1.6.3 below.**
 
 **1006 automated tests green / 0 failed** at `release/phase-6/v1.6.2`.
 
+### 1.6.3 — microphone regression introduced by our own 1.6.1/1.6.2 fixes
+
+**1.6.1 and 1.6.2 introduced a regression that 1.6.3 fixes.** On those builds the user **could not grant Microphone at all**: the onboarding Microphone screen went straight to the "macOS only asks once" recovery UI with no **Allow** button, and VoicePlus did not appear in System Settings → Privacy & Security → **Microphone**, so there was nothing to enable there either.
+
+Root cause (one line): the 1.6.1 permission rewrite persisted an `onboarding.requested.<permission>` flag and `OnboardingStateMachine.initialPhase` opened **any** flagged permission directly in the settings-recovery phase — but the sole call site of `AVCaptureDevice.requestAccess(for: .audio)` is the Allow button in the `.explain` phase, and calling that API is the only way an app can ever appear in the Microphone pane (it has no **+**), so flag + `tccutil reset` = permanent dead end. Proven from tccd: 1.6.2 emitted only `preflight=yes` status queries and never a `preflight=no` request.
+
+Fix commits (six):
+- `39cb91d` Promptable services (microphone, speech recognition, contacts, calendars) modelled separately from non-promptable ones (input monitoring, accessibility): a promptable service whose **live** status is `notDetermined` always opens on the Allow button regardless of any persisted flag; a dismissed dialog stays retryable; the 0.5 s poll self-heals a stale flag (a `tccutil reset` now recovers in-app, no rebuild, no Terminal); Re-check re-invokes the API; recovery panel gained "Ask macOS again"; per-service copy made truthful ("macOS only asks once" and the −/+ instructions now appear only for Input Monitoring and Accessibility, whose panes actually have those buttons).
+- `375f97a` Headless `VoicePlus --request-permission microphone`, plus `Packaging/SIGNING.md` evidence that **hardened runtime is not a TCC barrier** — probe apps signed ad-hoc **with** `--options runtime` and our exact entitlements got the real prompt, so `--options runtime` **stays and must not be reverted**.
+- `a43fc80` **Fix A — meeting capture is now opt-in.** Every launch previously requested Calendar **and** Reminders with no user intent (`AppDelegate` → `MeetingCoordinator.startMonitoring()` → unconditional `requestAccess()`; Reminders came from `EKEventStore()`'s no-arg initialiser covering all entity types). Now off by default, `startMonitoring()` inert until the user enables "Capture meetings", launch is status-query only, notification request moved to after an accepted meeting actually produced notes. tccd on a clean launch: zero Calendar/Reminders lines, zero prompts of any kind.
+- `e7343c5` + `fca72b8` **Fix B — the onboarding phase is now logged** (`onboarding: microphone status=notDetermined phase=explain`), plus a headless `VoicePlus --onboarding-selftest`. The original regression was invisible in logs — the dead end and the correct path were byte-identical in `os_log` — which is why it took a user report to find.
+- `3efde4b` **Fix C — three wall-clock tests de-flaked.** Nothing deleted: hang guards widened (120 s / 60 s), the chaos latency check load-normalised against a same-run baseline, suite `.serialized`.
+
+Hardware verification of the fix: after `tccutil reset Microphone`, tccd logged `AUTHREQ_CTX … preflight=no` and `AUTHREQ_PROMPTING … kTCCServiceMicrophone, subject=Sub:{in.adityakatare.voiceplus}`, the dialog appeared, and TCC created the record.
+
+Release:
+- `Packaging/releases/VoicePlus_6_1.6.3.dmg` (15 MB, sha256 `5cde1597ffeb337ade8dcac93da748d0d88d2220807a9819ccab06a3bf3058b4`), tag `release/phase-6/v1.6.3`, verify_install OK, notes `Packaging/notes/phase-6-1.6.3.md`. **This is the build to install.**
+
+**1032 automated tests green / 0 failed** at `release/phase-6/v1.6.3`, on two consecutive runs.
+
 Outstanding manual items (not verified on real hardware — all instrumented, `log stream --predicate 'subsystem == "in.adityakatare.voiceplus"'`):
+- The **enable → Calendar-request** path (that toggling "Capture meetings" on is the single place a Calendar dialog can originate) — unit-tested only.
+- The **microphone prompt appearing through the GUI Allow button** — the API call itself is proven via tccd, but nobody could click the dialog from an automated session.
 - Audio actually arriving from the physical mic at the mic-check step (`mic check: capture started on …`, `mic check: first audio block reached the meter`).
 - The permission poll against real TCC (`onboarding poll: …`) — tested against a mock status source only.
 - Multi-display window placement (`window settled: …`) — verified on the built-in display; the AirPlay/full-screen-Space case not re-reproduced.
 - Pill waveform during live dictation.
-- **User action required on every update:** remove the stale `VoicePlus` rows from Input Monitoring **and** Accessibility (or run `Packaging/reset_tcc.sh`) before launching a new build — ad-hoc cdhash identity changes each build and a stale row denies silently. Only Developer ID signing + notarization cures this.
+- **User action required on every update:** permissions granted to an earlier build do not carry over — ad-hoc cdhash identity changes each build, and tccd logs `Failed to match existing code requirement`. Microphone now simply asks again (that is the 1.6.3 fix); Input Monitoring **and** Accessibility have no prompt, so remove the stale `VoicePlus` row with **−** and re-add the new app with **+** (or run `Packaging/reset_tcc.sh`). This repeats on every update until the app is signed with a Developer ID certificate and notarized — that is the only cure.
 - Note: an agent ran `defaults delete in.adityakatare.voiceplus` during debugging, clearing saved preferences (onboarding-completed flag, hotkey choice, routing overrides) — onboarding re-runs and those need re-picking.
 
 ## Status: all 7 phase releases complete
