@@ -28,6 +28,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public var onToggleMute: (() -> Void)?
     /// P5.3 — voice enrollment window.
     public var onEnrollVoice: (() -> Void)?
+    /// P5.5 — meeting capture opt-in. Toggling it on is what asks for Calendar access; nothing
+    /// about meetings runs (or prompts) until the user does. nil hides the item entirely.
+    public var meetingCaptureEnabled: (() -> Bool)?
+    public var onToggleMeetingCapture: (() -> Void)?
     public var frontmostBundleID: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
 
@@ -138,6 +142,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(enroll)
         }
         menu.addItem(.separator())
+        if let meetingCaptureEnabled, onToggleMeetingCapture != nil {
+            let on = meetingCaptureEnabled()
+            let meetings = NSMenuItem(title: on ? "Capture meetings" : "Capture meetings (asks for Calendar access)",
+                                      action: #selector(toggleMeetingCapture), keyEquivalent: "")
+            meetings.target = self
+            meetings.state = on ? .on : .off
+            menu.addItem(meetings)
+        }
         let login = NSMenuItem(title: "Launch at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
         login.state = m.launchAtLogin ? .on : .off
@@ -208,6 +220,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func recheckPermissions() { onRecheckPermissions?() }
 
     @objc private func toggleLaunchAtLogin() { LaunchAtLogin.set(enabled: !LaunchAtLogin.isEnabled) }
+
+    @objc private func toggleMeetingCapture() { onToggleMeetingCapture?() }
 
     @objc private func checkUpdates() { updater.checkForUpdates() }
 }

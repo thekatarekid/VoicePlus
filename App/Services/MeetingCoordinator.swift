@@ -4,10 +4,43 @@ import Foundation
 import Shared
 import UserNotifications
 
+/// Calendar access as the coordinator needs it, split into a *status* query that can never prompt
+/// and the one call that can. Injectable so a test can prove that a launch with meeting capture
+/// off issues no authorization request at all.
+public protocol MeetingCalendarAuthorizing: AnyObject {
+    /// Pure status read. Must never show a dialog.
+    var isAuthorized: Bool { get }
+    /// May show the Calendar dialog. Only ever reachable from the user's opt-in.
+    func requestAccess() async -> Bool
+    /// Empty unless already authorized; must never prompt.
+    func meetings(around now: Date) -> [CalendarMeeting]
+}
+
+extension EventKitCalendarSignal: MeetingCalendarAuthorizing {}
+
+/// Notification authorization, injectable for the same reason.
+public protocol MeetingNotificationAuthorizing: AnyObject {
+    /// May show the notification dialog. Only called once the user has opted in *and* a meeting
+    /// they accepted has actually produced notes to deliver.
+    func requestAuthorization() async -> Bool
+}
+
+public final class SystemMeetingNotificationAuthorizer: MeetingNotificationAuthorizing {
+    public init() {}
+    public func requestAuthorization() async -> Bool { await MeetingNotifier.requestAuthorization() }
+}
+
 /// P5.5 integration — drives the pure `MeetingDetector` state machine with live signals
 /// (camera-in-use, EventKit calendar, ticks), renders its effects (notch prompt with
 /// Join&Record / Record / Ignore), runs a `MeetingSession` while recording, and hands the
 /// finished record (diarized transcript + local notes) to the notification glue.
+///
+/// **Meeting capture is opt-in.** Until the user turns it on, `startMonitoring()` is inert: no
+/// camera monitor, no tick timer, and — the point — no Calendar, Reminders or Notification
+/// authorization request. Before this gate existed, every launch called `calendar.requestAccess()`
+/// unconditionally from `AppDelegate`, so a user who had never heard of meeting capture got
+/// Calendar and Reminders dialogs out of nowhere on first run. When the feature *is* on, launch
+/// still only ever reads *status*; the request happens at the moment of opting in.
 public final class MeetingCoordinator: @unchecked Sendable {
     public private(set) var detector: MeetingDetector
     public let store: MeetingStore
@@ -28,23 +61,60 @@ public final class MeetingCoordinator: @unchecked Sendable {
     public private(set) var session: MeetingSession?
     private var captureTask: Task<Void, Never>?
     private let camera = CameraInUseMonitor()
-    private let calendar = EventKitCalendarSignal()
+    private let calendar: any MeetingCalendarAuthorizing
+    private let notifications: any MeetingNotificationAuthorizing
+    private let settings: (any SettingsStore)?
     private var tickTimer: Timer?
     private let lock = NSLock()
 
-    public init(store: MeetingStore = MeetingStore(), detector: MeetingDetector = MeetingDetector()) {
+    public init(store: MeetingStore = MeetingStore(),
+                detector: MeetingDetector = MeetingDetector(),
+                calendar: any MeetingCalendarAuthorizing = EventKitCalendarSignal(),
+                notifications: any MeetingNotificationAuthorizing = SystemMeetingNotificationAuthorizer(),
+                settings: (any SettingsStore)? = nil) {
         self.store = store
         self.detector = detector
+        self.calendar = calendar
+        self.notifications = notifications
+        self.settings = settings
     }
 
-    /// Live signals: camera monitor + calendar poll + 30 s ticks. Safe to skip in tests.
+    /// The opt-in. Absent a settings store (tests, headless runs) meeting capture is off.
+    public var isMeetingCaptureEnabled: Bool {
+        settings?.bool(SettingsKeys.meetingCaptureEnabled) ?? false
+    }
+
+    /// Turning meeting capture on is the *only* path to a Calendar dialog. Turning it off stops
+    /// every live signal again; it cannot un-grant TCC, but it does stop us using it.
+    @discardableResult
+    public func setMeetingCaptureEnabled(_ enabled: Bool) async -> Bool {
+        settings?.set(enabled, for: SettingsKeys.meetingCaptureEnabled)
+        guard enabled else {
+            stopMonitoring()
+            Log.app.info("meeting capture: disabled by the user")
+            return false
+        }
+        let granted = calendar.isAuthorized ? true : await calendar.requestAccess()
+        Log.app.info("meeting capture: enabled by the user, calendar granted=\(granted)")
+        startMonitoring()
+        return granted
+    }
+
+    /// Live signals: camera monitor + calendar poll + 30 s ticks. Inert unless the user opted in,
+    /// and even then it only ever *reads* calendar authorization — never requests it.
     public func startMonitoring() {
+        guard isMeetingCaptureEnabled else {
+            Log.app.info("meeting capture: off (opt-in), monitoring not started — no permission requested")
+            return
+        }
+        guard tickTimer == nil else { return }
         camera.onChange = { [weak self] inUse in self?.apply(inUse ? .cameraStarted : .cameraStopped) }
         camera.start()
-        Task { _ = await calendar.requestAccess() }
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.apply(.calendar(self.calendar.meetings()))
+            // Status-only: an unauthorized calendar contributes an empty list, and the detector
+            // falls back to the camera signal. Nothing here can raise a dialog.
+            self.apply(.calendar(self.calendar.isAuthorized ? self.calendar.meetings(around: self.clock()) : []))
             self.apply(.tick)
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -126,6 +196,9 @@ public final class MeetingCoordinator: @unchecked Sendable {
         guard let running = currentSession(clearing: true) else { return nil }
         do {
             let record = try await running.finish(at: clock())
+            // "The first time they accept a meeting prompt" — a recording the user chose has now
+            // produced notes, so asking to deliver them is the user's own action. Never at launch.
+            if isMeetingCaptureEnabled { _ = await notifications.requestAuthorization() }
             onNotes?(record)
             return record
         } catch {
@@ -154,24 +227,33 @@ public final class ProviderMeetingTranscriber: MeetingTranscriber, @unchecked Se
 
 /// Post-call notification ("notes arrive as notification"). UNUserNotificationCenter traps
 /// outside a real .app bundle, so `swift run` / tests fall back to the log.
+///
+/// Authorization is a *separate* call from delivery on purpose: `post` used to request it inline,
+/// which made the dialog a side effect of anything that reached this code. Only
+/// `MeetingCoordinator.finishSession()` — after the user opted in and accepted a meeting prompt —
+/// calls `requestAuthorization()`.
 public enum MeetingNotifier {
     public static var canNotify: Bool {
         Bundle.main.bundleIdentifier != nil && Bundle.main.bundleURL.pathExtension == "app"
     }
 
+    public static func requestAuthorization() async -> Bool {
+        guard canNotify else { return false }
+        return (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false
+    }
+
+    /// Delivers only. If authorization was never granted the notification simply does not appear —
+    /// this call never prompts.
     public static func post(_ record: MeetingRecord) {
         let summary = record.notes?.summary.first ?? "Notes are ready."
         guard canNotify else {
             Log.app.info("meeting notes ready (no bundle, notification skipped): \(record.title) — \(summary)")
             return
         }
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert]) { granted, _ in
-            guard granted else { return }
-            let content = UNMutableNotificationContent()
-            content.title = "Meeting notes: \(record.title)"
-            content.body = summary
-            center.add(UNNotificationRequest(identifier: "meeting-\(record.id)", content: content, trigger: nil))
-        }
+        let content = UNMutableNotificationContent()
+        content.title = "Meeting notes: \(record.title)"
+        content.body = summary
+        UNUserNotificationCenter.current()
+            .add(UNNotificationRequest(identifier: "meeting-\(record.id)", content: content, trigger: nil))
     }
 }

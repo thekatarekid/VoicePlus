@@ -260,7 +260,9 @@ public final class AppContainer {
 
         // P5.5 — meeting capture: detector-driven session over the engine's recognizer (or a
         // silent transcriber under the mock engine); live mic+system capture only when real.
-        let meetingCoordinator = MeetingCoordinator()
+        // `settings` carries the opt-in: with it absent (or off) the coordinator starts nothing
+        // and asks for nothing — see MeetingCoordinator.startMonitoring().
+        let meetingCoordinator = MeetingCoordinator(settings: settings)
         let meetingStore = meetingCoordinator.store
         let recognizerProvider = built.provider
         meetingCoordinator.makeSession = { prompt in

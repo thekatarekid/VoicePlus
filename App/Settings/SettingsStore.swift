@@ -30,4 +30,7 @@ public enum SettingsKeys {
     public static let onboardingCompleted = "onboarding.completed"
     public static let hotkey = "hotkey.choice"
     public static let routingPrefix = "routing."
+    /// Meeting capture is opt-in and defaults to OFF. Nothing that can raise a Calendar,
+    /// Reminders or Notification dialog may run until the user has flipped this on.
+    public static let meetingCaptureEnabled = "meeting.capture.enabled"
 }

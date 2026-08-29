@@ -202,6 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         container.meeting.onNotes = { record in MeetingNotifier.post(record) }
+        // Inert unless the user opted in (menu-bar › "Capture meetings"). Before the opt-in gate
+        // this line asked TCC for Calendar — and, via EKEventStore's initialiser, Reminders — on
+        // every single launch, with no user intent anywhere in the chain.
         container.meeting.startMonitoring()
 
         let status = StatusItemController(flags: container.flags, database: container.database, coordinator: coordinator,
@@ -212,6 +215,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         status.correctionSettings = container.settings
         status.correctionRevertSink = { [weak container] in container?.repair.replaceSink }
         status.onRecheckPermissions = { [weak self] in self?.runPermissions() }
+        status.meetingCaptureEnabled = { [weak container] in container?.meeting.isMeetingCaptureEnabled ?? false }
+        status.onToggleMeetingCapture = { [weak container] in
+            guard let meeting = container?.meeting else { return }
+            let next = !meeting.isMeetingCaptureEnabled
+            Task { await meeting.setMeetingCaptureEnabled(next) }
+        }
         // P5.4 — ambient glyph + one-gesture hard mute; P5.3 — enrollment window.
         status.ambientSymbol = { [weak container] in
             guard let container, container.flags.isEnabled(.directedSpeech) else { return nil }

@@ -198,17 +198,36 @@ public final class CameraInUseMonitor: @unchecked Sendable {
 
 /// Calendar window via EventKit. Asks for access once (macOS 14 full-access API); without it the
 /// signal is simply empty — meetings are then detected from the camera alone.
+///
+/// The `EKEventStore` is built **lazily and only on demand**. Merely constructing one makes TCC
+/// evaluate access for `kTCCServiceCalendar` *and* `kTCCServiceReminders` (the no-argument
+/// initialiser covers every entity type), so holding one as a stored property meant a plain launch
+/// popped two authorization dialogs the user never asked for. Nothing here touches the store until
+/// either `requestAccess()` (the deliberate opt-in) or a `meetings()` call that has already
+/// confirmed authorization via the static status query.
 public final class EventKitCalendarSignal: @unchecked Sendable {
-    private let store = EKEventStore()
+    private let storeLock = NSLock()
+    private var madeStore: EKEventStore?
+    private var store: EKEventStore {
+        storeLock.lock(); defer { storeLock.unlock() }
+        if let madeStore { return madeStore }
+        let fresh = EKEventStore()
+        madeStore = fresh
+        return fresh
+    }
     public var window: TimeInterval = 60 * 60
     public init() {}
 
+    /// Status query only — never prompts, safe to call at launch.
+    public var isAuthorized: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess }
+
+    /// The only call here that may show a TCC dialog. Callers must have a user opt-in behind it.
     public func requestAccess() async -> Bool {
         (try? await store.requestFullAccessToEvents()) ?? false
     }
 
     public func meetings(around now: Date = Date()) -> [CalendarMeeting] {
-        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return [] }
+        guard isAuthorized else { return [] }
         let pred = store.predicateForEvents(withStart: now.addingTimeInterval(-window), end: now.addingTimeInterval(window), calendars: nil)
         return store.events(matching: pred).filter { !$0.isAllDay }.map { e in
             CalendarMeeting(id: e.eventIdentifier ?? UUID().uuidString, title: e.title ?? "Meeting", start: e.startDate, end: e.endDate,
