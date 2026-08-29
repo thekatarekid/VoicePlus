@@ -165,7 +165,12 @@ private extension Array where Element == KeyboardEffect {
         let server = KeyboardProxyServer(mailbox: box, doorbell: bell) { req in req.spans.map { $0.rewritten($0.text.uppercased(), by: .style) } }
         server.start()
         let client = KeyboardProxyClient(mailbox: box, doorbell: bell)
-        let resp = await client.send(KeyboardProxyRequest(requestID: 3, spans: spans([("hi", 0.9)])), timeout: 15) // generous: loaded parallel runs
+        // This timeout exists only to stop a broken round trip hanging the suite forever — the
+        // assertion below is what the test is actually about. The client polls the mailbox every
+        // 20 ms, so under a loaded parallel run the wall clock says nothing about correctness: at
+        // 15 s this read 19.3 s and failed, against 0.030 s for the same call in isolation. Set it
+        // where only a genuine hang can reach it.
+        let resp = await client.send(KeyboardProxyRequest(requestID: 3, spans: spans([("hi", 0.9)])), timeout: 120)
         #expect(resp?.spans.first?.text == "HI" && resp?.requestID == 3)
     }
 

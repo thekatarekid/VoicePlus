@@ -59,11 +59,16 @@ func stubBinary(_ name: String, script: String) throws -> URL {
     }
 
     @Test func timeoutKillsSubprocess() async throws {
-        let bin = try stubBinary("claude", script: "sleep 30")
+        // The subprocess sleeps far longer than the bar below, so "returned before the sleep could
+        // have finished" is what the elapsed check proves — not that the 0.3 s timeout is accurate
+        // to the wall clock, which a loaded parallel run makes meaningless (this read 19.3 s
+        // against a 15 s bar while taking 0.318 s in isolation).
+        let bin = try stubBinary("claude", script: "sleep 120")
         let p = CLIAdapterProvider(tool: .claude, binary: bin, timeout: 0.3)
         let t0 = Date()
         await #expect(throws: ProviderError.timeout) { _ = try await p.generate(prompt: "x", system: "", stage: .style) }
-        #expect(Date().timeIntervalSince(t0) < 15) // 0.3s timeout; slack for loaded parallel runs
+        let elapsed = Date().timeIntervalSince(t0)
+        #expect(elapsed < 60, "timed out after \(elapsed)s — the 120 s subprocess was awaited, not killed")
     }
 }
 
