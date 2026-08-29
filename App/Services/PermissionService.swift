@@ -111,6 +111,41 @@ public enum PermissionDiagnostics {
         "\(bundleIdentifier) cdhash=\(codeHash() ?? "unavailable")"
     }
 
+    /// Headless self-test: `VoicePlus --request-permission microphone`.
+    ///
+    /// Runs the *real* system request for one service and reports what TCC answered, so a build can
+    /// be verified against the tccd log without driving the onboarding UI. This is how the 1.6.2
+    /// microphone regression is caught on real hardware: a build that never reaches
+    /// `AVCaptureDevice.requestAccess` produces only `preflight=yes` status queries in tccd and no
+    /// `AUTHREQ_PROMPTING` line, and no unit test can see that. See Packaging/SIGNING.md.
+    ///
+    /// Launch it through LaunchServices (`open -n -a VoicePlus.app --args …`), not by running the
+    /// executable from a shell: TCC attributes a shell-launched binary to the terminal.
+    public static func parseRequestCLI(_ arguments: [String]) -> Permission? {
+        guard let i = arguments.firstIndex(of: "--request-permission"), i + 1 < arguments.count else { return nil }
+        return Permission(rawValue: arguments[i + 1])
+    }
+
+    /// Returns a process exit code: 0 when the service ended up granted, 1 otherwise.
+    public static func runRequestCLI(_ permission: Permission) -> Int32 {
+        let checker = SystemPermissionChecker()
+        let before = checker.status(of: permission)
+        Log.app.info("permission self-test: \(summary()) requesting \(permission.rawValue) (was \(before.rawValue))")
+        print("before: \(permission.rawValue)=\(before.rawValue) (\(summary()))")
+        // `request` answers on the main queue, so the main run loop has to be pumped by hand here —
+        // there is no NSApplication in this mode.
+        var result: PermissionStatus?
+        checker.request(permission) { result = $0 }
+        let deadline = Date().addingTimeInterval(120)
+        while result == nil, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
+        }
+        let final = result ?? checker.status(of: permission)
+        Log.app.info("permission self-test: \(permission.rawValue) -> \(final.rawValue)")
+        print("after: \(permission.rawValue)=\(final.rawValue)")
+        return final == .granted ? 0 : 1
+    }
+
     /// The command that clears a stale row. Shown for copy/paste — never run from the app.
     public static func resetCommand(for permission: Permission) -> String {
         let service: String

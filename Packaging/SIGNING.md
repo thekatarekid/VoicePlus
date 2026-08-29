@@ -63,6 +63,56 @@ cdhash, so:
 Microphone behaves better (it re-prompts more willingly), which is why the
 reported symptom was "the mic prompt worked, Input Monitoring produced nothing".
 
+#### Tested and rejected: "hardened runtime breaks TCC on an ad-hoc signature"
+
+1.6.0 was `flags=0x2(adhoc)`; 1.6.1+ is `flags=0x10002(adhoc,runtime)`. When 1.6.2
+stopped showing the microphone prompt, the hardened-runtime switch was the obvious
+suspect. **It is not the cause. Do not revert `--options runtime` chasing a missing
+prompt.** Measured on macOS 26.6.2 with three probe bundles that differ only in how
+they are signed, each calling `AVCaptureDevice.requestAccess(for: .audio)`:
+
+| probe | signature | result |
+| --- | --- | --- |
+| plain | ad-hoc, no hardened runtime | real dialog, `AUTHREQ_PROMPTING`, row created |
+| runtime | ad-hoc + `--options runtime` | real dialog, `AUTHREQ_PROMPTING`, row created |
+| full | ad-hoc + runtime + the entitlements we ship | real dialog, `AUTHREQ_PROMPTING`, row created |
+
+tccd also logs `Prompting policy for hardened runtime; allow prompt: Allow` for
+VoicePlus itself. TCC attributes and persists ad-hoc identities fine; the missing
+Team ID costs us grant *stability* across rebuilds (above), not the prompt.
+
+The 1.6.2 microphone regression was an onboarding-flow bug: the app never called
+`requestAccess` at all, so tccd logged only `preflight=yes` status queries and no
+`preflight=no` request. Since that call is the only way an app can appear in
+Privacy & Security › Microphone — **that pane has no "+" button** — the user could
+not add it by hand, and `tccutil reset Microphone` alone did nothing. See
+`OnboardingStateMachine.initialPhase` and `Permission.isPromptable`.
+
+**Diagnosing this class of bug:** ask tccd whether the app asked at all.
+
+```bash
+/usr/bin/log show --last 2m --predicate 'process == "tccd"' --info --debug \
+  --style compact | grep -i -E "Microphone|voiceplus"
+```
+
+`preflight=yes` is a *status query* (`authorizationStatus`). `preflight=no` plus
+`AUTHREQ_PROMPTING` is a *real request*. Only the second one registers the app.
+No microphone lines at all means the bug is in our code, not in the signature.
+
+To make the app ask without clicking through onboarding, use the headless self-test.
+Launch it through LaunchServices — running the executable from a shell makes TCC
+attribute the request to the terminal instead of to VoicePlus:
+
+```bash
+tccutil reset Microphone in.adityakatare.voiceplus
+open -n -a Packaging/build/VoicePlus.app --args --request-permission microphone
+```
+
+It prints `before:`/`after:` lines and logs `permission self-test: … -> granted`.
+A passing 1.6.3 build produces, for `in.adityakatare.voiceplus`:
+`AUTHREQ_CTX … preflight=no` → `AUTHREQ_PROMPTING … kTCCServiceMicrophone` →
+`TCCDEvent: type=Create, service=kTCCServiceMicrophone`.
+
 ### Gate C — App Translocation (the other silent killer)
 
 An app that is quarantined (downloaded dmg) **and** not notarized is run from a

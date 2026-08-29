@@ -19,6 +19,12 @@ if let soak = SoakRunner.parse(CommandLine.arguments) {
     exit(0)
 }
 
+// Headless permission self-test: `VoicePlusApp --request-permission microphone`. Proves against the
+// tccd log that the real request API is reached — see PermissionDiagnostics / Packaging/SIGNING.md.
+if let permission = PermissionDiagnostics.parseRequestCLI(CommandLine.arguments) {
+    exit(PermissionDiagnostics.runRequestCLI(permission))
+}
+
 Log.app.info("VoicePlus starting (Shared \(SharedModule.version))")
 let app = NSApplication.shared
 let delegate = AppDelegate()
