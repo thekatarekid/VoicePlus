@@ -30,7 +30,9 @@ if let permission = PermissionDiagnostics.parseRequestCLI(CommandLine.arguments)
 // AUHAL stream formats, the active acoustic stages, block count and RMS. Must run before
 // NSApplication exists, like the other headless modes. See App/Services/MicSelfTest.swift.
 if let seconds = MicSelfTest.parseCLI(CommandLine.arguments) {
-    exit(MicSelfTest.run(seconds: seconds, deviceUID: MicSelfTest.parseDeviceUID(CommandLine.arguments)))
+    exit(MicSelfTest.run(seconds: seconds,
+                         deviceUID: MicSelfTest.parseDeviceUID(CommandLine.arguments),
+                         voiceProcessing: MicSelfTest.parseVoiceProcessing(CommandLine.arguments)))
 }
 
 // Headless onboarding-phase self-test: `VoicePlusApp --onboarding-selftest`. Writes the FIX B

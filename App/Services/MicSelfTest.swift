@@ -44,13 +44,26 @@ public enum MicSelfTest {
         return arguments[i + 1]
     }
 
-    public static func run(seconds: TimeInterval, deviceUID: String? = nil) -> Int32 {
+    /// `--mic-selftest-vp` swaps `CoreAudioCaptureSource` for `VoiceProcessingCaptureSource`, so the
+    /// Apple voice-processing path (its multi-channel tap and its plain-tap fallback) can be measured
+    /// on real hardware. Not the shipping path — `EngineFactory` builds the plain source.
+    public static func parseVoiceProcessing(_ arguments: [String]) -> Bool {
+        arguments.contains("--mic-selftest-vp")
+    }
+
+    public static func run(seconds: TimeInterval, deviceUID: String? = nil, voiceProcessing: Bool = false) -> Int32 {
         emit("mic-selftest: \(PermissionDiagnostics.summary()) duration=\(Int(seconds))s")
 
         // 1. TCC.
         let auth = AVCaptureDevice.authorizationStatus(for: .audio)
         emit("mic-selftest: AVCaptureDevice.authorizationStatus(.audio)=\(describe(auth))")
         guard auth == .authorized else {
+            // Deliberately does *not* prompt: `--request-permission microphone` is the mode that
+            // asks, and keeping this one read-only means it can be run repeatedly without changing
+            // TCC state. `notDetermined` on a build the user has already allowed means the stored
+            // row pins an older build's cdhash (tccd logs status -67050) — see Packaging/SIGNING.md.
+            emit("mic-selftest: fix — run `\(PermissionDiagnostics.resetCommand(for: .microphone))`,"
+                 + " then `open -n -a <VoicePlus.app> --args --request-permission microphone` and allow the prompt")
             return finish(.permissionDenied, "microphone permission is \(describe(auth)); nothing to measure")
         }
 
@@ -73,10 +86,12 @@ public enum MicSelfTest {
         let why = forced != nil ? "--mic-selftest-uid" : reason(for: chosen, policy: policy, systemDefault: systemDefault)
         emit("mic-selftest: chosen=\(chosen.name)#\(chosen.id) because=\(why)")
 
-        // 3. The shipping object graph (EngineFactory.make()).
+        // 3. The shipping object graph (EngineFactory.make()), or the voice-processing twin.
         let core = CoreAudioCaptureSource(device: forced, policy: policy)
+        let vp = voiceProcessing ? VoiceProcessingCaptureSource(device: forced, policy: policy) : nil
+        let inner: any AudioCaptureSource = vp ?? core
         let profile = RobustnessProfile.default
-        let capture = AcousticCaptureSource(wrapping: core, profile: profile)
+        let capture = AcousticCaptureSource(wrapping: inner, profile: profile)
         var options = AudioPipeline.Options()
         options.noAudioTimeout = 2.0
         let pipeline = AudioPipeline(source: capture, vad: EnergyVAD(), options: options)
@@ -119,9 +134,14 @@ public enum MicSelfTest {
         var startError: Error?
         do { try audio.start() } catch { startError = error }
         let elapsed = Date().timeIntervalSince(began)
-        emit("mic-selftest: capture graph — \(core.diagnostics.summary)")
+        emit("mic-selftest: capture graph — \(vp?.diagnostics.summary ?? core.diagnostics.summary)")
         emit("mic-selftest: start took \(String(format: "%.2f", elapsed))s (production startTimeout is 3s)"
-             + " engine.isRunning=\(core.isRunning) startThrew=\(startError.map { String(describing: $0) } ?? "no")")
+             + " engine.isRunning=\(vp?.isRunning ?? core.isRunning)"
+             + " startThrew=\(startError.map { String(describing: $0) } ?? "no")")
+        if let vp {
+            emit("mic-selftest: voiceProcessingActive=\(vp.voiceProcessingActive)"
+                 + " fallbackTimeout=\(vp.fallbackTimeout)s didFallBackToPlainTap=\(vp.didFallBackToPlainTap)")
+        }
         if let startError {
             reader.cancel()
             audio.stop()
@@ -150,9 +170,11 @@ public enum MicSelfTest {
 
         // 7. Verdict.
         let s = tally.snapshot()
+        let d = vp?.diagnostics ?? core.diagnostics
         let result = "RESULT blocks=\(s.blocks) levelEvents=\(s.levels) samples16k=\(s.samples)"
-            + " meanRMS=\(fmt(s.mean)) peakRMS=\(fmt(s.peak)) device=\(core.diagnostics.deviceName)"
-            + " tap=\(Int(core.diagnostics.tapRate))Hz/\(core.diagnostics.tapChannels)ch stages=[\(stages.isEmpty ? "-" : stages)]"
+            + " meanRMS=\(fmt(s.mean)) peakRMS=\(fmt(s.peak)) device=\(d.deviceName)"
+            + " tap=\(Int(d.tapRate))Hz/\(d.tapChannels)ch vp=\(vp?.voiceProcessingActive ?? false)"
+            + " fellBackToPlainTap=\(vp?.didFallBackToPlainTap ?? false) stages=[\(stages.isEmpty ? "-" : stages)]"
         emit("mic-selftest: \(result)")
         if let failure = s.failure { return finish(.startedButNoBlocks, failure) }
         if s.blocks == 0 { return finish(.startedButNoBlocks, "capture started but not one audio block arrived") }
