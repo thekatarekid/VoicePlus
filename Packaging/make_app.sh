@@ -291,7 +291,7 @@ codesign -dvvv "$APP" 2>&1 | grep -E 'Identifier|CodeDirectory|flags|CDHash|Team
 # 6c. TCC durability gate. This is the check that would have caught the 1.6.3
 # report at build time instead of on a user's Mac: if the designated requirement
 # still names one exact binary, every grant this build receives dies with it.
-DR="$(codesign -d -r- "$APP" 2>/dev/null | sed -n 's/^designated => //p')"
+DR="$(codesign -d -r- "$APP" 2>/dev/null | sed -n 's/^#* *designated => //p')"
 log "designated requirement: ${DR:-<unreadable>}"
 case "$DR" in
   "")

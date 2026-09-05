@@ -57,6 +57,18 @@ ent_out="$(codesign -d --entitlements :- "$APP" 2>/dev/null || true)"
 grep -q 'com.apple.security.device.audio-input' <<<"$ent_out" \
   || fail "audio-input entitlement missing"
 
+# The designated requirement is what TCC stores when a switch is turned on and
+# re-evaluates on every later query. If it names this exact binary, every grant
+# the user gives this build dies on the next one — the 1.6.3 "Input Monitoring is
+# on but the app says it is off" report. See Packaging/SIGNING.md section 4.
+dr="$(codesign -d -r- "$APP" 2>/dev/null | sed -n 's/^#* *designated => //p')"
+[ -n "$dr" ] || fail "no designated requirement in the signature"
+echo "[verify] designated requirement: $dr"
+case "$dr" in
+  *cdhash*|*CDHash*) fail "designated requirement pins this build's cdhash — TCC grants will not survive an update" ;;
+esac
+echo "[verify]   build-independent: grants survive updates"
+
 # Self-containment: nothing may point back at the build machine.
 echo "[verify] self-containment"
 while IFS= read -r macho; do
