@@ -19,11 +19,19 @@ struct MicCheckPipelineTests {
         return WAVFile(sampleRate: 16_000, samples: samples)
     }
 
-    private func bridge(_ wav: WAVFile) -> (PipelineAudioSource, FixtureCaptureSource) {
+    private func bridge(_ wav: WAVFile, noAudioTimeout: TimeInterval = 2) -> (PipelineAudioSource, FixtureCaptureSource) {
         let source = FixtureCaptureSource(wav: wav)
-        let bridge = PipelineAudioSource(pipeline: AudioPipeline(source: source, vad: EnergyVAD()))
+        var options = AudioPipeline.Options()
+        options.noAudioTimeout = noAudioTimeout
+        let bridge = PipelineAudioSource(pipeline: AudioPipeline(source: source, vad: EnergyVAD(), options: options))
         bridge.requireMicrophonePermission = false   // no HAL, no TCC in this process
         return (bridge, source)
+    }
+
+    /// `PipelineMicLevelPublisher` opens the HAL off the main actor now, so a test that pushes
+    /// fixture blocks has to wait for the pipeline to have installed its sink first.
+    private func waitForCapture(_ audio: PipelineAudioSource) async throws {
+        try await waitUntil(timeoutMs: 4000) { audio.pipeline.source.sink != nil }
     }
 
     /// The `.level(rms:)` channel the pipeline has always emitted now reaches a consumer.
@@ -56,6 +64,7 @@ struct MicCheckPipelineTests {
         #expect(vm.step == .micCheck)
         #expect(vm.machine.micVerdict == .waiting)
 
+        try await waitForCapture(audio)
         source.push(tone().samples)
         await audio.pipeline.drain()
         try await waitUntil(timeoutMs: 4000) { vm.machine.micVerdict == .good }
@@ -66,6 +75,7 @@ struct MicCheckPipelineTests {
 
     /// Silence that really is silence still reads as quiet — but only after enough blocks arrive.
     @Test @MainActor func genuineSilenceReadsAsQuietNotAsNoAudio() async throws {
+        // Blocks of digital silence are audio: the watchdog is about blocks that never arrive.
         let (audio, source) = bridge(WAVFile(sampleRate: 16_000, samples: []))
         var deps = OnboardingDependencies.mock()
         deps.micLevel = PipelineMicLevelPublisher(audio: audio)
@@ -74,6 +84,7 @@ struct MicCheckPipelineTests {
         ]
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
+        try await waitForCapture(audio)
         source.push([Float](repeating: 0, count: 16_000 * 2))
         await audio.pipeline.drain()
         try await waitUntil(timeoutMs: 6000) { vm.machine.micVerdict == .tooQuiet }
@@ -102,9 +113,58 @@ struct MicCheckPipelineTests {
         vm.teardown()
     }
 
+    /// The fixture-driven guarantee the mic check rests on: a started pipeline pushes real blocks
+    /// all the way to the meter's own publisher, not just to `PipelineAudioSource`.
+    @Test func startedPipelineDeliversBlocksToTheLevelPublisher() async throws {
+        let (audio, source) = bridge(WAVFile(sampleRate: 16_000, samples: []))
+        let publisher = PipelineMicLevelPublisher(audio: audio)
+        let signals = Box<[MicCheckSignal]>([])
+        let cancellable = publisher.signalPublisher.sink { s in signals.mutate { $0.append(s) } }
+        defer { cancellable.cancel() }
+
+        publisher.startMonitoring()
+        try await waitForCapture(audio)
+        source.push(tone().samples)
+        await audio.pipeline.drain()
+        try await waitUntil(timeoutMs: 4000) { signals.value.contains { if case .level = $0 { return true }; return false } }
+        publisher.stopMonitoring()
+
+        let levels = signals.value.compactMap { s -> Float? in if case .level(let l) = s { return l }; return nil }
+        #expect(!levels.isEmpty, "no audio block reached the mic-check meter")
+        #expect(levels.contains { $0 > 0.08 }, "a −20 dBFS tone must move the meter")
+        #expect(!signals.value.contains { if case .failed = $0 { return true }; return false },
+                "the watchdog reported a failure while audio was arriving")
+    }
+
+    /// BUG (1.6.3) regression: capture started, no block ever arrived, and the screen said nothing.
+    /// The no-audio watchdog must turn that into a visible failure on the mic-check signal.
+    @Test func noAudioWatchdogSurfacesAsAMicCheckFailure() async throws {
+        // Starts cleanly, delivers nothing — the shape of a tap that can never fire.
+        let (audio, _) = bridge(WAVFile(sampleRate: 16_000, samples: []), noAudioTimeout: 0.2)
+        let publisher = PipelineMicLevelPublisher(audio: audio)
+        let signals = Box<[MicCheckSignal]>([])
+        let cancellable = publisher.signalPublisher.sink { s in signals.mutate { $0.append(s) } }
+        defer { cancellable.cancel() }
+
+        publisher.startMonitoring()
+        try await waitUntil(timeoutMs: 4000) {
+            signals.value.contains { if case .failed = $0 { return true }; return false }
+        }
+        publisher.stopMonitoring()
+
+        let reason = signals.value.compactMap { s -> String? in if case .failed(let r) = s { return r }; return nil }.first
+        let text = try #require(reason)
+        #expect(text.contains("No sound is reaching VoicePlus"))
+        #expect(text.contains("not one audio block arrived"))
+    }
+
     @Test func startTimeoutIsAFailureNotASilentSuccess() {
         #expect(PipelineMicLevelPublisher.describe(AudioCaptureError.noInputDevice).contains("older copy"))
         #expect(PipelineMicLevelPublisher.describe(AudioCaptureError.engineStartFailed("boom")).contains("boom"))
+        // A graph whose tap could never fire must read as a format problem, not as a quiet room.
+        #expect(PipelineMicLevelPublisher.describe(AudioCaptureError.formatMismatch(hardware: 48_000, client: 44_100)).contains("48000 Hz"))
+        #expect(PipelineMicLevelPublisher.describe(AudioCaptureError.formatMismatch(hardware: 0, client: 0)).contains("could not be opened"))
+        #expect(PipelineMicLevelPublisher.describe(AudioCaptureError.noAudio(seconds: 2)).contains("No sound is reaching"))
     }
 }
 

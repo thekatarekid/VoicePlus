@@ -54,7 +54,10 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
     private let audio: PipelineAudioSource
     private let subject = CurrentValueSubject<MicCheckSignal, Never>(.starting)
     private var reader: Task<Void, Never>?
+    private var starter: Task<Void, Never>?
     private var blocks = 0
+    private let stateLock = NSLock()
+    private var stopped = false
 
     public init(audio: PipelineAudioSource) { self.audio = audio }
 
@@ -63,6 +66,7 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
     public func startMonitoring() {
         subject.send(.starting)
         blocks = 0
+        stateLock.withLock { stopped = false }
         let events = audio.pipeline.events()
         reader = Task { [weak self] in
             for await event in events {
@@ -73,6 +77,11 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
                     if self.blocks == 1 { Log.app.info("mic check: first audio block reached the meter") }
                     // Same normalisation the pill uses, so the two meters agree.
                     self.subject.send(.level(min(1, rms * 4)))
+                case .captureFailed(let reason):
+                    // The pipeline's no-audio watchdog. Before 1.6.4 this state was indistinguishable
+                    // from a very quiet room, which is exactly how the user got a dead level bar.
+                    Log.app.error("mic check: \(reason)")
+                    self.subject.send(.failed(reason))
                 case .stopped:
                     return
                 default:
@@ -80,28 +89,47 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
                 }
             }
         }
-        do {
-            try audio.start()
-            Log.app.info("mic check: capture started on \(self.audio.deviceName ?? "default device")")
-        } catch {
-            // The old code logged this and left the UI claiming "very quiet" forever.
-            Log.app.error("mic check could not start capture: \(error)")
-            subject.send(.failed(Self.describe(error)))
+        // `PipelineAudioSource.start()` waits on the HAL for up to `startTimeout` (measured: 4.7 s
+        // on a Continuity Camera mic). Onboarding calls this from the main actor, so the waiting
+        // happens off it — a slow device must not freeze the window.
+        starter = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self, !self.isStopped else { return }
+            do {
+                try self.audio.start()
+                // A `stopMonitoring()` that landed while the HAL was opening must still win, or the
+                // microphone stays live after the screen is gone.
+                if self.isStopped { self.audio.stop(); return }
+                Log.app.info("mic check: capture started on \(self.audio.deviceName ?? "default device")")
+            } catch {
+                // The old code logged this and left the UI claiming "very quiet" forever.
+                Log.app.error("mic check could not start capture: \(error)")
+                self.subject.send(.failed(Self.describe(error)))
+            }
         }
     }
 
     public func stopMonitoring() {
+        stateLock.withLock { stopped = true }
         reader?.cancel()
         reader = nil
+        starter = nil
         audio.stop()
         Log.app.debug("mic check: capture stopped after \(self.blocks) audio blocks")
     }
+
+    private var isStopped: Bool { stateLock.withLock { stopped } }
 
     static func describe(_ error: Error) -> String {
         guard let capture = error as? AudioCaptureError else { return String(describing: error) }
         switch capture {
         case .noInputDevice:
             return "No input device is available to VoicePlus. Microphone permission may be granted to an older copy of this app."
+        case .formatMismatch(let hardware, let client):
+            return hardware == 0
+                ? "The microphone could not be opened. macOS reported no input format for this device."
+                : "VoicePlus could not agree a format with the microphone (\(Int(hardware)) Hz hardware vs \(Int(client)) Hz). Capture was stopped instead of running silently."
+        case .noAudio:
+            return "No sound is reaching VoicePlus. Capture started but not one audio block arrived."
         default:
             return String(describing: capture)
         }

@@ -16,6 +16,9 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     /// Normalised 0…1 input level, one per ≈50 ms block. The pipeline has always emitted
     /// `.level(rms:)`; this forwards it so meters don't have to infer level from engine state.
     public var onLevel: (@Sendable (Float) -> Void)?
+    /// Capture reported success and then produced nothing (the pipeline's no-audio watchdog), or a
+    /// start failed after `.started`. Never silent: a meter that cannot move must say so.
+    public var onCaptureFailure: (@Sendable (String) -> Void)?
     /// Seconds to wait for the async pipeline start before giving up (a hung HAL must not hang the hotkey).
     public var startTimeout: TimeInterval = 3
     /// Tests replaying fixtures set this false; live capture keeps the TCC check.
@@ -60,6 +63,9 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
                     self.onMicQuality?(q)
                 case .deviceChanged(let from, let to):
                     self.onDeviceChanged?(from, to)
+                case .captureFailed(let reason):
+                    Log.engine.error("audio source: \(reason)")
+                    self.onCaptureFailure?(reason)
                 case .stopped:
                     return
                 default:

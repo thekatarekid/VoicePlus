@@ -15,7 +15,77 @@ private func collect(_ pipeline: AudioPipeline, run: @escaping () async throws -
     return await collector.value
 }
 
+/// Collects the first `.captureFailed` reason, giving up after `timeout` so a broken watchdog
+/// fails the test instead of hanging it.
+private final class EventBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: String?
+    var value: String? { lock.withLock { storage } }
+    func set(_ v: String) { lock.withLock { if storage == nil { storage = v } } }
+}
+
 @Suite struct AudioPipelineTests {
+    /// BUG (1.6.3): capture "started" on a graph whose tap could never fire, and the pipeline had no
+    /// way to say so — the meter simply never moved. A started pipeline must deliver `.level` blocks,
+    /// and `.started` must name the device it actually opened (it used to always report nil, because
+    /// wrapped sources resolve `device` only once the inner source has opened the HAL).
+    @Test func startedPipelineDeliversLevelBlocksAndNamesItsDevice() async throws {
+        let url = try #require(AudioFixtures.url("clean", "clean_02_daniel.wav"))
+        let source = try FixtureCaptureSource(url: url)
+        let pipeline = AudioPipeline(source: AcousticCaptureSource(wrapping: source, profile: .raw), vad: EnergyVAD())
+        let events = try await collect(pipeline) { try await pipeline.start(); await pipeline.stop() }
+
+        guard case .started(let device)? = events.first else { Issue.record("no .started"); return }
+        #expect(device == .fixture, "`.started` must carry the device capture actually opened")
+        let levels = events.compactMap { e -> Float? in if case .level(let rms) = e { return rms }; return nil }
+        #expect(!levels.isEmpty, "a started pipeline delivered no level blocks")
+        #expect(levels.contains { $0 > 0 }, "every level block was digital silence")
+        #expect(!events.contains { if case .captureFailed = $0 { return true }; return false },
+                "the watchdog fired on a pipeline that was delivering audio")
+    }
+
+    /// The watchdog itself: a source that starts cleanly and delivers nothing must surface a real
+    /// error, not silence. This is the 1.6.3 shape exactly — `engine.start()` succeeded, `isRunning`
+    /// was true, and not one buffer ever arrived.
+    @Test func noAudioWatchdogReportsAnErrorWhenTheSourceDeliversNothing() async throws {
+        let silent = FixtureCaptureSource(wav: WAVFile(sampleRate: 16_000, samples: []))
+        var options = AudioPipeline.Options()
+        options.noAudioTimeout = 0.2
+        let pipeline = AudioPipeline(source: silent, vad: EnergyVAD(), options: options)
+        let box = EventBox()
+        let stream = pipeline.events()
+        let reader = Task {
+            for await e in stream {
+                if case .captureFailed(let reason) = e { box.set(reason); return }
+                if case .stopped = e { return }
+            }
+        }
+        try await pipeline.start()
+        let deadline = Date().addingTimeInterval(3)
+        while box.value == nil, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        reader.cancel()
+        await pipeline.stop()
+
+        let reason = try #require(box.value, "the no-audio watchdog never fired")
+        #expect(reason.contains("not one audio block arrived"))
+    }
+
+    /// Disabling the watchdog must not make it fire late.
+    @Test func watchdogCanBeDisabled() async throws {
+        let silent = FixtureCaptureSource(wav: WAVFile(sampleRate: 16_000, samples: []))
+        var options = AudioPipeline.Options()
+        options.noAudioTimeout = 0
+        let pipeline = AudioPipeline(source: silent, vad: EnergyVAD(), options: options)
+        let box = EventBox()
+        let stream = pipeline.events()
+        let reader = Task { for await e in stream { if case .captureFailed(let r) = e { box.set(r) }; if case .stopped = e { return } } }
+        try await pipeline.start()
+        try await Task.sleep(nanoseconds: 400_000_000)
+        await pipeline.stop()
+        _ = await reader.value
+        #expect(box.value == nil)
+    }
+
     @Test func replayedFixtureFlowsThroughWholePipeline() async throws {
         let url = try #require(AudioFixtures.url("vad", "vad_02_4segs.wav"))
         let wav = try WAVFile.read(url: url)

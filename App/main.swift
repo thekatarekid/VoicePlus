@@ -25,6 +25,14 @@ if let permission = PermissionDiagnostics.parseRequestCLI(CommandLine.arguments)
     exit(PermissionDiagnostics.runRequestCLI(permission))
 }
 
+// Headless capture self-test: `VoicePlusApp --mic-selftest [seconds]`. Runs the real AudioPipeline
+// through PipelineAudioSource for a few seconds and prints device selection, both node formats,
+// AUHAL stream formats, the active acoustic stages, block count and RMS. Must run before
+// NSApplication exists, like the other headless modes. See App/Services/MicSelfTest.swift.
+if let seconds = MicSelfTest.parseCLI(CommandLine.arguments) {
+    exit(MicSelfTest.run(seconds: seconds, deviceUID: MicSelfTest.parseDeviceUID(CommandLine.arguments)))
+}
+
 // Headless onboarding-phase self-test: `VoicePlusApp --onboarding-selftest`. Writes the FIX B
 // phase line for every permission using the live TCC statuses, so which phase a build actually
 // enters can be read straight out of the log instead of inferred.
