@@ -7,7 +7,17 @@
 # in.adityakatare.voiceplus, a rebuilt binary no longer matches it, and for
 # Input Monitoring (kTCCServiceListenEvent) and Accessibility the system then
 # quietly refuses instead of re-prompting. That is exactly the "no prompt ever
-# appeared" symptom. Clearing the records restores the first-run behaviour.
+# appeared" symptom, and also the "System Settings shows the switch ON but the
+# app says it is off" one: the switch and the stored code requirement are
+# different columns of the same row, and flipping the switch rewrites only the
+# switch. Clearing the records restores the first-run behaviour.
+#
+# From 1.6.4 the build pins a build-independent designated requirement
+# (Packaging/SIGNING.md section 4), so grants made from 1.6.4 onwards survive
+# every rebuild. Rows created by 1.6.3 or earlier still hold that build's cdhash
+# and stay unmatchable forever, so this reset is a ONE-TIME migration, not a
+# routine step. Note it also clears the working Microphone grant, so onboarding
+# has to be run again afterwards.
 #
 # Usage:
 #   Packaging/reset_tcc.sh                       # in.adityakatare.voiceplus

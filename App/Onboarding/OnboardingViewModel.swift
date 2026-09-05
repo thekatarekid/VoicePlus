@@ -238,6 +238,35 @@ public final class OnboardingViewModel: ObservableObject {
         NSPasteboard.general.setString(command, forType: .string)
     }
 
+    /// Copy/paste helper for the translocation escape hatch; the app never runs `xattr` itself.
+    public func copyDequarantineCommand(identity: AppCodeIdentity = PermissionDiagnostics.identity()) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(identity.dequarantineCommand, forType: .string)
+    }
+
+    /// "Quit & Reopen": open a second instance of this bundle, then terminate this one.
+    ///
+    /// Deliberately **not** the headline cure. Measured on the reporting machine (macOS 26.6.2): a
+    /// brand-new process of the installed app still read `AXIsProcessTrusted() == false` and
+    /// `CGPreflightListenEventAccess() == false` while both switches were on, because the failure is
+    /// a stored-requirement mismatch that tccd re-evaluates from scratch on every query — there is no
+    /// per-process cache to defeat. It stays offered as cheap insurance for the cases a restart *can*
+    /// fix (the bundle was replaced under the running process; a row that was just re-added), and it
+    /// refuses outright from a translocated copy, where relaunching only makes another temporary copy.
+    @discardableResult
+    public func relaunchApp(identity: AppCodeIdentity = PermissionDiagnostics.identity(),
+                            relauncher: AppRelaunching = NSWorkspaceRelauncher()) -> AppCodeIdentity.RelaunchOutcome {
+        let outcome = identity.relaunchOutcome
+        switch outcome {
+        case .translocated:
+            Log.app.warning("relaunch refused: running translocated from \(identity.bundlePath)")
+        case .relaunch(let path):
+            Log.app.info("relaunching \(path) at the user's request")
+            relauncher.relaunch(bundlePath: path)
+        }
+        return outcome
+    }
+
     /// Runs one utterance through the engine so the last step is *doing*, not watching.
     public func runGuidedDictation() {
         guard !isDictating else { return }
@@ -277,6 +306,11 @@ public final class OnboardingViewModel: ObservableObject {
     /// click, and (because `.next` only ever advances) no authorization request.
     @discardableResult
     public static func runPhaseSelfTest() -> Int32 {
+        // The identity block first: which binary this is, what requirement TCC will evaluate it
+        // against, and what the two non-promptable APIs answer *in this fresh process*. Those three
+        // facts decide everything the permission screens can honestly say, and none of them were
+        // previously stated anywhere — they had to be inferred from a phase label.
+        PermissionDiagnostics.emitReport()
         var deps = OnboardingDependencies.mock()
         deps.permissions = LivePermissionChecker(checker: SystemPermissionChecker())
         // The real persisted `onboarding.requested.*` flags, because a stale one combined with a
@@ -303,4 +337,38 @@ public final class OnboardingViewModel: ObservableObject {
         contactsOutcome = contactsOffer.decline()
         showContactsOffer = false
     }
+}
+
+/// Injected so the relaunch *decision* can be tested without actually quitting the test process.
+public protocol AppRelaunching: AnyObject {
+    func relaunch(bundlePath: String)
+}
+
+/// Opens a fresh instance and then terminates this one. `createsNewApplicationInstance` is required:
+/// without it LaunchServices simply activates the process that is already running, and nothing
+/// restarts.
+public final class NSWorkspaceRelauncher: AppRelaunching {
+    public init() {}
+
+    public func relaunch(bundlePath: String) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: bundlePath),
+                                           configuration: configuration) { _, error in
+            DispatchQueue.main.async {
+                if let error {
+                    Log.app.error("relaunch failed: \(error.localizedDescription)")
+                    return
+                }
+                NSApp.terminate(nil)
+            }
+        }
+    }
+}
+
+/// Records the request instead of performing it.
+public final class MockRelauncher: AppRelaunching {
+    public private(set) var relaunched: [String] = []
+    public init() {}
+    public func relaunch(bundlePath: String) { relaunched.append(bundlePath) }
 }

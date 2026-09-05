@@ -77,21 +77,36 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
         public var retryTitle: String?
         /// Whether the `tccutil reset` copy/paste escape hatch is the honest last resort here.
         public var showsResetCommand: Bool
+        /// Title of a *secondary* "quit and come back" button, or nil when relaunching cannot help.
+        /// Never the primary action: a fresh process was measured to read the same `false` from
+        /// `CGPreflightListenEventAccess()` / `AXIsProcessTrusted()`, because the denial is a stored
+        /// code-requirement mismatch that tccd re-evaluates every time rather than a cached answer.
+        public var relaunchTitle: String?
+        /// Whether the `xattr -dr com.apple.quarantine` escape hatch is what this case needs — true
+        /// only for a translocated copy, where nothing done in System Settings can ever stick.
+        public var showsDequarantineCommand: Bool
 
         public init(headline: String, detail: String? = nil, retryTitle: String? = nil,
-                    showsResetCommand: Bool = false) {
+                    showsResetCommand: Bool = false, relaunchTitle: String? = nil,
+                    showsDequarantineCommand: Bool = false) {
             self.headline = headline
             self.detail = detail
             self.retryTitle = retryTitle
             self.showsResetCommand = showsResetCommand
+            self.relaunchTitle = relaunchTitle
+            self.showsDequarantineCommand = showsDequarantineCommand
         }
     }
 
     /// - Parameters:
     ///   - status: what TCC says right now — the source of truth, not a persisted flag.
     ///   - attempts: re-checks that came back still-ungranted, used only to escalate the
-    ///     non-promptable copy to the stale-cdhash instructions.
-    public func recoveryCopy(status: OnboardingPermissionStatus, attempts: Int) -> RecoveryCopy {
+    ///     non-promptable copy to the stale-record instructions.
+    ///   - identity: what the running build's code signature means for TCC. The escalated copy is
+    ///     a factual claim about *why* an on-looking switch reads off, so it has to be derived from
+    ///     the signature rather than guessed.
+    public func recoveryCopy(status: OnboardingPermissionStatus, attempts: Int,
+                             identity: AppCodeIdentity = PermissionDiagnostics.identity()) -> RecoveryCopy {
         guard isPromptable else {
             // Input Monitoring / Accessibility: macOS shows no dialog for these, ever, and their
             // panes really do have "+" / "–", so this advice can actually be followed.
@@ -100,10 +115,28 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
                     headline: "macOS won't ask for this one. Turn VoicePlus on in \(settingsListName), then come back — this screen notices on its own."
                 )
             }
+            // A re-check that came back off while the user is looking at a switch that is on is not
+            // ambiguous, so the copy must not hedge. TCC stores the *designated requirement* the app
+            // had when the switch was turned on and re-checks it on every query; the switch itself
+            // is a separate column, so flipping it off and on rewrites nothing. Two distinct causes,
+            // two different cures — and only one of them involves that list at all.
+            if identity.isTranslocated {
+                // Gatekeeper is running a throwaway copy from a randomised read-only path. Nothing
+                // granted to it can outlive the launch, and "Quit & Reopen" only makes another one.
+                return RecoveryCopy(
+                    headline: "macOS is running VoicePlus from a temporary copy, so nothing you switch on in \(settingsListName) can reach it.",
+                    detail: "Quit VoicePlus, drag it to your Applications folder, run “\(identity.dequarantineCommand)” in Terminal once, and open it from there. Then turn it on in \(settingsListName).",
+                    showsDequarantineCommand: true
+                )
+            }
+            let durability = identity.isStable
+                ? "This build's signing identity no longer changes between updates, so you only have to do this once."
+                : "This build is signed ad-hoc, so its identity changes with every update and you will have to repeat this after each one."
             return RecoveryCopy(
-                headline: "Still off. macOS is probably remembering an older copy of VoicePlus.",
-                detail: "In \(settingsListName), select VoicePlus, remove it with the “–” button, then add it again with “+”. This build is signed ad-hoc, so each update looks like a new app to macOS.",
-                showsResetCommand: true
+                headline: "macOS shows VoicePlus switched on in \(settingsListName), but that switch belongs to an older build of VoicePlus.",
+                detail: "Turning it off and on again will not fix it. In \(settingsListName): select VoicePlus, press “–”, then press “+”, pick VoicePlus in your Applications folder, and switch it on. \(durability)",
+                showsResetCommand: true,
+                relaunchTitle: "Quit & Reopen"
             )
         }
         switch status {

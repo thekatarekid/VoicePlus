@@ -60,6 +60,11 @@ public struct OnboardingView: View {
     /// dead-end the way "Allow" alone did — and, since 1.6.3, the copy is per-service: a promptable
     /// service is never told to add itself to a pane that has no "+" button, and is always given a
     /// button that re-invokes the real system request.
+    ///
+    /// Since 1.6.4 the escalated copy is also per-*identity*. "That switch belongs to an older build"
+    /// is a claim about the signature, so it is derived from `AppCodeIdentity` and shown next to the
+    /// requirement it rests on, and the button order follows it: once a re-check has come back off
+    /// for a non-promptable service, re-checking cannot succeed and stops being the default action.
     @ViewBuilder private func needsSettings(_ p: OnboardingPermission, attempts: Int) -> some View {
         let copy = p.recoveryCopy(status: model.machine.statuses[p] ?? .notDetermined, attempts: attempts)
         VStack(alignment: .leading, spacing: 10) {
@@ -69,9 +74,17 @@ public struct OnboardingView: View {
                 Text(detail).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if copy.showsResetCommand {
+            if copy.showsResetCommand || copy.showsDequarantineCommand {
                 HStack(spacing: 8) {
-                    Button("Copy reset command") { model.copyResetCommand(for: p) }
+                    if copy.showsResetCommand {
+                        Button("Copy reset command") { model.copyResetCommand(for: p) }
+                    }
+                    if copy.showsDequarantineCommand {
+                        Button("Copy the xattr command") { model.copyDequarantineCommand() }
+                    }
+                    // The identity the claim above rests on: bundle id, cdhash, and the requirement
+                    // TCC actually evaluates. On screen so "that switch belongs to an older build"
+                    // is checkable rather than something the app just asserts.
                     Text(PermissionDiagnostics.summary()).font(.caption2.monospaced()).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
@@ -87,7 +100,15 @@ public struct OnboardingView: View {
                     Button("Re-check") { model.send(.verify(p)) }
                 } else {
                     Button("Open System Settings") { model.openSettings(for: p) }.buttonStyle(.borderedProminent)
-                    Button("Re-check") { model.send(.verify(p)) }.keyboardShortcut(.defaultAction)
+                    // Re-check keeps Return only while it can still plausibly succeed. Once a
+                    // re-check has come back off, the answer is a stored-requirement mismatch that
+                    // re-asking cannot change, and a default-action button on it is a third promise
+                    // the app cannot keep (after the empty dot and the unchanged status).
+                    Button("Re-check") { model.send(.verify(p)) }
+                        .keyboardShortcut(attempts == 0 ? .defaultAction : nil)
+                    if let relaunch = copy.relaunchTitle {
+                        Button(relaunch) { model.relaunchApp() }
+                    }
                 }
             }
         }

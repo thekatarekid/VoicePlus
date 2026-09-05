@@ -107,8 +107,73 @@ public enum PermissionDiagnostics {
         return data.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// The app's *designated requirement*, the string TCC actually stores when a switch is turned on
+    /// and re-evaluates on every later query — `codesign -d -r-` prints the same thing.
+    ///
+    /// This is the single most diagnostic fact about a stuck permission. `cdhash H"…"` means the
+    /// requirement names one exact binary, so the row the user toggled belongs to whichever build was
+    /// installed when they toggled it and can never match again. Anything else (an `identifier`
+    /// clause, a `certificate leaf`) is a property of the identity rather than of the bytes, so the
+    /// grant survives every rebuild.
+    public static func designatedRequirement() -> String? {
+        var codeRef: SecCode?
+        guard SecCodeCopySelf(SecCSFlags(), &codeRef) == errSecSuccess, let codeRef else { return nil }
+        var staticRef: SecStaticCode?
+        guard SecCodeCopyStaticCode(codeRef, SecCSFlags(), &staticRef) == errSecSuccess, let staticRef else { return nil }
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(staticRef, SecCSFlags(), &requirement) == errSecSuccess,
+              let requirement else { return nil }
+        var text: CFString?
+        guard SecRequirementCopyString(requirement, SecCSFlags(), &text) == errSecSuccess,
+              let text else { return nil }
+        return text as String
+    }
+
+    /// Live identity of the running build, for the recovery copy and the relaunch decision.
+    public static func identity() -> AppCodeIdentity {
+        AppCodeIdentity(designatedRequirement: designatedRequirement(),
+                        bundlePath: Bundle.main.bundleURL.path)
+    }
+
     public static func summary() -> String {
-        "\(bundleIdentifier) cdhash=\(codeHash() ?? "unavailable")"
+        "\(bundleIdentifier) cdhash=\(codeHash() ?? "unavailable") dr=\(designatedRequirement() ?? "unavailable")"
+    }
+
+    /// One block naming every fact that decides whether a granted switch is honoured, printed to
+    /// stdout *and* written to the unified log so it can be read back with
+    /// `log show --predicate 'subsystem == "in.adityakatare.voiceplus"'` from a real launch.
+    ///
+    /// The point is to state the API answers outright. Before this, the only evidence that
+    /// `CGPreflightListenEventAccess()` had returned false was an *inference* from an onboarding
+    /// phase label; a report that says so in words is what a stuck user can paste.
+    public static func report() -> [String] {
+        let identity = identity()
+        var lines = [
+            "permission report: bundle=\(bundleIdentifier)",
+            "permission report: path=\(identity.bundlePath)",
+            "permission report: cdhash=\(codeHash() ?? "unavailable")",
+            "permission report: designatedRequirement=\(identity.designatedRequirement ?? "unavailable")",
+            "permission report: identityStable=\(identity.isStable) translocated=\(identity.isTranslocated)",
+            "permission report: AXIsProcessTrusted()=\(AXIsProcessTrusted())",
+            "permission report: CGPreflightListenEventAccess()=\(CGPreflightListenEventAccess())",
+            "permission report: AVCaptureDevice.authorizationStatus(.audio)=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)",
+        ]
+        let checker = SystemPermissionChecker()
+        for p in Permission.allCases {
+            lines.append("permission report: \(p.rawValue)=\(checker.status(of: p).rawValue)")
+        }
+        return lines
+    }
+
+    /// Emits `report()` to both sinks. Returns the lines so a caller can assert on them.
+    @discardableResult
+    public static func emitReport() -> [String] {
+        let lines = report()
+        for line in lines {
+            print(line)
+            Log.app.info("\(line)")
+        }
+        return lines
     }
 
     /// Headless self-test: `VoicePlus --request-permission microphone`.

@@ -132,3 +132,63 @@ public enum PermissionPlanner {
         order.filter { matrix[$0] != .granted }
     }
 }
+
+// MARK: - Code identity (why a granted switch can still read "off")
+
+/// The two facts about the running build that decide what the permission-recovery screen may
+/// honestly say. Kept as a plain value type — no Security framework here — so the copy and the
+/// relaunch decision are unit-testable without a signed bundle. `PermissionDiagnostics.identity()`
+/// builds the live one.
+///
+/// TCC does not store "VoicePlus may listen to key events". It stores the app's **designated
+/// requirement** (`codesign -d -r-`) at the moment the switch is turned on, and re-evaluates that
+/// requirement on every later query. An ad-hoc signature with no explicit requirement degrades to
+/// `cdhash H"<this exact binary>"`, so the next build fails the stored requirement and tccd answers
+/// "not granted" — while System Settings keeps showing the switch as on, because the switch is a
+/// different column (`auth_value`) from the requirement (`csreq`). Flipping it rewrites neither.
+public struct AppCodeIdentity: Equatable, Sendable {
+    /// The designated requirement, exactly as `codesign -d -r-` prints it after `designated => `.
+    /// nil when it cannot be read (unsigned, or the Security call failed).
+    public var designatedRequirement: String?
+    /// Absolute path of the running bundle.
+    public var bundlePath: String
+
+    public init(designatedRequirement: String?, bundlePath: String) {
+        self.designatedRequirement = designatedRequirement
+        self.bundlePath = bundlePath
+    }
+
+    /// True when the requirement names this exact binary, so every rebuild is a different app to
+    /// TCC and no grant can survive an update. Unknown counts as pinned: never promise stability we
+    /// cannot see.
+    public var pinsThisBuild: Bool {
+        guard let requirement = designatedRequirement?.lowercased() else { return true }
+        return requirement.contains("cdhash")
+    }
+
+    /// The requirement is a property of the *identity* (bundle id, and a certificate leaf when one
+    /// exists), not of the bytes — so a grant made once keeps matching after every rebuild.
+    public var isStable: Bool { !pinsThisBuild }
+
+    /// Gatekeeper runs a quarantined, un-notarized app from a randomised read-only path. Grants made
+    /// against that path evaporate, and relaunching only produces another translocated copy.
+    public var isTranslocated: Bool { bundlePath.contains("/AppTranslocation/") }
+
+    /// What "Quit & Reopen" may actually do.
+    public enum RelaunchOutcome: Equatable, Sendable {
+        /// Open a fresh instance of this bundle, then terminate this one.
+        case relaunch(bundlePath: String)
+        /// Refuse: a translocated copy can only relaunch into another translocated copy. The user
+        /// has to move the app out of the dmg/Downloads and clear quarantine first.
+        case translocated
+    }
+
+    public var relaunchOutcome: RelaunchOutcome {
+        isTranslocated ? .translocated : .relaunch(bundlePath: bundlePath)
+    }
+
+    /// The Terminal one-liner that ends translocation for good. Shown, never run by the app.
+    public var dequarantineCommand: String {
+        "xattr -dr com.apple.quarantine /Applications/VoicePlus.app"
+    }
+}

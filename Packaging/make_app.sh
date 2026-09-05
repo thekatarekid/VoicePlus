@@ -1,7 +1,8 @@
 #!/bin/bash
 # Assemble Packaging/build/VoicePlus.app from a SwiftPM release build.
 # Usage: Packaging/make_app.sh <version> [build-number]
-# Env:   SCRATCH_PATH (default .build-release), SKIP_BUILD=1 to reuse an existing build.
+# Env:   SCRATCH_PATH (default .build-release), SKIP_BUILD=1 to reuse an existing build,
+#        OUT_DIR (default Packaging/build), CODESIGN_IDENTITY / CODESIGN_CERT_NAME (see step 6).
 set -euo pipefail
 
 VERSION="${1:?usage: make_app.sh <version> [build-number]}"
@@ -10,7 +11,7 @@ BUILD_NUMBER="${2:-$(date -u +%Y%m%d%H%M)}"
 PKG_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$PKG_DIR/.." && pwd)"
 SCRATCH="${SCRATCH_PATH:-$ROOT/.build-release}"
-OUT="$PKG_DIR/build"
+OUT="${OUT_DIR:-$PKG_DIR/build}"
 APP="$OUT/VoicePlus.app"
 CONTENTS="$APP/Contents"
 BIN_NAME="VoicePlus"
@@ -200,15 +201,46 @@ done < <(find "$APP" -type l)
 log "self-containment audit OK (no /Users, /Library/Developer or scratch-dir references)"
 
 # --- 6. Codesign -------------------------------------------------------------
-# DEVIATION: no Developer ID identity on this machine -> ad-hoc signature ("-")
-# and no notarization. We still enable the hardened runtime, sign nested code
-# inside-out (never `--deep`, which Apple deprecated and which mis-applies the
-# app's entitlements to nested binaries), and pin --identifier so the bundle ID
-# recorded in the signature always matches CFBundleIdentifier. TCC keys its
-# records off that identifier plus the cdhash; see Packaging/SIGNING.md for why
-# an ad-hoc cdhash still changes on every build and what users must do about it.
-IDENTITY="${CODESIGN_IDENTITY:--}"
+# DEVIATION: no Developer ID identity on this machine -> no notarization. We
+# still enable the hardened runtime, sign nested code inside-out (never `--deep`,
+# which Apple deprecated and which mis-applies the app's entitlements to nested
+# binaries), and pin --identifier so the bundle ID recorded in the signature
+# always matches CFBundleIdentifier.
+#
+# WHAT TCC ACTUALLY STORES (this is the 1.6.3 "the switch is on but the app says
+# it is off" bug): not "VoicePlus may listen to key events", but the app's
+# *designated requirement* at the moment the switch was flipped, re-evaluated on
+# every later query. A bare ad-hoc signature's requirement is
+# `cdhash H"<this exact binary>"`, which changes on every build, so the stored
+# row stops matching and tccd answers "not granted" while System Settings keeps
+# showing the switch as on (different column). See Packaging/SIGNING.md §4.
+#
+# Two ways out, in order of preference:
+#   1. a real code-signing certificate (self-signed is enough — no Apple
+#      Developer Program needed; run Packaging/make_signing_cert.sh). codesign
+#      then produces `identifier "…" and certificate leaf H"…"` by itself.
+#   2. ad-hoc + an EXPLICIT designated requirement of `identifier "…"`. Also
+#      build-independent, needs no keychain, no trust store and no admin
+#      password — so it is the default here rather than a degraded fallback.
 SIGN_ID="in.adityakatare.voiceplus"
+CERT_NAME="${CODESIGN_CERT_NAME:-VoicePlus Local Signing}"
+IDENTITY="${CODESIGN_IDENTITY:-}"
+if [ -z "$IDENTITY" ] && security find-identity -v -p codesigning 2>/dev/null | grep -qF "\"$CERT_NAME\""; then
+  IDENTITY="$CERT_NAME"
+  log "found a valid code-signing identity in the keychain: $CERT_NAME"
+fi
+DR_ARGS=()
+if [ -n "$IDENTITY" ]; then
+  # codesign derives `identifier … and certificate leaf …` on its own; do not
+  # override it with something weaker.
+  log "codesign identity: $IDENTITY (certificate leaf -> TCC grants survive rebuilds)"
+else
+  IDENTITY="-"
+  DR_ARGS=(-r "=designated => identifier \"$SIGN_ID\"")
+  log "codesign identity: ad-hoc (no \"$CERT_NAME\" in the keychain)"
+  log "  pinning an explicit designated requirement: identifier \"$SIGN_ID\""
+  log "  run Packaging/make_signing_cert.sh for the stronger certificate-backed identity"
+fi
 # AMFI's XML parser is stricter than plutil: a "--" inside an XML comment makes it
 # reject the whole entitlements file ("AMFIUnserializeXML: syntax error"), which
 # would ship an app with NO entitlements at all. Catch it here.
@@ -246,16 +278,38 @@ done < <(find "$APP/Contents/Frameworks" "$APP/Contents/Resources" \
               \( -name '*.dylib' -o -name '*.framework' -o -name '*.bundle' -o -name '*.app' \) \
               -depth 2>/dev/null || true)
 
-# 6b. Outer app last, with entitlements.
-codesign "${SIGN_OPTS[@]}" --identifier "$SIGN_ID" \
+# 6b. Outer app last, with entitlements and (ad-hoc only) the explicit designated
+# requirement. Only the outer bundle's requirement matters to TCC; nested code
+# keeps codesign's default.
+codesign "${SIGN_OPTS[@]}" --identifier "$SIGN_ID" "${DR_ARGS[@]+"${DR_ARGS[@]}"}" \
   --entitlements "$PKG_DIR/VoicePlus.entitlements" "$APP"
 
 codesign -vv --strict --deep "$APP"
 log "signature:"
 codesign -dvvv "$APP" 2>&1 | grep -E 'Identifier|CodeDirectory|flags|CDHash|TeamIdentifier|Signature' | sed 's/^/  /'
-log "spctl (expected to be rejected for ad-hoc signatures):"
+
+# 6c. TCC durability gate. This is the check that would have caught the 1.6.3
+# report at build time instead of on a user's Mac: if the designated requirement
+# still names one exact binary, every grant this build receives dies with it.
+DR="$(codesign -d -r- "$APP" 2>/dev/null | sed -n 's/^designated => //p')"
+log "designated requirement: ${DR:-<unreadable>}"
+case "$DR" in
+  "")
+    echo "ERROR: no designated requirement could be read back from $APP" >&2; exit 1 ;;
+  *cdhash*|*CDHash*)
+    log "WARNING: the designated requirement pins this build's cdhash."
+    log "         Every TCC grant a user gives this build dies on the next one."
+    log "         See Packaging/SIGNING.md §4." ;;
+  *)
+    log "designated requirement is build-independent: TCC grants survive rebuilds." ;;
+esac
+# Belt and braces: the app must satisfy the requirement it advertises.
+codesign --verify -vv -R="$DR" "$APP" 2>&1 | sed 's/^/  /' || true
+
+log "spctl (expected to be rejected without a Developer ID + notarization):"
 spctl --assess --type execute -vv "$APP" 2>&1 | sed 's/^/  /' || true
 
 log "built $APP ($(du -sh "$APP" | cut -f1)) version $VERSION build $BUILD_NUMBER"
-log "TCC note: an ad-hoc cdhash changes on every build. If a permission prompt"
-log "          never appears, see Packaging/SIGNING.md / Packaging/reset_tcc.sh."
+log "TCC note: existing rows created by an older build store that build's cdhash"
+log "          and can never match again — see Packaging/SIGNING.md §3 step 3 or"
+log "          Packaging/reset_tcc.sh. Grants made from this build onwards stick."

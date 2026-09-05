@@ -528,12 +528,16 @@ struct PromptablePermissionTests {
         #expect(!denied.headline.contains("only asks once"))
     }
 
+    /// The identity is pinned so the assertion is about the copy, not about however the test binary
+    /// happens to be signed. The escalated wording itself is covered in OnboardingCodeIdentityTests.
     @Test func nonPromptableCopyKeepsTheSettingsFirstInstructions() {
+        let installed = AppCodeIdentity(designatedRequirement: #"cdhash H"ab""#,
+                                        bundlePath: "/Applications/VoicePlus.app")
         for p in OnboardingPermission.allCases where !p.isPromptable {
-            let first = p.recoveryCopy(status: .awaitingUserAction, attempts: 0)
+            let first = p.recoveryCopy(status: .awaitingUserAction, attempts: 0, identity: installed)
             #expect(first.headline.contains(p.settingsListName))
             #expect(first.retryTitle == nil, "no API can prompt for \(p.rawValue)")
-            let escalated = p.recoveryCopy(status: .awaitingUserAction, attempts: 2)
+            let escalated = p.recoveryCopy(status: .awaitingUserAction, attempts: 2, identity: installed)
             #expect(escalated.detail?.contains("“+”") == true, "these panes really do have +/–")
             #expect(escalated.showsResetCommand)
         }
