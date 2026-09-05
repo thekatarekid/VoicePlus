@@ -116,7 +116,11 @@ struct MicCheckPipelineTests {
     /// The fixture-driven guarantee the mic check rests on: a started pipeline pushes real blocks
     /// all the way to the meter's own publisher, not just to `PipelineAudioSource`.
     @Test func startedPipelineDeliversBlocksToTheLevelPublisher() async throws {
-        let (audio, source) = bridge(WAVFile(sampleRate: 16_000, samples: []))
+        // The watchdog window has to outlast this test's own setup wait, or the two race: opening
+        // capture is allowed 4 s below, so a 2 s default lets `.failed` fire before the tone is
+        // pushed and the "no failure while audio was arriving" assertion fails for the wrong reason.
+        // This test is about blocks reaching the publisher; the watchdog has its own test.
+        let (audio, source) = bridge(WAVFile(sampleRate: 16_000, samples: []), noAudioTimeout: 30)
         let publisher = PipelineMicLevelPublisher(audio: audio)
         let signals = Box<[MicCheckSignal]>([])
         let cancellable = publisher.signalPublisher.sink { s in signals.mutate { $0.append(s) } }
@@ -147,7 +151,11 @@ struct MicCheckPipelineTests {
         defer { cancellable.cancel() }
 
         publisher.startMonitoring()
-        try await waitUntil(timeoutMs: 4000) {
+        // `startMonitoring` opens capture from a detached task that then blocks on a semaphore
+        // waiting for a second detached task (`PipelineAudioSource.start`). Both need a thread from
+        // the same cooperative pool, so under a saturated whole-suite run the watchdog can take far
+        // longer than the 0.2 s window to arm. The assertion is that it fires, not how fast.
+        try await waitUntil(timeoutMs: 20_000) {
             signals.value.contains { if case .failed = $0 { return true }; return false }
         }
         publisher.stopMonitoring()
