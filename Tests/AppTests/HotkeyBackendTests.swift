@@ -267,7 +267,10 @@ struct HotkeyBackendLifecycleTests {
         service.installer = stub.installer
         #expect(service.start())
         d.set(HotkeyBinding.Kind.fn.rawValue, forKey: HotkeyService.bindingDefaultsKey)
-        #expect(service.reloadBindingFromDefaults())
+        // `start()` also installs the `UserDefaults.didChangeNotification` observer, so on a machine
+        // where that notification has already been delivered the change is applied before this line.
+        // Assert the effect, not the race.
+        service.reloadBindingFromDefaults()
         #expect(service.binding.kind == .fn)
         #expect(!service.reloadBindingFromDefaults(), "a second read with nothing new is a no-op")
     }
