@@ -175,6 +175,9 @@ public final class PresenceIndicatorController {
         // while the pointer is provably on it.
         panel.ignoresMouseEvents = PresenceInteraction.ignoresMouse(hovering: hovering)
         panel.setFrame(layout.frame, display: true)
+        // Belt and braces on top of `PresenceContainerView.layout()`: the chin is 4 pt tall at rest
+        // and an off-by-one hosting frame is the difference between a hairline and nothing at all.
+        hosting.frame = container.bounds
         // `orderFrontRegardless`, never `makeKeyAndOrderFront` and never `NSApp.activate`: the
         // indicator must never take focus from whatever the user is typing into.
         panel.orderFrontRegardless()
