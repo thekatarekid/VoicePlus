@@ -175,14 +175,21 @@ struct ChaosTests {
         #expect(await manager.isPresent(.parakeetTDTCTC110m))
         #expect(fetcher.calls == 2)
         #expect(progress.last == 1)
+        // P3: progress now carries bytes and the model's real name, not a bare fraction — that is
+        // what lets the screen say "412 MB of 900 MB" instead of an unanchored percentage.
+        let last = try #require(sink.reports.last)
+        #expect(last.modelName == "Parakeet TDT-CTC 110M (tiny)")
+        #expect(last.bytesExpected == 110_000_000)
+        #expect(last.bytesReceived == last.bytesExpected)
         try? FileManager.default.removeItem(at: root)
     }
 
     final class ProgressBox: @unchecked Sendable {
         private let lock = NSLock()
-        private var items: [Double] = []
-        func append(_ v: Double) { lock.withLock { items.append(v) } }
-        var values: [Double] { lock.withLock { items } }
+        private var items: [ModelDownloadProgress] = []
+        func append(_ v: ModelDownloadProgress) { lock.withLock { items.append(v) } }
+        var reports: [ModelDownloadProgress] { lock.withLock { items } }
+        var values: [Double] { reports.map(\.fraction) }
     }
 
     // MARK: 10k-word session through the pipeline

@@ -6,6 +6,13 @@ import Shared
 /// choice can change between utterances as background downloads land.
 public protocol RecognizerProvider: Sendable {
     func resolve() async throws -> (final: FinalRecognizer, preview: PreviewRecognizer?)
+    /// Changes whenever a *different* set of models is on disk, so a cached resolve can be spotted
+    /// as stale. Providers with a fixed answer keep the default and are never re-resolved.
+    func revision() async -> Int
+}
+
+public extension RecognizerProvider {
+    func revision() async -> Int { 0 }
 }
 
 public struct StaticRecognizerProvider: RecognizerProvider {
@@ -21,6 +28,18 @@ public struct ModelManagerRecognizerProvider: RecognizerProvider {
     public func resolve() async throws -> (final: FinalRecognizer, preview: PreviewRecognizer?) {
         let final = try await RecognizerFactory.makeFinal(manager: manager)
         return (final, await RecognizerFactory.makePreview(manager: manager, final: final))
+    }
+
+    /// A bitmask of which models are on disk. A download that lands mid-session flips a bit, which
+    /// is what tells `RealEngine` to throw away a recognizer it resolved before the download —
+    /// otherwise the Apple Speech fallback that was chosen at first launch stays in place until the
+    /// app is relaunched, and the 1.2 GB the user just waited for does nothing.
+    public func revision() async -> Int {
+        var mask = 0
+        for (bit, id) in ModelID.allCases.enumerated() where await manager.isPresent(id) {
+            mask |= 1 << bit
+        }
+        return mask
     }
 }
 
@@ -72,12 +91,20 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     private let buffer = UtteranceBuffer()
     private let lock = NSLock()
     private var recognizers: (final: FinalRecognizer, preview: PreviewRecognizer?)?
+    /// `provider.revision()` at the time `recognizers` was resolved; a change means a better model
+    /// landed on disk since and the cache has to go.
+    private var recognizerRevision = 0
     private var listening = false
     private var lastLevelEmit = Date.distantPast
     private let levelSubject = PassthroughSubject<Float, Never>()
     /// Seconds per preview block handed to the preview recognizer.
     public var previewBlock: TimeInterval = 0.16
+    /// Shortest utterance the final pass is given. Matches FluidAudio's own floor
+    /// (`ASRConstants.minimumRequiredSamples` = 4800 samples = 300 ms of 16 kHz audio); below it the
+    /// decoder can only throw, so `stop()` returns no spans instead of surfacing that throw.
+    public var minimumUtteranceSeconds: TimeInterval = 0.3
     private var previewPending: [Float] = []
+    static let sampleRate: Double = 16_000
 
     public init(audio: AudioSource, provider: RecognizerProvider) {
         self.audio = audio
@@ -100,14 +127,19 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     }
 
     public func prewarm() async throws {
-        let have = lock.withLock { recognizers != nil }
+        // Re-resolving on a revision change is what makes "pick a model, wait, dictate" work without
+        // a relaunch. Before this the pair resolved on the very first utterance was kept for the
+        // whole process, so a model that finished downloading afterwards was never used — flatly
+        // contradicting this file's own header, which promises the choice can change per utterance.
+        let revision = await provider.revision()
+        let have = lock.withLock { recognizers != nil && recognizerRevision == revision }
         if !have {
             setState(.prewarming)
             do {
                 let r = try await provider.resolve()
-                lock.withLock { recognizers = r }
+                lock.withLock { recognizers = r; recognizerRevision = revision }
             } catch {
-                setState(.error("\(error)")); throw error
+                setState(.error(EngineMessage.describe(error))); throw error
             }
         }
         try audio.prewarm()
@@ -179,17 +211,32 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         setState(.finalizing)
         await buffer.drain()
         let samples = await buffer.samples
-        guard let final = recs?.final else { setState(.error("no recognizer")); throw EngineError.modelUnavailable("final") }
+        guard let final = recs?.final else {
+            setState(.error(EngineError.modelUnavailable("final").readable))
+            throw EngineError.modelUnavailable("final")
+        }
+        // Too little audio to transcribe is a normal human thing to do (a stray tap of the key, a
+        // start/stop that raced the HAL) — not an error worth a red pill. FluidAudio throws
+        // `ASRError.invalidAudioData` below 300 ms, and until 1.6.6 that reached the user as the raw
+        // token "invalidAudioData". Never call the recognizer where the answer is already known.
+        let seconds = Double(samples.count) / Self.sampleRate
+        if seconds < minimumUtteranceSeconds {
+            Log.engine.notice("final pass skipped: \(String(format: "%.2f", seconds)) s captured, minimum is \(String(format: "%.2f", self.minimumUtteranceSeconds)) s")
+            broadcaster.send(.final([]))
+            setState(.landed)
+            setState(.idle)
+            return []
+        }
         do {
             let t0 = Date()
             let spans = try await final.recognize(samples)
-            Log.engine.info("final pass \(final.name): \(spans.count) spans, \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms for \(String(format: "%.1f", Double(samples.count) / 16_000)) s audio")
+            Log.engine.info("final pass \(final.name): \(spans.count) spans, \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms for \(String(format: "%.1f", seconds)) s audio")
             broadcaster.send(.final(spans))
             setState(.landed)
             setState(.idle)
             return spans
         } catch {
-            setState(.error("\(error)"))
+            setState(.error(EngineMessage.describe(error)))
             throw error
         }
     }
@@ -203,6 +250,24 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
 }
 
 extension RealEngine: AudioLevelPublishing {}
+
+/// Engines that can say how much audio the current utterance holds.
+///
+/// A caller that is about to finalise (the onboarding dictation test, a hands-free endpointer) can
+/// then refuse a doomed final pass and say "I didn't hear anything" in its own words, instead of
+/// letting a decoder-specific error escape into the UI.
+public protocol CapturedAudioReporting: AnyObject {
+    /// Seconds of audio captured so far in the current utterance.
+    var capturedSeconds: Double { get async }
+    /// Below this, `stop()` will not run the final pass at all.
+    var minimumUtteranceSeconds: TimeInterval { get }
+}
+
+extension RealEngine: CapturedAudioReporting {
+    public var capturedSeconds: Double {
+        get async { Double(await buffer.samples.count) / Self.sampleRate }
+    }
+}
 
 extension RealEngine {
     /// Test/diagnostic hook: samples captured so far in the current utterance.

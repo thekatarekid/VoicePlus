@@ -167,13 +167,39 @@ public final class EngineMicLevelPublisher: MicLevelPublishing {
     }
 }
 
+/// The real models behind each friendly tier name, read from `ModelCatalog` so the picker can never
+/// drift from what is actually downloaded.
+///
+/// P4: the picker used to show "Fast / Balanced / Best" and a hardcoded size, and all three sizes
+/// were wrong — "Best" advertised "~1.2 GB" for what is really two models totalling 900 MB. The
+/// names were nowhere on screen at all, so there was no way to tell what the 1.2 GB was.
+public extension ModelTier {
+    var models: [ModelID] { ModelManagerTiers.models(for: self) }
+    var descriptors: [ModelDescriptor] { models.map(ModelCatalog.descriptor) }
+    /// Catalog display names, e.g. ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)"].
+    var modelNames: [String] { descriptors.map(\.displayName) }
+    /// What the picker prints next to the friendly word: the real model names, joined.
+    var modelNameLine: String { modelNames.joined(separator: " + ") }
+    var approximateBytes: Int64 { descriptors.reduce(0) { $0 + $1.approxBytes } }
+    var sizeLabel: String { ByteText.short(approximateBytes) }
+}
+
 /// Plain-language tiers → `ModelID`s on disk. Downloads go through `ModelManager`
 /// (HF resume + SHA256); the chosen tier is persisted in settings.
 public final class ModelManagerTiers: ModelManaging {
     public static let tierKey = "models.selectedTier"
+    /// The name `EngineFactory` logs for the silent fallback, so the onboarding screen and the log
+    /// call the same thing by the same name.
+    public static let appleSpeechName = "Apple Speech (on-device)"
     private let manager: ModelManager
     private let settings: SettingsStore
     private var presence: [ModelTier: Bool] = [:]
+    /// Per-model presence, so `readiness` can name the model that will actually stand in for a tier
+    /// that is not on disk yet — a tier-level bool cannot answer that.
+    private var modelPresence: [ModelID: Bool] = [:]
+    /// Injected so the "nothing can transcribe" branch is reachable in a test on a Mac where Apple
+    /// Speech happens to be available.
+    public var appleSpeechAvailable: () -> Bool = { AppleSpeechRecognizer.isAvailable() }
 
     public init(manager: ModelManager, settings: SettingsStore) {
         self.manager = manager
@@ -190,29 +216,48 @@ public final class ModelManagerTiers: ModelManaging {
     }
 
     public func refresh() async {
-        var p: [ModelTier: Bool] = [:]
+        var models: [ModelID: Bool] = [:]
+        for id in ModelID.allCases { models[id] = await manager.isPresent(id) }
+        var byTier: [ModelTier: Bool] = [:]
         for tier in ModelTier.allCases {
-            var all = true
-            for id in Self.models(for: tier) where await !manager.isPresent(id) { all = false }
-            p[tier] = all
+            byTier[tier] = Self.models(for: tier).allSatisfy { models[$0] == true }
         }
-        await MainActor.run { presence = p }
+        let (tiers, perModel) = (byTier, models)
+        await MainActor.run { presence = tiers; modelPresence = perModel }
     }
 
     public func isInstalled(_ tier: ModelTier) -> Bool { presence[tier] ?? false }
 
     /// Model downloads are the one egress path outside the provider table: they honour the
     /// Data Panel kill switch and are logged to `network_log` like any other request (T3/T5).
-    public func download(_ tier: ModelTier, progress: @escaping @Sendable (Double) -> Void) async throws {
-        let ids = Self.models(for: tier)
-        for (i, id) in ids.enumerated() {
-            if await manager.isPresent(id) { continue }
-            let d = ModelCatalog.descriptor(id)
-            let host = "huggingface.co"
+    ///
+    /// Progress is byte-weighted across the models that are actually missing, so a tier whose big
+    /// model is already on disk does not spend half the bar on a file it never fetches. The
+    /// denominator is the catalog's advertised size, which is what the picker promised and which —
+    /// unlike a per-response `Content-Length` — does not move while the bar is on screen.
+    public func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
+        var pending: [ModelDescriptor] = []
+        for id in Self.models(for: tier) where await !manager.isPresent(id) {
+            pending.append(ModelCatalog.descriptor(id))
+        }
+        guard !pending.isEmpty else { await refresh(); return }
+        let total = max(pending.reduce(Int64(0)) { $0 + $1.approxBytes }, 1)
+        let count = pending.count
+        var completed: Int64 = 0
+        let host = "huggingface.co"
+        for (index, d) in pending.enumerated() {
             try EgressGate.shared.check(host: host)
-            let base = Double(i) / Double(ids.count)
-            let share = 1.0 / Double(ids.count)
-            _ = try await manager.ensureAvailable(id) { info in progress(base + info.fraction * share) }
+            let done = completed
+            _ = try await manager.ensureAvailable(d.id) { info in
+                let received = done + Int64(min(max(info.fraction, 0), 1) * Double(d.approxBytes))
+                progress(ModelDownloadProgress(fraction: Double(received) / Double(total),
+                                               bytesReceived: received, bytesExpected: total,
+                                               modelName: d.displayName, index: index + 1, count: count))
+            }
+            completed += d.approxBytes
+            progress(ModelDownloadProgress(fraction: Double(completed) / Double(total),
+                                           bytesReceived: completed, bytesExpected: total,
+                                           modelName: d.displayName, index: index + 1, count: count))
             _ = try? EgressGate.shared.log(stage: "model", provider: d.hfRepo, host: host, bytesOut: 0,
                                            bytesIn: Int(d.approxBytes), purpose: "model download \(d.displayName)")
         }
@@ -223,5 +268,17 @@ public final class ModelManagerTiers: ModelManaging {
 
     public var selectedTier: ModelTier {
         settings.string(Self.tierKey).flatMap(ModelTier.init(rawValue:)) ?? .recommended
+    }
+
+    /// Mirrors `RecognizerFactory.chooseFinal` — full TDT v3, else the tiny one, else Apple Speech —
+    /// so the screen names the recogniser the engine will really pick rather than guessing.
+    public func readiness(for tier: ModelTier) -> RecognizerReadiness {
+        if isInstalled(tier) { return .ready(name: tier.modelNames.first ?? tier.title) }
+        let awaiting = tier.descriptors.filter { modelPresence[$0.id] != true }.map(\.displayName).first
+        for id in [ModelID.parakeetTDTv3, .parakeetTDTCTC110m] where modelPresence[id] == true {
+            return .fallback(name: ModelCatalog.descriptor(id).displayName, awaiting: awaiting)
+        }
+        if appleSpeechAvailable() { return .fallback(name: Self.appleSpeechName, awaiting: awaiting) }
+        return .unavailable(reason: "No speech model has finished downloading yet, and macOS' own on-device recogniser isn't available on this Mac. There is nothing to transcribe with until the download lands.")
     }
 }

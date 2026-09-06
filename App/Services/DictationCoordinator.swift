@@ -123,6 +123,27 @@ public final class DictationCoordinator {
         Task { await engine.cancel() }
     }
 
+    /// Lands one utterance that was produced outside the hotkey path — today only the onboarding
+    /// dictation test — through the *same* pipeline → injection → history route, and reports whether
+    /// the text was really typed.
+    ///
+    /// Onboarding needs this to tell "It landed" from "Heard you". Until 1.6.6 its dictation button
+    /// bypassed `UtteranceLander` entirely, so no `Injector` ever ran and "It landed. You're set."
+    /// could not have been true on any machine, with any audio. `LandingResult.landed` is
+    /// `injection?.succeeded ?? false` — the signal was there, nothing read it.
+    ///
+    /// Never writes to the pasteboard: a test the user ran to see whether dictation works should not
+    /// silently replace what they had copied.
+    public func guidedLanding(_ spans: [TranscriptSpan], startedAt: Date = Date()) async -> GuidedLanding {
+        let heard = spans.joinedText
+        guard let lander else { return GuidedLanding(text: heard, injected: false) }
+        let focus = focusSnapshot?()
+        let result = await lander.land(spans, startedAt: startedAt, focus: focus)
+        let app = await MainActor.run { NSWorkspace.shared.frontmostApplication?.localizedName }
+        return GuidedLanding(text: result.text.isEmpty ? heard : result.text,
+                             injected: result.landed, appName: app)
+    }
+
     private func land(_ spans: [TranscriptSpan]) {
         let text = spans.joinedText
         guard !text.isEmpty else { return }

@@ -249,22 +249,28 @@ public struct OnboardingView: View {
         .font(.caption)
     }
 
+    /// Names the real models, not just the friendly word. The 1.6.6 picker showed "Best · 1200 MB"
+    /// and nothing else — the user could not tell what was being downloaded, and the number was
+    /// wrong anyway (two models, 900 MB). Both now come from `ModelCatalog`.
     private var modelChoice: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Pick a free local model.").font(.title.bold())
-            Text("It downloads in the background; the tiny built-in model works right now.").font(.callout).foregroundStyle(.secondary)
+            Text("It downloads in the background. Until it lands, VoicePlus uses whatever is already on this Mac — the next screen says which.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             ForEach(ModelTier.allCases) { tier in
                 Button {
                     model.send(.choose(tier))
                 } label: {
-                    HStack {
+                    HStack(alignment: .top) {
                         Image(systemName: model.machine.chosenTier == tier ? "largecircle.fill.circle" : "circle")
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 1) {
                             HStack {
                                 Text(tier.title).bold()
-                                Text("· \(tier.sizeMB) MB").foregroundStyle(.secondary)
+                                Text("· \(tier.sizeLabel)").foregroundStyle(.secondary)
                                 if tier == .recommended { Text("Recommended").font(.caption).padding(3).background(.quaternary, in: Capsule()) }
                             }
+                            Text(tier.modelNameLine).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text(tier.tradeoff).font(.callout).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -285,27 +291,70 @@ public struct OnboardingView: View {
 
     @ViewBuilder private var downloadStatus: some View {
         switch model.machine.download {
-        case .notStarted: EmptyView()
-        case .downloading(let p): ProgressView(value: p) { Text("Downloading… \(Int(p * 100))%").font(.caption) }
-        case .installed: Label("Ready.", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
-        case .failed(let why): Label("Download failed (\(why)). Using the built-in model; retry from Settings.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
+        case .notStarted:
+            EmptyView()
+        case .downloading(let progress):
+            // Bytes, percent and a time estimate. A bare percentage was the whole of the old copy,
+            // and it left the user unable to answer "has the 1.2 GB even started?".
+            ProgressView(value: progress.fraction) {
+                Text(model.downloadLine ?? "Downloading… \(progress.percent)%").font(.caption)
+            }
+        case .installed:
+            Label("Ready.", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+        case .failed(let why):
+            Label("Download failed: \(why). Pick a tier again to retry, or carry on — the next screen says what will be used instead.",
+                  systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange).font(.caption).fixedSize(horizontal: false, vertical: true)
         }
     }
 
+    /// The last step. Two presses, and it never claims more than happened.
     private var firstDictation: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Now for real.").font(.title.bold())
-            Text("Click into any text field — Notes, Slack, a browser — then press the button (or hold your hotkey) and say:")
+            Text("Press Dictate now, say the sentence, then press Stop.")
             Text("“The quick brown fox jumps over the lazy dog.”").font(.title3).italic()
-            Button(model.isDictating ? "Listening…" : "Dictate now") { model.runGuidedDictation() }
-                .disabled(model.isDictating)
-                .keyboardShortcut(.defaultAction)
+            let gate = model.dictationGate
+            Label(gate.banner, systemImage: gate.isWarning ? "exclamationmark.triangle" : "cpu")
+                .font(.caption).foregroundStyle(gate.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button(model.isDictating ? "Stop & transcribe" : "Dictate now") { model.toggleGuidedDictation() }
+                    .disabled(!gate.canRun)
+                    .keyboardShortcut(.defaultAction)
+                if model.isDictating { Text("Listening…").font(.caption).foregroundStyle(.secondary) }
+            }
             if !model.dictationPreview.isEmpty {
                 Text(model.dictationPreview).padding(8).frame(maxWidth: .infinity, alignment: .leading)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
             }
-            if model.machine.landedText != nil {
-                Label("It landed. You're set.", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            dictationVerdict
+        }
+    }
+
+    /// Exactly one of these, and only ever the one that matches what happened. The 1.6.6 screen drew
+    /// the green check whenever `landedText != nil` — and failure was reported by storing `""` in
+    /// `landedText`, so the check appeared next to a pill reading "⚠︎ invalidAudioData".
+    @ViewBuilder private var dictationVerdict: some View {
+        switch model.machine.dictation {
+        case nil:
+            EmptyView()
+        case .landed(_, let app)?:
+            Label("It landed in \(app ?? "the app you were in"). You're set.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green).fixedSize(horizontal: false, vertical: true)
+        case .heard(_, let recognizer)?:
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Heard you — that's \(recognizer) working.", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green).fixedSize(horizontal: false, vertical: true)
+                Text("Nothing was typed anywhere: pressing a button in this window puts VoicePlus in front, so there was no other field to type into. Hold your dictation key while another app is in front and the text lands there.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button("Copy the text") { model.copyDictationText() }.font(.caption)
+            }
+        case .noSpeech?, .failed?:
+            VStack(alignment: .leading, spacing: 6) {
+                Label(model.machine.dictationError ?? "That didn't work.", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Button("Try again") { model.send(.retryDictation) }.font(.caption)
             }
         }
     }
@@ -348,7 +397,9 @@ public struct OnboardingView: View {
                 }
             case .micCheck: Button("Continue") { model.send(.next) }.keyboardShortcut(.defaultAction)
             case .modelChoice: Button("Continue") { model.send(.next) }
-            case .firstDictation: Button(model.machine.landedText == nil ? "Continue" : "Finish") { model.send(.next) }
+            // "Finish" once VoicePlus has actually heard something — not merely once an event with
+            // an empty payload arrived, which is what `landedText != nil` used to mean.
+            case .firstDictation: Button(model.machine.heardText == nil ? "Continue" : "Finish") { model.send(.next) }
             case .done: Button("Close") { OnboardingWindowController.close() }.keyboardShortcut(.defaultAction)
             }
         }

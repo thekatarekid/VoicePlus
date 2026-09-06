@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Engine
 import Foundation
 import Shared
 
@@ -9,7 +10,10 @@ public final class OnboardingViewModel: ObservableObject {
     @Published public private(set) var machine: OnboardingStateMachine
     @Published public var micLevel: Float = 0
     @Published public var dictationPreview: String = ""
-    @Published public var isDictating = false
+    /// True while the capture window is open — i.e. between the two presses of the dictation button.
+    @Published public private(set) var isDictating = false
+    /// When the current tier download started, so the progress line can estimate what is left.
+    @Published public private(set) var downloadStartedAt: Date?
     @Published public var contactsOutcome: ContactsImportOffer.Outcome?
     @Published public var showContactsOffer = false
     /// Result of the last "Remove the old entry" press, so the panel can say what happened instead
@@ -23,6 +27,8 @@ public final class OnboardingViewModel: ObservableObject {
     private var micCancellable: AnyCancellable?
     private var downloadTask: Task<Void, Never>?
     private var dictationTask: Task<Void, Never>?
+    private var dictationEvents: Task<Void, Never>?
+    private var dictationWatchdog: Timer?
     private var permissionPollTimer: Timer?
     private var activationObserver: NSObjectProtocol?
     private var micWatchdog: Timer?
@@ -30,6 +36,9 @@ public final class OnboardingViewModel: ObservableObject {
 
     /// How long capture may be up with zero audio before the screen says so rather than blaming volume.
     public static let noAudioGrace: TimeInterval = 2.5
+    /// A guided dictation that is never stopped by hand stops itself here, so a forgotten window
+    /// cannot leave the microphone open behind the onboarding screen.
+    public static let maxDictationSeconds: TimeInterval = 30
     /// Poll cadence while the permissions step is on screen — the only way to notice a grant made in
     /// System Settings, since `kTCCServiceListenEvent` has no notification.
     public static let permissionPollInterval: TimeInterval = 0.5
@@ -53,6 +62,7 @@ public final class OnboardingViewModel: ObservableObject {
         permissionPollTimer?.invalidate()
         micWatchdog?.invalidate()
         settleTimer?.invalidate()
+        dictationWatchdog?.invalidate()
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
     }
 
@@ -106,9 +116,16 @@ public final class OnboardingViewModel: ObservableObject {
     /// The checklist at the bottom of the screen draws a dot per permission from `machine.statuses`,
     /// and until 1.6.5 only the focused permission was ever re-read — so a permission the user
     /// granted while a *different* one was in focus kept an empty dot until the walk happened to
-    /// reach it. All three status APIs are live (measured), so there is nothing to gain by asking
-    /// about one of them. The focused one goes last, because a grant there advances the step and the
-    /// permission it advances to should already be up to date when it does.
+    /// reach it. Asking about all three costs three mach round trips and removes a whole class of
+    /// "the app is stuck" misreadings. The focused one goes last, because a grant there advances the
+    /// step and the permission it advances to should already be up to date when it does.
+    ///
+    /// What polling can **not** do (corrected in 1.6.7): notice a Microphone or Input Monitoring
+    /// grant made while this process is running. macOS withholds those from an already-running app —
+    /// measured, and stated in macOS' own "…until it is quit" alerts — so those two statuses are
+    /// frozen for the life of the process no matter how often they are read. That is what the
+    /// per-service `liveNote` and the "Quit & Reopen" button are for; the poll still catches
+    /// Accessibility, and catches everything after a relaunch.
     func pollCurrentPermission() {
         guard step == .permissions, let current = machine.currentPermission else {
             permissionPollTimer?.invalidate(); permissionPollTimer = nil
@@ -149,10 +166,19 @@ public final class OnboardingViewModel: ObservableObject {
         permissionPollTimer?.invalidate(); permissionPollTimer = nil
         micWatchdog?.invalidate(); micWatchdog = nil
         settleTimer?.invalidate(); settleTimer = nil
+        dictationWatchdog?.invalidate(); dictationWatchdog = nil
         micCancellable = nil
         deps.micLevel.stopMonitoring()
         downloadTask?.cancel()
         dictationTask?.cancel()
+        dictationEvents?.cancel(); dictationEvents = nil
+        // Closing the window mid-utterance must release the microphone, not leave the engine
+        // listening behind a screen that is gone.
+        if isDictating {
+            isDictating = false
+            let engine = deps.engine
+            Task { await engine.cancel() }
+        }
     }
 
     // MARK: Side effects
@@ -207,19 +233,28 @@ public final class OnboardingViewModel: ObservableObject {
         case .startDownload(let tier):
             guard !deps.models.isInstalled(tier) else { send(.downloadFinished); return }
             downloadTask?.cancel()
+            downloadStartedAt = Date()
+            Log.app.notice("onboarding: downloading \(tier.rawValue) — \(tier.modelNames.joined(separator: " + ")) (\(ByteText.short(tier.approximateBytes)))")
             downloadTask = Task { [weak self] in
                 guard let self else { return }
                 do {
                     try await deps.models.download(tier) { progress in
                         Task { @MainActor [weak self] in self?.send(.downloadProgress(progress)) }
                     }
+                    Log.app.notice("onboarding: \(tier.rawValue) download finished")
                     send(.downloadFinished)
                 } catch {
-                    send(.downloadFailed(error.localizedDescription))
+                    // `localizedDescription` on a bare Swift enum is a generic bridge string; this
+                    // is the same reason the pill used to show "invalidAudioData".
+                    let reason = EngineMessage.describe(error)
+                    Log.app.error("onboarding: \(tier.rawValue) download failed — \(reason)")
+                    send(.downloadFailed(reason))
                 }
             }
+        case .checkRecognizerReadiness:
+            refreshReadiness()
         case .beginGuidedDictation:
-            break  // user holds the key / presses the button; see `runGuidedDictation`
+            break  // user presses the button; see `startGuidedDictation`
         case .finish(let skipped):
             deps.settingsStore.set(true, for: SettingsKeys.onboardingCompleted)
             showContactsOffer = !contactsOffer.alreadyOffered
@@ -254,6 +289,15 @@ public final class OnboardingViewModel: ObservableObject {
                 self.send(.micSettled)
             }
         }
+    }
+
+    /// Puts the text the dictation test heard on the clipboard — on request, never behind the
+    /// user's back, since a test they ran to see whether dictation works should not quietly replace
+    /// whatever they had copied.
+    public func copyDictationText() {
+        guard let text = machine.heardText, !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     /// Copy/paste helper for the stale-TCC recovery panel; the app never runs `tccutil` itself.
@@ -294,22 +338,24 @@ public final class OnboardingViewModel: ObservableObject {
 
     /// "Quit & Reopen": open a second instance of this bundle, then terminate this one.
     ///
-    /// Deliberately **not** the headline cure, and since 1.6.6 not offered at all for Accessibility.
-    /// Measured on the reporting machine (macOS 26.6.2):
+    /// Offered for Microphone and Input Monitoring, never for Accessibility, and never from a
+    /// translocated copy — where relaunching only produces another temporary copy. Corrected in
+    /// 1.6.7; 1.6.6 had this backwards for two services out of three.
     ///
-    /// * A brand-new process of the installed app still read `AXIsProcessTrusted() == false` and
-    ///   `CGPreflightListenEventAccess() == false` while both switches were on, because that failure
-    ///   is a stored-requirement mismatch tccd re-evaluates from scratch on every query — there is no
-    ///   per-process cache to defeat, so restarting cannot fix it.
-    /// * Conversely, a grant that really does land is picked up *without* restarting: the user's own
-    ///   Accessibility toggle made the already-running app re-query tccd 213 ms later, and macOS
-    ///   ships no "quit & reopen" string for Accessibility at all (`ACCESSIBILITY_QUIT_ALLOW_TITLE`
-    ///   does not exist in the Privacy pane's strings, while 25 other services have one).
-    ///
-    /// What survives is Input Monitoring, where Apple's own copy warns the app "will not be able to
-    /// monitor input from your keyboard until it is quit" — and there only after `CapabilityWatcher`
-    /// has armed the tap, re-armed it once, and found it still deaf. It refuses outright from a
-    /// translocated copy, where relaunching only makes another temporary copy.
+    /// * **Not a cure for a stale TCC row.** A brand-new process still read
+    ///   `AXIsProcessTrusted() == false` and `CGPreflightListenEventAccess() == false` while both
+    ///   switches were on, because that failure is a stored-requirement mismatch tccd re-evaluates
+    ///   from scratch on every query. There is no per-process cache to defeat, so restarting cannot
+    ///   fix it. That is why this stays a *secondary* button under the remove-and-re-add steps.
+    /// * **The cure for a grant that landed mid-session, for two services.** Measured on the
+    ///   reporting machine: Microphone was granted 6 s into a process's life and that process read
+    ///   `denied` for its remaining 25 s; Input Monitoring was granted 16 s in and read
+    ///   `notDetermined` for its remaining 18 s; each following process read the new value at once.
+    ///   macOS says the same thing in its own alert.
+    /// * **Never for Accessibility.** The user's toggle made the already-running app re-query tccd
+    ///   213 ms later, and macOS ships no quit string for it at all
+    ///   (`ACCESSIBILITY_QUIT_ALLOW_TITLE` does not exist in the Privacy pane's strings, while 25
+    ///   other services have one).
     @discardableResult
     public func relaunchApp(identity: AppCodeIdentity = PermissionDiagnostics.identity(),
                             relauncher: AppRelaunching = NSWorkspaceRelauncher()) -> AppCodeIdentity.RelaunchOutcome {
@@ -324,33 +370,141 @@ public final class OnboardingViewModel: ObservableObject {
         return outcome
     }
 
-    /// Runs one utterance through the engine so the last step is *doing*, not watching.
-    public func runGuidedDictation() {
-        guard !isDictating else { return }
+    // MARK: Guided dictation
+
+    /// Which recogniser would run right now, and whether the test may be offered at all.
+    public var dictationGate: GuidedDictationGate.Decision {
+        GuidedDictationGate.decide(readiness: machine.readiness, download: machine.download)
+    }
+
+    /// The line under the download bar: bytes, percent and an estimate once one means anything.
+    public var downloadLine: String? {
+        guard case .downloading(let progress) = machine.download else { return nil }
+        let elapsed = downloadStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        return DownloadProgressText.line(progress, elapsed: elapsed)
+    }
+
+    /// Re-reads which recogniser would actually transcribe the next utterance. Cheap (a few
+    /// `fileExists` calls), and the answer changes exactly when a download lands.
+    private func refreshReadiness() {
+        let tier = machine.chosenTier ?? deps.models.selectedTier
+        let fresh = deps.models.readiness(for: tier)
+        guard fresh != machine.readiness else { return }
+        Log.app.notice("onboarding: recogniser for \(tier.rawValue) is \(String(describing: fresh))")
+        send(.readinessChanged(fresh))
+    }
+
+    /// The dictation button. Two presses, because one press cannot contain an utterance.
+    public func toggleGuidedDictation() {
+        isDictating ? finishGuidedDictation() : startGuidedDictation()
+    }
+
+    /// Opens the capture window and leaves it open.
+    ///
+    /// The 1.6.6 bug lived in two consecutive statements: `try await engine.start(prewarm: true)`
+    /// immediately followed by `try await engine.stop()`. Nothing waited for the user to speak, and
+    /// nothing waited for the microphone either — a measured 2.3 s of HAL setup happens *inside*
+    /// `start`, and the first audio block lands after it returns. So the final pass ran over ~0
+    /// samples, tripped FluidAudio's 300 ms floor, and threw `ASRError.invalidAudioData`.
+    public func startGuidedDictation() {
+        guard !isDictating, machine.step == .firstDictation else { return }
+        guard dictationGate.canRun else {
+            Log.app.notice("onboarding: dictation test refused — \(self.dictationGate.banner)")
+            return
+        }
+        send(.retryDictation)
         isDictating = true
         dictationPreview = ""
-        dictationTask = Task { [weak self] in
-            guard let self else { return }
-            let engine = deps.engine
-            let events = engine.events()
-            let consumer = Task { [weak self] in
-                for await event in events {
-                    if case .partial(let spans) = event {
-                        await MainActor.run { self?.dictationPreview = spans.map(\.text).joined(separator: " ") }
-                    }
+        let engine = deps.engine
+        let events = engine.events()
+        dictationEvents = Task { [weak self] in
+            for await event in events {
+                if case .partial(let spans) = event {
+                    await MainActor.run { self?.dictationPreview = spans.map(\.text).joined(separator: " ") }
                 }
             }
+        }
+        dictationTask = Task { [weak self] in
+            guard let self else { return }
             do {
                 try await engine.start(prewarm: true)
-                let spans = try await engine.stop()
-                let text = spans.map(\.text).joined(separator: " ")
-                dictationPreview = text
-                send(.dictationLanded(text))
+                startDictationWatchdog()
             } catch {
-                send(.dictationLanded(""))
+                finishDictation(.failed(reason: EngineMessage.describe(error)))
             }
-            consumer.cancel()
-            isDictating = false
+        }
+    }
+
+    /// Closes the capture window, transcribes, and reports what actually happened.
+    public func finishGuidedDictation() {
+        guard isDictating else { return }
+        dictationWatchdog?.invalidate(); dictationWatchdog = nil
+        let starting = dictationTask
+        dictationTask = Task { [weak self] in
+            // A stop that races a still-prewarming start would otherwise throw `notListening` and be
+            // reported as a failure the user did not cause.
+            _ = await starting?.value
+            guard let self, self.isDictating else { return }
+            await self.finalizeGuidedDictation()
+        }
+    }
+
+    private func finalizeGuidedDictation() async {
+        let engine = deps.engine
+        var captured: Double?
+        // Ask the engine how much audio it is holding *before* finalising. Below its own floor the
+        // recogniser can only throw, and "invalidAudioData" is not something to show a person.
+        if let reporting = engine as? CapturedAudioReporting {
+            let seconds = await reporting.capturedSeconds
+            captured = seconds
+            if seconds < reporting.minimumUtteranceSeconds {
+                await engine.cancel()
+                finishDictation(.noSpeech(seconds: seconds))
+                return
+            }
+        }
+        let recognizer = machine.readiness.recognizerName ?? "the on-device recogniser"
+        do {
+            let spans = try await engine.stop()
+            let text = spans.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                finishDictation(.noSpeech(seconds: captured ?? 0))
+                return
+            }
+            dictationPreview = text
+            // "It landed" is allowed only when a real injection reported success. With no landing
+            // path wired, the screen says the text was heard — which is the truth for a button that
+            // lives inside the onboarding window, since pressing it makes VoicePlus frontmost and
+            // there is no longer a field in another app to type into.
+            guard let land = deps.landUtterance else {
+                finishDictation(.heard(text: text, recognizer: recognizer))
+                return
+            }
+            let landing = await land(spans)
+            let landedText = landing.text.isEmpty ? text : landing.text
+            finishDictation(landing.injected ? .landed(text: landedText, app: landing.appName)
+                                             : .heard(text: landedText, recognizer: recognizer))
+        } catch {
+            finishDictation(.failed(reason: EngineMessage.describe(error)))
+        }
+    }
+
+    private func finishDictation(_ outcome: GuidedDictationOutcome) {
+        isDictating = false
+        dictationWatchdog?.invalidate(); dictationWatchdog = nil
+        dictationEvents?.cancel(); dictationEvents = nil
+        Log.app.notice("onboarding dictation: \(outcome.logLabel)")
+        send(.dictationFinished(outcome))
+    }
+
+    private func startDictationWatchdog() {
+        dictationWatchdog?.invalidate()
+        dictationWatchdog = Timer.scheduledTimer(withTimeInterval: Self.maxDictationSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isDictating else { return }
+                Log.app.notice("onboarding: dictation stopped itself after \(Self.maxDictationSeconds)s")
+                self.finishGuidedDictation()
+            }
         }
     }
 

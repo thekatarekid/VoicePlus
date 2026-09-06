@@ -53,7 +53,27 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     public static let settleSeconds: TimeInterval = 1.5
 
     public enum DownloadState: Equatable, Sendable {
-        case notStarted, downloading(Double), installed, failed(String)
+        case notStarted
+        case downloading(ModelDownloadProgress)
+        case installed
+        case failed(String)
+
+        public var isInFlight: Bool { if case .downloading = self { return true }; return false }
+
+        public var fraction: Double? {
+            switch self {
+            case .downloading(let p): return p.fraction
+            case .installed: return 1
+            case .notStarted, .failed: return nil
+            }
+        }
+
+        /// " — 46%" while a download is running, empty otherwise. Used by `GuidedDictationGate` so
+        /// the dictation-test banner can say how far along the thing it is waiting for is.
+        public var progressSuffix: String {
+            if case .downloading(let p) = self { return " — \(p.percent)%" }
+            return ""
+        }
     }
 
     public enum Event: Equatable, Sendable {
@@ -75,10 +95,17 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         /// Capture failed to start, with the underlying reason.
         case micFailed(String)
         case choose(ModelTier)
-        case downloadProgress(Double)
+        case downloadProgress(ModelDownloadProgress)
         case downloadFinished
         case downloadFailed(String)
-        case dictationLanded(String)
+        /// What the guided dictation actually achieved — success *and* failure travel through the
+        /// same event, but as different cases. Until 1.6.6 failure was reported as
+        /// `.dictationLanded("")`, which the view read as success because it only checked for nil.
+        case dictationFinished(GuidedDictationOutcome)
+        /// "Try again" on the dictation step — drops the previous verdict before a fresh attempt.
+        case retryDictation
+        /// The recogniser that would run right now changed (a download landed, or the step opened).
+        case readinessChanged(RecognizerReadiness)
     }
 
     public enum SideEffect: Equatable, Sendable {
@@ -95,6 +122,8 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case startDownload(ModelTier)
         case selectModel(ModelTier)
         case beginGuidedDictation
+        /// Ask the model manager which recogniser would run, and feed it back as `.readinessChanged`.
+        case checkRecognizerReadiness
         case finish(skipped: Bool)
     }
 
@@ -113,8 +142,22 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     public private(set) var requestedPermissions: Set<OnboardingPermission> = []
     public private(set) var chosenTier: ModelTier?
     public private(set) var download: DownloadState = .notStarted
-    public private(set) var landedText: String?
+    /// The tier the current `download` belongs to, so re-choosing a *different* tier is recognised
+    /// as needing its own download instead of inheriting the first one's state.
+    public private(set) var downloadingTier: ModelTier?
+    /// What the last guided-dictation attempt achieved. Nil = not attempted.
+    public private(set) var dictation: GuidedDictationOutcome?
+    /// What would transcribe right now. `.unavailable` until the step asks.
+    public private(set) var readiness: RecognizerReadiness = .unavailable(reason: "Checking which speech model is ready…")
     public private(set) var skippedSteps: Set<Step> = []
+
+    /// Text VoicePlus actually typed into the app the user was in — the only thing that may be
+    /// reported as "It landed". Deliberately not "the dictation returned something".
+    public var landedText: String? { dictation?.landedText }
+    /// Text VoicePlus heard, whether or not it was typed anywhere.
+    public var heardText: String? { dictation?.text }
+    /// The failure to show, in the words the user should read. Nil when the attempt worked.
+    public var dictationError: String? { dictation?.failureMessage }
 
     public static let permissionOrder = OnboardingPermission.allCases
 
@@ -232,29 +275,53 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         // Model choice
         case (.modelChoice, .choose(let tier)):
             chosenTier = tier
-            return [.selectModel(tier)] + (download == .notStarted ? [.startDownload(tier)] : [])
+            // A download is started for any tier that does not already have one in flight or
+            // finished. The old rule was `download == .notStarted`, which meant that once *any*
+            // download had begun, picking a different tier silently persisted the choice and
+            // fetched nothing — the user's model never arrived and nothing said so. The view model
+            // still short-circuits to `.downloadFinished` when the tier is already on disk, so this
+            // costs nothing in the common case.
+            guard needsDownload(tier) else { return [.selectModel(tier)] }
+            downloadingTier = tier
+            download = .notStarted
+            return [.selectModel(tier), .startDownload(tier)]
         case (.modelChoice, .downloadProgress(let p)):
-            download = .downloading(min(max(p, 0), 1)); return []
+            download = .downloading(p); return []
         case (.modelChoice, .downloadFinished):
-            download = .installed; return []
+            download = .installed; return [.checkRecognizerReadiness]
         case (.modelChoice, .downloadFailed(let reason)):
-            download = .failed(reason); return []
+            download = .failed(reason); return [.checkRecognizerReadiness]
         case (.modelChoice, .next):
-            if chosenTier == nil { chosenTier = .fast }  // bundled tiny model stays active; never blocking
+            if chosenTier == nil { chosenTier = .fast }
             return enter(.firstDictation)
 
         // First dictation
-        case (.firstDictation, .dictationLanded(let text)):
-            landedText = text; return []
+        case (.firstDictation, .dictationFinished(let outcome)):
+            dictation = outcome; return []
+        case (.firstDictation, .retryDictation):
+            // Clear the last verdict so the screen cannot show a stale error beside a fresh attempt.
+            dictation = nil; return [.checkRecognizerReadiness]
         case (.firstDictation, .next):
             return enter(.done)
 
-        // Download events can arrive after leaving the model screen; keep state coherent.
+        // Readiness and download events can arrive on any step (a background download finishing, the
+        // dictation step opening); keep the state coherent wherever the user is.
+        case (_, .readinessChanged(let r)): readiness = r; return []
         case (_, .downloadProgress(let p)): download = .downloading(p); return []
-        case (_, .downloadFinished): download = .installed; return []
-        case (_, .downloadFailed(let r)): download = .failed(r); return []
+        case (_, .downloadFinished): download = .installed; return [.checkRecognizerReadiness]
+        case (_, .downloadFailed(let r)): download = .failed(r); return [.checkRecognizerReadiness]
         default:
             return []
+        }
+    }
+
+    /// Whether choosing `tier` should kick off a fetch: anything except a download already running
+    /// or already finished *for that same tier*.
+    private func needsDownload(_ tier: ModelTier) -> Bool {
+        guard downloadingTier == tier else { return true }
+        switch download {
+        case .downloading, .installed: return false
+        case .notStarted, .failed: return true
         }
     }
 
@@ -276,6 +343,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
             effects.append(.startMicMonitoring)
         case .firstDictation:
+            // Readiness first: the screen must know which recogniser it is about to offer before it
+            // draws the button, or it is back to presenting a test that cannot work.
+            dictation = nil
+            effects.append(.checkRecognizerReadiness)
             effects.append(.beginGuidedDictation)
         case .done:
             effects.append(.finish(skipped: !skippedSteps.isEmpty))

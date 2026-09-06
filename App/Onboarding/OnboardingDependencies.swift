@@ -141,29 +141,17 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
         public var signatureProvenGood: Bool { !corroboratingGrants.isEmpty }
     }
 
-    /// Whether macOS re-reads this service for an already-running process.
+    /// Whether a grant made **while VoicePlus is already running** reaches it without a relaunch.
     ///
-    /// Measured on macOS 26.6.2, and the answer differs per service:
-    /// * **Accessibility — yes, proven.** `AXIsProcessTrusted()` is cached per process, but macOS
-    ///   invalidates that cache with the `com.apple.accessibility.api` distributed notification,
-    ///   which VoicePlus observes. The user's own toggle at 11:18:02.387 made the already-running app
-    ///   issue fresh tccd queries 213 ms later. Accessibility is also the only TCC service with no
-    ///   `…_QUIT_ALLOW_TITLE` string in macOS' own Privacy pane — Apple never asks you to quit for it.
-    /// * **Microphone — yes.** `AVCaptureDevice.authorizationStatus` re-queries tccd on every call,
-    ///   and capture re-checks authorization and re-opens the device on every start.
-    /// * **Input Monitoring — the status is live** (`CGPreflightListenEventAccess()` is a mach round
-    ///   trip on every call, never a frozen value), so the app arms the tap itself the moment the
-    ///   grant lands. Whether an *already-created* event tap starts receiving keys after the grant is
-    ///   the one thing that could not be measured without a human at the switch, and Apple's own copy
-    ///   ("will not be able to monitor input from your keyboard until it is quit") says it may not.
-    ///   So this is the only service where a restart may honestly be offered — as a fallback, after
-    ///   the app has re-armed and the tap is still deaf.
-    var restartCanBeNeeded: Bool {
-        switch self {
-        case .accessibility, .microphone: return false
-        case .inputMonitoring: return true
-        }
-    }
+    /// Corrected in 1.6.7. The 1.6.5/1.6.6 answer — "yes for all three" — was measured on processes
+    /// that already held the grant at launch, and it is wrong for the two services macOS itself warns
+    /// about. Accessibility is live; Microphone and Input Monitoring are not. Evidence, per service,
+    /// lives on `Permission.grantReachesRunningApp`; both files must move together, so this delegates
+    /// rather than repeating the switch.
+    var grantReachesRunningApp: Bool { core.grantReachesRunningApp }
+
+    /// The inverse, named for the question the screen is answering: "do I have to quit and reopen it?"
+    var relaunchNeededForMidSessionGrant: Bool { !grantReachesRunningApp }
 
     /// - Parameters:
     ///   - status: what TCC says right now — the source of truth, not a persisted flag.
@@ -181,8 +169,15 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
             // Input Monitoring / Accessibility: macOS shows no dialog for these, ever, and their
             // panes really do have "+" / "–", so this advice can actually be followed.
             if attempts == 0 {
+                // "…this screen notices on its own" is true for Accessibility and a lie for Input
+                // Monitoring: `CGPreflightListenEventAccess()` keeps returning the pre-grant answer
+                // for the rest of this process's life, so the screen would sit there noticing
+                // nothing while the user waited. Promise only what the service actually does.
+                let follow = grantReachesRunningApp
+                    ? "then come back — this screen notices on its own."
+                    : "then come back and press Re-check. macOS holds a new \(title) permission back from an app that was already running, so this may need a Quit & Reopen."
                 return RecoveryCopy(
-                    headline: "macOS won't ask for this one. Turn VoicePlus on in \(settingsListName), then come back — this screen notices on its own.",
+                    headline: "macOS won't ask for this one. Turn VoicePlus on in \(settingsListName), \(follow)",
                     restartNote: liveNote
                 )
             }
@@ -219,7 +214,7 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
                 detail: "macOS records which build an entry was added for, and re-adding the entry is the only thing that rewrites that. " + durability + corroboration,
                 showsResetCommand: true,
                 showsRowReset: true,
-                relaunchTitle: restartCanBeNeeded ? "Quit & Reopen" : nil,
+                relaunchTitle: relaunchButtonTitle(identity: identity),
                 restartNote: liveNote
             )
         }
@@ -227,9 +222,13 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
         case .denied:
             // A hard "Don't Allow" writes a real row, so the switch in that list exists and works.
             // Asking again cannot reopen the dialog, so we do not offer a button that would lie.
+            // It is also the one microphone state a mid-session grant can arrive from — and macOS
+            // does not hand that grant to a process that was already running, so once a re-check has
+            // come back off, "Quit & Reopen" stops being a superstition and becomes the answer.
             return RecoveryCopy(
                 headline: "You chose Don't Allow. VoicePlus is in \(settingsListName) now — switch it back on there.",
-                detail: "After a Don't Allow macOS stops showing the dialog and answers from that switch instead. This screen notices the moment you flip it.",
+                detail: "After a Don't Allow macOS stops showing the dialog and answers from that switch instead.",
+                relaunchTitle: attempts > 0 ? relaunchButtonTitle(identity: identity) : nil,
                 restartNote: liveNote
             )
         default:
@@ -245,13 +244,31 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
         }
     }
 
+    /// "Quit & Reopen", or nil when a relaunch cannot help: a service macOS re-reads live never
+    /// needs one, and a translocated copy can only relaunch into another translocated copy.
+    func relaunchButtonTitle(identity: AppCodeIdentity) -> String? {
+        guard relaunchNeededForMidSessionGrant, !identity.isTranslocated else { return nil }
+        return "Quit & Reopen"
+    }
+
     /// The honest answer to "do I have to quit and reopen it?", per service. Saying nothing was its
     /// own failure mode: the 1.6.5 user quit and relaunched after every grant because the screen
-    /// never told them they didn't have to.
+    /// never told them they didn't have to. Saying "you never have to" was the 1.6.6 failure mode:
+    /// macOS' own alert says the opposite for two of the three, and the user believed macOS.
+    ///
+    /// So the note quotes macOS where macOS speaks, and only claims what was measured — that the
+    /// *status* this app gates the feature on stays stale until the process restarts. It does not
+    /// claim anything about whether capture or event delivery would work underneath, which was never
+    /// measured.
     var liveNote: String {
-        restartCanBeNeeded
-            ? "VoicePlus arms the hotkey by itself within a second of the switch going on — you don't need to quit it first. macOS sometimes holds key events back from a process that was already running, so if the key still does nothing after a few seconds, then use Quit & Reopen."
-            : "You don't need to quit and reopen VoicePlus. It picks this up within a second of the switch moving."
+        switch self {
+        case .accessibility:
+            return "You don't need to quit and reopen VoicePlus. It picks Accessibility up within a second of the switch moving — macOS never asks you to quit for this one."
+        case .microphone:
+            return "macOS hands a new microphone permission to an app only when that app next starts — that's what its own “VoicePlus will not have access to your microphone until it is quit” alert means. If you chose Later, use Quit & Reopen; until then VoicePlus keeps reading the microphone as off."
+        case .inputMonitoring:
+            return "macOS hands a new Input Monitoring permission to an app only when that app next starts — that's what its own “VoicePlus will not be able to monitor input from your keyboard until it is quit” alert means. If you chose Later, use Quit & Reopen; until then the hold-to-talk key stays dead, though the menu-bar “Start dictation” item still works."
+        }
     }
 }
 
@@ -312,14 +329,14 @@ public enum ModelTier: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
-    public var sizeMB: Int {
-        switch self {
-        case .fast: return 120
-        case .balanced: return 450
-        case .best: return 1200
-        }
-    }
-
+    /// The real models behind the friendly word, and their real size, both read from
+    /// `ModelCatalog` — see `ModelTier.modelNames` / `.approximateBytes` in
+    /// `LiveOnboardingDependencies.swift`.
+    ///
+    /// There used to be a hardcoded `sizeMB` here (120 / 450 / 1200) with no link to the catalog,
+    /// and every one of the three had drifted: Fast is 110 MB, Balanced 500 MB, and "Best" is two
+    /// models totalling 900 MB — not the "~1.2 GB" the 1.6.6 user was shown. A number the code
+    /// cannot recompute is a number that goes stale silently.
     public var tradeoff: String {
         switch self {
         case .fast: return "Instant on any Mac. Fine for chat and notes; misses rarer names."
@@ -334,10 +351,14 @@ public enum ModelTier: String, CaseIterable, Codable, Sendable, Identifiable {
 
 public protocol ModelManaging: AnyObject {
     func isInstalled(_ tier: ModelTier) -> Bool
-    /// Background download; `progress` is 0…1. Must be cancellable via the returned task being cancelled.
-    func download(_ tier: ModelTier, progress: @escaping @Sendable (Double) -> Void) async throws
+    /// Background download. Must be cancellable via the returned task being cancelled.
+    func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws
     func select(_ tier: ModelTier)
     var selectedTier: ModelTier { get }
+    /// What would actually transcribe right now if the user pressed "Dictate now" — the chosen
+    /// tier's model, a smaller one already on disk, Apple Speech, or nothing at all. The onboarding
+    /// dictation test refuses to run without this, and always names what it is using.
+    func readiness(for tier: ModelTier) -> RecognizerReadiness
 }
 
 // MARK: - Dependencies
@@ -354,11 +375,21 @@ public struct OnboardingDependencies {
     public var settingsStore: SettingsStore
     /// Called by "connect what you pay for" — P1.12 wires this to the Providers settings tab.
     public var openProvidersSettings: () -> Void
+    /// Lands one utterance the way the hotkey does (pipeline → injection → history) and reports
+    /// whether the text was *really* typed.
+    ///
+    /// Nil means onboarding has no landing path — and then the screen says the text was heard, never
+    /// that it landed. That distinction is the whole of the 1.6.6 fix: the old button never reached
+    /// `UtteranceLander` at all, so "It landed. You're set." could not have been true even with
+    /// perfect audio. See `DictationCoordinator.guidedLanding`.
+    public var landUtterance: (@Sendable ([TranscriptSpan]) async -> GuidedLanding)?
 
     public init(permissions: OnboardingPermissionChecking, micLevel: MicLevelPublishing, models: ModelManaging,
                 engine: EngineProtocol, database: AppDatabase?, flags: FeatureFlagService,
                 contacts: ContactsStoreProtocol, settingsStore: SettingsStore = UserDefaultsSettingsStore(),
-                openProvidersSettings: @escaping () -> Void = {}) {
+                openProvidersSettings: @escaping () -> Void = {},
+                landUtterance: (@Sendable ([TranscriptSpan]) async -> GuidedLanding)? = nil) {
+        self.landUtterance = landUtterance
         self.permissions = permissions
         self.micLevel = micLevel
         self.models = models
@@ -433,7 +464,12 @@ public final class OnboardingMockModelManager: ModelManaging {
     public var installed: Set<ModelTier>
     public var selectedTier: ModelTier
     public var failDownload = false
+    /// What `readiness(for:)` reports when the tier is not installed. Nil = nothing can transcribe,
+    /// which is how a clean Mac with no Apple Speech behaves.
+    public var fallbackName: String? = "Apple Speech (on-device)"
     public private(set) var downloads: [ModelTier] = []
+    /// Set by the test to stall a download mid-flight; the task resumes when it is fulfilled.
+    public var hold: (@Sendable () async -> Void)?
 
     public init(installed: Set<ModelTier> = [.fast], selected: ModelTier = .fast) {
         self.installed = installed
@@ -442,12 +478,28 @@ public final class OnboardingMockModelManager: ModelManaging {
 
     public func isInstalled(_ tier: ModelTier) -> Bool { installed.contains(tier) }
 
-    public func download(_ tier: ModelTier, progress: @escaping @Sendable (Double) -> Void) async throws {
+    public func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
         downloads.append(tier)
         if failDownload { throw URLError(.notConnectedToInternet) }
-        for step in 1...4 { progress(Double(step) / 4) }
+        let total = tier.approximateBytes
+        for step in 1...4 {
+            let fraction = Double(step) / 4
+            progress(ModelDownloadProgress(fraction: fraction,
+                                           bytesReceived: Int64(Double(total) * fraction),
+                                           bytesExpected: total,
+                                           modelName: tier.modelNames.first ?? tier.title))
+            if step == 1, let hold { await hold() }
+        }
         installed.insert(tier)
     }
 
     public func select(_ tier: ModelTier) { selectedTier = tier }
+
+    public func readiness(for tier: ModelTier) -> RecognizerReadiness {
+        if installed.contains(tier) { return .ready(name: tier.modelNames.first ?? tier.title) }
+        guard let fallbackName else {
+            return .unavailable(reason: "No speech model is on this Mac yet, and macOS' own speech recogniser isn't available either.")
+        }
+        return .fallback(name: fallbackName, awaiting: tier.modelNames.first)
+    }
 }

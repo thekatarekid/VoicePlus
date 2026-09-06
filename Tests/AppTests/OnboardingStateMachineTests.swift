@@ -119,13 +119,20 @@ struct OnboardingStateMachineTests {
         #expect(m.step == .modelChoice)
 
         #expect(m.handle(.choose(.balanced)) == [.selectModel(.balanced), .startDownload(.balanced)])
-        m.handle(.downloadProgress(0.5)); #expect(m.download == .downloading(0.5))
-        // Re-choosing while a download is in flight does not start a second one.
+        let half = ModelDownloadProgress(fraction: 0.5, bytesReceived: 250_000_000,
+                                         bytesExpected: 500_000_000, modelName: "Parakeet TDT 0.6B v3")
+        m.handle(.downloadProgress(half)); #expect(m.download == .downloading(half))
+        // Re-choosing a *different* tier starts that tier's own download. Until 1.6.7 this returned
+        // `[.selectModel(.best)]` alone, so the model the user actually picked was never fetched and
+        // nothing on screen said so.
+        #expect(m.handle(.choose(.best)) == [.selectModel(.best), .startDownload(.best)])
+        // Re-pressing the tier that is already downloading does not start a second fetch.
+        m.handle(.downloadProgress(half))
         #expect(m.handle(.choose(.best)) == [.selectModel(.best)])
-        #expect(m.handle(.next) == [.beginGuidedDictation])
+        #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
         m.handle(.downloadFinished); #expect(m.download == .installed)  // late event after leaving the screen
-        m.handle(.dictationLanded("hello"))
+        m.handle(.dictationFinished(.landed(text: "hello", app: "Notes")))
         #expect(m.landedText == "hello")
         #expect(m.handle(.next) == [.finish(skipped: false)])
         #expect(m.step == .done)
@@ -265,7 +272,9 @@ struct OnboardingStateMachineTests {
         var m = M()
         #expect(m.handle(.skip) == [])  // welcome skip → micCheck skipped (no mic) → modelChoice
         #expect(m.step == .modelChoice)
-        #expect(m.handle(.skip) == [.beginGuidedDictation])
+        // Entering the dictation step now asks which recogniser is available first, so the screen
+        // can name it instead of presenting a test that may not be able to work.
+        #expect(m.handle(.skip) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.handle(.skip) == [.finish(skipped: true)])
         #expect(m.step == .done)
         #expect(m.chosenTier == nil)  // bundled model stays active
@@ -276,9 +285,9 @@ struct OnboardingStateMachineTests {
         #expect(m.handle(.next) == [.startMicMonitoring])  // all granted → permissions step auto-skips
         #expect(m.step == .micCheck)
         m.handle(.next)
-        m.handle(.downloadFailed("offline"))
+        #expect(m.handle(.downloadFailed("offline")) == [.checkRecognizerReadiness])
         #expect(m.download == .failed("offline"))
-        #expect(m.handle(.next) == [.beginGuidedDictation])
+        #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.chosenTier == .fast)
     }
 
@@ -583,9 +592,12 @@ struct OnboardingViewModelTests {
         try await waitUntil { vm.machine.download == .installed }
         #expect(deps.models.selectedTier == .balanced)
         vm.send(.next)
-        vm.runGuidedDictation()
-        try await waitUntil { vm.machine.landedText != nil }
-        #expect(vm.machine.landedText?.contains("quick brown fox") == true)
+        // Two presses, because one press cannot contain an utterance (see `startGuidedDictation`).
+        vm.startGuidedDictation()
+        try await waitUntil { vm.isDictating }
+        vm.finishGuidedDictation()
+        try await waitUntil { vm.machine.dictation != nil }
+        #expect(vm.machine.heardText?.contains("quick brown fox") == true)
         vm.send(.next)
         #expect(finished == false)
         #expect(deps.settingsStore.bool(SettingsKeys.onboardingCompleted) == true)
