@@ -127,13 +127,21 @@ Release:
 
 ### 1.6.6 — permissions are picked up live; the relaunch was our bug
 
+> **⚠️ Partly retracted by 1.6.7 (see below).** The per-service verdicts in this section are
+> **correct for Accessibility only**. For **Microphone** and **Input Monitoring** the claim
+> "no relaunch needed" was **wrong**: macOS does not hand either service to a process that is
+> already running. 1.6.7 measured it twice (Apple's own `PrivacyTCCServices.plist`, plus a
+> natural experiment on this machine showing 25 s and 18 s of stale status inside the granting
+> process) and reverses the guidance. The Input-Monitoring *arming* bug described below was
+> real and is still fixed; what was wrong was concluding from it that no OS limit exists.
+
 **The question this release answers: does granting a permission require quitting and relaunching?** Measured per service on macOS 26.6.2:
 
 - **Microphone — no.** `AVCaptureDevice.authorizationStatus` re-queries tccd on every call, and capture re-checks authorization and re-opens the device on every dictation.
 - **Accessibility — no, and proven.** `AXIsProcessTrusted()` is cached per process, but macOS drops that cache on the `com.apple.accessibility.api` distributed notification, which the app already subscribes to; the user's own toggle was observed making the *running* app issue a fresh tccd query **213 ms later**. macOS ships no "quit & reopen" alert for Accessibility at all, so that button is **removed** from that screen.
 - **Input Monitoring — the relaunch was our bug, not an OS limit.** `hotkey.start()` had exactly one caller (completion of the permission walk), which never runs while onboarding is open and was held behind the *Accessibility* pre-prompt — a permission the hotkey does not need. Input Monitoring had been granted for 20+ minutes with no event tap ever created. The new `CapabilityWatcher` (`App/Services/CapabilityArming.swift`) owns the tap lifecycle, re-reads the permission matrix every second plus on the accessibility and app-activation notifications, and arms exactly once — `CapabilityArming.decision` is a pure function that returns `.hold` once armed, so the 1 s poll cannot stack duplicate taps. `CGEvent.tapCreate` is not a permission test (six creations, six non-NULL taps, no permission at all), so *working* is judged from event delivery against `CGEventSource`'s system-wide modifier idle: a deaf tap gets one silent re-arm, and only then is a restart offered.
 
-**Honest caveat — untested:** it was **not** possible to prove that an event tap begins delivering events, in an already-running process, immediately after Input Monitoring is granted. That needs a human at the switch, and Apple's own Settings copy claims a restart is needed. **Quit & Reopen therefore stays on the Input Monitoring screen as a fallback** (and only there).
+**Honest caveat — untested (and, per 1.6.7, resolved against us):** it was **not** possible to prove that an event tap begins delivering events, in an already-running process, immediately after Input Monitoring is granted. That needs a human at the switch, and Apple's own Settings copy claims a restart is needed. **Quit & Reopen therefore stays on the Input Monitoring screen as a fallback** (and only there).
 
 **The Accessibility root cause, now identified exactly.** The row the user had been toggling stored a code requirement of `cdhash H"459b5909…"` — the CDHash of **VoicePlus 1.0.0**, the very first Phase 1 build. It had been dead since 1.1.0. Toggling a row rewrites only its auth value, never the stored code requirement, which is why it could never work. That poisoned row has been cleared; a fresh grant records against `identifier "in.adityakatare.voiceplus"` (the stable designated requirement from 1.6.4) and survives all future builds.
 
@@ -143,6 +151,132 @@ Release:
 - `Packaging/releases/VoicePlus_6_1.6.6.dmg` (15 MB, sha256 `736716ea540a74154573e6cc287ca8bf31411fd905987403ce5c6c13f31dd058`), tag `release/phase-6/v1.6.6`, verify_install OK, notes `Packaging/notes/phase-6-1.6.6.md`. **This is the build to install.**
 
 **1074 automated tests green / 0 failed** at `release/phase-6/v1.6.6`, on two consecutive runs.
+
+### 1.6.7 — the dictation key no longer kills the app
+
+Five user-reported problems, all root-caused, four fixed outright and one (P6) reversing a claim we
+made in 1.6.6. This is the largest patch on the Phase 6 line.
+
+**P1 — pressing the dictation key crashed VoicePlus, 100% of the time, on every Mac.**
+`App/Overlay/OverlayWindow.swift:13` called the five-argument
+`super.init(contentRect:styleMask:backing:defer:screen:)`; AppKit re-dispatches that ObjC convenience
+initializer through `self` into the Swift "unimplemented initializer" trap stub the compiler emits for
+the four-argument designated init the subclass never overrode → `EXC_BREAKPOINT`. Every capture start
+goes through `InkOverlayController.show()`, so it could never succeed even once, on any Mac.
+Reproduced standalone and deterministic (4-arg init survives, 5-arg traps, independent of notch,
+display count and nil screen). **Not a 1.6.6 regression** — that file has one commit and line 13 never
+changed; 1.6.6 merely armed the tap for the first time, so a keypress could finally reach the code.
+The menu-bar "Start dictation (no hotkey)" item never crashed because it does not touch the overlay —
+that asymmetry was the confirming signature. Fixed by calling the four-argument initializer *and*
+overriding the designated init so no trap stub exists for any future AppKit path (`8ec3ad0`).
+Confirmed at the binary level on both shipped artifacts: 1.6.6's `@objc` thunk is
+`bl __swift_stdlib_reportUnimplementedInitializer` + `brk #0x1` with no Swift body symbol at all;
+1.6.7's tail-calls the real initializer and returns.
+The latent second bug from the same investigation is closed too: the tap's `Unmanaged.passUnretained(self)`
+refcon in a class with **no `deinit`** is now an integer token through a lock-protected registry, plus
+a `deinit`, a teardown at the head of `start()` (exactly one live tap per service), and an installer
+seam so arm → re-arm → stop is testable without CoreGraphics (`8e8559f`, `0201ac4`).
+
+**P2 — the onboarding test showed a green "It landed. You're set." for a transcript that never existed.**
+`runGuidedDictation` called `engine.start(prewarm:)` and `engine.stop()` in consecutive statements, so
+the capture window was zero-length: the user spoke after the engine had stopped, the final pass got ~0
+samples, and FluidAudio threw `ASRError.invalidAudioData` under its 300 ms floor. The catch then
+**discarded the error and emitted the success event with an empty string**, which the view rendered as
+a green check (`landedText != nil`); the button never called `UtteranceLander` at all, so "It landed"
+could not have been true on any machine. The raw token came from `"\(error)"` instead of
+`localizedDescription`. Now: a two-state button (Dictate now / Stop & transcribe) with a real capture
+window, a 30 s self-stop, mic teardown, an `isFinalizing` latch so an impatient second press cannot
+overwrite a good transcript, and a `GuidedDictationOutcome` of landed / heard / noSpeech / failed —
+"It landed" requires an injection that reported success (`ab156d5`, `3f0a315`).
+
+**P3/P4 — model readiness and names.** P3's premise was refuted (the full Parakeet TDT 0.6B v3, 461 MB,
+was already on disk in the FluidAudio cache; nothing was downloading), but the design defects were real:
+the step now names the recogniser it will use, shows real download progress with bytes/name/ETA, and
+disables the button only when nothing on the Mac can transcribe — it no longer offers a test that cannot
+work. Choosing a tier now downloads it (the old `download == .notStarted` guard meant a second choice
+fetched nothing). Real model names and sizes are derived from `ModelCatalog`: Fast = Parakeet TDT-CTC
+110M (110 MB), Balanced = Parakeet TDT 0.6B v3 (500 MB), Best = that plus Parakeet Realtime EOU 120M
+(900 MB total). All three hardcoded sizes were wrong — "Best" advertised "~1.2 GB".
+
+**P5 — the notch chin.** There was no always-visible VoicePlus affordance anywhere; the status item is
+exactly what macOS culls on a crowded notched panel. A non-activating panel now hangs off the bottom of
+the display's forbidden top band with states ready / listening / processing / muted / paused / blocked,
+sharing **one geometry rule with the pill** (top edge == `frame.maxY - topBand`) so it can never draw
+under the camera housing — verified live at y=1130 against a housing at `{{790,1131},{220,38}}` for
+every state × hover × display fixture. Click-through except while the pointer is provably on it (a click
+pops the status item's own menu), joins all Spaces, one level below the pill, switchable off in
+Settings › General. Full screen suppresses **only the quiet states** — `listening`, `processing` and
+`muted` always draw, because a hidden hot mic is the failure the spec forbids (`fdb1e49`, `c04a202`,
+`9b5e9fa`).
+
+**P6 — we were wrong about relaunching, for two of three services.** 1.6.6 said no relaunch is ever
+needed. That holds **only for Accessibility**. Two independent lines of evidence: (a) Apple's own
+`/System/Library/PreferencePanes/Security.prefPane/…/PrivacyTCCServices.plist` defines
+`quitAllowTitleForAppName` for `kTCCServiceListenEvent` and `kTCCServiceMicrophone` and has **no entry
+at all** for `kTCCServiceAccessibility`, and both strings are categorical ("will not have access… until
+it is quit") where the Screen Recording one is hedged ("may not"); (b) a natural experiment on this
+machine — Microphone granted 6 s into PID 76635's life, which then polled once a second for its
+remaining **25 s** and never stopped reading `denied`; Input Monitoring granted 16 s into PID 76861's
+life, `notDetermined` for its remaining **18 s**; each *following* process read the new value on its
+first query — while **Accessibility did flip live inside a running process** (grant at 19:25:30.054 →
+capability change at 19:25:31.021). A background `LSUIElement` control ticked a `.default` 1 Hz timer
+49 times in 50 s, so App Nap is not an available explanation. **Measurement boundary kept explicit:**
+what was measured is that the *status API* stays stale for the process lifetime; whether the underlying
+*capability* is also dead was not measured and is claimed nowhere. The converse matters too — a status
+API reading "granted" is not proof the capability works: `CGEvent.tapCreate` returns a non-NULL tap with
+no Input Monitoring permission at all, which is why liveness is judged from event delivery, never from
+tap creation. `Permission.grantReachesRunningApp` now records the verdict per service with its evidence;
+`RelaunchAdvisor` fires only when the offer is honest (sent to Settings → came back → 3 s grace → still
+off), closing a real gap — 1.6.6's only trigger, `onTapProvenDead`, presupposes an armed tap, and the tap
+never arms while preflight reads false, so in the exact reported scenario it **structurally could not
+fire**. The prompt quotes macOS' own sentence, keeps its headline conditional (the app cannot read
+TCC.db), refuses to offer a relaunch from a translocated copy, and a first-time Microphone ask is told a
+restart is **not** needed (that grant arrives through the app's own dialog, live in-process)
+(`8e8559f`, `f7372de`, `4f86f3c`, `5c3bfa8`).
+
+The 13 commits, oldest first: `a2ccc18` (1.6.5/1.6.6 notes + manifest), `8e8559f` (P1+P6 tap token,
+per-service relaunch honesty), `fdb1e49` (P5 presence indicator), `c04a202` (P5 composite level),
+`ab156d5` (P2/P3/P4 onboarding truth), `9b5e9fa` (P5 hosting view), `8ec3ad0` (**P1 crash fix**),
+`f7372de` (P6 relaunch wiring), `4f86f3c` (P6 first-ask copy), `3f0a315` (P2 finalize latch),
+`0201ac4` (P1 tap token fast path), `5c3bfa8` (P6 conditional headline), `f9ebac5` (release).
+
+Release:
+- `Packaging/releases/VoicePlus_6_1.6.7.dmg` (15 MB, sha256 `12e2583638c27028b936b591b3cde96c0c4c77543ed10f847dfdb4c829f349a7`), tag `release/phase-6/v1.6.7`, verify_install OK, notes `Packaging/notes/phase-6-1.6.7.md`. **This is the build to install.**
+
+**1165 automated tests green / 0 failed** at `release/phase-6/v1.6.7` (`swift test --no-parallel`;
+baseline at 1.6.6 was 1074).
+
+Still open after 1.6.7:
+- **The last link is unverified on hardware:** real finger on the dictation key → tap → startCapture →
+  overlay. It could not be synthesised (posting to our own PID does not reach a session tap; posting
+  session-wide would have driven every other dictation app on the machine). Both sides of the link are
+  verified — the tap arms in production (one arm per service over 65 s, zero re-arms) and the initializer
+  that trapped is a real function in the shipped binary. One human press settles it.
+- `OnboardingDependencies.landUtterance` is still nil, so the last onboarding step reports *heard*, not
+  *landed* — honest, but not an end-to-end landing test. `DictationCoordinator.guidedLanding` is
+  implemented and tested on both branches; wiring it is a few lines in `AppDelegate`.
+- **The P6 capability experiment is still open** — whether the capability (not just the status API)
+  recovers mid-session after "Later" needs a grant toggled while a process runs. The shipped behaviour is
+  correct either way; it only decides whether self-recovery could be added on top.
+- **Eight `init()` trap stubs remain in the binary** (5 FluidAudio, 2 `StatusItemController`), all on
+  plain `init()`, all audited as unreachable — none is an AppKit designated initializer. That is an
+  argument, not a test. Ship rule worth adopting: **no release without one path that instantiates every
+  window and view class.**
+- **Two wall-clock tests flake under parallel load** — `GatekeeperLatencyTests.classifyStaysUnderBudget`
+  and `ASRGoldenTranscriptTests.realEngineEndToEndOnFixture` (32.7 ms vs 15 ms, 1.169 s vs 0.4 s under
+  load average 20–36; 0.029 s and 226 ms in isolation). `--no-parallel` is green.
+- **Not verifiable headlessly:** the chin compositing over another app's full-screen window; whether a
+  76×4 pt chin at 0.35 opacity reads right on a Retina panel (taste — one constant each); real-pointer
+  hover and click-to-open-menu; a live 900 MB download (progress/ETA unit-tested against a mock); the
+  real FluidAudio decoder path.
+- `BundledModel.bootstrap` is still dead code, so there is no bundled tiny model; the false claim that
+  there was one has been removed from the picker copy.
+- **The 1.6.6 GitHub release title is now wrong** — "no more relaunching to pick up permissions" is the
+  claim P6 retracts for two of three services.
+- **The appcast enclosure URLs 404 anonymously**, for 1.6.7 and identically for 1.6.6: the GitHub repo is
+  private, so Sparkle cannot fetch a release asset without credentials. The asset itself is intact
+  (HTTP 200, 15,466,684 bytes, digest matching, via the authenticated API). Auto-update from a private
+  repo cannot work as configured; `Packaging/appcast.xml` needs a reachable host or a public repo.
 
 ### Test-harness safety fix (2026-09-06, post-1.6.6)
 
