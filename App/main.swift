@@ -35,6 +35,13 @@ if let seconds = MicSelfTest.parseCLI(CommandLine.arguments) {
                          voiceProcessing: MicSelfTest.parseVoiceProcessing(CommandLine.arguments)))
 }
 
+// Headless TCC entry removal: `VoicePlusApp --reset-permission accessibility`. The same code path
+// as the recovery panel's "Remove the old entry" button, so it can be exercised (and its "needs no
+// admin rights" claim checked) on a real machine without driving the UI.
+if let permission = PermissionDiagnostics.parseResetCLI(CommandLine.arguments) {
+    exit(PermissionDiagnostics.runResetCLI(permission))
+}
+
 // Headless onboarding-phase self-test: `VoicePlusApp --onboarding-selftest`. Writes the FIX B
 // phase line for every permission using the live TCC statuses, so which phase a build actually
 // enters can be read straight out of the log instead of inferred.

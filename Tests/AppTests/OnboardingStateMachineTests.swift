@@ -538,7 +538,7 @@ struct PromptablePermissionTests {
             #expect(first.headline.contains(p.settingsListName))
             #expect(first.retryTitle == nil, "no API can prompt for \(p.rawValue)")
             let escalated = p.recoveryCopy(status: .awaitingUserAction, attempts: 2, identity: installed)
-            #expect(escalated.detail?.contains("“+”") == true, "these panes really do have +/–")
+            #expect(escalated.steps.contains { $0.contains("“+”") }, "these panes really do have +/–")
             #expect(escalated.showsResetCommand)
         }
     }

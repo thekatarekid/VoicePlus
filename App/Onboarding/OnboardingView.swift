@@ -4,6 +4,8 @@ import Shared
 
 public struct OnboardingView: View {
     @ObservedObject var model: OnboardingViewModel
+    /// Which permission's "Remove the old entry…" confirmation is up, if any.
+    @State private var confirmingRowReset: OnboardingPermission?
 
     public init(model: OnboardingViewModel) { self.model = model }
 
@@ -61,19 +63,41 @@ public struct OnboardingView: View {
     /// service is never told to add itself to a pane that has no "+" button, and is always given a
     /// button that re-invokes the real system request.
     ///
-    /// Since 1.6.4 the escalated copy is also per-*identity*. "That switch belongs to an older build"
-    /// is a claim about the signature, so it is derived from `AppCodeIdentity` and shown next to the
-    /// requirement it rests on, and the button order follows it: once a re-check has come back off
-    /// for a non-promptable service, re-checking cannot succeed and stops being the default action.
+    /// Since 1.6.6 the *steps* are the panel, not a footnote. The 1.6.5 report is a user who read the
+    /// orange headline ("that switch belongs to an older build"), acted on the switch it named, and
+    /// never reached the "select VoicePlus, press –, press +" instructions, which rendered as grey
+    /// caption text below it. Same words, wrong weight. The headline now states the situation, the
+    /// numbered steps state the cure at body size, and "Remove the old entry" does the fiddliest of
+    /// them for the user.
     @ViewBuilder private func needsSettings(_ p: OnboardingPermission, attempts: Int) -> some View {
-        let copy = p.recoveryCopy(status: model.machine.statuses[p] ?? .notDetermined, attempts: attempts)
+        let copy = p.recoveryCopy(status: model.machine.statuses[p] ?? .notDetermined, attempts: attempts,
+                                  evidence: model.recoveryEvidence(for: p))
         VStack(alignment: .leading, spacing: 10) {
             Label(copy.headline, systemImage: attempts == 0 ? "arrow.up.forward.app" : "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            if !copy.steps.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(copy.steps.enumerated()), id: \.offset) { index, step in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("\(index + 1).").font(.body.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(step).font(.body).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            }
             if let detail = copy.detail {
                 Text(detail).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let note = copy.restartNote {
+                Label(note, systemImage: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let outcome = model.rowResetOutcome { rowResetResult(outcome, for: p) }
             if copy.showsResetCommand || copy.showsDequarantineCommand {
                 HStack(spacing: 8) {
                     if copy.showsResetCommand {
@@ -82,12 +106,13 @@ public struct OnboardingView: View {
                     if copy.showsDequarantineCommand {
                         Button("Copy the xattr command") { model.copyDequarantineCommand() }
                     }
-                    // The identity the claim above rests on: bundle id, cdhash, and the requirement
-                    // TCC actually evaluates. On screen so "that switch belongs to an older build"
-                    // is checkable rather than something the app just asserts.
+                    // The identity the panel rests on: bundle id, cdhash, and the requirement TCC
+                    // actually evaluates. On screen so the diagnosis is checkable rather than
+                    // something the app just asserts.
                     Text(PermissionDiagnostics.summary()).font(.caption2.monospaced()).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
+                .font(.caption)
             }
             Text(p.consequenceIfSkipped).font(.caption).foregroundStyle(.secondary)
             HStack {
@@ -106,11 +131,44 @@ public struct OnboardingView: View {
                     // the app cannot keep (after the empty dot and the unchanged status).
                     Button("Re-check") { model.send(.verify(p)) }
                         .keyboardShortcut(attempts == 0 ? .defaultAction : nil)
+                    // Step 2 done for the user: with the entry gone there is no row to find and no
+                    // "–" to press, so all that is left is "+" and the switch.
+                    if copy.showsRowReset {
+                        Button("Remove the old entry…") { confirmingRowReset = p }
+                    }
                     if let relaunch = copy.relaunchTitle {
                         Button(relaunch) { model.relaunchApp() }
                     }
                 }
             }
+        }
+        .confirmationDialog("Remove VoicePlus from \(p.settingsListName)?",
+                            isPresented: Binding(get: { confirmingRowReset == p },
+                                                 set: { if !$0 { confirmingRowReset = nil } })) {
+            Button("Remove the entry") { model.resetPermissionRow(for: p) }
+            Button("Cancel", role: .cancel) { confirmingRowReset = nil }
+        } message: {
+            Text("This clears VoicePlus' own entry for \(p.title) — the same thing as running “\(PermissionDiagnostics.resetCommand(for: p.core))” in Terminal. It touches nothing else and no other app. Afterwards, press “+” in that list, pick VoicePlus, and switch it on.")
+        }
+    }
+
+    /// Says what the removal actually did. "No entry" is not a failure — it means the list never had
+    /// VoicePlus in it, which is the same next step and rules the stale-entry story out.
+    @ViewBuilder private func rowResetResult(_ outcome: PermissionRowResetOutcome,
+                                             for p: OnboardingPermission) -> some View {
+        switch outcome {
+        case .removed:
+            Label("Removed. VoicePlus is no longer in \(p.settingsListName) — press “+” there, pick it, and switch it on.",
+                  systemImage: "checkmark.circle.fill")
+                .font(.caption).foregroundStyle(.green).fixedSize(horizontal: false, vertical: true)
+        case .noEntry:
+            Label("There was no VoicePlus entry to remove, so nothing was stale. Press “+” in \(p.settingsListName), pick VoicePlus, and switch it on.",
+                  systemImage: "info.circle")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        case .failed(let reason):
+            Label("Couldn't remove it: \(reason). Copy the reset command and run it in Terminal instead.",
+                  systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
         }
     }
 

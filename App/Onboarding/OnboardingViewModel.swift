@@ -12,6 +12,9 @@ public final class OnboardingViewModel: ObservableObject {
     @Published public var isDictating = false
     @Published public var contactsOutcome: ContactsImportOffer.Outcome?
     @Published public var showContactsOffer = false
+    /// Result of the last "Remove the old entry" press, so the panel can say what happened instead
+    /// of looking like nothing did.
+    @Published public var rowResetOutcome: PermissionRowResetOutcome?
 
     public let deps: OnboardingDependencies
     public let contactsOffer: ContactsImportOffer
@@ -98,16 +101,38 @@ public final class OnboardingViewModel: ObservableObject {
         _ = p
     }
 
-    private func pollCurrentPermission() {
-        guard step == .permissions, let p = machine.currentPermission else {
+    /// Refreshes **all three** statuses, not only the focused one.
+    ///
+    /// The checklist at the bottom of the screen draws a dot per permission from `machine.statuses`,
+    /// and until 1.6.5 only the focused permission was ever re-read — so a permission the user
+    /// granted while a *different* one was in focus kept an empty dot until the walk happened to
+    /// reach it. All three status APIs are live (measured), so there is nothing to gain by asking
+    /// about one of them. The focused one goes last, because a grant there advances the step and the
+    /// permission it advances to should already be up to date when it does.
+    func pollCurrentPermission() {
+        guard step == .permissions, let current = machine.currentPermission else {
             permissionPollTimer?.invalidate(); permissionPollTimer = nil
             return
         }
+        for p in OnboardingPermission.allCases where p != current { refreshStatus(p) }
+        refreshStatus(current)
+    }
+
+    private func refreshStatus(_ p: OnboardingPermission) {
         let fresh = deps.permissions.status(of: p)
         if fresh != machine.statuses[p] {
-            Log.app.info("onboarding poll: \(p.rawValue) \(self.machine.statuses[p]?.rawValue ?? "unknown") → \(fresh.rawValue)")
+            Log.app.notice("onboarding poll: \(p.rawValue) \(self.machine.statuses[p]?.rawValue ?? "unknown") → \(fresh.rawValue)")
         }
         send(.statusRefreshed(p, fresh))
+    }
+
+    /// The corroborating grants the recovery copy is allowed to mention: other non-promptable
+    /// services that macOS is honouring *right now*, for this same signature. See `RecoveryEvidence`.
+    public func recoveryEvidence(for p: OnboardingPermission) -> OnboardingPermission.RecoveryEvidence {
+        let others = OnboardingPermission.allCases.filter {
+            $0 != p && !$0.isPromptable && deps.permissions.status(of: $0) == .granted
+        }
+        return .init(corroboratingGrants: others)
     }
 
     /// The user comes back from System Settings; re-check immediately rather than waiting for the tick.
@@ -238,6 +263,29 @@ public final class OnboardingViewModel: ObservableObject {
         NSPasteboard.general.setString(command, forType: .string)
     }
 
+    /// Removes VoicePlus' own entry for one service — the same `tccutil reset` the panel has always
+    /// offered for copy/paste, run for the user.
+    ///
+    /// This collapses the recovery from four fiddly steps to two: with the entry gone, the list no
+    /// longer contains VoicePlus, so "select the right row, press –" disappears and only "+ and
+    /// switch it on" is left. The caller only exposes it from the escalated non-promptable phase,
+    /// where the service is already not granted, so no working grant can be destroyed by pressing it.
+    @discardableResult
+    public func resetPermissionRow(for p: OnboardingPermission,
+                                   using reset: PermissionRowResetting = TCCUtilRowReset()) -> PermissionRowResetOutcome {
+        let outcome = reset.reset(p.core)
+        rowResetOutcome = outcome
+        switch outcome {
+        case .removed, .noEntry:
+            // The status can only have gone *down* (granted is impossible after a reset), and the
+            // phase must not keep claiming a stale entry that is now gone.
+            refreshStatus(p)
+        case .failed(let reason):
+            Log.app.error("could not remove the \(p.rawValue) entry: \(reason)")
+        }
+        return outcome
+    }
+
     /// Copy/paste helper for the translocation escape hatch; the app never runs `xattr` itself.
     public func copyDequarantineCommand(identity: AppCodeIdentity = PermissionDiagnostics.identity()) {
         NSPasteboard.general.clearContents()
@@ -246,13 +294,22 @@ public final class OnboardingViewModel: ObservableObject {
 
     /// "Quit & Reopen": open a second instance of this bundle, then terminate this one.
     ///
-    /// Deliberately **not** the headline cure. Measured on the reporting machine (macOS 26.6.2): a
-    /// brand-new process of the installed app still read `AXIsProcessTrusted() == false` and
-    /// `CGPreflightListenEventAccess() == false` while both switches were on, because the failure is
-    /// a stored-requirement mismatch that tccd re-evaluates from scratch on every query — there is no
-    /// per-process cache to defeat. It stays offered as cheap insurance for the cases a restart *can*
-    /// fix (the bundle was replaced under the running process; a row that was just re-added), and it
-    /// refuses outright from a translocated copy, where relaunching only makes another temporary copy.
+    /// Deliberately **not** the headline cure, and since 1.6.6 not offered at all for Accessibility.
+    /// Measured on the reporting machine (macOS 26.6.2):
+    ///
+    /// * A brand-new process of the installed app still read `AXIsProcessTrusted() == false` and
+    ///   `CGPreflightListenEventAccess() == false` while both switches were on, because that failure
+    ///   is a stored-requirement mismatch tccd re-evaluates from scratch on every query — there is no
+    ///   per-process cache to defeat, so restarting cannot fix it.
+    /// * Conversely, a grant that really does land is picked up *without* restarting: the user's own
+    ///   Accessibility toggle made the already-running app re-query tccd 213 ms later, and macOS
+    ///   ships no "quit & reopen" string for Accessibility at all (`ACCESSIBILITY_QUIT_ALLOW_TITLE`
+    ///   does not exist in the Privacy pane's strings, while 25 other services have one).
+    ///
+    /// What survives is Input Monitoring, where Apple's own copy warns the app "will not be able to
+    /// monitor input from your keyboard until it is quit" — and there only after `CapabilityWatcher`
+    /// has armed the tap, re-armed it once, and found it still deaf. It refuses outright from a
+    /// translocated copy, where relaunching only makes another temporary copy.
     @discardableResult
     public func relaunchApp(identity: AppCodeIdentity = PermissionDiagnostics.identity(),
                             relauncher: AppRelaunching = NSWorkspaceRelauncher()) -> AppCodeIdentity.RelaunchOutcome {

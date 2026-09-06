@@ -73,42 +73,103 @@ struct NonPromptableRecoveryCopyTests {
             let copy = p.recoveryCopy(status: .awaitingUserAction, attempts: 0, identity: I.adHoc)
             #expect(copy.headline.contains(p.settingsListName))
             #expect(copy.detail == nil)
+            #expect(copy.steps.isEmpty, "no remove-and-re-add dance before anything has failed")
             #expect(copy.retryTitle == nil, "no API can prompt for \(p.rawValue)")
             #expect(copy.relaunchTitle == nil, "nothing has failed yet; do not offer a restart")
             #expect(!copy.showsResetCommand)
+            #expect(!copy.showsRowReset)
         }
     }
 
-    /// THE fix for the report: after a re-check comes back off while the switch is visibly on, the
-    /// copy names that exact contradiction and states the cause outright. The old text hedged
-    /// ("probably remembering an older copy"), which is what let the user read the app as wrong and
-    /// System Settings as right.
-    @Test func escalatedCopyNamesTheContradictionWithoutHedging() throws {
+    /// THE detector fix. The 1.6.4 copy asserted "that switch belongs to an older build of VoicePlus"
+    /// from `attempts >= 1 && !isTranslocated` and nothing else — it never established that an entry
+    /// exists, that its switch is on, or that its stored requirement mismatches, none of which the app
+    /// can read (TCC.db is SIP-protected). On the reporting machine it happened to be true. On a clean
+    /// Mac with no VoicePlus entry at all, one press of Re-check made every clause of it false.
+    ///
+    /// The cure is the same for "stale entry" and "no entry", so the copy leads with the cure and
+    /// keeps the cause conditional.
+    @Test func escalatedCopyStatesTheCureAndNeverAssertsAnEntryItCannotSee() throws {
         for p in OnboardingPermission.allCases where !p.isPromptable {
             let copy = p.recoveryCopy(status: .awaitingUserAction, attempts: 1, identity: I.adHoc)
-            #expect(copy.headline.contains("switched on in \(p.settingsListName)"),
-                    "the headline must describe what the user is looking at")
-            #expect(copy.headline.contains("older build"))
-            #expect(!copy.headline.lowercased().contains("probably"), "measured, not guessed")
-            #expect(!copy.headline.contains("Still off."), "the old hedged headline is gone")
-            // The only cure, spelled out, and the explicit denial of the thing users try first.
-            let detail = try #require(copy.detail)
-            #expect(detail.contains("Turning it off and on again will not fix it"))
-            #expect(detail.contains("“–”") && detail.contains("“+”"))
+            let prose = copy.headline + " " + copy.steps.joined(separator: " ") + " " + (copy.detail ?? "")
+
+            // Unconditional claims about the user's TCC state are the bug. Every mention of an
+            // existing entry has to be guarded by an "if".
+            #expect(!copy.headline.contains("belongs to an older build"))
+            #expect(!copy.headline.contains("macOS shows VoicePlus switched on"))
+            for sentence in copy.steps where sentence.contains("already in that list") {
+                #expect(sentence.hasPrefix("If "), "the entry's existence is a conditional, not a fact")
+            }
+            #expect(!copy.headline.lowercased().contains("probably"), "conditional, not hedged")
+
+            // The cure, in order, as its own steps — this is what the 1.6.5 user never reached when
+            // it was one long sentence of grey caption text under an orange headline.
+            #expect(copy.steps.count == 3)
+            #expect(copy.steps[0].contains(p.settingsListName))
+            #expect(copy.steps[1].contains("“–”"))
+            #expect(copy.steps[2].contains("“+”"))
+            #expect(prose.contains("Switching it off and on again is not the same thing and will not fix it"))
             #expect(copy.showsResetCommand)
+            #expect(copy.showsRowReset, "and the app offers to do the fiddly step itself")
         }
     }
 
-    /// Restart is offered, but only as a secondary action and only after a failed re-check —
-    /// a fresh process was measured to read exactly the same `false`.
-    @Test func relaunchIsOfferedOnlyAfterAFailedRecheckAndNeverAsThePrimaryAction() {
-        let p = OnboardingPermission.inputMonitoring
-        #expect(p.recoveryCopy(status: .awaitingUserAction, attempts: 0, identity: I.adHoc).relaunchTitle == nil)
-        let escalated = p.recoveryCopy(status: .awaitingUserAction, attempts: 1, identity: I.adHoc)
-        #expect(escalated.relaunchTitle == "Quit & Reopen")
+    /// The one corroborating fact the app *can* observe: another non-promptable service granted right
+    /// now, under this same signature. It proves TCC accepts this build's requirement — so it may be
+    /// stated — but it still does not prove that an entry for *this* service exists, so it may not
+    /// upgrade the conditional into an assertion.
+    @Test func corroborationIsMentionedOnlyWhenItExistsAndNeverBecomesAnAssertion() throws {
+        let p = OnboardingPermission.accessibility
+        let bare = try #require(p.recoveryCopy(status: .awaitingUserAction, attempts: 1,
+                                               identity: I.stableAdHoc).detail)
+        #expect(!bare.contains("already honouring"))
+
+        let corroborated = try #require(p.recoveryCopy(
+            status: .awaitingUserAction, attempts: 1, identity: I.stableAdHoc,
+            evidence: .init(corroboratingGrants: [.inputMonitoring])).detail)
+        #expect(corroborated.contains("already honouring Input Monitoring for this exact build"))
+        #expect(corroborated.contains("the signature is fine"))
+        // The steps — the actual instructions — are identical either way.
+        #expect(p.recoveryCopy(status: .awaitingUserAction, attempts: 1, identity: I.stableAdHoc).steps
+                == p.recoveryCopy(status: .awaitingUserAction, attempts: 1, identity: I.stableAdHoc,
+                                  evidence: .init(corroboratingGrants: [.inputMonitoring])).steps)
+    }
+
+    /// Which services macOS re-reads for a running process was measured, and the copy now follows the
+    /// measurement instead of offering a restart everywhere. Accessibility: the user's own toggle made
+    /// the already-running app re-query tccd 213 ms later, and macOS ships no
+    /// `ACCESSIBILITY_QUIT_ALLOW_TITLE` at all while 25 other services have one. Input Monitoring: the
+    /// status is live too, but Apple's own string warns the app "will not be able to monitor input
+    /// from your keyboard until it is quit", so the fallback stays — as a fallback.
+    @Test func restartIsOfferedOnlyWhereMacOSMightActuallyRequireIt() throws {
+        let accessibility = OnboardingPermission.accessibility.recoveryCopy(
+            status: .awaitingUserAction, attempts: 2, identity: I.stableAdHoc)
+        #expect(accessibility.relaunchTitle == nil, "measured live; a restart button here teaches a false model")
+        let note = try #require(accessibility.restartNote)
+        #expect(note.contains("don't need to quit"))
+
+        let inputMonitoring = OnboardingPermission.inputMonitoring.recoveryCopy(
+            status: .awaitingUserAction, attempts: 2, identity: I.stableAdHoc)
+        #expect(inputMonitoring.relaunchTitle == "Quit & Reopen")
+        let imNote = try #require(inputMonitoring.restartNote)
+        #expect(imNote.contains("arms the hotkey by itself"))
+        #expect(imNote.contains("if the key still does nothing"), "a fallback, stated as one")
         // `retryTitle` is what the view renders as the prominent, Return-bound button. A
         // non-promptable service must never get one: no API can re-ask for it.
-        #expect(escalated.retryTitle == nil)
+        #expect(inputMonitoring.retryTitle == nil)
+    }
+
+    @Test func everyServiceAnswersTheRestartQuestionInWords() throws {
+        for p in OnboardingPermission.allCases {
+            for attempts in [0, 1, 3] {
+                let copy = p.recoveryCopy(status: .awaitingUserAction, attempts: attempts, identity: I.stableAdHoc)
+                #expect(copy.restartNote != nil, "\(p.rawValue) @\(attempts) must say whether a restart is needed")
+            }
+        }
+        #expect(!OnboardingPermission.microphone.restartCanBeNeeded)
+        #expect(!OnboardingPermission.accessibility.restartCanBeNeeded)
+        #expect(OnboardingPermission.inputMonitoring.restartCanBeNeeded)
     }
 
     /// Whether the −/+ dance has to be repeated after every update is a fact about the signature, so
@@ -137,9 +198,10 @@ struct NonPromptableRecoveryCopyTests {
         #expect(copy.relaunchTitle == nil, "a translocated relaunch only translocates again")
         #expect(copy.showsDequarantineCommand)
         #expect(!copy.showsResetCommand, "resetting TCC cannot help a path that vanishes")
-        let detail = try #require(copy.detail)
-        #expect(detail.contains("xattr -dr com.apple.quarantine"))
-        #expect(detail.contains("Applications"))
+        #expect(!copy.showsRowReset, "nor can removing an entry that was never the problem")
+        let steps = copy.steps.joined(separator: " ")
+        #expect(steps.contains("xattr -dr com.apple.quarantine"))
+        #expect(steps.contains("Applications"))
     }
 
     /// The promptable service is untouched by any of this: its copy is chosen by status alone, and
@@ -151,7 +213,42 @@ struct NonPromptableRecoveryCopyTests {
             #expect(copy.retryTitle == "Ask macOS again")
             #expect(copy.relaunchTitle == nil)
             #expect(!copy.showsDequarantineCommand)
+            #expect(!copy.showsRowReset, "the mic pane has no rows to remove and no + to re-add with")
         }
+    }
+}
+
+/// The exact escalation path the 1.6.4 detector got wrong, walked through the real state machine:
+/// a clean Mac with no VoicePlus entry anywhere, and one impatient press of Re-check.
+@Suite("First run + one Re-check must not accuse the user's TCC state")
+struct FirstRunEscalationTests {
+    @Test func aSingleRecheckOnACleanMacProducesNoOlderBuildClaim() throws {
+        var machine = OnboardingStateMachine(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted])
+        machine.handle(.next)
+        #expect(machine.currentPermission == .accessibility)
+        #expect(machine.permissionPhase == .explain)
+
+        // "Allow Accessibility" → AXIsProcessTrustedWithOptions returns synchronously, ungranted.
+        machine.handle(.allow(.accessibility))
+        machine.handle(.permissionResult(.accessibility, .awaitingUserAction))
+        #expect(machine.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
+
+        // One press of "Re-check" — the only thing needed to reach the escalated copy.
+        machine.handle(.verify(.accessibility))
+        machine.handle(.permissionResult(.accessibility, .awaitingUserAction))
+        #expect(machine.permissionPhase == .needsSystemSettings(recheckAttempts: 1))
+
+        // Nothing is switched on, no entry exists, no older build is involved. The copy may not say
+        // otherwise — and it may not offer a restart for a service macOS re-reads live.
+        let copy = OnboardingPermission.accessibility.recoveryCopy(
+            status: .awaitingUserAction, attempts: 1,
+            identity: AppCodeIdentityTests.stableAdHoc,
+            evidence: .init(corroboratingGrants: [.inputMonitoring]))
+        #expect(!copy.headline.contains("belongs to an older build"))
+        #expect(!copy.headline.contains("switched on in"))
+        #expect(copy.relaunchTitle == nil)
+        // What it says instead is the cure, which is right in both worlds.
+        #expect(copy.steps.contains { $0.contains("“+”") && $0.contains("Applications folder") })
     }
 }
 

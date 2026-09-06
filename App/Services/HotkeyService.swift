@@ -22,6 +22,25 @@ public final class HotkeyService {
     private let defaults: UserDefaults
     private let bindingKey: String
 
+    /// How many events the *tap* has delivered since it was last armed. `CGEvent.tapCreate` returns a
+    /// valid-looking port with no Input Monitoring at all (measured on macOS 26.6.2: six creations,
+    /// six non-NULL taps, `CGPreflightListenEventAccess()` false throughout), so "armed" is not
+    /// "working" and this counter is the only thing that can tell them apart.
+    public private(set) var eventsReceived = 0
+    /// When the current tap was created; nil while disarmed.
+    public private(set) var armedAt: Date?
+    /// How many times the tap has been created in this process — asserted by the tests that a grant
+    /// observed by the poll arms exactly once and never stacks a second tap on the run loop.
+    public private(set) var armCount = 0
+    /// Injectable for tests.
+    public var clock: () -> Date = Date.init
+    /// Seconds since the *system* last saw a `flagsChanged` event, from the HID event source. Needs
+    /// no permission of any kind, which is what makes it usable as the control in the liveness test:
+    /// silence from our tap only means something if the system itself saw modifier activity.
+    public var systemModifierIdle: () -> TimeInterval = {
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .flagsChanged)
+    }
+
     public init(defaults: UserDefaults = .standard, timing: HotkeyStateMachine.Timing = .default,
                 bindingKey: String = HotkeyService.bindingDefaultsKey,
                 defaultBinding: HotkeyBinding = .default) {
@@ -78,6 +97,7 @@ public final class HotkeyService {
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                     if let tap = service.tap { CGEvent.tapEnable(tap: tap, enable: true) }
                 } else {
+                    service.eventsReceived += 1
                     service.handle(event: event)
                 }
                 return Unmanaged.passUnretained(event)
@@ -93,16 +113,48 @@ public final class HotkeyService {
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         isRunning = true
-        Log.app.info("hotkey: listening for \(binding.kind.displayName)")
+        eventsReceived = 0
+        armedAt = clock()
+        armCount += 1
+        // `.notice` (not `.info`): info-level lines are memory-only and had already aged out by the
+        // time the 1.6.5 report was diagnosed, so the whole question "was the tap ever armed?" had to
+        // be answered from tccd's log instead of ours. Arming is rare; persist it.
+        Log.app.notice("hotkey: tap armed (#\(armCount)) for \(binding.kind.displayName)")
         return true
     }
 
+    /// Tear the tap down. Invalidating the port and the run-loop source (rather than only dropping
+    /// the references) is what guarantees a later `start()` cannot leave a second live tap behind.
     public func stop() {
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
-        if let runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes) }
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+            CFRunLoopSourceInvalidate(runLoopSource)
+        }
         tap = nil
         runLoopSource = nil
         isRunning = false
+        armedAt = nil
+        eventsReceived = 0
         machine.reset()
+    }
+
+    /// Drop the current tap and create a fresh one. Used when the liveness probe says the tap is
+    /// armed but deaf — the state a grant made *after* `tapCreate` can leave it in.
+    @discardableResult
+    public func rearm() -> Bool {
+        stop()
+        return start()
+    }
+
+    /// Is the armed tap actually receiving events? See `TapLiveness`.
+    public var livenessVerdict: TapLiveness.Verdict {
+        guard isRunning, let armedAt else { return .unknown }
+        return TapLiveness.verdict(armedFor: clock().timeIntervalSince(armedAt),
+                                   eventsSinceArmed: eventsReceived,
+                                   systemModifierIdle: systemModifierIdle())
     }
 }

@@ -103,7 +103,12 @@ struct PermissionOrchestratorTests {
         // Input Monitoring refused → Settings opened, and a watch armed rather than giving up.
         #expect(opened == [.inputMonitoring])
         #expect(pending.count == 1)
-        #expect(matrices.count == 1)
+        // Two reports, not one: since 1.6.6 the walk publishes what is already granted *before* the
+        // pre-prompt window goes up, so a capability the user already has is never withheld while a
+        // modal sits on a different permission. That is the whole "Input Monitoring was granted and
+        // the hotkey was never armed" failure.
+        #expect(matrices.count == 2)
+        #expect(matrices.first?[.microphone] == .granted)
 
         // The user grants it in System Settings; the poller fires.
         checker.statuses[.inputMonitoring] = .granted

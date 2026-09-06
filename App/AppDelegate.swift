@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: DictationCoordinator?
     private var orchestrator: PermissionOrchestrator?
     private var permissionPoller: PermissionPoller?
+    /// Owns the tap lifecycle for the whole life of the process — see `CapabilityWatcher`.
+    private var capabilityWatcher: CapabilityWatcher?
     private var container: AppContainer?
     private var transformPill: TransformPillDriver?
     private var correctionOverlay: CorrectionOverlayController?
@@ -248,6 +250,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusItem = status
 
+        // Arm the hotkey from the permission *matrix*, continuously, before anything else — not from
+        // the completion of the permission walk. Until 1.6.5 `hotkey.start()` had exactly one caller,
+        // that completion, which does not run while onboarding is on screen and is withheld while a
+        // pre-prompt window is up. On the reporting machine Input Monitoring had been granted for
+        // twenty minutes and no tap had ever been created, because the walk was parked on the
+        // Accessibility pre-prompt — a permission the hotkey does not need. That is the whole of the
+        // "it needs a relaunch" symptom: the app only ever tried once, at the wrong moment.
+        let watcher = CapabilityWatcher(checker: permissionChecker, hotkeys: [hotkey, actHotkey])
+        watcher.onCapabilitiesChanged = { [weak self] caps, _ in
+            self?.statusItem?.capabilities = caps
+        }
+        watcher.onTapProvenDead = { [weak self] in
+            // The one case where Apple's "…until it is quit" warning is the honest answer: the tap is
+            // armed, was re-armed once, and the system is still delivering modifier keys to everyone
+            // but us. Say so; never restart behind the user's back.
+            self?.pill.model.present(.preview(text: "macOS isn't sending keys to VoicePlus — quit and reopen it to fix the hotkey"))
+        }
+        capabilityWatcher = watcher
+        watcher.start()
+
         let orchestrator = PermissionOrchestrator(checker: permissionChecker, presentPrePrompt: PrePromptWindow.present)
         // macOS answers Input Monitoring / Accessibility only in System Settings, so "Check
         // permissions…" polls instead of stopping the walk after opening the pane.
@@ -346,20 +368,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func runPermissions() {
         orchestrator?.run { [weak self] matrix in
             guard let self else { return }
-            let caps = PermissionPlanner.capabilities(matrix)
-            self.statusItem?.capabilities = caps
-            if caps.canUseGlobalHotkey {
-                self.hotkey.start()
-                self.actHotkey.start()
-            } else {
-                self.hotkey.stop()
-                self.actHotkey.stop()
-            }
-            Log.app.info("permissions: \(matrix.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: " "))")
+            // Arming is the watcher's job and only the watcher's job — one owner of the tap
+            // lifecycle, so a walk that reports late can never stack a second tap or tear down a
+            // live one. All this does is make the walk's answer visible immediately.
+            Log.app.notice("permissions: \(matrix.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: " "))")
+            Task { @MainActor in self.capabilityWatcher?.refresh() }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        capabilityWatcher?.stop()
         hotkey.stop()
         actHotkey.stop()
     }

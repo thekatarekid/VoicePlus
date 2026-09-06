@@ -286,6 +286,12 @@ public final class PermissionOrchestrator {
             resumeAfterSettings(permission, skipped: skipped, completion: completion)
         case .prePrompt(let permission):
             log.append("preprompt:\(permission.rawValue)")
+            // Publish what is already granted *before* the pre-prompt window goes up. Until 1.6.5
+            // this completion was withheld until the whole walk finished, so a granted Input
+            // Monitoring stayed unreported — and the hotkey unarmed — for as long as the user left
+            // the Accessibility pre-prompt on screen. Capabilities are independent per permission
+            // (`PermissionPlanner.capabilities`), so there is nothing to wait for.
+            completion(matrix)
             presentPrePrompt(permission) { [weak self] choice in
                 guard let self else { return }
                 switch choice {
@@ -331,14 +337,17 @@ public final class PermissionPoller {
     private let checker: PermissionChecking
     private var timer: Timer?
     public var interval: TimeInterval = 0.5
-    public var timeout: TimeInterval = 300
+    /// nil = watch until it is granted or cancelled. It used to be 300 s, which is shorter than a
+    /// real trip through System Settings (find the pane, find the app, "–", "+", the file picker) —
+    /// and when it expired it did so silently, so the walk simply never resumed.
+    public var timeout: TimeInterval?
 
     public init(checker: PermissionChecking) { self.checker = checker }
 
     public func watch(_ permission: Permission, granted: @escaping () -> Void) {
         cancel()
         guard checker.status(of: permission) != .granted else { granted(); return }
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = timeout.map { Date().addingTimeInterval($0) }
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] t in
             MainActor.assumeIsolated {
                 guard let self else { t.invalidate(); return }
@@ -346,7 +355,8 @@ public final class PermissionPoller {
                     t.invalidate(); self.timer = nil
                     Log.app.info("permission granted while polling: \(permission.rawValue)")
                     granted()
-                } else if Date() >= deadline {
+                } else if let deadline, Date() >= deadline {
+                    Log.app.warning("permission watch for \(permission.rawValue) timed out")
                     t.invalidate(); self.timer = nil
                 }
             }

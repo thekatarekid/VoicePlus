@@ -70,6 +70,12 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
     /// after `tccutil reset Microphone` macOS asks again, but only if the app calls the API again.
     public struct RecoveryCopy: Equatable, Sendable {
         public var headline: String
+        /// The cure, in order, as separate imperative steps. This is the *primary* content of the
+        /// panel — the 1.6.5 report is a user who read an orange headline, acted on the switch it
+        /// mentioned, and never reached the instructions, which were rendered as small grey caption
+        /// text underneath. Steps render at body size, numbered.
+        public var steps: [String]
+        /// Secondary explanation, rendered under the steps. Never the place to put an instruction.
         public var detail: String?
         /// Title of the button that re-invokes the real system request; nil when no such API exists
         /// (non-promptable) or when calling it could not help (a hard Don't Allow, where the row —
@@ -77,66 +83,144 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
         public var retryTitle: String?
         /// Whether the `tccutil reset` copy/paste escape hatch is the honest last resort here.
         public var showsResetCommand: Bool
+        /// Whether the app may offer to remove its own entry for this service itself (the same
+        /// `tccutil reset` as the copy/paste command, run for the user). Only ever true in the
+        /// escalated non-promptable case, where the service is already not granted — so there is no
+        /// working grant that pressing it could destroy.
+        public var showsRowReset: Bool
         /// Title of a *secondary* "quit and come back" button, or nil when relaunching cannot help.
-        /// Never the primary action: a fresh process was measured to read the same `false` from
-        /// `CGPreflightListenEventAccess()` / `AXIsProcessTrusted()`, because the denial is a stored
-        /// code-requirement mismatch that tccd re-evaluates every time rather than a cached answer.
+        /// Never the primary action, and never offered for a service macOS re-reads live.
         public var relaunchTitle: String?
+        /// One line saying whether VoicePlus has to be restarted for this service — stated outright,
+        /// because "do I need to restart it?" is the question the 1.6.5 user actually asked and the
+        /// screen had no answer for.
+        public var restartNote: String?
         /// Whether the `xattr -dr com.apple.quarantine` escape hatch is what this case needs — true
         /// only for a translocated copy, where nothing done in System Settings can ever stick.
         public var showsDequarantineCommand: Bool
 
-        public init(headline: String, detail: String? = nil, retryTitle: String? = nil,
-                    showsResetCommand: Bool = false, relaunchTitle: String? = nil,
-                    showsDequarantineCommand: Bool = false) {
+        public init(headline: String, steps: [String] = [], detail: String? = nil, retryTitle: String? = nil,
+                    showsResetCommand: Bool = false, showsRowReset: Bool = false, relaunchTitle: String? = nil,
+                    restartNote: String? = nil, showsDequarantineCommand: Bool = false) {
             self.headline = headline
+            self.steps = steps
             self.detail = detail
             self.retryTitle = retryTitle
             self.showsResetCommand = showsResetCommand
+            self.showsRowReset = showsRowReset
             self.relaunchTitle = relaunchTitle
+            self.restartNote = restartNote
             self.showsDequarantineCommand = showsDequarantineCommand
+        }
+    }
+
+    /// What the app can actually *observe* about why a non-promptable switch reads off.
+    ///
+    /// This type exists because the 1.6.4 copy asserted a fact it had no access to. It said "that
+    /// switch belongs to an older build of VoicePlus" whenever `attempts >= 1` and the bundle was not
+    /// translocated — establishing neither that an entry exists, nor that its switch is on, nor that
+    /// its stored code requirement mismatches. TCC.db is SIP-protected; the app cannot read any of
+    /// those. On the reporting machine the claim happened to be true. On a clean Mac, one impatient
+    /// press of Re-check made every clause of it false.
+    ///
+    /// So the copy states the cure (which is identical for "no entry" and "stale entry") and
+    /// describes the cause conditionally. This carries the one corroborating signal the app *does*
+    /// have.
+    public struct RecoveryEvidence: Equatable, Sendable {
+        /// Other non-promptable services granted right now, under this same signature. Their
+        /// existence proves TCC accepts this build's designated requirement, which narrows the causes
+        /// for the failing one to "no entry" or "an entry recorded for an older build" — and rules
+        /// out "our signature is broken". It still does not prove which, so the copy stays
+        /// conditional either way.
+        public var corroboratingGrants: [OnboardingPermission]
+
+        public init(corroboratingGrants: [OnboardingPermission] = []) {
+            self.corroboratingGrants = corroboratingGrants
+        }
+
+        public var signatureProvenGood: Bool { !corroboratingGrants.isEmpty }
+    }
+
+    /// Whether macOS re-reads this service for an already-running process.
+    ///
+    /// Measured on macOS 26.6.2, and the answer differs per service:
+    /// * **Accessibility — yes, proven.** `AXIsProcessTrusted()` is cached per process, but macOS
+    ///   invalidates that cache with the `com.apple.accessibility.api` distributed notification,
+    ///   which VoicePlus observes. The user's own toggle at 11:18:02.387 made the already-running app
+    ///   issue fresh tccd queries 213 ms later. Accessibility is also the only TCC service with no
+    ///   `…_QUIT_ALLOW_TITLE` string in macOS' own Privacy pane — Apple never asks you to quit for it.
+    /// * **Microphone — yes.** `AVCaptureDevice.authorizationStatus` re-queries tccd on every call,
+    ///   and capture re-checks authorization and re-opens the device on every start.
+    /// * **Input Monitoring — the status is live** (`CGPreflightListenEventAccess()` is a mach round
+    ///   trip on every call, never a frozen value), so the app arms the tap itself the moment the
+    ///   grant lands. Whether an *already-created* event tap starts receiving keys after the grant is
+    ///   the one thing that could not be measured without a human at the switch, and Apple's own copy
+    ///   ("will not be able to monitor input from your keyboard until it is quit") says it may not.
+    ///   So this is the only service where a restart may honestly be offered — as a fallback, after
+    ///   the app has re-armed and the tap is still deaf.
+    var restartCanBeNeeded: Bool {
+        switch self {
+        case .accessibility, .microphone: return false
+        case .inputMonitoring: return true
         }
     }
 
     /// - Parameters:
     ///   - status: what TCC says right now — the source of truth, not a persisted flag.
     ///   - attempts: re-checks that came back still-ungranted, used only to escalate the
-    ///     non-promptable copy to the stale-record instructions.
-    ///   - identity: what the running build's code signature means for TCC. The escalated copy is
-    ///     a factual claim about *why* an on-looking switch reads off, so it has to be derived from
-    ///     the signature rather than guessed.
+    ///     non-promptable copy to the full remove-and-re-add instructions.
+    ///   - identity: what the running build's code signature means for TCC. Only claims that follow
+    ///     from the signature (translocation, whether the fix has to be repeated after each update)
+    ///     are derived from it; the stored entry itself is unreadable.
+    ///   - evidence: the corroborating grants, if any. Never used to turn a conditional statement
+    ///     into an assertion — only to add the one sentence the app can stand behind.
     public func recoveryCopy(status: OnboardingPermissionStatus, attempts: Int,
-                             identity: AppCodeIdentity = PermissionDiagnostics.identity()) -> RecoveryCopy {
+                             identity: AppCodeIdentity = PermissionDiagnostics.identity(),
+                             evidence: RecoveryEvidence = RecoveryEvidence()) -> RecoveryCopy {
         guard isPromptable else {
             // Input Monitoring / Accessibility: macOS shows no dialog for these, ever, and their
             // panes really do have "+" / "–", so this advice can actually be followed.
             if attempts == 0 {
                 return RecoveryCopy(
-                    headline: "macOS won't ask for this one. Turn VoicePlus on in \(settingsListName), then come back — this screen notices on its own."
+                    headline: "macOS won't ask for this one. Turn VoicePlus on in \(settingsListName), then come back — this screen notices on its own.",
+                    restartNote: liveNote
                 )
             }
-            // A re-check that came back off while the user is looking at a switch that is on is not
-            // ambiguous, so the copy must not hedge. TCC stores the *designated requirement* the app
-            // had when the switch was turned on and re-checks it on every query; the switch itself
-            // is a separate column, so flipping it off and on rewrites nothing. Two distinct causes,
-            // two different cures — and only one of them involves that list at all.
             if identity.isTranslocated {
                 // Gatekeeper is running a throwaway copy from a randomised read-only path. Nothing
                 // granted to it can outlive the launch, and "Quit & Reopen" only makes another one.
                 return RecoveryCopy(
                     headline: "macOS is running VoicePlus from a temporary copy, so nothing you switch on in \(settingsListName) can reach it.",
-                    detail: "Quit VoicePlus, drag it to your Applications folder, run “\(identity.dequarantineCommand)” in Terminal once, and open it from there. Then turn it on in \(settingsListName).",
+                    steps: [
+                        "Quit VoicePlus and drag it to your Applications folder.",
+                        "Run “\(identity.dequarantineCommand)” in Terminal, once.",
+                        "Open VoicePlus from Applications, then turn it on in \(settingsListName).",
+                    ],
+                    detail: "Until then, any switch you turn on is granted to a copy that disappears when VoicePlus quits.",
                     showsDequarantineCommand: true
                 )
             }
+            // What the app knows: TCC says not granted. What it cannot know: whether an entry exists
+            // and is stale, or whether there is no entry at all. Both are cured by the same three
+            // steps, so lead with those and keep the cause conditional.
             let durability = identity.isStable
                 ? "This build's signing identity no longer changes between updates, so you only have to do this once."
                 : "This build is signed ad-hoc, so its identity changes with every update and you will have to repeat this after each one."
+            let corroboration = evidence.signatureProvenGood
+                ? " macOS is already honouring \(evidence.corroboratingGrants.map(\.title).sorted().joined(separator: " and ")) for this exact build, so the signature is fine — it's this one entry that macOS isn't matching."
+                : ""
             return RecoveryCopy(
-                headline: "macOS shows VoicePlus switched on in \(settingsListName), but that switch belongs to an older build of VoicePlus.",
-                detail: "Turning it off and on again will not fix it. In \(settingsListName): select VoicePlus, press “–”, then press “+”, pick VoicePlus in your Applications folder, and switch it on. \(durability)",
+                headline: "macOS still isn't letting VoicePlus use \(title) — even if the switch in \(settingsListName) looks on.",
+                steps: [
+                    "Open \(settingsListName).",
+                    "If VoicePlus is already in that list, select it and press “–”. Switching it off and on again is not the same thing and will not fix it: macOS remembers which build the entry was added for, and only removing it clears that.",
+                    "Press “+”, pick VoicePlus in your Applications folder, and make sure its switch is on.",
+                ],
+                detail: durability + corroboration,
                 showsResetCommand: true,
-                relaunchTitle: "Quit & Reopen"
+                showsRowReset: true,
+                relaunchTitle: restartCanBeNeeded ? "Quit & Reopen" : nil,
+                restartNote: liveNote
             )
         }
         switch status {
@@ -145,7 +229,8 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
             // Asking again cannot reopen the dialog, so we do not offer a button that would lie.
             return RecoveryCopy(
                 headline: "You chose Don't Allow. VoicePlus is in \(settingsListName) now — switch it back on there.",
-                detail: "After a Don't Allow macOS stops showing the dialog and answers from that switch instead. This screen notices the moment you flip it."
+                detail: "After a Don't Allow macOS stops showing the dialog and answers from that switch instead. This screen notices the moment you flip it.",
+                restartNote: liveNote
             )
         default:
             // notDetermined / awaitingUserAction: nothing is recorded, so there is nothing to switch
@@ -154,9 +239,19 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
                 headline: "macOS hasn't answered for the \(title.lowercased()) yet.",
                 detail: "\(settingsListName) has no “+” button, so VoicePlus can only get into that list by asking macOS — opening Settings won't show it there until it has. Press “Ask macOS again”. If no dialog appears at all, copy the reset command below, run it in Terminal, and press it once more.",
                 retryTitle: "Ask macOS again",
-                showsResetCommand: true
+                showsResetCommand: true,
+                restartNote: liveNote
             )
         }
+    }
+
+    /// The honest answer to "do I have to quit and reopen it?", per service. Saying nothing was its
+    /// own failure mode: the 1.6.5 user quit and relaunched after every grant because the screen
+    /// never told them they didn't have to.
+    var liveNote: String {
+        restartCanBeNeeded
+            ? "VoicePlus arms the hotkey by itself within a second of the switch going on — you don't need to quit it first. macOS sometimes holds key events back from a process that was already running, so if the key still does nothing after a few seconds, then use Quit & Reopen."
+            : "You don't need to quit and reopen VoicePlus. It picks this up within a second of the switch moving."
     }
 }
 
