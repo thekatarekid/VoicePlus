@@ -200,6 +200,33 @@ done < <(find "$APP" -type l)
 [ "$BAD" = "0" ] || { echo "self-containment audit FAILED" >&2; exit 1; }
 log "self-containment audit OK (no /Users, /Library/Developer or scratch-dir references)"
 
+# --- 5c. Permission normalisation --------------------------------------------
+# `cp -R` preserves the source mode, and a handful of files inside the SwiftPM
+# resource bundles are 0444 in the build directory (GRDB's PrivacyInfo.xcprivacy,
+# two FluidAudio lexicon blobs). Copied verbatim they ship read-only, and the
+# very command our install instructions tell users to run then fails:
+#
+#   xattr: [Errno 13] Permission denied: .../GRDB_GRDB.bundle/PrivacyInfo.xcprivacy
+#
+# because rewriting an extended attribute requires write permission on the file
+# — even when, as here, there is no com.apple.quarantine attribute to remove and
+# nothing is actually broken. It reads as a broken install, and any tool that
+# genuinely needs to write an xattr hits the same wall. Normalise the whole
+# assembled bundle to sane modes. This MUST run before codesign: the signature
+# seals the bundle, so changing a mode afterwards invalidates it.
+log "normalising bundle permissions"
+chmod -R u+w "$APP"                              # no file is read-only to its owner
+find "$APP" -type d -exec chmod 755 {} +         # directories traversable
+# Executables and Mach-O keep the executable bit (755); everything else is 644.
+# The -perm +111 pass runs first so a Mach-O that is already executable is never
+# demoted, and the second pass promotes any Mach-O that arrived non-executable.
+find "$APP" -type f -perm +111 -exec chmod 755 {} +
+find "$APP" -type f ! -perm +111 -exec sh -c '
+  for f; do
+    if file -b "$f" | grep -q Mach-O; then chmod 755 "$f"; else chmod 644 "$f"; fi
+  done' _ {} +
+[ -x "$CONTENTS/MacOS/$BIN_NAME" ] || { echo "ERROR: normalisation stripped +x from $CONTENTS/MacOS/$BIN_NAME" >&2; exit 1; }
+
 # --- 6. Codesign -------------------------------------------------------------
 # DEVIATION: no Developer ID identity on this machine -> no notarization. We
 # still enable the hardened runtime, sign nested code inside-out (never `--deep`,
@@ -305,6 +332,21 @@ case "$DR" in
 esac
 # Belt and braces: the app must satisfy the requirement it advertises.
 codesign --verify -vv -R="$DR" "$APP" 2>&1 | sed 's/^/  /' || true
+
+# 6d. Writability gate. Checked on the FINISHED bundle (after signing, so the
+# _CodeSignature files are covered too). A single owner-read-only file is enough
+# to make `xattr -dr com.apple.quarantine /Applications/VoicePlus.app` — the
+# command in our own install instructions — print "Permission denied" and exit
+# non-zero on a user's Mac. Fail the build instead of shipping that.
+RO="$(find "$APP" -type f ! -perm -u+w)"
+if [ -n "$RO" ]; then
+  echo "ERROR: $(printf '%s\n' "$RO" | wc -l | tr -d ' ') file(s) in the bundle are read-only to their owner:" >&2
+  printf '%s\n' "$RO" | sed "s#^$APP/#  #" >&2
+  echo "  xattr (and anything else that writes an extended attribute) fails on these." >&2
+  echo "  See the permission normalisation step (5c) above." >&2
+  exit 1
+fi
+log "writability gate OK (no owner-read-only files in the bundle)"
 
 log "spctl (expected to be rejected without a Developer ID + notarization):"
 spctl --assess --type execute -vv "$APP" 2>&1 | sed 's/^/  /' || true

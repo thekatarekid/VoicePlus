@@ -80,6 +80,35 @@ while IFS= read -r macho; do
 done < <(find "$APP" -type f -perm +111 -exec sh -c 'file -b "$1" | grep -q Mach-O && echo "$1"' _ {} \;)
 echo "[verify]   no /Users, /Library/Developer or build-dir references"
 
+# Installability: what a user actually does after dragging the app to
+# /Applications. In 1.6.4 three files inside the SwiftPM resource bundles shipped
+# 0444 (cp -R had preserved the build directory's mode), so the documented
+#   xattr -dr com.apple.quarantine /Applications/VoicePlus.app
+# printed three "Permission denied" lines and exited 1. Nothing was broken —
+# there was no quarantine attribute to strip — but it reads as a broken install.
+echo "[verify] installability"
+ro="$(find "$APP" -type f ! -perm -u+w)"
+if [ -n "$ro" ]; then
+  printf '%s\n' "$ro" | sed "s#^$APP/#  read-only: #" >&2
+  fail "$(printf '%s\n' "$ro" | wc -l | tr -d ' ') file(s) are read-only to their owner; xattr cannot rewrite them"
+fi
+echo "[verify]   every file is owner-writable"
+
+# A locally built dmg is never downloaded, so nothing in it should carry a
+# quarantine attribute after a clean install.
+quarantined="$(find "$APP" -exec sh -c 'xattr "$1" 2>/dev/null | grep -qx com.apple.quarantine && echo "$1"' _ {} \; || true)"
+if [ -n "$quarantined" ]; then
+  printf '%s\n' "$quarantined" | sed "s#^$APP/#  quarantined: #" >&2
+  fail "com.apple.quarantine present in a freshly installed copy"
+fi
+echo "[verify]   no com.apple.quarantine anywhere in the installed copy"
+
+# And the documented un-quarantine command must be a clean no-op: exit 0, silent.
+xattr_err="$(xattr -dr com.apple.quarantine "$APP" 2>&1 >/dev/null)" && xattr_rc=0 || xattr_rc=$?
+[ "$xattr_rc" = "0" ] || { printf '%s\n' "$xattr_err" | sed 's/^/  /' >&2; fail "xattr -dr com.apple.quarantine exited $xattr_rc"; }
+[ -z "$xattr_err" ] || { printf '%s\n' "$xattr_err" | sed 's/^/  /' >&2; fail "xattr -dr com.apple.quarantine wrote to stderr"; }
+echo "[verify]   xattr -dr com.apple.quarantine: exit 0, no stderr"
+
 pkill -x VoicePlus 2>/dev/null || true
 echo "[verify] launching"
 open -n "$APP" || fail "open failed"
