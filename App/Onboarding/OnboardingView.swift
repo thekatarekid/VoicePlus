@@ -40,21 +40,27 @@ public struct OnboardingView: View {
         }
     }
 
+    /// Scrollable since 1.6.6: the recovery panel now carries three numbered steps at body size, and
+    /// the window is a fixed 520×420 — without this the instructions are the first thing clipped,
+    /// which is the exact failure being fixed.
     private var permissions: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let p = model.machine.currentPermission {
-                Text(p.title).font(.title.bold())
-                Text(p.why).font(.callout)
-                switch model.machine.permissionPhase {
-                case .explain:
-                    Button("Allow \(p.title)") { model.send(.allow(p)) }.keyboardShortcut(.defaultAction)
-                case .requesting:
-                    ProgressView("Asking macOS…")
-                case .needsSystemSettings(let attempts):
-                    needsSettings(p, attempts: attempts)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let p = model.machine.currentPermission {
+                    Text(p.title).font(.title.bold())
+                    Text(p.why).font(.callout)
+                    switch model.machine.permissionPhase {
+                    case .explain:
+                        Button("Allow \(p.title)") { model.send(.allow(p)) }.keyboardShortcut(.defaultAction)
+                    case .requesting:
+                        ProgressView("Asking macOS…")
+                    case .needsSystemSettings(let attempts):
+                        needsSettings(p, attempts: attempts)
+                    }
                 }
+                permissionChecklist
             }
-            permissionChecklist
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

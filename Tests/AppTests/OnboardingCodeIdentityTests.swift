@@ -109,7 +109,8 @@ struct NonPromptableRecoveryCopyTests {
             #expect(copy.steps[0].contains(p.settingsListName))
             #expect(copy.steps[1].contains("“–”"))
             #expect(copy.steps[2].contains("“+”"))
-            #expect(prose.contains("Switching it off and on again is not the same thing and will not fix it"))
+            #expect(prose.contains("Turning its switch off and on again is not the same thing and will not fix it"))
+            #expect(prose.contains("re-adding the entry is the only thing that rewrites that"))
             #expect(copy.showsResetCommand)
             #expect(copy.showsRowReset, "and the app offers to do the fiddly step itself")
         }

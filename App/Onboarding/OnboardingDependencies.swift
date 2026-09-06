@@ -213,10 +213,10 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
                 headline: "macOS still isn't letting VoicePlus use \(title) — even if the switch in \(settingsListName) looks on.",
                 steps: [
                     "Open \(settingsListName).",
-                    "If VoicePlus is already in that list, select it and press “–”. Switching it off and on again is not the same thing and will not fix it: macOS remembers which build the entry was added for, and only removing it clears that.",
+                    "If VoicePlus is already in that list, select it and press “–”. Turning its switch off and on again is not the same thing and will not fix it.",
                     "Press “+”, pick VoicePlus in your Applications folder, and make sure its switch is on.",
                 ],
-                detail: durability + corroboration,
+                detail: "macOS records which build an entry was added for, and re-adding the entry is the only thing that rewrites that. " + durability + corroboration,
                 showsResetCommand: true,
                 showsRowReset: true,
                 relaunchTitle: restartCanBeNeeded ? "Quit & Reopen" : nil,
