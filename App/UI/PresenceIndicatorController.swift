@@ -47,16 +47,20 @@ public final class PresenceIndicatorController {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var started = false
+    private var settledLogged = false
     /// Tallest menu bar ever seen per display — see `PresenceInteraction.menuBarPresent`.
     private var menuBarSeen: [String: CGFloat] = [:]
 
     public init() {
         panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: true)
+        // ORDER MATTERS: `isFloatingPanel = true` sets the level to `.floating` (3) as a side
+        // effect, so it has to come first or it silently demotes the panel below the menu bar and
+        // every other status-level overlay. Caught by `presence settled: … level=` in the log.
+        panel.isFloatingPanel = true
         // Deliberately one level BELOW the pill (`.statusBar + 1`): when both want the same anchor,
         // the pill wins — and the reducer hides this one anyway.
         panel.level = .statusBar
-        panel.isFloatingPanel = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -179,7 +183,26 @@ public final class PresenceIndicatorController {
                 presence state: \(next.caseName) frame=\(NSStringFromRect(layout.frame)) \
                 hovered=\(hovering) ignoresMouse=\(self.panel.ignoresMouseEvents) \
                 clearsHousing=\(PresenceGeometry.clearsHousing(layout.frame, on: metrics)) \
-                menuBar=\(self.inputs.menuBarPresent)
+                menuBar=\(self.inputs.menuBarPresent) visible=\(self.panel.isVisible) \
+                screen=\(self.panel.screen?.localizedName ?? "none")
+                """)
+            logSettled()
+        }
+    }
+
+    /// `occlusionState` only means anything once the window server has composited the panel, so the
+    /// "is it actually on screen?" half of the diagnostic has to come a beat later — the same trick
+    /// `WindowPlacement.place` uses. This is the line that proves the chin is really visible.
+    private func logSettled() {
+        guard !settledLogged else { return }
+        settledLogged = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            Log.app.notice("""
+                presence settled: frame=\(NSStringFromRect(self.panel.frame)) \
+                visible=\(self.panel.isVisible) onscreen=\(self.panel.occlusionState.contains(.visible)) \
+                key=\(self.panel.isKeyWindow) level=\(self.panel.level.rawValue) \
+                screen=\(self.panel.screen?.localizedName ?? "none")
                 """)
         }
     }
