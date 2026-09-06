@@ -79,8 +79,18 @@ public final class SystemPermissionChecker: PermissionChecking {
 /// Opens the Privacy & Security pane for a permission, trying the modern pane id before the legacy
 /// one (still installed on macOS 26 as `Security.prefPane`).
 public enum PermissionSettingsOpener {
+    /// Notified every time the user is sent to System Settings for a service. `CapabilityWatcher`
+    /// subscribes so it knows a trip is in progress, which is the trigger for the "macOS is holding
+    /// this grant until VoicePlus restarts" offer (P6).
+    ///
+    /// A static hook rather than an injected dependency because the three ways the app opens that
+    /// pane — the permission orchestrator, `LivePermissionChecker.openSystemSettings`, and the
+    /// onboarding screen's button — share nothing else, and every one of them funnels through here.
+    public static var onOpened: ((Permission) -> Void)?
+
     @discardableResult
     public static func open(_ permission: Permission) -> Bool {
+        onOpened?(permission)
         for url in permission.settingsURLs where NSWorkspace.shared.open(url) { return true }
         Log.app.warning("could not open System Settings for \(permission.rawValue)")
         return false

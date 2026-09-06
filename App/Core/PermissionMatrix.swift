@@ -116,6 +116,13 @@ public enum PermissionPlanner {
         public var canCapture: Bool
         public var canUseGlobalHotkey: Bool
         public var canInjectText: Bool
+
+        public init(canCapture: Bool = false, canUseGlobalHotkey: Bool = false, canInjectText: Bool = false) {
+            self.canCapture = canCapture
+            self.canUseGlobalHotkey = canUseGlobalHotkey
+            self.canInjectText = canInjectText
+        }
+
         /// Hotkey without Input Monitoring falls back to the menu-bar "Start dictation" item.
         public var needsMenuFallback: Bool { canCapture && !canUseGlobalHotkey }
     }
@@ -190,5 +197,120 @@ public struct AppCodeIdentity: Equatable, Sendable {
     /// The Terminal one-liner that ends translocation for good. Shown, never run by the app.
     public var dequarantineCommand: String {
         "xattr -dr com.apple.quarantine /Applications/VoicePlus.app"
+    }
+}
+
+// MARK: - Does a mid-session grant reach a running app? (P6)
+
+public extension Permission {
+    /// Whether a grant made **while VoicePlus is already running** becomes visible to it without a
+    /// relaunch.
+    ///
+    /// This is Apple's answer, not ours. `PrivacyTCCServices.plist` inside
+    /// `/System/Library/PreferencePanes/Security.prefPane` carries a `quitAllowTitleForAppName`
+    /// string for `kTCCServiceMicrophone` and `kTCCServiceListenEvent` — the two alerts the 1.6.6
+    /// user photographed, worded as flat assertions ("will not have access…", "will not be able
+    /// to…", not the hedged "may not" that screen recording gets) — and has **no entry at all** for
+    /// `kTCCServiceAccessibility`. macOS never asks you to quit for Accessibility.
+    ///
+    /// Corroborated on the reporting machine (macOS 26.6.2) by three consecutive VoicePlus processes
+    /// against tccd's own grant timestamps:
+    /// * Microphone was granted 6 s into PID 76635's life; that process polled once a second for its
+    ///   remaining 25 s and never stopped reading `denied`.
+    /// * Input Monitoring was granted 16 s into PID 76861's life; it read `notDetermined` for its
+    ///   remaining 18 s.
+    /// * Each *following* process read the new value on its very first query.
+    /// * In the same window, in the same build, Accessibility flipped **inside** a running process
+    ///   in about a second, via the `com.apple.accessibility.api` distributed notification.
+    /// A control ruled out the obvious confound: a background `LSUIElement` process ticked a
+    /// `.default`-mode 1 Hz timer 49 times in 50 s, so nothing was App-Napped.
+    ///
+    /// What this deliberately does **not** claim: that the underlying capability is dead. Only that
+    /// the status API stays stale for the life of the process — and since every VoicePlus feature is
+    /// gated on that status, for this app the two are the same thing. Nothing here should ever be
+    /// upgraded to a claim about capture or event delivery without a measurement of *those*.
+    var grantReachesRunningApp: Bool {
+        switch self {
+        case .accessibility: return true
+        case .microphone, .inputMonitoring: return false
+        }
+    }
+
+    /// macOS' own sentence for this service, from `Security.prefPane`'s `Localizable.loctable` (en)
+    /// with the app name filled in — so our copy agrees with the alert the user just dismissed
+    /// instead of contradicting it. nil for Accessibility, which has no such string.
+    var systemQuitWarning: String? {
+        switch self {
+        case .microphone:
+            return "“VoicePlus” will not have access to your microphone until it is quit."
+        case .inputMonitoring:
+            return "“VoicePlus” will not be able to monitor input from your keyboard until it is quit."
+        case .accessibility:
+            return nil
+        }
+    }
+}
+
+/// Decides when offering "Quit & Reopen" is honest, and for which service.
+///
+/// Pure and clock-injected, so the rule is a unit test rather than a thing that can only be seen by
+/// toggling switches on a real Mac.
+///
+/// The rule has to thread a needle. Offering a relaunch whenever a permission is missing nags every
+/// user who simply hasn't granted it yet; offering it only after `CapabilityWatcher.onTapProvenDead`
+/// — which is what 1.6.6 shipped — can never fire in the case that actually happens, because that
+/// path requires the tap to have been armed and `HotkeyService.start()` refuses to arm while
+/// `CGPreflightListenEventAccess()` is false, which is exactly the stale value the relaunch would
+/// fix. So the trigger is the moment where the user's own action makes the offer meaningful: they
+/// were sent to System Settings for a service macOS only hands over at launch, they came back, and
+/// it still reads off.
+public struct RelaunchAdvisor: Equatable, Sendable {
+    /// Seconds after the user returns to VoicePlus before a still-ungranted service is called out.
+    /// Long enough not to fire on someone who alt-tabbed through Settings without touching anything;
+    /// short enough to be the next thing they see.
+    public static let grace: TimeInterval = 3
+
+    /// When we last sent the user to System Settings for each service, this process.
+    public private(set) var sentToSettings: [Permission: Date] = [:]
+    /// When VoicePlus last came back to the foreground.
+    public private(set) var becameActiveAt: Date?
+    /// Services already advised, so the offer is made once per trip rather than once per tick.
+    public private(set) var advised: Set<Permission> = []
+
+    public init() {}
+
+    /// Only these can ever produce an offer: a service macOS re-reads live never needs a relaunch,
+    /// and saying otherwise is the 1.6.5 mistake in the opposite direction.
+    public static let candidates: [Permission] = Permission.allCases
+        .filter { !$0.grantReachesRunningApp }
+        .sorted { $0.rawValue < $1.rawValue }
+
+    public mutating func noteSentToSettings(_ permission: Permission, at now: Date) {
+        guard !permission.grantReachesRunningApp else { return }
+        sentToSettings[permission] = now
+        advised.remove(permission)
+    }
+
+    public mutating func noteBecameActive(at now: Date) { becameActiveAt = now }
+
+    /// The services that have *newly* earned a relaunch offer. Returns each one once; a service that
+    /// becomes granted is forgotten, so a later trip through Settings can advise again.
+    public mutating func evaluate(matrix: PermissionMatrix, now: Date) -> [Permission] {
+        var newly: [Permission] = []
+        for permission in Self.candidates {
+            guard let sent = sentToSettings[permission] else { continue }
+            if matrix[permission] == .granted {
+                // It landed live after all — forget everything, and never claim it didn't.
+                sentToSettings.removeValue(forKey: permission)
+                advised.remove(permission)
+                continue
+            }
+            guard !advised.contains(permission) else { continue }
+            // The user has to have come back *after* being sent out, and then settled.
+            guard let active = becameActiveAt, active >= sent, now.timeIntervalSince(active) >= Self.grace else { continue }
+            advised.insert(permission)
+            newly.append(permission)
+        }
+        return newly
     }
 }

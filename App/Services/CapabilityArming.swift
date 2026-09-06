@@ -75,12 +75,22 @@ public enum CapabilityArming {
 /// parked on the *Accessibility* pre-prompt: a permission the hotkey does not need. The app looked
 /// like it required a relaunch when all it required was to try again.
 ///
-/// The status APIs are live for all three services (measured: `CGPreflightListenEventAccess()`
-/// ~20 µs of mach round trip per call, never a frozen value; `AVCaptureDevice.authorizationStatus`
-/// re-queries tccd on every call). `AXIsProcessTrusted()` *is* cached per process, but macOS drops
-/// that cache on the `com.apple.accessibility.api` distributed notification, which this class also
-/// observes — measured 82–213 ms from the user's toggle to a fresh tccd query in the running app,
-/// against a 1 s timer. Nothing here needs a restart.
+/// ## What a running process can and cannot pick up (corrected in 1.6.7)
+/// 1.6.6 claimed here that "the status APIs are live for all three services… nothing here needs a
+/// restart". That was measured on a process which *already had* the grant when it launched, and it
+/// does not generalise to a grant that lands mid-process. The corrected, per-service picture — see
+/// `Permission.grantReachesRunningApp` for the full evidence:
+/// * **Accessibility — live, and the 1.6.6 claim was right.** `AXIsProcessTrusted()` is cached per
+///   process, but macOS drops that cache on the `com.apple.accessibility.api` distributed
+///   notification, which this class observes. Measured 82–213 ms from the user's toggle to a fresh
+///   tccd query inside the already-running app. macOS ships no "quit" string for it at all.
+/// * **Microphone and Input Monitoring — not live, and the 1.6.6 claim was wrong.** Both status APIs
+///   kept returning the pre-grant answer for the rest of the process's life (25 s and 18 s of
+///   once-a-second polling respectively), while the very next process read the new value instantly.
+///   macOS says so itself in the alert it shows when the switch moves.
+/// So the watcher still arms the instant a grant becomes visible — that part was never the problem —
+/// but for those two services it also has to be able to say "macOS is holding this until VoicePlus
+/// restarts", which is what `onRelaunchAdvised` is for.
 @MainActor
 public final class CapabilityWatcher {
     public static let interval: TimeInterval = 1.0
@@ -100,14 +110,36 @@ public final class CapabilityWatcher {
     /// Fired on every *change* of the capability set (and once on the first read).
     public var onCapabilitiesChanged: ((PermissionPlanner.Capabilities, PermissionMatrix) -> Void)?
     /// Input Monitoring is granted, the tap has been armed and re-armed, and the system is still
-    /// delivering modifier events to everyone but us. This is the only state in which a restart is
-    /// an honest recommendation for the hotkey.
+    /// delivering modifier events to everyone but us. An honest restart recommendation — but a
+    /// *narrow* one: it presupposes an armed tap, and `HotkeyService.start()` will not arm while
+    /// preflight reads false. In the case the 1.6.6 user actually hit (grant made mid-session,
+    /// "Later" pressed, preflight frozen at false) this can never fire. `onRelaunchAdvised` is the
+    /// trigger that covers it.
     public var onTapProvenDead: (() -> Void)?
+    /// A service macOS only hands over at launch (`Permission.grantReachesRunningApp == false`) is
+    /// still not granted after the user was sent to System Settings for it and came back. Fires once
+    /// per trip, per service, so a one-click "Quit & Reopen" can be offered without nagging.
+    public var onRelaunchAdvised: ((Permission) -> Void)?
+
+    /// Injectable so the advisor's grace period is testable without sleeping.
+    public var clock: () -> Date = Date.init
+    private var advisor = RelaunchAdvisor()
 
     public init(checker: PermissionChecking, hotkeys: [HotkeyArming]) {
         self.checker = checker
         self.hotkeys = hotkeys
     }
+
+    /// The user has just been sent to System Settings for `permission`. Told to the watcher rather
+    /// than inferred, because "the app is missing a permission" is the normal state of a fresh
+    /// install and must never on its own produce a restart prompt.
+    public func noteSentToSettings(_ permission: Permission) {
+        advisor.noteSentToSettings(permission, at: clock())
+    }
+
+    /// VoicePlus came back to the foreground. Called from the `didBecomeActive` observer; exposed so
+    /// tests need no notification.
+    public func noteBecameActive() { advisor.noteBecameActive(at: clock()) }
 
     deinit {
         timer?.invalidate()
@@ -127,7 +159,12 @@ public final class CapabilityWatcher {
         }
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.refresh() } })
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.noteBecameActive()
+                self?.refresh()
+            }
+        })
         // The signal HIServices itself uses to drop its cached `AXIsProcessTrusted()` answer. Every
         // VoicePlus process already registers for it; this is the first thing to act on it.
         distributedObserver = DistributedNotificationCenter.default().addObserver(
@@ -167,6 +204,10 @@ public final class CapabilityWatcher {
             onCapabilitiesChanged?(caps, current)
         }
         applyArming(canUseGlobalHotkey: caps.canUseGlobalHotkey)
+        for permission in advisor.evaluate(matrix: current, now: clock()) {
+            Log.app.notice("capabilities: \(permission.rawValue) still not granted after the trip to System Settings — macOS hands this one over only at launch, so offering a relaunch")
+            onRelaunchAdvised?(permission)
+        }
     }
 
     private func applyArming(canUseGlobalHotkey: Bool) {

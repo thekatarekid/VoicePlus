@@ -137,25 +137,26 @@ struct NonPromptableRecoveryCopyTests {
                                   evidence: .init(corroboratingGrants: [.inputMonitoring])).steps)
     }
 
-    /// Which services macOS re-reads for a running process was measured, and the copy now follows the
-    /// measurement instead of offering a restart everywhere. Accessibility: the user's own toggle made
-    /// the already-running app re-query tccd 213 ms later, and macOS ships no
-    /// `ACCESSIBILITY_QUIT_ALLOW_TITLE` at all while 25 other services have one. Input Monitoring: the
-    /// status is live too, but Apple's own string warns the app "will not be able to monitor input
-    /// from your keyboard until it is quit", so the fallback stays — as a fallback.
-    @Test func restartIsOfferedOnlyWhereMacOSMightActuallyRequireIt() throws {
+    /// Corrected in 1.6.7. The 1.6.6 answer — "the status APIs are live for all three, a restart is
+    /// never required" — was measured on processes that already held the grant at launch, and macOS'
+    /// own alerts said the opposite for two of the three. Accessibility stays exactly as it was (no
+    /// quit string in the Privacy pane, and a toggle picked up in ~1 s inside a running process);
+    /// Microphone and Input Monitoring now offer the restart, because that is what macOS does.
+    @Test func restartIsOfferedOnlyWhereMacOSActuallyRequiresIt() throws {
         let accessibility = OnboardingPermission.accessibility.recoveryCopy(
             status: .awaitingUserAction, attempts: 2, identity: I.stableAdHoc)
         #expect(accessibility.relaunchTitle == nil, "measured live; a restart button here teaches a false model")
         let note = try #require(accessibility.restartNote)
         #expect(note.contains("don't need to quit"))
+        #expect(!note.contains("until it is quit"), "macOS ships no quit string for Accessibility")
 
         let inputMonitoring = OnboardingPermission.inputMonitoring.recoveryCopy(
             status: .awaitingUserAction, attempts: 2, identity: I.stableAdHoc)
         #expect(inputMonitoring.relaunchTitle == "Quit & Reopen")
         let imNote = try #require(inputMonitoring.restartNote)
-        #expect(imNote.contains("arms the hotkey by itself"))
-        #expect(imNote.contains("if the key still does nothing"), "a fallback, stated as one")
+        // The copy has to agree with the alert the user just dismissed, not contradict it.
+        #expect(imNote.contains("will not be able to monitor input from your keyboard until it is quit"))
+        #expect(!imNote.contains("you don't need to quit"))
         // `retryTitle` is what the view renders as the prominent, Return-bound button. A
         // non-promptable service must never get one: no API can re-ask for it.
         #expect(inputMonitoring.retryTitle == nil)
@@ -168,9 +169,42 @@ struct NonPromptableRecoveryCopyTests {
                 #expect(copy.restartNote != nil, "\(p.rawValue) @\(attempts) must say whether a restart is needed")
             }
         }
-        #expect(!OnboardingPermission.microphone.restartCanBeNeeded)
-        #expect(!OnboardingPermission.accessibility.restartCanBeNeeded)
-        #expect(OnboardingPermission.inputMonitoring.restartCanBeNeeded)
+        // The per-service verdict, which the onboarding enum delegates to `Permission` so the two
+        // can never drift apart.
+        #expect(OnboardingPermission.microphone.relaunchNeededForMidSessionGrant)
+        #expect(OnboardingPermission.inputMonitoring.relaunchNeededForMidSessionGrant)
+        #expect(!OnboardingPermission.accessibility.relaunchNeededForMidSessionGrant)
+        #expect(!OnboardingPermission.microphone.grantReachesRunningApp)
+        #expect(OnboardingPermission.accessibility.grantReachesRunningApp)
+    }
+
+    /// The first pass may not promise live pickup for a service that does not have it. Before 1.6.7
+    /// it told Input Monitoring users "come back — this screen notices on its own", which is a lie
+    /// the screen then acts out for as long as the user is willing to wait.
+    @Test func theFirstPassOnlyPromisesLivePickupWhereItHappens() {
+        let accessibility = OnboardingPermission.accessibility.recoveryCopy(
+            status: .awaitingUserAction, attempts: 0, identity: I.stableAdHoc)
+        #expect(accessibility.headline.contains("notices on its own"))
+
+        let inputMonitoring = OnboardingPermission.inputMonitoring.recoveryCopy(
+            status: .awaitingUserAction, attempts: 0, identity: I.stableAdHoc)
+        #expect(!inputMonitoring.headline.contains("notices on its own"))
+        #expect(inputMonitoring.headline.contains("Quit & Reopen"))
+    }
+
+    /// A hard "Don't Allow" is the one microphone state a mid-session Settings grant arrives from,
+    /// and macOS withholds that grant from the running process. Once a re-check has come back off,
+    /// the restart offer is the honest next step — but not before the user has tried anything.
+    @Test func microphoneOffersTheRestartOnlyAfterARecheckHasFailed() {
+        let firstLook = OnboardingPermission.microphone.recoveryCopy(status: .denied, attempts: 0,
+                                                                    identity: I.stableAdHoc)
+        #expect(firstLook.relaunchTitle == nil, "nothing has failed yet")
+        let afterRecheck = OnboardingPermission.microphone.recoveryCopy(status: .denied, attempts: 1,
+                                                                       identity: I.stableAdHoc)
+        #expect(afterRecheck.relaunchTitle == "Quit & Reopen")
+        // Except from a translocated copy, where relaunching only translocates again.
+        #expect(OnboardingPermission.microphone
+            .recoveryCopy(status: .denied, attempts: 1, identity: I.translocated).relaunchTitle == nil)
     }
 
     /// Whether the −/+ dance has to be repeated after every update is a fact about the signature, so
