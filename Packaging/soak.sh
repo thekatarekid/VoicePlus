@@ -45,7 +45,9 @@ echo "soak: ${MINUTES} min, fixture ${FIXTURE}, output $OUT"
   done
 ) >> "$SYS" &
 SAMPLER=$!
-trap 'kill $SAMPLER 2>/dev/null || true' EXIT
+# Scoped to our own sampler subshell — never a name match. (See the header of
+# Packaging/verify_install.sh: a name-based kill once took out the user's app.)
+trap '[ -n "${SAMPLER:-}" ] && kill "$SAMPLER" 2>/dev/null; true' EXIT
 
 "$BIN" --soak "$MINUTES" --fixture "$FIXTURE" | tee "$OUT"
 

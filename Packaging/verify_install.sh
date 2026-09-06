@@ -2,21 +2,68 @@
 # First-run integrity check from the actual dmg artifact (P1.13 T3).
 # Usage: Packaging/verify_install.sh <dmg>
 # Mounts the dmg, copies the app into a temp "Applications" dir, launches it,
-# checks the process + ~/Library/Application Support/VoicePlus, kills, unmounts.
+# checks the process + ~/Library/Application Support/VoicePlus, stops its own
+# instance, unmounts.
+#
+# This script never terminates a VoicePlus it did not start. Until 1.6.6 the
+# cleanup trap ran `pkill -x VoicePlus`, which matches by process NAME: a
+# verification run killed the user's own /Applications instance mid-session.
+# Everything below is scoped to $LAUNCHED_PID — the one pid this run launched.
 set -euo pipefail
 DMG="${1:?usage: verify_install.sh <dmg>}"
 [ -f "$DMG" ] || { echo "no such dmg: $DMG" >&2; exit 1; }
 
 APP_SUPPORT="$HOME/Library/Application Support/VoicePlus"
 WORK="$(mktemp -d -t voiceplus-verify)"
+# Physical path: mktemp hands back /var/..., but ps reports the process's
+# executable as /private/var/... (/var is a symlink). The pid lookup below is an
+# exact string compare, so normalise here or it silently never matches.
+WORK="$(cd "$WORK" && pwd -P)"
 MNT="$WORK/mnt"; APPS="$WORK/Applications"; mkdir -p "$MNT" "$APPS"
+APP="$APPS/VoicePlus.app"
+EXEC="$APP/Contents/MacOS/VoicePlus"
+EXEC_ALT="${EXEC#/private}"   # the /var/... spelling of the same file
+LAUNCHED_PID=""   # the only process this script is ever allowed to signal
 fail() { echo "FAIL: $*" >&2; exit 1; }
+
+# pid of a running VoicePlus whose executable is *this run's* temp copy.
+# Matching the full executable path — never the process name — is what keeps
+# every other VoicePlus on the machine (/Applications, Packaging/build, a dev
+# build) out of scope. Prints nothing when our copy is not running.
+our_pid() {
+  /bin/ps -axo pid=,comm= 2>/dev/null \
+    | awk -v a="$EXEC" -v b="$EXEC_ALT" \
+        '!f {p=$1; $1=""; sub(/^[ \t]+/,""); if ($0==a || $0==b) {print p; f=1}}' \
+    || true
+}
+
+# Terminate exactly the pid we launched, politely first. No-op if we never
+# launched anything or it is already gone.
+stop_launched() {
+  [ -n "$LAUNCHED_PID" ] || return 0
+  if ! kill -0 "$LAUNCHED_PID" 2>/dev/null; then LAUNCHED_PID=""; return 0; fi
+  kill "$LAUNCHED_PID" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    kill -0 "$LAUNCHED_PID" 2>/dev/null || break
+    sleep 0.25
+  done
+  kill -0 "$LAUNCHED_PID" 2>/dev/null && kill -9 "$LAUNCHED_PID" 2>/dev/null || true
+  # Reap quietly when it was our own child, so bash does not print "Terminated: 15".
+  { wait "$LAUNCHED_PID" 2>/dev/null || true; } 2>/dev/null
+  LAUNCHED_PID=""
+}
+
 cleanup() {
-  pkill -x VoicePlus 2>/dev/null || true
+  stop_launched
   hdiutil detach -quiet -force "$MNT" 2>/dev/null || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
+# Ctrl-C / SIGTERM must go through the same scoped cleanup, or an interrupted run
+# leaves its own instance orphaned. cleanup is idempotent, so the EXIT trap
+# firing afterwards is harmless.
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 echo "[verify] mounting $DMG"
 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MNT" "$DMG"
@@ -25,7 +72,6 @@ hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MNT" "$DMG"
 
 echo "[verify] clean install -> $APPS"
 cp -R "$MNT/VoicePlus.app" "$APPS/"
-APP="$APPS/VoicePlus.app"
 codesign -vv --deep --strict "$APP" 2>&1 | sed 's/^/  /'
 grep -qx in.adityakatare.voiceplus <<<"$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist")" || fail "bundle id"
 VER="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")"
@@ -109,23 +155,51 @@ xattr_err="$(xattr -dr com.apple.quarantine "$APP" 2>&1 >/dev/null)" && xattr_rc
 [ -z "$xattr_err" ] || { printf '%s\n' "$xattr_err" | sed 's/^/  /' >&2; fail "xattr -dr com.apple.quarantine wrote to stderr"; }
 echo "[verify]   xattr -dr com.apple.quarantine: exit 0, no stderr"
 
-pkill -x VoicePlus 2>/dev/null || true
+# Any VoicePlus already running belongs to the user. Note it, leave it alone,
+# and `open -n` a *new* instance of our own copy alongside it.
+others_before="$(pgrep -x VoicePlus 2>/dev/null | tr '\n' ' ' || true)"
+if [ -n "${others_before// /}" ]; then
+  echo "[verify] other VoicePlus instance(s) already running: ${others_before% } (left alone)"
+fi
+
 echo "[verify] launching"
 open -n "$APP" || fail "open failed"
-seen=0; exited=0
 for _ in $(seq 1 40); do
-  if pgrep -xq VoicePlus; then seen=1; break; fi
+  LAUNCHED_PID="$(our_pid)"
+  [ -n "$LAUNCHED_PID" ] && break
   sleep 0.25
 done
-if [ "$seen" = "1" ]; then
-  echo "[verify] process running (pid $(pgrep -x VoicePlus | head -1))"
+if [ -n "$LAUNCHED_PID" ]; then
+  echo "[verify] process running (pid $LAUNCHED_PID, our copy)"
 else
-  # Binary may exit immediately (placeholder app) - run it directly to check the exit code.
-  "$APP/Contents/MacOS/VoicePlus" >/dev/null 2>&1 && exited=1 || fail "binary exited non-zero"
-  echo "[verify] process exited cleanly before we could observe it (headless/placeholder build)"
+  # Nothing is running out of our temp copy: either the binary exits immediately
+  # (placeholder build) or LaunchServices sent the launch elsewhere. Run our copy
+  # ourselves so the pid is unambiguously ours, then check how it behaves.
+  "$EXEC" >/dev/null 2>&1 &
+  LAUNCHED_PID=$!
+  for _ in $(seq 1 20); do
+    kill -0 "$LAUNCHED_PID" 2>/dev/null || break
+    sleep 0.25
+  done
+  if kill -0 "$LAUNCHED_PID" 2>/dev/null; then
+    echo "[verify] process running (pid $LAUNCHED_PID, launched directly)"
+  else
+    wait "$LAUNCHED_PID" && rc=0 || rc=$?
+    LAUNCHED_PID=""
+    [ "$rc" = "0" ] || fail "binary exited $rc"
+    echo "[verify] process exited cleanly before we could observe it (headless/placeholder build)"
+  fi
 fi
 sleep 2
 [ -d "$APP_SUPPORT" ] && echo "[verify] $APP_SUPPORT present" \
   || echo "[verify] NOTE: $APP_SUPPORT not created (app may not touch disk yet)"
-pkill -x VoicePlus 2>/dev/null && echo "[verify] killed" || true
+stopped="$LAUNCHED_PID"
+stop_launched
+if [ -n "$stopped" ]; then
+  echo "[verify] stopped our instance (pid $stopped); no other process signalled"
+fi
+others_after="$(pgrep -x VoicePlus 2>/dev/null | tr '\n' ' ' || true)"
+if [ -n "${others_after// /}" ]; then
+  echo "[verify] other VoicePlus instance(s) still running: ${others_after% }"
+fi
 echo "[verify] OK"
