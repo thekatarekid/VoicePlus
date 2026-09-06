@@ -238,8 +238,12 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
                 headline: "macOS hasn't answered for the \(title.lowercased()) yet.",
                 detail: "\(settingsListName) has no “+” button, so VoicePlus can only get into that list by asking macOS — opening Settings won't show it there until it has. Press “Ask macOS again”. If no dialog appears at all, copy the reset command below, run it in Terminal, and press it once more.",
                 retryTitle: "Ask macOS again",
+                // NOT `liveNote`. That sentence is about a switch flipped in System Settings, which
+                // macOS withholds from a running app. A grant given through the app's *own* dialog
+                // is live in the same process — telling this user to restart would be wrong, and
+                // would also send them to a list they cannot add themselves to.
                 showsResetCommand: true,
-                restartNote: liveNote
+                restartNote: promptableFirstAskNote
             )
         }
     }
@@ -249,6 +253,13 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
     func relaunchButtonTitle(identity: AppCodeIdentity) -> String? {
         guard relaunchNeededForMidSessionGrant, !identity.isTranslocated else { return nil }
         return "Quit & Reopen"
+    }
+
+    /// The answer for a promptable service that has never been decided: the grant will arrive
+    /// through the app's own dialog, which takes effect in this process. Only a switch flipped in
+    /// System Settings later needs the restart `liveNote` describes.
+    var promptableFirstAskNote: String {
+        "Allowing the dialog takes effect straight away — no need to quit VoicePlus. Only a switch flipped later in \(settingsListName) needs a restart, because macOS holds those back from an app that is already running."
     }
 
     /// The honest answer to "do I have to quit and reopen it?", per service. Saying nothing was its

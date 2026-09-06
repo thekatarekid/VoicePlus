@@ -233,3 +233,38 @@ struct RelaunchPromptCopyTests {
         #expect(copy.dismissTitle == "OK")
     }
 }
+
+/// The onboarding recovery panel's own copy. It is the surface the 1.6.6 user was reading while
+/// macOS' alert said the opposite on top of it.
+@Suite("Onboarding restart copy agrees with macOS (P6)")
+struct OnboardingRestartNoteTests {
+    private static let installed = AppCodeIdentity(designatedRequirement: "identifier \"in.adityakatare.voiceplus\"",
+                                                   bundlePath: "/Applications/VoicePlus.app")
+
+    @Test func accessibilityStillSaysNoRestartIsNeeded() throws {
+        for attempts in [0, 1, 3] {
+            let note = try #require(OnboardingPermission.accessibility
+                .recoveryCopy(status: .awaitingUserAction, attempts: attempts, identity: Self.installed).restartNote)
+            #expect(note.contains("don't need to quit"))
+        }
+    }
+
+    @Test func theTwoServicesMacOSWarnsAboutQuoteItsOwnAlert() throws {
+        for p in [OnboardingPermission.microphone, .inputMonitoring] {
+            let note = try #require(p.recoveryCopy(status: .denied, attempts: 1, identity: Self.installed).restartNote)
+            let warning = try #require(p.core.systemQuitWarning)
+            // The exact clause, minus the quoting macOS puts around the app name.
+            #expect(note.contains(warning.replacingOccurrences(of: "“VoicePlus” ", with: "")
+                                          .replacingOccurrences(of: ".", with: "")))
+        }
+    }
+
+    /// The one promptable state where a restart really is unnecessary: the grant will come from the
+    /// app's own dialog, in this process. Telling that user to quit would be a new wrong claim.
+    @Test func aFirstMicrophoneAskIsNotToldToRestart() throws {
+        let note = try #require(OnboardingPermission.microphone
+            .recoveryCopy(status: .notDetermined, attempts: 0, identity: Self.installed).restartNote)
+        #expect(note.contains("takes effect straight away"))
+        #expect(!note.contains("will not have access to your microphone until it is quit"))
+    }
+}
