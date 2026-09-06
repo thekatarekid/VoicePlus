@@ -278,6 +278,87 @@ Still open after 1.6.7:
   (HTTP 200, 15,466,684 bytes, digest matching, via the authenticated API). Auto-update from a private
   repo cannot work as configured; `Packaging/appcast.xml` needs a reachable host or a public repo.
 
+### 1.6.8 — VoicePlus no longer belongs in Input Monitoring
+
+The user asked the question that unlocked this: *"Claude, Wispr Flow, Gemini, Raycast, Spokenly and Muesli
+all run global hotkeys on this Mac and none of them need Input Monitoring. Why do we?"* They were right,
+and the cause was one line.
+
+**Root cause.** `HotkeyService` used `CGEvent.tapCreate(options: .listenOnly)` — **the single global-input
+API on macOS gated on `kTCCServiceListenEvent`**. Nothing about hold-to-talk, and nothing about the
+bare-modifier gesture, requires that API. Four rounds of TCC debugging, a stale-grant dead end, and the
+mandatory quit-and-relaunch were all downstream of that one choice: the relaunch is a property of
+`kTCCServiceListenEvent` (it alone carries `quitAllowTitleForAppName` in Apple's `PrivacyTCCServices.plist`),
+not of VoicePlus.
+
+**What ships.** `start()` selects a backend from the binding (`HotkeyBackendSelector`, pure and tested):
+
+| Binding | Backend | Permission |
+|---|---|---|
+| Right ⌥ (default), Left ⌥, Right ⌘, Right ⌃, fn | `NSEvent` global + local `flagsChanged` monitors | none |
+| ⌃⌥D, ⌃⌥A | Carbon `RegisterEventHotKey` + `InstallEventHandler` | none |
+| any, with `hotkeyForceEventTap` | the 1.6.7 `.listenOnly` event tap | Input Monitoring |
+
+**The default hotkey is unchanged** — Right ⌥, hold to talk, double-tap for hands-free.
+`HotkeyStateMachine` was not touched (hold 250 ms, tap guard 180 ms, double-tap 350 ms).
+
+**Deviation from the item as written, and it is the good kind.** The brief anticipated demoting the bare
+modifier to an opt-in that still costs Input Monitoring, and defaulting to a chord. Measurement said that
+was unnecessary — a bare-modifier global monitor delivers with **zero** TCC grants — so Right ⌥ stays the
+default at no permission cost, and every shipped picker choice reads "no extra permission" instead of the
+trade-off framing the plan assumed. Input Monitoring is now reachable **only** through the
+`hotkeyForceEventTap` escape hatch, which nothing in the shipped UI turns on.
+
+**Independent verification (this release's own bundle, macOS 26.6.2 arm64).** Method: take the shipped
+`.app`, change only `CFBundleIdentifier` to a throwaway id that has never existed, re-sign ad-hoc, launch
+through LaunchServices so TCC attributes it to that id rather than to the terminal. It then has no TCC
+record at all — its own report reads `AXIsProcessTrusted()=false`, `CGPreflightListenEventAccess()=false`,
+all three services `notDetermined`.
+
+- **Arms:** `hotkey: armed (#1) via globalMonitor for Right ⌥ — needs no permission`, alongside
+  `capabilities: capture=false hotkey=true inject=false hotkeyNeeds=nothing … [inputMonitoring=notDetermined]`.
+- **Receives:** real HID `flagsChanged` generated permission-free with
+  `IOHIDSetModifierLockState(kIOHIDCapsLockState)` (caps state read before and restored after) moved
+  system-wide modifier idle **1205.27 s → 0.13 s**, and the app's own liveness watchdog stayed silent
+  through its 20 s grace — that watchdog fires exactly when `eventsReceived == 0` while the system saw
+  modifier keys, so its silence is the app asserting delivery.
+- **A/B naming the culprit:** same binary, same zero-grant identity, `hotkeyForceEventTap` flipped on →
+  `hotkey=false hotkeyNeeds=inputMonitoring` and **no `armed` line at all**.
+- **Not opportunistic:** under the real bundle id, where this machine has `inputMonitoring=granted`, it
+  still chooses `globalMonitor` and reports `hotkeyNeeds=nothing`. Selection is by binding style, never by
+  what happens to be granted.
+- **Onboarding:** the walk is microphone → accessibility only, confirmed headlessly via
+  `--onboarding-selftest`.
+
+**Trap recorded so it is not re-hit:** `RegisterEventHotKey` *accepts* a bare-modifier registration
+(`kVK_RightOption`, empty mask), returns `noErr` with a valid ref, and then never fires. Testing only the
+return code concludes it works. Hence the selector routes on `HotkeyBinding.Style`, never on "did
+registration succeed". Also: `IOHIDPostEvent` is a dead end — `status=0` on both
+`kIOHIDParamConnectType` and `kIOHIDEventSystemConnectType`, and it injects nothing.
+
+**Bonus fix.** The Settings hotkey picker was decorative — it wrote its own defaults key and offered an
+`f5` the binding type could not express, so choosing a key did nothing. It now writes `hotkeyBinding`, and
+an armed service observes `UserDefaults.didChangeNotification`, so a Settings change reaches the running
+app instead of waiting for the next launch. Migration: all five 1.6.7 raw values survive verbatim; an
+unparseable stored value logs and falls back to the default.
+
+**1207 tests green / 0 failed** (plain parallel `swift test`, first run; 1165 at 1.6.7). Signature
+untouched — `designated => identifier "in.adityakatare.voiceplus"` — so 1.6.4+ grants carry over.
+verify_install OK, and it left the user's running instance alone.
+
+**Untested / honest limits:**
+- **A real finger on Right ⌥ is still unverified.** `CGEventPost` needs Accessibility and
+  `IOHIDSetModifierLockState` can only move caps lock, so delivery is proven with a *different* modifier
+  than the bound one. The flag-word classifier is unit-tested and `NSEvent`/`CGEvent` field parity is
+  pinned by `HotkeyBackendFlagWordTests`, but one human press closes this.
+- **Carbon chords are lightly exercised** — they register (`status=0`; duplicate `-9878`) and drive the
+  state machine in a probe, but nobody has lived on a chord binding. The default path is the monitor.
+- **Accessibility read `notDetermined`** for the copy under `Packaging/build` (the installed
+  `/Applications` copy has it), so `inject=false` in the quoted lines and the injection path was not
+  exercised in those runs. Expected for a second copy at a different path; unchanged from earlier releases.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing since the first
+  phase-6 release, deliberately not addressed here.
+
 ### Test-harness safety fix (2026-09-06, post-1.6.6)
 
 `Packaging/verify_install.sh` terminated processes by **name**: its cleanup trap ran `pkill -x VoicePlus`, so a verification run killed the **user's own running /Applications instance** mid-session (pid 76823 — it had to be relaunched by hand). A run during dictation would have lost the transcript. All three name-based kills are gone: the script records the pid of the instance it launched (matched by *executable path* against its own temp copy, normalised with `pwd -P` because `mktemp` returns `/var/…` while `ps` reports `/private/var/…`) and signals only that pid, guarded by `kill -0`; INT/TERM route through the same scoped cleanup so an interrupted run cannot orphan its own instance; pre-existing instances are listed before and after the run as a visible assertion they were left alone. `soak.sh`'s sampler kill was already pid-scoped (guarded against an unset `SAMPLER`); `reset_tcc.sh` kills nothing — it asks the user to quit the app, which stays the rule: **no script may stop a user's instance silently.** Verified against `VoicePlus_6_1.6.6.dmg` with two other instances running (/Applications and `Packaging/build/`): verify OK, its own instance stopped, both others still alive; same when the run was SIGTERM'd mid-flight (exit 143, no orphan, temp dir removed).
