@@ -280,11 +280,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.presence.setCapabilities(caps)   // P5 — a missing permission is a visible state
         }
         watcher.onTapProvenDead = { [weak self] in
-            // The one case where Apple's "…until it is quit" warning is the honest answer: the tap is
-            // armed, was re-armed once, and the system is still delivering modifier keys to everyone
-            // but us. Say so; never restart behind the user's back.
+            // The tap is armed, was re-armed once, and the system is still delivering modifier keys
+            // to everyone but us. Say so; never restart behind the user's back.
             self?.pill.model.present(.preview(text: "macOS isn't sending keys to VoicePlus — quit and reopen it to fix the hotkey"))
             self?.presence.setTapProvenDead()   // P5 — and it stays visible after the pill goes
+        }
+        // P6 — the trigger that covers the case `onTapProvenDead` structurally cannot: a Microphone
+        // or Input Monitoring grant made while this process was already running. macOS withholds
+        // those until the app next starts (it says so in its own alert), so the status never flips,
+        // the tap never arms, and nothing above ever fires. Offer the restart, once per trip.
+        PermissionSettingsOpener.onOpened = { [weak watcher] permission in
+            Task { @MainActor in watcher?.noteSentToSettings(permission) }
+        }
+        watcher.onRelaunchAdvised = { permission in
+            RelaunchPrompt.present(for: permission)
         }
         capabilityWatcher = watcher
         watcher.start()
