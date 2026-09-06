@@ -10,7 +10,26 @@ final class OverlayWindow: NSWindow {
 
     init(display: DisplayFrame, screen: NSScreen?) {
         self.display = display
-        super.init(contentRect: display.frame, styleMask: .borderless, backing: .buffered, defer: false, screen: screen)
+        // Four arguments, not five — and then place the window explicitly.
+        //
+        // This is the 1.6.6 "pressing the dictation key kills VoicePlus" crash. `OverlayWindow`
+        // declares its own designated initializer and has stored properties with no defaults, so it
+        // inherits none of `NSWindow`'s initializers; for the designated one it does not override,
+        // the Swift compiler emits an @objc *trap stub*. Line 13 used to call the five-argument
+        // `super.init(contentRect:styleMask:backing:defer:screen:)`, which is an ObjC convenience
+        // initializer: AppKit re-dispatches it dynamically through `self` to
+        // `initWithContentRect:styleMask:backing:defer:` — and landed on that stub. Every
+        // `InkOverlayController.show()` therefore died with
+        // "Fatal error: Use of unimplemented initializer" / EXC_BREAKPOINT, on every Mac, 100% of
+        // the time, from the first keypress. `screen` was never the issue: the trap fires with a nil
+        // screen and a single display too.
+        //
+        // `display.frame` is Cocoa global coordinates (`rebuildWindows` matches it against
+        // `NSScreen.frame`), so `setFrame` places the window on the intended display without the
+        // five-argument initializer's screen-relative interpretation.
+        super.init(contentRect: display.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        setFrame(display.frame, display: false)
+        _ = screen
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
@@ -19,6 +38,16 @@ final class OverlayWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         isReleasedWhenClosed = false
         inkView.frame = CGRect(origin: .zero, size: display.frame.size)
+        contentView = inkView
+    }
+
+    /// The other half of the fix, and the durable half: overriding `NSWindow`'s designated
+    /// initializer means the compiler emits no trap stub for it at all, so no AppKit path — present
+    /// or future — can re-dispatch into one. Not called by our own code.
+    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask,
+                  backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
+        display = DisplayFrame(id: 0, frame: contentRect)
+        super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
         contentView = inkView
     }
 
