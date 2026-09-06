@@ -298,21 +298,21 @@ public final class HotkeyService {
 
     /// The one place a tap callback becomes state. Called on the tap's callback thread.
     ///
-    /// Resolving the token twice is deliberate: once here, so a callback for a tap that was torn
-    /// down does nothing at all, and again inside the main-thread hop, so a tap torn down *between*
-    /// the callback and the next main-queue turn also delivers nothing. Neither resolution can
-    /// touch freed memory, because a token is not a pointer.
+    /// A callback for a tap that has been torn down resolves to nil and does nothing — a dictionary
+    /// miss, never a touch of freed memory, because a token is not a pointer. The hop re-resolves
+    /// rather than capturing the service, so a tap torn down *between* the callback and the next
+    /// main-queue turn delivers nothing either (and the queued block cannot keep a dead service
+    /// alive to be delivered to).
     static func deliver(token: Int, keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
-        guard HotkeyTapRegistry.isLive(token) else { return }
-        if Thread.isMainThread {
-            HotkeyTapRegistry.service(for: token)?.receiveFromTap(keyCode: keyCode, flags: flags,
-                                                                 timestamp: timestamp)
-        } else {
+        guard let service = HotkeyTapRegistry.service(for: token) else { return }
+        guard Thread.isMainThread else {
             DispatchQueue.main.async {
                 HotkeyTapRegistry.service(for: token)?.receiveFromTap(keyCode: keyCode, flags: flags,
                                                                      timestamp: timestamp)
             }
+            return
         }
+        service.receiveFromTap(keyCode: keyCode, flags: flags, timestamp: timestamp)
     }
 
     /// macOS disables a tap that took too long or that the user's input disturbed. Re-enabling it is
