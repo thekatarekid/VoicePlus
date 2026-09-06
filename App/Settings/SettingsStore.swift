@@ -44,4 +44,31 @@ public enum SettingsKeys {
     /// Meeting capture is opt-in and defaults to OFF. Nothing that can raise a Calendar,
     /// Reminders or Notification dialog may run until the user has flipped this on.
     public static let meetingCaptureEnabled = "meeting.capture.enabled"
+    /// P5 — the persistent presence indicator near the notch. Default ON: it is the app's only
+    /// always-on affordance once macOS culls the status item from a crowded menu bar.
+    public static let presenceIndicator = "presence.indicator.enabled"
+    /// Hide it in a full-screen Space — quiet states ONLY. `listening`, `processing` and `muted`
+    /// always draw: a hidden hot mic in full screen is exactly what the product spec forbids.
+    public static let presenceHideInFullScreen = "presence.indicator.hideInFullScreen"
+}
+
+/// P5 — reading the two presence switches, defaults included, in one place.
+public enum PresenceSettings {
+    public static func isEnabled(_ store: SettingsStore?) -> Bool {
+        guard let store else { return true }
+        return store.bool(SettingsKeys.presenceIndicator) ?? true
+    }
+
+    public static func hidesInFullScreen(_ store: SettingsStore?) -> Bool {
+        guard let store else { return true }
+        return store.bool(SettingsKeys.presenceHideInFullScreen) ?? true
+    }
+
+    public static func setEnabled(_ enabled: Bool, store: SettingsStore?) {
+        store?.set(enabled, for: SettingsKeys.presenceIndicator)
+    }
+
+    public static func setHidesInFullScreen(_ hide: Bool, store: SettingsStore?) {
+        store?.set(hide, for: SettingsKeys.presenceHideInFullScreen)
+    }
 }

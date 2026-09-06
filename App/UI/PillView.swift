@@ -14,6 +14,9 @@ public final class PillViewModel: ObservableObject {
     @Published public var scriptBadge: String = ""
 
     public var onGhostAction: ((TransformGhost.Action) -> Void)?
+    /// P5 — the persistent presence indicator listens to the same engine feed the pill reduces,
+    /// so the composition root does not have to fan the engine out twice.
+    public var onEngineState: ((EngineState) -> Void)?
     private var reducer = PillStateReducer()
     private var cancellables: Set<AnyCancellable> = []
     /// When real captured levels are arriving, `.listening(level:)` must not push a second bar for
@@ -49,6 +52,7 @@ public final class PillViewModel: ObservableObject {
             lastCapturedLevel = nil
         }
         state = new
+        onEngineState?(engineState)
     }
 
     public func hide() {

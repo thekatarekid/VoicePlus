@@ -38,6 +38,17 @@ public struct SettingsView: View {
                 ForEach(HotkeyChoice.allCases) { Text($0.title).tag($0) }
             }
             Text("Hold to talk, release to land. Double-tap locks it on.").font(.caption).foregroundStyle(.secondary)
+            Section("Presence") {
+                Toggle("Show indicator under the notch", isOn: $general.presenceIndicator)
+                    .accessibilityIdentifier("settings.presenceIndicator")
+                Text("A small chin under the camera housing that says VoicePlus is alive — and shows when the mic is open or muted. The menu-bar icon disappears when another app fills the menu bar; this doesn't.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Hide it in full screen", isOn: $general.presenceHideInFullScreen)
+                    .disabled(!general.presenceIndicator)
+                    .accessibilityIdentifier("settings.presenceHideInFullScreen")
+                Text("Only the quiet states hide. Listening, working and muted always stay visible — a hidden hot mic is exactly what this is for.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Button("Run onboarding again") { OnboardingWindowController.show(dependencies: deps) }
             CorrectionSettingsSection(model: corrections)
         }

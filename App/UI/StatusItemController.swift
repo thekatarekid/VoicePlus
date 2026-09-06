@@ -28,6 +28,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public var onToggleMute: (() -> Void)?
     /// P5.3 — voice enrollment window.
     public var onEnrollVoice: (() -> Void)?
+    /// P5 — mirror of the presence-indicator switch, so the thing that replaces a culled status
+    /// item can also be turned off from the status item while it is still reachable.
+    public var presenceIndicatorEnabled: (() -> Bool)?
+    public var onTogglePresenceIndicator: (() -> Void)?
     /// P5.5 — meeting capture opt-in. Toggling it on is what asks for Calendar access; nothing
     /// about meetings runs (or prompts) until the user does. nil hides the item entirely.
     public var meetingCaptureEnabled: (() -> Bool)?
@@ -68,6 +72,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) { rebuild() }
+
+    /// P5 — the presence indicator pops this same menu. That is the point of it: when macOS has
+    /// culled the status item from a crowded menu bar, the chin under the notch is the only
+    /// remaining way into Settings, mute and Quit.
+    public func popUpMenu(at point: NSPoint = NSEvent.mouseLocation) {
+        rebuild()
+        menu.popUp(positioning: nil, at: point, in: nil)
+    }
 
     func rebuild() {
         let m = model()
@@ -150,6 +162,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             meetings.state = on ? .on : .off
             menu.addItem(meetings)
         }
+        if let presenceIndicatorEnabled, onTogglePresenceIndicator != nil {
+            let on = presenceIndicatorEnabled()
+            let indicator = NSMenuItem(title: "Show indicator under the notch",
+                                       action: #selector(togglePresenceIndicator), keyEquivalent: "")
+            indicator.target = self
+            indicator.state = on ? .on : .off
+            menu.addItem(indicator)
+        }
         let login = NSMenuItem(title: "Launch at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
         login.state = m.launchAtLogin ? .on : .off
@@ -177,6 +197,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func enrollVoice() { onEnrollVoice?() }
+
+    @objc private func togglePresenceIndicator() {
+        onTogglePresenceIndicator?()
+        rebuild()
+    }
 
     @objc private func togglePause() {
         coordinator.setPaused(!coordinator.paused)

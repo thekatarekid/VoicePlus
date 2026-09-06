@@ -25,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let actHotkey = HotkeyService(bindingKey: HotkeyService.actBindingDefaultsKey,
                                           defaultBinding: HotkeyBinding(kind: .rightCommand))
     private let pill = PillPanelController()
+    /// P5 — the persistent presence indicator near the notch (the status item is the first thing
+    /// macOS culls from a crowded menu bar; this one is always there).
+    private let presence = PresenceIndicatorController()
     private let updater: UpdaterProtocol = NoopUpdater()
     private let flags = FeatureFlagService.local()
     private let permissionChecker: PermissionChecking = ProcessInfo.processInfo.environment["VOICEPLUS_MOCK_PERMISSIONS"] == "1"
@@ -248,7 +251,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
                                           connectedProviders: container.connectedProviderNames)
         }
+        status.presenceIndicatorEnabled = { [weak container] in PresenceSettings.isEnabled(container?.settings) }
+        status.onTogglePresenceIndicator = { [weak container] in
+            PresenceSettings.setEnabled(!PresenceSettings.isEnabled(container?.settings), store: container?.settings)
+        }
         statusItem = status
+
+        // P5 — persistent presence indicator. Never takes focus, never swallows a click, and its
+        // click pops the status menu so there is a way into Settings/Quit even when macOS has
+        // culled the status item. `PresenceIndicatorController` logs every computed frame.
+        presence.settings = container.settings
+        presence.hotkeyHint = { [weak self] in "hold \(self?.hotkey.binding.kind.displayName ?? "the dictation key")" }
+        presence.onClick = { [weak self] in self?.statusItem?.popUpMenu() }
+        presence.pausedProvider = { [weak coordinator] in coordinator?.paused ?? false }
+        presence.bind(pill: pill.model, mute: container.handsFree.mute)
+        presence.start()
 
         // Arm the hotkey from the permission *matrix*, continuously, before anything else — not from
         // the completion of the permission walk. Until 1.6.5 `hotkey.start()` had exactly one caller,
@@ -260,12 +277,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let watcher = CapabilityWatcher(checker: permissionChecker, hotkeys: [hotkey, actHotkey])
         watcher.onCapabilitiesChanged = { [weak self] caps, _ in
             self?.statusItem?.capabilities = caps
+            self?.presence.setCapabilities(caps)   // P5 — a missing permission is a visible state
         }
         watcher.onTapProvenDead = { [weak self] in
             // The one case where Apple's "…until it is quit" warning is the honest answer: the tap is
             // armed, was re-armed once, and the system is still delivering modifier keys to everyone
             // but us. Say so; never restart behind the user's back.
             self?.pill.model.present(.preview(text: "macOS isn't sending keys to VoicePlus — quit and reopen it to fix the hotkey"))
+            self?.presence.setTapProvenDead()   // P5 — and it stays visible after the pill goes
         }
         capabilityWatcher = watcher
         watcher.start()

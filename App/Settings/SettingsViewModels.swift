@@ -23,10 +23,20 @@ public enum HotkeyChoice: String, CaseIterable, Identifiable, Sendable {
 @MainActor
 public final class GeneralSettingsViewModel: ObservableObject {
     @Published public var hotkey: HotkeyChoice { didSet { store.set(hotkey.rawValue, for: SettingsKeys.hotkey) } }
+    /// P5 — the persistent indicator near the notch. Default ON.
+    @Published public var presenceIndicator: Bool {
+        didSet { PresenceSettings.setEnabled(presenceIndicator, store: store) }
+    }
+    /// Quiet states only — `listening`, `processing` and `muted` always draw, full screen or not.
+    @Published public var presenceHideInFullScreen: Bool {
+        didSet { PresenceSettings.setHidesInFullScreen(presenceHideInFullScreen, store: store) }
+    }
     private let store: SettingsStore
     public init(store: SettingsStore) {
         self.store = store
         hotkey = store.string(SettingsKeys.hotkey).flatMap(HotkeyChoice.init(rawValue:)) ?? .default
+        presenceIndicator = PresenceSettings.isEnabled(store)
+        presenceHideInFullScreen = PresenceSettings.hidesInFullScreen(store)
     }
 }
 
