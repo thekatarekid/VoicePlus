@@ -12,6 +12,10 @@ public final class OnboardingViewModel: ObservableObject {
     @Published public var dictationPreview: String = ""
     /// True while the capture window is open — i.e. between the two presses of the dictation button.
     @Published public private(set) var isDictating = false
+    /// True from the moment Stop is pressed until the verdict is in. The button is disabled here:
+    /// a second press would otherwise start a second `engine.stop()`, which throws `notListening`
+    /// and would overwrite a perfectly good result with a failure the user did not cause.
+    @Published public private(set) var isFinalizing = false
     /// When the current tier download started, so the progress line can estimate what is left.
     @Published public private(set) var downloadStartedAt: Date?
     @Published public var contactsOutcome: ContactsImportOffer.Outcome?
@@ -176,6 +180,7 @@ public final class OnboardingViewModel: ObservableObject {
         // listening behind a screen that is gone.
         if isDictating {
             isDictating = false
+            isFinalizing = false
             let engine = deps.engine
             Task { await engine.cancel() }
         }
@@ -396,6 +401,7 @@ public final class OnboardingViewModel: ObservableObject {
 
     /// The dictation button. Two presses, because one press cannot contain an utterance.
     public func toggleGuidedDictation() {
+        guard !isFinalizing else { return }
         isDictating ? finishGuidedDictation() : startGuidedDictation()
     }
 
@@ -407,7 +413,7 @@ public final class OnboardingViewModel: ObservableObject {
     /// `start`, and the first audio block lands after it returns. So the final pass ran over ~0
     /// samples, tripped FluidAudio's 300 ms floor, and threw `ASRError.invalidAudioData`.
     public func startGuidedDictation() {
-        guard !isDictating, machine.step == .firstDictation else { return }
+        guard !isDictating, !isFinalizing, machine.step == .firstDictation else { return }
         guard dictationGate.canRun else {
             Log.app.notice("onboarding: dictation test refused — \(self.dictationGate.banner)")
             return
@@ -437,7 +443,8 @@ public final class OnboardingViewModel: ObservableObject {
 
     /// Closes the capture window, transcribes, and reports what actually happened.
     public func finishGuidedDictation() {
-        guard isDictating else { return }
+        guard isDictating, !isFinalizing else { return }
+        isFinalizing = true
         dictationWatchdog?.invalidate(); dictationWatchdog = nil
         let starting = dictationTask
         dictationTask = Task { [weak self] in
@@ -491,6 +498,7 @@ public final class OnboardingViewModel: ObservableObject {
 
     private func finishDictation(_ outcome: GuidedDictationOutcome) {
         isDictating = false
+        isFinalizing = false
         dictationWatchdog?.invalidate(); dictationWatchdog = nil
         dictationEvents?.cancel(); dictationEvents = nil
         Log.app.notice("onboarding dictation: \(outcome.logLabel)")

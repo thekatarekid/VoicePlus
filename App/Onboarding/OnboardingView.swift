@@ -319,10 +319,12 @@ public struct OnboardingView: View {
                 .font(.caption).foregroundStyle(gate.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button(model.isDictating ? "Stop & transcribe" : "Dictate now") { model.toggleGuidedDictation() }
-                    .disabled(!gate.canRun)
+                Button(dictationButtonTitle) { model.toggleGuidedDictation() }
+                    .disabled(!gate.canRun || model.isFinalizing)
                     .keyboardShortcut(.defaultAction)
-                if model.isDictating { Text("Listening…").font(.caption).foregroundStyle(.secondary) }
+                if model.isDictating, !model.isFinalizing {
+                    Text("Listening…").font(.caption).foregroundStyle(.secondary)
+                }
             }
             if !model.dictationPreview.isEmpty {
                 Text(model.dictationPreview).padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -330,6 +332,11 @@ public struct OnboardingView: View {
             }
             dictationVerdict
         }
+    }
+
+    private var dictationButtonTitle: String {
+        if model.isFinalizing { return "Transcribing…" }
+        return model.isDictating ? "Stop & transcribe" : "Dictate now"
     }
 
     /// Exactly one of these, and only ever the one that matches what happened. The 1.6.6 screen drew

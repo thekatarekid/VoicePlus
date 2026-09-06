@@ -161,6 +161,28 @@ struct GuidedDictationOutcomeTests {
         vm.teardown()
     }
 
+    /// A second press of Stop must not run a second `engine.stop()`: that throws `notListening`, and
+    /// reporting it would replace a perfectly good transcript with a failure the user did not cause.
+    @MainActor
+    @Test func aSecondPressOfStopCannotOverwriteAGoodResult() async throws {
+        let engine = StubEngine(behaviour: .spans(fox()))
+        let vm = onboardingAtDictationStep(engine: engine)
+        vm.startGuidedDictation()
+        try await waitUntil { vm.isDictating }
+
+        vm.finishGuidedDictation()
+        #expect(vm.isFinalizing)
+        vm.finishGuidedDictation()          // impatient second click
+        vm.toggleGuidedDictation()          // and the button itself
+        try await waitUntil { vm.machine.dictation != nil }
+
+        #expect(engine.stopCalls == 1)
+        #expect(vm.machine.heardText?.contains("quick brown fox") == true)
+        #expect(vm.machine.dictationError == nil)
+        #expect(!vm.isFinalizing)
+        vm.teardown()
+    }
+
     /// With no landing path wired, the honest answer is "heard", never "landed" — pressing a button
     /// inside the onboarding window makes VoicePlus frontmost, so there is no other field to type in.
     @MainActor
