@@ -159,20 +159,29 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// The failure to show, in the words the user should read. Nil when the attempt worked.
     public var dictationError: String? { dictation?.failureMessage }
 
-    public static let permissionOrder = OnboardingPermission.allCases
+    /// Which permissions this run walks, in order.
+    ///
+    /// Not `OnboardingPermission.allCases` any more. Input Monitoring was in that list because the
+    /// only hotkey mechanism was a `.listenOnly` CGEvent tap; the default mechanism now consults no
+    /// TCC service, so the step is skipped unless the active backend actually needs it
+    /// (`OnboardingPermission.order(hotkeyRequires:)`). Onboarding is where that cost was charged to
+    /// every user, and it is where it stops being charged.
+    public let permissionOrder: [OnboardingPermission]
 
     public init(initialStatuses: [OnboardingPermission: OnboardingPermissionStatus] = [:],
-                alreadyRequested: Set<OnboardingPermission> = []) {
+                alreadyRequested: Set<OnboardingPermission> = [],
+                permissionOrder: [OnboardingPermission] = OnboardingPermission.baselineOrder) {
         statuses = initialStatuses
         requestedPermissions = alreadyRequested
-        permissionIndex = Self.firstUndecidedIndex(in: initialStatuses)
+        self.permissionOrder = permissionOrder
+        permissionIndex = Self.firstUndecidedIndex(in: initialStatuses, order: permissionOrder)
     }
 
     public var currentPermission: OnboardingPermission? {
-        step == .permissions && permissionIndex < Self.permissionOrder.count ? Self.permissionOrder[permissionIndex] : nil
+        step == .permissions && permissionIndex < permissionOrder.count ? permissionOrder[permissionIndex] : nil
     }
 
-    public var allPermissionsGranted: Bool { Self.permissionOrder.allSatisfy { statuses[$0] == .granted } }
+    public var allPermissionsGranted: Bool { permissionOrder.allSatisfy { statuses[$0] == .granted } }
     public var progress: Double {
         let idx = Step.allCases.firstIndex(of: step) ?? 0
         return Double(idx) / Double(Step.allCases.count - 1)
@@ -333,9 +342,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         step = next
         switch next {
         case .permissions:
-            permissionIndex = Self.firstUndecidedIndex(in: statuses)
-            if permissionIndex >= Self.permissionOrder.count { return effects + enter(.micCheck) }
-            let p = Self.permissionOrder[permissionIndex]
+            permissionIndex = Self.firstUndecidedIndex(in: statuses, order: permissionOrder)
+            if permissionIndex >= permissionOrder.count { return effects + enter(.micCheck) }
+            let p = permissionOrder[permissionIndex]
             permissionPhase = Self.initialPhase(for: p, requested: requestedPermissions,
                                                 status: statuses[p] ?? .notDetermined)
         case .micCheck:
@@ -421,8 +430,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         return (p, permissionPhase)
     }
 
-    static func firstUndecidedIndex(in statuses: [OnboardingPermission: OnboardingPermissionStatus]) -> Int {
-        permissionOrder.firstIndex { statuses[$0] != .granted } ?? permissionOrder.count
+    static func firstUndecidedIndex(in statuses: [OnboardingPermission: OnboardingPermissionStatus],
+                                    order: [OnboardingPermission]) -> Int {
+        order.firstIndex { statuses[$0] != .granted } ?? order.count
     }
 
     /// Only ever called with a level that came from a real audio block. "Quiet" is withheld until

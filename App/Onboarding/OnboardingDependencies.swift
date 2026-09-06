@@ -4,10 +4,30 @@ import Shared
 
 // MARK: - Permissions (independent of App/Core so P1.1 can rewrite it freely)
 
-/// The three permissions onboarding walks through, in order.
+/// The permissions onboarding knows about. What it actually *walks* is
+/// `OnboardingStateMachine.permissionOrder`, which is shorter — see `baselineOrder`.
 public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Identifiable {
     case microphone, inputMonitoring, accessibility
     public var id: String { rawValue }
+
+    /// The permissions every install needs, whatever key it dictates with: the microphone to hear,
+    /// Accessibility to type the result back.
+    ///
+    /// Input Monitoring is not one of them any more. It was in this walk only because the hotkey was
+    /// a `.listenOnly` CGEvent tap — the single global-input API gated on `kTCCServiceListenEvent`.
+    /// The default backend is now an `NSEvent` global monitor, which consults no TCC service at all,
+    /// so asking for Input Monitoring by default charged every user for a pane they did not need,
+    /// a switch macOS honours only after a forced quit-and-relaunch, and a stale-grant dead end.
+    public static let baselineOrder: [OnboardingPermission] = [.microphone, .accessibility]
+
+    /// The walk for a build whose hotkey backend needs `hotkeyRequires` (nil for every binding the
+    /// shipped picker can produce). The one path that still shows the Input Monitoring step is the
+    /// `hotkeyForceEventTap` escape hatch.
+    public static func order(hotkeyRequires: Permission?) -> [OnboardingPermission] {
+        guard let hotkeyRequires, let step = OnboardingPermission(rawValue: hotkeyRequires.rawValue),
+              !baselineOrder.contains(step) else { return baselineOrder }
+        return [.microphone, step, .accessibility]
+    }
 
     public var title: String {
         switch self {
@@ -23,7 +43,7 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
         case .microphone:
             return "VoicePlus listens only while you hold the key. Audio is transcribed on this Mac and never leaves it unless you turn on a cloud provider."
         case .inputMonitoring:
-            return "This is how VoicePlus notices you holding the dictation key while another app is in front. Keystrokes are never recorded."
+            return "Only needed if you've switched VoicePlus to the legacy event-tap listener. The normal dictation key watches for the modifier through a global key monitor, which macOS grants no permission for — so most installs never see this screen. Keystrokes are never recorded either way."
         case .accessibility:
             return "Lets VoicePlus type what you said into the app you're using and read the field you're in so it can match the style. No screenshots, ever."
         }
@@ -33,7 +53,7 @@ public enum OnboardingPermission: String, CaseIterable, Codable, Sendable, Ident
     public var consequenceIfSkipped: String {
         switch self {
         case .microphone: return "Nothing can be transcribed without the microphone."
-        case .inputMonitoring: return "You can still dictate from the menu bar, but the hold-to-talk key won't work in other apps."
+        case .inputMonitoring: return "The legacy event-tap listener won't run, so hold-to-talk stays on the permission-free listener — or the menu-bar item."
         case .accessibility: return "Text will be copied to the clipboard instead of landing in the app."
         }
     }
@@ -394,13 +414,19 @@ public struct OnboardingDependencies {
     /// `UtteranceLander` at all, so "It landed. You're set." could not have been true even with
     /// perfect audio. See `DictationCoordinator.guidedLanding`.
     public var landUtterance: (@Sendable ([TranscriptSpan]) async -> GuidedLanding)?
+    /// The permission the *active hotkey backend* needs, or nil when it needs none — which decides
+    /// whether onboarding shows the Input Monitoring step at all. Defaults to the live answer for
+    /// this install, so nothing outside `HotkeyService` has to know the rule.
+    public var hotkeyRequiresPermission: Permission?
 
     public init(permissions: OnboardingPermissionChecking, micLevel: MicLevelPublishing, models: ModelManaging,
                 engine: EngineProtocol, database: AppDatabase?, flags: FeatureFlagService,
                 contacts: ContactsStoreProtocol, settingsStore: SettingsStore = UserDefaultsSettingsStore(),
                 openProvidersSettings: @escaping () -> Void = {},
-                landUtterance: (@Sendable ([TranscriptSpan]) async -> GuidedLanding)? = nil) {
+                landUtterance: (@Sendable ([TranscriptSpan]) async -> GuidedLanding)? = nil,
+                hotkeyRequiresPermission: Permission? = HotkeyService.currentRequiredPermission()) {
         self.landUtterance = landUtterance
+        self.hotkeyRequiresPermission = hotkeyRequiresPermission
         self.permissions = permissions
         self.micLevel = micLevel
         self.models = models

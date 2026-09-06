@@ -266,14 +266,20 @@ public final class PermissionOrchestrator {
     /// instead of stopping there. The closure polls and invokes its callback once granted; nil (the
     /// default, used by tests) keeps the old stop-and-report behaviour.
     public var watchUntilGranted: ((Permission, @escaping () -> Void) -> Void)?
+    /// The permission the *active hotkey backend* needs, or nil when it needs none — which is the
+    /// shipping default, and the reason the walk no longer stops on Input Monitoring. See
+    /// `HotkeyBackendKind`.
+    public var hotkeyRequires: Permission?
     public private(set) var log: [String] = []
 
     public init(checker: PermissionChecking,
                 presentPrePrompt: @escaping (Permission, @escaping (PrePromptChoice) -> Void) -> Void,
-                openSettings: @escaping (Permission) -> Void = { PermissionSettingsOpener.open($0) }) {
+                openSettings: @escaping (Permission) -> Void = { PermissionSettingsOpener.open($0) },
+                hotkeyRequires: Permission? = HotkeyService.currentRequiredPermission()) {
         self.checker = checker
         self.presentPrePrompt = presentPrePrompt
         self.openSettings = openSettings
+        self.hotkeyRequires = hotkeyRequires
     }
 
     public var matrix: PermissionMatrix { checker.matrix() }
@@ -286,7 +292,7 @@ public final class PermissionOrchestrator {
     private func step(skipped: Set<Permission>, completion: @escaping (PermissionMatrix) -> Void) {
         var current = matrix
         for p in skipped { current[p] = .granted } // treated as handled for this run; re-verified on next run
-        switch PermissionPlanner.nextStep(current) {
+        switch PermissionPlanner.nextStep(current, hotkeyRequires: hotkeyRequires) {
         case .allGranted:
             log.append(skipped.isEmpty ? "all granted" : "done (skipped: \(skipped.map(\.rawValue).sorted()))")
             completion(matrix)

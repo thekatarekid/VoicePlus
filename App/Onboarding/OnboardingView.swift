@@ -180,7 +180,9 @@ public struct OnboardingView: View {
 
     private var permissionChecklist: some View {
         HStack(spacing: 14) {
-            ForEach(OnboardingPermission.allCases) { p in
+            // Only the permissions this run actually walks. Input Monitoring is absent unless the
+            // hotkey backend needs it, so the checklist cannot show a green tick the user never earns.
+            ForEach(model.machine.permissionOrder) { p in
                 let status = model.machine.statuses[p] ?? .notDetermined
                 Label(p.title, systemImage: Self.checklistSymbol(status))
                     .foregroundStyle(status == .granted ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))

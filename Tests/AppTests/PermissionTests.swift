@@ -4,24 +4,46 @@ import Testing
 
 @Suite("Permission matrix (T5)")
 struct PermissionMatrixTests {
+    /// The walk a default install gets since 1.6.8: microphone → accessibility. Input Monitoring is
+    /// not in it, because no shipped hotkey binding consults `kTCCServiceListenEvent`.
     @Test(arguments: [
         ([:] as PermissionMatrix, PermissionPlanner.Step.prePrompt(.microphone)),
-        ([.microphone: .granted], .prePrompt(.inputMonitoring)),
-        ([.microphone: .granted, .inputMonitoring: .granted], .prePrompt(.accessibility)),
-        ([.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted], .allGranted),
-        ([.microphone: .denied, .inputMonitoring: .granted, .accessibility: .granted], .openSettings(.microphone)),
-        ([.microphone: .granted, .inputMonitoring: .denied], .openSettings(.inputMonitoring)),
-        ([.microphone: .granted, .inputMonitoring: .notDetermined, .accessibility: .denied], .prePrompt(.inputMonitoring)),
+        ([.microphone: .granted], .prePrompt(.accessibility)),
+        ([.microphone: .granted, .accessibility: .granted], .allGranted),
+        ([.microphone: .granted, .inputMonitoring: .denied, .accessibility: .granted], .allGranted),
+        ([.microphone: .denied, .accessibility: .granted], .openSettings(.microphone)),
+        ([.microphone: .granted, .accessibility: .denied], .openSettings(.accessibility)),
     ])
     func nextStep(matrix: PermissionMatrix, expected: PermissionPlanner.Step) {
         #expect(PermissionPlanner.nextStep(matrix) == expected)
     }
 
+    /// The same table for a build on the `hotkeyForceEventTap` escape hatch — the one configuration
+    /// that still has to walk Input Monitoring.
+    @Test(arguments: [
+        ([.microphone: .granted] as PermissionMatrix, PermissionPlanner.Step.prePrompt(.inputMonitoring)),
+        ([.microphone: .granted, .inputMonitoring: .granted], .prePrompt(.accessibility)),
+        ([.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted], .allGranted),
+        ([.microphone: .granted, .inputMonitoring: .denied], .openSettings(.inputMonitoring)),
+        ([.microphone: .granted, .inputMonitoring: .notDetermined, .accessibility: .denied], .prePrompt(.inputMonitoring)),
+    ])
+    func nextStepOnTheEscapeHatch(matrix: PermissionMatrix, expected: PermissionPlanner.Step) {
+        #expect(PermissionPlanner.nextStep(matrix, hotkeyRequires: .inputMonitoring) == expected)
+    }
+
     @Test func capabilitiesAndFallback() {
-        let caps = PermissionPlanner.capabilities([.microphone: .granted, .inputMonitoring: .denied])
-        #expect(caps.canCapture && !caps.canUseGlobalHotkey && !caps.canInjectText)
-        #expect(caps.needsMenuFallback)
-        #expect(PermissionPlanner.missing([.accessibility: .granted]) == [.microphone, .inputMonitoring])
+        // The default backend needs no permission, so a denied Input Monitoring costs nothing.
+        let free = PermissionPlanner.capabilities([.microphone: .granted, .inputMonitoring: .denied])
+        #expect(free.canCapture && free.canUseGlobalHotkey && !free.canInjectText)
+        #expect(!free.needsMenuFallback)
+        // The escape hatch keeps the old gate, fallback copy included.
+        let tapped = PermissionPlanner.capabilities([.microphone: .granted, .inputMonitoring: .denied],
+                                                    hotkeyRequires: .inputMonitoring)
+        #expect(tapped.canCapture && !tapped.canUseGlobalHotkey && !tapped.canInjectText)
+        #expect(tapped.needsMenuFallback)
+        #expect(PermissionPlanner.missing([.accessibility: .granted]) == [.microphone])
+        #expect(PermissionPlanner.missing([.accessibility: .granted], hotkeyRequires: .inputMonitoring)
+                == [.microphone, .inputMonitoring])
         #expect(Permission.inputMonitoring.settingsURL.absoluteString.contains("Privacy_ListenEvent"))
         for p in Permission.allCases { #expect(!p.rationale.isEmpty) }
     }
@@ -29,11 +51,15 @@ struct PermissionMatrixTests {
     /// `awaitingUserAction` is the honest answer for Input Monitoring / Accessibility (see
     /// `SystemPermissionChecker.request`); it must route to Settings, never back to a fresh prompt.
     @Test func awaitingUserActionRoutesToSettings() {
-        #expect(PermissionPlanner.nextStep([.microphone: .granted, .inputMonitoring: .awaitingUserAction])
-                == .openSettings(.inputMonitoring))
-        let caps = PermissionPlanner.capabilities([.microphone: .granted, .inputMonitoring: .awaitingUserAction])
+        #expect(PermissionPlanner.nextStep([.microphone: .granted, .accessibility: .awaitingUserAction])
+                == .openSettings(.accessibility))
+        #expect(PermissionPlanner.nextStep([.microphone: .granted, .inputMonitoring: .awaitingUserAction],
+                                           hotkeyRequires: .inputMonitoring) == .openSettings(.inputMonitoring))
+        let caps = PermissionPlanner.capabilities([.microphone: .granted, .inputMonitoring: .awaitingUserAction],
+                                                  hotkeyRequires: .inputMonitoring)
         #expect(caps.needsMenuFallback)   // dictation still works from the menu bar
-        #expect(PermissionPlanner.missing([.inputMonitoring: .awaitingUserAction]).contains(.inputMonitoring))
+        #expect(PermissionPlanner.missing([.inputMonitoring: .awaitingUserAction], hotkeyRequires: .inputMonitoring)
+                .contains(.inputMonitoring))
     }
 
     /// Modern pane id first, legacy `Security.prefPane` as the fallback. Anchors are the
@@ -67,20 +93,33 @@ struct PermissionOrchestratorTests {
         let checker = MockPermissionChecker(grantOnRequest: Set(Permission.allCases))
         var prompted: [Permission] = []
         let o = PermissionOrchestrator(checker: checker, presentPrePrompt: { p, done in prompted.append(p); done(.proceed) },
-                                       openSettings: { _ in Issue.record("should not open settings") })
+                                       openSettings: { _ in Issue.record("should not open settings") },
+                                       hotkeyRequires: nil)
         var result: PermissionMatrix?
         o.run { result = $0 }
-        #expect(prompted == [.microphone, .inputMonitoring, .accessibility])
+        // Two prompts, not three: the hotkey costs nothing, so Input Monitoring is never asked for.
+        #expect(prompted == [.microphone, .accessibility])
         #expect(checker.requested == prompted)
-        #expect(result == [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
+        #expect(result?[.microphone] == .granted && result?[.accessibility] == .granted)
         #expect(o.log.last == "all granted")
+    }
+
+    /// The escape hatch puts the third prompt back, in the middle where it used to be.
+    @Test func theEscapeHatchWalksInputMonitoringToo() {
+        let checker = MockPermissionChecker(grantOnRequest: Set(Permission.allCases))
+        var prompted: [Permission] = []
+        let o = PermissionOrchestrator(checker: checker, presentPrePrompt: { p, done in prompted.append(p); done(.proceed) },
+                                       openSettings: { _ in Issue.record("should not open settings") },
+                                       hotkeyRequires: .inputMonitoring)
+        o.run { _ in }
+        #expect(prompted == [.microphone, .inputMonitoring, .accessibility])
     }
 
     @Test func skipContinuesToNextAndDeniedOpensSettings() {
         let checker = MockPermissionChecker(statuses: [.microphone: .granted], grantOnRequest: [])
         var opened: [Permission] = []
         let o = PermissionOrchestrator(checker: checker, presentPrePrompt: { p, done in done(p == .inputMonitoring ? .skip : .proceed) },
-                                       openSettings: { opened.append($0) })
+                                       openSettings: { opened.append($0) }, hotkeyRequires: .inputMonitoring)
         var finished = false
         o.run { _ in finished = true }
         #expect(finished)
@@ -96,7 +135,7 @@ struct PermissionOrchestratorTests {
         var opened: [Permission] = []
         var pending: [(Permission, () -> Void)] = []
         let o = PermissionOrchestrator(checker: checker, presentPrePrompt: { _, done in done(.proceed) },
-                                       openSettings: { opened.append($0) })
+                                       openSettings: { opened.append($0) }, hotkeyRequires: .inputMonitoring)
         o.watchUntilGranted = { p, granted in pending.append((p, granted)) }
         var matrices: [PermissionMatrix] = []
         o.run { matrices.append($0) }

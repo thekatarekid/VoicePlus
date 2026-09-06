@@ -2,6 +2,20 @@ import Foundation
 import Testing
 @testable import VoicePlusApp
 
+/// The longest permission walk — microphone, Input Monitoring, accessibility.
+///
+/// That is no longer what a default install gets: since 1.6.8 the hotkey runs on an `NSEvent` global
+/// monitor, which needs no TCC service, so onboarding walks microphone → accessibility and the
+/// Input Monitoring screen appears only for a build on the `hotkeyForceEventTap` escape hatch (see
+/// `OnboardingSkipsInputMonitoringTests`). The tests below are about the *mechanics* of walking a
+/// multi-permission list — the non-promptable middle step, the recovery phase, skipping, ordering —
+/// so they keep exercising the longest one rather than losing a step's worth of coverage.
+private func fullWalkM(initialStatuses: [OnboardingPermission: OnboardingPermissionStatus] = [:],
+                       alreadyRequested: Set<OnboardingPermission> = []) -> OnboardingStateMachine {
+    OnboardingStateMachine(initialStatuses: initialStatuses, alreadyRequested: alreadyRequested,
+                           permissionOrder: OnboardingPermission.order(hotkeyRequires: .inputMonitoring))
+}
+
 /// FIX B — the phase a permission step opens on is now recorded. The 1.6.2 microphone regression
 /// was a *phase* choice: `initialPhase` sent a notDetermined microphone to the settings-recovery
 /// screen, whose panel has no Allow button and therefore no route to
@@ -66,7 +80,7 @@ struct OnboardingTransitionLogTests {
     /// One line per transition: entering, requesting, and each advance are all distinct pairs, and
     /// a repeated status refresh that changes nothing produces the same pair (so nothing is logged).
     @Test func everyAdvanceIsADistinctPairAndASteadyPollIsNot() {
-        var m = M()
+        var m = fullWalkM()
         m.handle(.next)
         var seen: [String] = []
         func note() {
@@ -94,7 +108,7 @@ struct OnboardingStateMachineTests {
     typealias M = OnboardingStateMachine
 
     @Test func happyPathAllGranted() {
-        var m = M()
+        var m = fullWalkM()
         #expect(m.step == .welcome)
         #expect(m.handle(.next) == [])
         #expect(m.step == .permissions)
@@ -140,7 +154,7 @@ struct OnboardingStateMachineTests {
     }
 
     @Test func deniedMicrophoneShowsSettingsThenVerifyRecovers() {
-        var m = M()
+        var m = fullWalkM()
         m.handle(.next)
         m.handle(.allow(.microphone))
         #expect(m.handle(.permissionResult(.microphone, .denied)) == [])
@@ -157,7 +171,7 @@ struct OnboardingStateMachineTests {
     /// prompting, so the request resolves to `.awaitingUserAction`. That must expose the escape
     /// hatches, not bounce back to a lone "Allow" button.
     @Test func awaitingUserActionNeverReturnsToExplain() {
-        var m = M(initialStatuses: [.microphone: .granted])
+        var m = fullWalkM(initialStatuses: [.microphone: .granted])
         m.handle(.next)
         #expect(m.currentPermission == .inputMonitoring)
         #expect(m.permissionPhase == .explain)
@@ -171,7 +185,7 @@ struct OnboardingStateMachineTests {
     /// Repeated re-checks that keep failing escalate to the stale-TCC recovery copy instead of
     /// repeating the same advice forever.
     @Test func repeatedRecheckEscalatesToRecoveryCopy() {
-        var m = M(initialStatuses: [.microphone: .granted])
+        var m = fullWalkM(initialStatuses: [.microphone: .granted])
         m.handle(.next)
         m.handle(.allow(.inputMonitoring))
         m.handle(.permissionResult(.inputMonitoring, .awaitingUserAction))
@@ -189,7 +203,7 @@ struct OnboardingStateMachineTests {
 
     /// The background poll flips the checkmark without any click, and never disturbs the phase.
     @Test func pollingAdvancesOnGrantAndIsOtherwiseInert() {
-        var m = M(initialStatuses: [.microphone: .granted])
+        var m = fullWalkM(initialStatuses: [.microphone: .granted])
         m.handle(.next)
         m.handle(.allow(.inputMonitoring))
         m.handle(.permissionResult(.inputMonitoring, .awaitingUserAction))
@@ -206,7 +220,7 @@ struct OnboardingStateMachineTests {
     /// The reported dead end: Input Monitoring stalls, and the only working control skipped the whole
     /// step so Accessibility was never shown. Skip must advance exactly one permission.
     @Test func skipOnPermissionsAdvancesOneAndStillReachesAccessibility() {
-        var m = M(initialStatuses: [.microphone: .granted])
+        var m = fullWalkM(initialStatuses: [.microphone: .granted])
         m.handle(.next)
         #expect(m.currentPermission == .inputMonitoring)
         m.handle(.allow(.inputMonitoring))
@@ -220,11 +234,11 @@ struct OnboardingStateMachineTests {
         #expect(m.statuses[.accessibility] == .granted)
     }
 
-    /// Every permission refused still terminates: three skips walk off the step, never loop.
+    /// Every permission refused still terminates: the skips walk off the step, never loop.
     @Test func allThreeRefusedStillTerminates() {
-        var m = M()
+        var m = fullWalkM()
         m.handle(.next)
-        for p in M.permissionOrder {
+        for p in m.permissionOrder {
             #expect(m.currentPermission == p)
             m.handle(.allow(p))
             m.handle(.permissionResult(p, .awaitingUserAction))
@@ -240,7 +254,7 @@ struct OnboardingStateMachineTests {
     /// useless Allow button: `CGRequestListenEventAccess()` can never raise a dialog, so re-offering
     /// one would be the lie. This must NOT generalise to promptable services — see the suite below.
     @Test func alreadyRequestedPermissionStartsInSettingsPhase() {
-        var m = M(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
+        var m = fullWalkM(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
         m.handle(.next)
         #expect(m.currentPermission == .inputMonitoring)
         #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
@@ -251,7 +265,7 @@ struct OnboardingStateMachineTests {
     }
 
     @Test func deniedMicrophoneSkippedSkipsMicCheck() {
-        var m = M()
+        var m = fullWalkM()
         m.handle(.next)
         m.handle(.allow(.microphone)); m.handle(.permissionResult(.microphone, .denied))
         m.handle(.next)  // "Skip this one"
@@ -292,7 +306,7 @@ struct OnboardingStateMachineTests {
     }
 
     @Test func pregrantedPermissionsAreSkippedInOrder() {
-        var m = M(initialStatuses: [.microphone: .granted])
+        var m = fullWalkM(initialStatuses: [.microphone: .granted])
         m.handle(.next)
         #expect(m.currentPermission == .inputMonitoring)
         m.handle(.allow(.inputMonitoring)); m.handle(.permissionResult(.inputMonitoring, .granted))
@@ -466,7 +480,7 @@ struct PromptablePermissionTests {
         #expect(m.currentPermission == .microphone)
         #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
         // The same answer from a non-promptable service is genuinely a Settings problem.
-        var im = M(initialStatuses: [.microphone: .granted])
+        var im = fullWalkM(initialStatuses: [.microphone: .granted])
         im.handle(.next)
         im.handle(.allow(.inputMonitoring))
         im.handle(.permissionResult(.inputMonitoring, .notDetermined))
@@ -490,7 +504,7 @@ struct PromptablePermissionTests {
                 == [.requestPermission(.microphone), .rememberRequested(.microphone)])
         #expect(undecided.permissionPhase == .requesting)
         // Never for a non-promptable one: there is no API that could prompt.
-        var im = M(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
+        var im = fullWalkM(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
         im.handle(.next)
         #expect(im.handle(.verify(.inputMonitoring)) == [.checkPermission(.inputMonitoring)])
     }
@@ -507,7 +521,7 @@ struct PromptablePermissionTests {
         #expect(!m.requestedPermissions.contains(.microphone))
         #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
         // A non-promptable service has nothing to heal into: no prompt exists for it either way.
-        var im = M(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
+        var im = fullWalkM(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
         im.handle(.next)
         #expect(im.handle(.statusRefreshed(.inputMonitoring, .notDetermined)) == [])
         #expect(im.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
@@ -557,7 +571,10 @@ struct PromptablePermissionTests {
 @MainActor
 struct OnboardingViewModelTests {
     @Test func deniedMicThenOpenSettingsCallsChecker() async throws {
-        let deps = OnboardingDependencies.mock(permissionResults: [.microphone: .denied])
+        var deps = OnboardingDependencies.mock(permissionResults: [.microphone: .denied])
+        // The escape-hatch walk — this test is about the Input Monitoring step itself, which a
+        // default install no longer visits (see `OnboardingSkipsInputMonitoringTests`).
+        deps.hotkeyRequiresPermission = .inputMonitoring
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
         vm.send(.allow(.microphone))
@@ -576,7 +593,7 @@ struct OnboardingViewModelTests {
         var finished: Bool?
         vm.onFinished = { finished = $0 }
         vm.send(.next)
-        for p in OnboardingPermission.allCases {
+        for p in vm.machine.permissionOrder {
             vm.send(.allow(p))
             try await waitUntil { vm.machine.statuses[p] == .granted }
         }
@@ -609,9 +626,12 @@ struct OnboardingViewModelTests {
     /// (what the real TCC calls do), and the 0.5 s poll picks up the grant made in System Settings
     /// with no further clicks — the checkmark flips and the step advances to Accessibility.
     @Test func pollingPicksUpAGrantMadeInSystemSettings() async throws {
-        let deps = OnboardingDependencies.mock(permissionResults: [
+        var deps = OnboardingDependencies.mock(permissionResults: [
             .microphone: .granted, .inputMonitoring: .awaitingUserAction,
         ])
+        // The escape-hatch walk — this test is about the Input Monitoring step itself, which a
+        // default install no longer visits (see `OnboardingSkipsInputMonitoringTests`).
+        deps.hotkeyRequiresPermission = .inputMonitoring
         let vm = OnboardingViewModel(dependencies: deps)
         let checker = try #require(deps.permissions as? OnboardingMockPermissionChecker)
         vm.send(.next)
@@ -632,6 +652,9 @@ struct OnboardingViewModelTests {
     @Test func requestIsRememberedAcrossLaunches() async throws {
         let store = InMemorySettingsStore()
         var deps = OnboardingDependencies.mock(permissionResults: [.inputMonitoring: .awaitingUserAction])
+        // The escape-hatch walk — this test is about the Input Monitoring step itself, which a
+        // default install no longer visits (see `OnboardingSkipsInputMonitoringTests`).
+        deps.hotkeyRequiresPermission = .inputMonitoring
         deps.settingsStore = store
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
@@ -642,6 +665,9 @@ struct OnboardingViewModelTests {
         vm.teardown()
 
         var relaunch = OnboardingDependencies.mock(permissionResults: [.inputMonitoring: .awaitingUserAction])
+        // The escape-hatch walk — this test is about the Input Monitoring step itself, which a
+        // default install no longer visits (see `OnboardingSkipsInputMonitoringTests`).
+        relaunch.hotkeyRequiresPermission = .inputMonitoring
         relaunch.settingsStore = store
         let second = OnboardingViewModel(dependencies: relaunch)
         second.send(.next)
@@ -662,6 +688,9 @@ struct OnboardingViewModelTests {
         store.set(true, for: "onboarding.requested.microphone")
         store.set(true, for: "onboarding.requested.inputMonitoring")
         var deps = OnboardingDependencies.mock()
+        // The escape-hatch walk — this test is about the Input Monitoring step itself, which a
+        // default install no longer visits (see `OnboardingSkipsInputMonitoringTests`).
+        deps.hotkeyRequiresPermission = .inputMonitoring
         deps.settingsStore = store
         let vm = OnboardingViewModel(dependencies: deps)
         let checker = try #require(deps.permissions as? OnboardingMockPermissionChecker)
@@ -711,7 +740,7 @@ struct OnboardingViewModelTests {
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.skip)                      // welcome → (no mic) → modelChoice
         vm.send(.back)                      // back to permissions
-        for p in OnboardingPermission.allCases {
+        for p in vm.machine.permissionOrder {
             vm.send(.allow(p))
             try await waitUntil { vm.machine.statuses[p] == .granted }
         }
@@ -728,7 +757,7 @@ struct OnboardingViewModelTests {
         let deps = OnboardingDependencies.mock()
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
-        for p in OnboardingPermission.allCases {
+        for p in vm.machine.permissionOrder {
             vm.send(.allow(p))
             try await waitUntil { vm.machine.statuses[p] == .granted }
         }

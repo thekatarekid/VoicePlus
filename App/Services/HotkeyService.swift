@@ -60,13 +60,15 @@ enum HotkeyTapRegistry {
     static func isLive(_ token: Int) -> Bool { service(for: token) != nil }
 }
 
-// MARK: - The CoreGraphics seam
+// MARK: - The backend seam
 
-/// A tap that has been created, enabled and added to the main run loop, addressed only through
-/// closures so no CF object escapes `HotkeyService`.
-public struct InstalledEventTap {
+/// A hotkey source that has been installed and hooked up to the main run loop, addressed only
+/// through closures so no CF object, Carbon ref or `NSEvent` monitor token escapes `HotkeyService`.
+public struct InstalledHotkeySource {
+    /// Only the event-tap backend has a real enable/disable; the monitor and Carbon backends
+    /// implement this as a no-op and rely on `HotkeyService.isPaused`.
     public var setEnabled: (Bool) -> Void
-    /// Disable, remove from the run loop and invalidate. Must be safe to call twice.
+    /// Uninstall completely. Must be safe to call twice.
     public var invalidate: () -> Void
 
     public init(setEnabled: @escaping (Bool) -> Void, invalidate: @escaping () -> Void) {
@@ -75,45 +77,85 @@ public struct InstalledEventTap {
     }
 }
 
-/// Everything `HotkeyService.start()` needs from CoreGraphics, in one injectable value.
-///
-/// A `swift test` process has no Input Monitoring and can never create a working tap, so without
-/// this seam the arm → re-arm → stop lifecycle — the part that went wrong — would be the one part
-/// of the hotkey path with no test at all.
-public struct EventTapInstaller {
-    /// `CGPreflightListenEventAccess()` in production.
-    public var preflight: () -> Bool
-    /// Create the tap whose `userInfo` is `token`. nil when it could not be created.
-    public var install: (_ token: Int) -> InstalledEventTap?
+/// Kept so the 1.6.7 tests and `StubEventTap` read unchanged. The type is no longer tap-specific.
+public typealias InstalledEventTap = InstalledHotkeySource
 
-    public init(preflight: @escaping () -> Bool, install: @escaping (Int) -> InstalledEventTap?) {
+/// Everything `HotkeyService.start()` needs from the system, in one injectable value.
+///
+/// A `swift test` process cannot create a working event tap and has no run loop pumping AppKit, so
+/// without this seam the arm → re-arm → stop lifecycle — the part that went wrong in 1.6.6 — would
+/// be the one part of the hotkey path with no test at all.
+///
+/// `install` takes only the token on purpose: the backend that needs the binding (Carbon, which has
+/// to know *which* chord to register) reads it back off the registry, so every backend has the same
+/// one-argument shape and `StubEventTap` did not have to change.
+public struct HotkeyBackend {
+    /// Which mechanism this is — the thing that decides the permission cost.
+    public var kind: HotkeyBackendKind
+    /// Is the permission this backend needs (if any) in place? `{ true }` for the permission-free
+    /// backends.
+    public var preflight: () -> Bool
+    /// Install the source whose callbacks carry `token`. nil when it could not be created.
+    public var install: (_ token: Int) -> InstalledHotkeySource?
+
+    public init(kind: HotkeyBackendKind = .eventTap, preflight: @escaping () -> Bool,
+                install: @escaping (Int) -> InstalledHotkeySource?) {
+        self.kind = kind
         self.preflight = preflight
         self.install = install
     }
 
-    public static let system = EventTapInstaller(preflight: { CGPreflightListenEventAccess() },
-                                                 install: HotkeyService.installSystemTap)
+    /// `NSEvent` global + local `flagsChanged` monitors. The shipping default. Needs no permission.
+    public static let globalMonitor = HotkeyBackend(kind: .globalMonitor, preflight: { true },
+                                                    install: HotkeyService.installGlobalMonitor)
+
+    /// Carbon `RegisterEventHotKey`. Chords only. Needs no permission.
+    public static let carbon = HotkeyBackend(kind: .carbon, preflight: { true },
+                                             install: HotkeyService.installCarbonHotKey)
+
+    /// The 1.6.7 mechanism: a `.listenOnly` CGEvent tap, gated on Input Monitoring. Reachable only
+    /// through the `hotkeyForceEventTap` escape hatch.
+    public static let eventTap = HotkeyBackend(kind: .eventTap, preflight: { CGPreflightListenEventAccess() },
+                                               install: HotkeyService.installSystemTap)
+
+    /// The production backend for a binding.
+    public static func system(for binding: HotkeyBinding, forceEventTap: Bool = false) -> HotkeyBackend {
+        switch HotkeyBackendSelector.kind(for: binding, forceEventTap: forceEventTap) {
+        case .globalMonitor: return .globalMonitor
+        case .carbon: return .carbon
+        case .eventTap: return .eventTap
+        }
+    }
+
+    /// Retained so existing call sites that just want "whatever production uses" keep working; the
+    /// service picks per binding at every `start()` unless a test has pinned one.
+    public static var system: HotkeyBackend { .globalMonitor }
 }
 
-/// Records installs and teardowns instead of touching CoreGraphics. Lives beside the real installer
+/// Kept so the 1.6.7 tests read unchanged.
+public typealias EventTapInstaller = HotkeyBackend
+
+/// Records installs and teardowns instead of touching the system. Lives beside the real backends
 /// (like `MockHotkeyArming` beside `CapabilityWatcher`) so the tests need no event tap.
 public final class StubEventTap {
     public var preflightResult = true
     public var installSucceeds = true
+    /// What the stub claims to be. Selection tests set this to prove which mechanism was chosen.
+    public var kind: HotkeyBackendKind = .eventTap
     public private(set) var installed: [Int] = []
     public private(set) var invalidated: [Int] = []
     public private(set) var enableCalls: [(token: Int, enabled: Bool)] = []
 
     public init() {}
 
-    /// Tokens whose tap was created and never invalidated. Must never exceed 1 for one service.
+    /// Tokens whose source was created and never invalidated. Must never exceed 1 for one service.
     public var liveTaps: [Int] { installed.filter { !invalidated.contains($0) } }
 
-    public var installer: EventTapInstaller {
-        EventTapInstaller(preflight: { [weak self] in self?.preflightResult ?? false }) { [weak self] token in
+    public var installer: HotkeyBackend {
+        HotkeyBackend(kind: kind, preflight: { [weak self] in self?.preflightResult ?? false }) { [weak self] token in
             guard let self, self.installSucceeds else { return nil }
             self.installed.append(token)
-            return InstalledEventTap(
+            return InstalledHotkeySource(
                 setEnabled: { [weak self] on in self?.enableCalls.append((token, on)) },
                 invalidate: { [weak self] in
                     guard let self, !self.invalidated.contains(token) else { return }
@@ -126,24 +168,37 @@ public final class StubEventTap {
 
 // MARK: - The service
 
-/// Global modifier-key listener (T3): a listen-only CGEvent tap on `flagsChanged`, feeding
-/// `HotkeyStateMachine`. Requires Input Monitoring; `start()` returns false (and the app falls back
-/// to the menu item) without it.
+/// Global dictation-key listener (T3), feeding `HotkeyStateMachine`.
 ///
-/// ## Thread and lifetime discipline
-/// * The tap callback is a **non-capturing** C function. It touches no Swift object directly: it
-///   copies the three scalars it needs out of the `CGEvent` (valid only for the duration of the
-///   callback) and hands them, plus the token, to `deliver(token:…)`.
-/// * `deliver` re-resolves the token and applies the event **on the main thread**. The run-loop
-///   source is added to `CFRunLoopGetMain()`, so today that is already true and the hop is a no-op;
-///   the check is what keeps it true if the source is ever moved to another run loop, since
-///   everything downstream of `onAction` — the pill, the overlay, the coordinator — is main-actor.
-/// * There is exactly one live tap per service at a time: `start()` tears down any leftover before
-///   creating one, and `stop()`/`deinit` invalidate the port *and* retire the token.
+/// ## Which mechanism, and what it costs
+/// Until 1.6.7 there was exactly one: a `.listenOnly` `CGEvent` tap, the single global-input API
+/// gated on `kTCCServiceListenEvent`. That one choice is where the whole Input Monitoring
+/// requirement came from — the extra pane, the switch macOS honours only after a forced
+/// quit-and-relaunch, and the stale-grant dead end that cost four rounds of debugging. None of the
+/// comparable apps on the reporting machine (Claude, Wispr Flow, Gemini, Spokenly, Muesli) appear in
+/// that pane, and none of them use that API.
+///
+/// `start()` now picks a backend from the binding (`HotkeyBackendSelector`):
+/// * a bare modifier → `NSEvent` global + local `flagsChanged` monitors, **no permission**;
+/// * a chord → Carbon `RegisterEventHotKey`, **no permission**;
+/// * the event tap only when the `hotkeyForceEventTap` escape hatch is set.
+///
+/// ## Thread and lifetime discipline (unchanged, and still the reason for the token)
+/// * Callbacks touch no Swift object directly: they copy the scalars they need and hand them, plus
+///   the token, to `deliver(token:…)`. A token cannot dangle; a retired one resolves to nil, where a
+///   freed pointer would resolve to a crash.
+/// * `deliver` re-resolves the token and applies the event **on the main thread**. `NSEvent`
+///   monitors and Carbon handlers already run there, so for the two default backends the hop is a
+///   no-op — but it is what keeps the tap path correct too.
+/// * There is exactly one live source per service: `start()` tears down any leftover before creating
+///   one, and `stop()`/`deinit` invalidate it *and* retire the token.
 public final class HotkeyService {
     public static let bindingDefaultsKey = "hotkeyBinding"
     /// P4.2 — the second (act) key persists under its own key; default Right ⌘.
     public static let actBindingDefaultsKey = "actHotkeyBinding"
+    /// Escape hatch: force the pre-1.6.8 `.listenOnly` CGEvent tap. The only setting that can make
+    /// VoicePlus need Input Monitoring, and nothing in the shipped UI turns it on.
+    public static let forceEventTapDefaultsKey = "hotkeyForceEventTap"
 
     public var onAction: ((HotkeyStateMachine.Action) -> Void)?
     public private(set) var machine: HotkeyStateMachine
@@ -151,33 +206,69 @@ public final class HotkeyService {
     public private(set) var isRunning = false
     public var isPaused = false
 
-    /// Swappable so the lifecycle is testable without Input Monitoring. Changing it while armed does
-    /// nothing until the next `start()`.
-    public var installer: EventTapInstaller = .system
+    /// Swappable so the lifecycle is testable without any system API. When nil (production), the
+    /// backend is chosen from the binding at every `start()`; a non-nil value pins it.
+    public var installer: HotkeyBackend?
 
-    private var installedTap: InstalledEventTap?
-    /// The token the live tap carries, or nil while disarmed. Internal so the tests can prove that a
-    /// torn-down tap's token no longer resolves.
+    /// The mechanism the live source is using, or the one `start()` would choose. This is the value
+    /// that decides whether Input Monitoring is needed at all.
+    public var backendKind: HotkeyBackendKind {
+        activeBackendKind ?? selectedBackend.kind
+    }
+    private var activeBackendKind: HotkeyBackendKind?
+
+    /// What the *selection rule* says this binding needs, ignoring any backend a test has pinned.
+    /// `setBinding` compares this rather than `backendKind` so a modifier → chord change re-installs
+    /// even when the source is a stub, which is the case the lifecycle tests exercise.
+    private var ruledBackendKind: HotkeyBackendKind {
+        HotkeyBackendSelector.kind(for: binding, forceEventTap: forcesEventTap)
+    }
+
+    /// The permission the current binding costs. nil for everything the shipped picker offers.
+    public var requiredPermission: Permission? { backendKind.requiredPermission }
+
+    /// Whether the legacy event tap has been forced on for this service.
+    public var forcesEventTap: Bool { defaults.bool(forKey: Self.forceEventTapDefaultsKey) }
+
+    /// What this install's dictation key costs in permissions, without constructing a service.
+    ///
+    /// One source of truth for the two places that have to know before a `HotkeyService` exists:
+    /// onboarding (which permissions to walk) and the Settings copy. nil for every binding the
+    /// shipped picker can produce.
+    public static func currentRequiredPermission(defaults: UserDefaults = .standard,
+                                                 bindingKey: String = HotkeyService.bindingDefaultsKey) -> Permission? {
+        let binding = storedBinding(defaults: defaults, key: bindingKey) ?? .default
+        return HotkeyBackendSelector.requiredPermission(for: binding,
+                                                        forceEventTap: defaults.bool(forKey: forceEventTapDefaultsKey))
+    }
+
+    private var selectedBackend: HotkeyBackend {
+        installer ?? .system(for: binding, forceEventTap: forcesEventTap)
+    }
+
+    private var installedSource: InstalledHotkeySource?
+    /// The token the live source carries, or nil while disarmed. Internal so the tests can prove
+    /// that a torn-down source's token no longer resolves.
     private(set) var tapToken: Int?
 
     private let defaults: UserDefaults
     private let bindingKey: String
+    private var defaultsObserver: NSObjectProtocol?
 
-    /// How many events the *tap* has delivered since it was last armed. `CGEvent.tapCreate` returns a
-    /// valid-looking port with no Input Monitoring at all (measured on macOS 26.6.2: six creations,
-    /// six non-NULL taps, `CGPreflightListenEventAccess()` false throughout), so "armed" is not
-    /// "working" and this counter is the only thing that can tell them apart.
+    /// How many events the *source* has delivered since it was last armed. `CGEvent.tapCreate`
+    /// returns a valid-looking port with no Input Monitoring at all, so "armed" is not "working" and
+    /// this counter is the only thing that can tell them apart for the tap backend.
     public private(set) var eventsReceived = 0
-    /// When the current tap was created; nil while disarmed.
+    /// When the current source was installed; nil while disarmed.
     public private(set) var armedAt: Date?
-    /// How many times the tap has been created in this process — asserted by the tests that a grant
-    /// observed by the poll arms exactly once and never stacks a second tap.
+    /// How many times a source has been installed in this process — asserted by the tests that a
+    /// grant observed by the poll arms exactly once and never stacks a second source.
     public private(set) var armCount = 0
     /// Injectable for tests.
     public var clock: () -> Date = Date.init
     /// Seconds since the *system* last saw a `flagsChanged` event, from the HID event source. Needs
     /// no permission of any kind, which is what makes it usable as the control in the liveness test:
-    /// silence from our tap only means something if the system itself saw modifier activity.
+    /// silence from our source only means something if the system itself saw modifier activity.
     public var systemModifierIdle: () -> TimeInterval = {
         CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .flagsChanged)
     }
@@ -188,34 +279,69 @@ public final class HotkeyService {
         self.defaults = defaults
         self.bindingKey = bindingKey
         self.machine = HotkeyStateMachine(timing: timing)
-        if let raw = defaults.string(forKey: bindingKey), let kind = HotkeyBinding.Kind(rawValue: raw) {
-            binding = HotkeyBinding(kind: kind)
-        } else {
-            binding = defaultBinding
-        }
+        binding = Self.storedBinding(defaults: defaults, key: bindingKey) ?? defaultBinding
     }
 
-    /// The tap outlives the object unless something tears it down, and a run loop holding a port
+    /// Reads the persisted binding, migrating anything this build no longer recognises.
+    ///
+    /// Every 1.6.7 install has one of the five bare-modifier raw values here, and all five survive
+    /// verbatim — a user who picked Right ⌥ keeps Right ⌥, and it now costs no permission. A value
+    /// this build cannot parse (a future binding, a corrupted write) falls back to the default
+    /// rather than leaving the service with no binding at all.
+    static func storedBinding(defaults: UserDefaults, key: String) -> HotkeyBinding? {
+        guard let raw = defaults.string(forKey: key) else { return nil }
+        guard let kind = HotkeyBinding.Kind(rawValue: raw) else {
+            Log.app.warning("hotkey: stored binding \"\(raw)\" is not one this build knows — using the default")
+            return nil
+        }
+        return HotkeyBinding(kind: kind)
+    }
+
+    /// The source outlives the object unless something tears it down, and a run loop holding a port
     /// whose owner is gone is exactly the shape of a use-after-free. There was no `deinit` here
     /// until 1.6.7.
-    deinit { teardownTap() }
+    deinit {
+        teardownSource()
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+    }
 
     public func setBinding(_ kind: HotkeyBinding.Kind) {
+        let previousBackend = ruledBackendKind
         binding = HotkeyBinding(kind: kind)
         defaults.set(kind.rawValue, forKey: bindingKey)
         machine.reset()
+        // A chord and a bare modifier are served by different mechanisms, so a change between them
+        // has to re-install, not just re-interpret. Same-mechanism changes need nothing.
+        if isRunning, ruledBackendKind != previousBackend { rearm() }
     }
 
-    /// Feed a raw modifier event. Public so tests can synthesize `CGEvent`s without a tap.
-    /// Main thread only when it is reached from a tap — see `deliver(token:…)`.
+    /// Re-read the binding from `UserDefaults` and apply it if it changed.
+    ///
+    /// The Settings picker and the menu-bar submenu write to the same key from different objects;
+    /// before this, only the menu path reached the running service and a Settings change did nothing
+    /// until the next launch.
+    @discardableResult
+    public func reloadBindingFromDefaults() -> Bool {
+        guard let stored = Self.storedBinding(defaults: defaults, key: bindingKey), stored != binding else { return false }
+        Log.app.notice("hotkey: binding changed externally to \(stored.kind.displayName)")
+        setBinding(stored.kind)
+        return true
+    }
+
+    /// Start watching `UserDefaults` so a Settings-side binding change takes effect immediately.
+    /// Called by the app; harmless (and unobserved) in tests that never call it.
+    public func observeDefaults() {
+        guard defaultsObserver == nil else { return }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main
+        ) { [weak self] _ in self?.reloadBindingFromDefaults() }
+    }
+
+    /// Feed a raw modifier event. Public so tests can synthesize `CGEvent`s without a source.
+    /// Main thread only when it is reached from a backend — see `deliver(token:…)`.
     public func handle(keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
         guard !isPaused, let edge = binding.edge(keyCode: keyCode, flags: flags) else { return }
-        let actions: [HotkeyStateMachine.Action]
-        switch edge {
-        case .down: actions = machine.keyDown(at: timestamp)
-        case .up: actions = machine.keyUp(at: timestamp)
-        }
-        for action in actions { onAction?(action) }
+        apply(edge: edge, at: timestamp)
     }
 
     public func handle(event: CGEvent) {
@@ -224,71 +350,99 @@ public final class HotkeyService {
                timestamp: TimeInterval(event.timestamp) / 1_000_000_000)
     }
 
+    /// Feed a chord press/release. The Carbon backend's only entry point: a chord has no flags word
+    /// to classify, so `binding.edge(keyCode:flags:)` cannot serve it and deliberately returns nil.
+    /// Public so tests can drive the state machine with synthetic Carbon edges.
+    public func handleChord(down: Bool, timestamp: TimeInterval) {
+        guard !isPaused, binding.style == .chord else { return }
+        apply(edge: down ? .down : .up, at: timestamp)
+    }
+
+    private func apply(edge: HotkeyBinding.Edge, at timestamp: TimeInterval) {
+        let actions: [HotkeyStateMachine.Action]
+        switch edge {
+        case .down: actions = machine.keyDown(at: timestamp)
+        case .up: actions = machine.keyUp(at: timestamp)
+        }
+        for action in actions { onAction?(action) }
+    }
+
     /// Called by the coordinator when the engine failed so a stuck key-down doesn't leave us "capturing".
     public func resetGesture() { machine.reset() }
 
-    // MARK: Tap lifecycle
+    // MARK: Source lifecycle
 
     @discardableResult
     public func start() -> Bool {
         guard !isRunning else { return true }
-        // A half-torn state — a tap installed while `isRunning` is false — must never survive into a
-        // second creation. One service, one live tap, always.
-        teardownTap()
-        guard installer.preflight() else {
-            Log.app.warning("hotkey: Input Monitoring not granted; falling back to menu item")
+        // A half-torn state — a source installed while `isRunning` is false — must never survive into
+        // a second creation. One service, one live source, always.
+        teardownSource()
+        let backend = selectedBackend
+        guard backend.preflight() else {
+            Log.app.warning("hotkey: \(backend.kind.rawValue) backend is not authorized (\(backend.kind.requiredPermission?.title ?? "no permission needed")); falling back to menu item")
             return false
         }
         let token = HotkeyTapRegistry.register(self)
-        guard let tap = installer.install(token) else {
+        guard let source = backend.install(token) else {
             HotkeyTapRegistry.retire(token)
-            Log.app.error("hotkey: CGEvent.tapCreate failed")
+            Log.app.error("hotkey: \(backend.kind.rawValue) backend would not install")
             return false
         }
-        installedTap = tap
+        installedSource = source
         tapToken = token
+        activeBackendKind = backend.kind
+        // Armed services watch their own binding key, so a change made in Settings (a different
+        // object, writing the same `UserDefaults`) reaches the live service instead of waiting for
+        // the next launch. Idempotent; removed in `deinit`.
+        observeDefaults()
         isRunning = true
         eventsReceived = 0
         armedAt = clock()
         armCount += 1
         // `.notice` (not `.info`): info-level lines are memory-only and had already aged out by the
-        // time the 1.6.5 report was diagnosed, so the whole question "was the tap ever armed?" had to
-        // be answered from tccd's log instead of ours. Arming is rare; persist it.
-        Log.app.notice("hotkey: tap armed (#\(armCount)) for \(binding.kind.displayName)")
+        // time the 1.6.5 report was diagnosed, so the whole question "was the source ever armed?" had
+        // to be answered from tccd's log instead of ours. Arming is rare; persist it.
+        Log.app.notice("hotkey: armed (#\(armCount)) via \(backend.kind.rawValue) for \(binding.kind.displayName) — needs \(backend.kind.requiredPermission?.title ?? "no permission")")
         return true
     }
 
-    /// Tear the tap down. Invalidating the port and the run-loop source, and retiring the token
-    /// (rather than only dropping the references) is what guarantees a later `start()` cannot leave a
-    /// second live tap behind and that an event already queued on the run loop reaches nothing.
+    /// Tear the source down. Invalidating it and retiring the token (rather than only dropping the
+    /// references) is what guarantees a later `start()` cannot leave a second live source behind and
+    /// that an event already queued on the run loop reaches nothing.
     public func stop() {
-        teardownTap()
+        teardownSource()
         isRunning = false
         armedAt = nil
         eventsReceived = 0
         machine.reset()
     }
 
-    /// Idempotent, and safe from `deinit` (it touches only CF objects and the registry).
-    private func teardownTap() {
-        installedTap?.setEnabled(false)
-        installedTap?.invalidate()
-        installedTap = nil
+    /// Idempotent, and safe from `deinit`.
+    private func teardownSource() {
+        installedSource?.setEnabled(false)
+        installedSource?.invalidate()
+        installedSource = nil
         if let tapToken { HotkeyTapRegistry.retire(tapToken) }
         tapToken = nil
+        activeBackendKind = nil
     }
 
-    /// Drop the current tap and create a fresh one. Used when the liveness probe says the tap is
-    /// armed but deaf — the state a grant made *after* `tapCreate` can leave it in.
+    /// Drop the current source and create a fresh one. Used when the liveness probe says the source
+    /// is armed but deaf, and when a binding change moves to a different backend.
     @discardableResult
     public func rearm() -> Bool {
         stop()
         return start()
     }
 
-    /// Is the armed tap actually receiving events? See `TapLiveness`.
+    /// Is the armed source actually receiving events? See `TapLiveness`.
+    ///
+    /// Only meaningful for the two backends that observe `flagsChanged`. The Carbon backend fires
+    /// only on its own chord, so "no events while the system saw modifier keys" says nothing about
+    /// it and must never be read as deafness.
     public var livenessVerdict: TapLiveness.Verdict {
-        guard isRunning, let armedAt else { return .unknown }
+        guard isRunning, let armedAt, backendKind != .carbon else { return .unknown }
         return TapLiveness.verdict(armedFor: clock().timeIntervalSince(armedAt),
                                    eventsSinceArmed: eventsReceived,
                                    systemModifierIdle: systemModifierIdle())
@@ -296,23 +450,35 @@ public final class HotkeyService {
 
     // MARK: The callback path
 
-    /// The one place a tap callback becomes state. Called on the tap's callback thread.
+    /// The one place a backend callback becomes state. Called on the backend's callback thread.
     ///
-    /// A callback for a tap that has been torn down resolves to nil and does nothing — a dictionary
-    /// miss, never a touch of freed memory, because a token is not a pointer. The hop re-resolves
-    /// rather than capturing the service, so a tap torn down *between* the callback and the next
-    /// main-queue turn delivers nothing either (and the queued block cannot keep a dead service
-    /// alive to be delivered to).
+    /// A callback for a source that has been torn down resolves to nil and does nothing — a
+    /// dictionary miss, never a touch of freed memory, because a token is not a pointer. The hop
+    /// re-resolves rather than capturing the service, so a source torn down *between* the callback
+    /// and the next main-queue turn delivers nothing either.
     static func deliver(token: Int, keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
         guard let service = HotkeyTapRegistry.service(for: token) else { return }
         guard Thread.isMainThread else {
             DispatchQueue.main.async {
-                HotkeyTapRegistry.service(for: token)?.receiveFromTap(keyCode: keyCode, flags: flags,
-                                                                     timestamp: timestamp)
+                HotkeyTapRegistry.service(for: token)?.receiveModifier(keyCode: keyCode, flags: flags,
+                                                                      timestamp: timestamp)
             }
             return
         }
-        service.receiveFromTap(keyCode: keyCode, flags: flags, timestamp: timestamp)
+        service.receiveModifier(keyCode: keyCode, flags: flags, timestamp: timestamp)
+    }
+
+    /// The Carbon equivalent of `deliver`. `kEventHotKeyPressed` / `kEventHotKeyReleased` carry no
+    /// key code or flag word — the chord identity *is* the registration — so this path is separate.
+    static func deliverChord(token: Int, down: Bool, timestamp: TimeInterval) {
+        guard let service = HotkeyTapRegistry.service(for: token) else { return }
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                HotkeyTapRegistry.service(for: token)?.receiveChord(down: down, timestamp: timestamp)
+            }
+            return
+        }
+        service.receiveChord(down: down, timestamp: timestamp)
     }
 
     /// macOS disables a tap that took too long or that the user's input disturbed. Re-enabling it is
@@ -322,21 +488,137 @@ public final class HotkeyService {
             DispatchQueue.main.async { HotkeyService.reenable(token: token) }
             return
         }
-        guard let service = HotkeyTapRegistry.service(for: token), let tap = service.installedTap else { return }
+        guard let service = HotkeyTapRegistry.service(for: token), let source = service.installedSource else { return }
         Log.app.notice("hotkey: tap was disabled by the system — re-enabling")
-        tap.setEnabled(true)
+        source.setEnabled(true)
+    }
+
+    /// The chord a token's service is bound to, for the Carbon installer. nil when the binding is a
+    /// bare modifier — which is what stops a bare modifier from ever being handed to
+    /// `RegisterEventHotKey`, the call that accepts it and then never fires.
+    static func chord(for token: Int) -> HotkeyBinding.Chord? {
+        HotkeyTapRegistry.service(for: token)?.binding.kind.chord
     }
 
     /// Counts the event for the liveness probe, then runs the gesture recogniser. Main thread only.
-    private func receiveFromTap(keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
+    private func receiveModifier(keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
         eventsReceived += 1
         handle(keyCode: keyCode, flags: flags, timestamp: timestamp)
     }
 
-    /// The production installer. The callback below is intentionally non-capturing: a capturing
-    /// closure cannot be converted to `CGEventTapCallBack`, and more importantly there is nothing to
-    /// capture — the token is the whole context.
-    static func installSystemTap(token: Int) -> InstalledEventTap? {
+    private func receiveChord(down: Bool, timestamp: TimeInterval) {
+        eventsReceived += 1
+        handleChord(down: down, timestamp: timestamp)
+    }
+
+    // MARK: Backend 1 — NSEvent monitors (the default; no permission)
+
+    /// Global + local `flagsChanged` monitors.
+    ///
+    /// Measured from a zero-grant throwaway bundle on macOS 26.6.2: the global monitor installs and
+    /// delivers real modifier transitions from a background `LSUIElement` process while another app
+    /// is frontmost, with `AXIsProcessTrusted()` and `CGPreflightListenEventAccess()` both false and
+    /// no TCC record for the bundle id at all. In the same process, at the same instant, a
+    /// `.listenOnly` tap reported `tapIsEnabled == false` and received nothing.
+    ///
+    /// The **local** monitor is not optional. A global monitor by definition excludes our own
+    /// process, so without it the dictation key would go dead whenever a VoicePlus window (Settings,
+    /// onboarding) was frontmost — something the old event tap, which sees every app including ours,
+    /// did not do. It needs no permission either.
+    static func installGlobalMonitor(token: Int) -> InstalledHotkeySource? {
+        let deliver: (NSEvent) -> Void = { event in
+            HotkeyService.deliver(token: token,
+                                  keyCode: Int64(event.keyCode),
+                                  flags: UInt64(event.modifierFlags.rawValue),
+                                  timestamp: event.timestamp)
+        }
+        guard let global = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged], handler: deliver) else {
+            return nil
+        }
+        let local = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { event in
+            deliver(event)
+            return event    // never swallow: the modifier still belongs to whatever has focus
+        }
+        var removed = false
+        return InstalledHotkeySource(
+            setEnabled: { _ in },   // NSEvent monitors have no enable/disable; `isPaused` gates delivery
+            invalidate: {
+                guard !removed else { return }
+                removed = true
+                NSEvent.removeMonitor(global)
+                if let local { NSEvent.removeMonitor(local) }
+            }
+        )
+    }
+
+    // MARK: Backend 2 — Carbon RegisterEventHotKey (chords; no permission)
+
+    /// Registers the service's chord with the Window Server through Carbon.
+    ///
+    /// Measured at zero grants: `InstallEventHandler` and `RegisterEventHotKey` both return
+    /// `status = 0`, and re-registering the same chord returns `-9878` (`eventHotKeyExistsErr`) —
+    /// which is what proves the first registration was genuinely system-wide rather than a local
+    /// no-op. Both `kEventHotKeyPressed` and `kEventHotKeyReleased` are requested, which is what
+    /// makes hold-to-talk possible on a chord.
+    ///
+    /// It refuses a bare modifier by construction. `RegisterEventHotKey(kVK_RightOption, 0)` returns
+    /// `status = 0` with a valid ref and then never fires — measured, 0 callbacks across real
+    /// modifier transitions. A backend that trusted the return code would look installed and be
+    /// silently dead.
+    static func installCarbonHotKey(token: Int) -> InstalledHotkeySource? {
+        guard let chord = HotkeyService.chord(for: token) else {
+            Log.app.error("hotkey: refusing to register a bare modifier with Carbon — it returns noErr and never fires")
+            return nil
+        }
+        var handlerRef: EventHandlerRef?
+        var specs = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+                     EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))]
+        // Non-capturing, like the tap callback: the token in `userData` is the whole context.
+        let handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
+            guard let event else { return noErr }
+            let token = Int(bitPattern: userData)
+            HotkeyService.deliverChord(token: token,
+                                       down: GetEventKind(event) == UInt32(kEventHotKeyPressed),
+                                       timestamp: ProcessInfo.processInfo.systemUptime)
+            return noErr
+        }, 2, &specs, UnsafeMutableRawPointer(bitPattern: token), &handlerRef)
+        guard handlerStatus == noErr else {
+            Log.app.error("hotkey: InstallEventHandler failed (\(handlerStatus))")
+            return nil
+        }
+        var hotKeyRef: EventHotKeyRef?
+        let id = EventHotKeyID(signature: OSType(0x564F_4943), id: UInt32(token))   // 'VOIC'
+        let status = RegisterEventHotKey(chord.keyCode, chord.carbonModifiers, id,
+                                         GetApplicationEventTarget(), 0, &hotKeyRef)
+        guard status == noErr, let hotKeyRef else {
+            // -9878 is `eventHotKeyExistsErr`: someone else owns this chord system-wide.
+            Log.app.error("hotkey: RegisterEventHotKey failed (\(status)) — the chord may already be taken")
+            if let handlerRef { RemoveEventHandler(handlerRef) }
+            return nil
+        }
+        var removed = false
+        return InstalledHotkeySource(
+            setEnabled: { _ in },
+            invalidate: {
+                guard !removed else { return }
+                removed = true
+                UnregisterEventHotKey(hotKeyRef)
+                if let handlerRef { RemoveEventHandler(handlerRef) }
+            }
+        )
+    }
+
+    // MARK: Backend 3 — the legacy CGEvent tap (escape hatch; costs Input Monitoring)
+
+    /// The pre-1.6.8 installer. The callback below is intentionally non-capturing: a capturing
+    /// closure cannot be converted to `CGEventTapCallBack`, and there is nothing to capture — the
+    /// token is the whole context.
+    ///
+    /// It now refuses an unauthorized tap outright. `CGEvent.tapIsEnabled(tap:)` returns false
+    /// immediately after `tapEnable` for a tap the process is not entitled to create (measured, both
+    /// with and without the grant) — a deterministic, permission-free authorization check that
+    /// replaces "arm, wait 20 s, count events" for the arm-time half of the question.
+    static func installSystemTap(token: Int) -> InstalledHotkeySource? {
         let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
@@ -358,15 +640,26 @@ public final class HotkeyService {
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        return InstalledEventTap(
+        let teardown = {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            if let source {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+                CFRunLoopSourceInvalidate(source)
+            }
+            CFMachPortInvalidate(tap)
+        }
+        guard CGEvent.tapIsEnabled(tap: tap) else {
+            Log.app.error("hotkey: the event tap was created but macOS left it disabled — Input Monitoring is not in force for this build")
+            teardown()
+            return nil
+        }
+        var invalidated = false
+        return InstalledHotkeySource(
             setEnabled: { CGEvent.tapEnable(tap: tap, enable: $0) },
             invalidate: {
-                CGEvent.tapEnable(tap: tap, enable: false)
-                if let source {
-                    CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-                    CFRunLoopSourceInvalidate(source)
-                }
-                CFMachPortInvalidate(tap)
+                guard !invalidated else { return }
+                invalidated = true
+                teardown()
             }
         )
     }

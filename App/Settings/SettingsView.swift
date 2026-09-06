@@ -38,6 +38,12 @@ public struct SettingsView: View {
                 ForEach(HotkeyChoice.allCases) { Text($0.title).tag($0) }
             }
             Text("Hold to talk, release to land. Double-tap locks it on.").font(.caption).foregroundStyle(.secondary)
+            Text(general.hotkeyPermissionNote).font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("settings.hotkeyPermissionNote")
+            Toggle("Use the legacy event-tap listener", isOn: $general.forceEventTap)
+                .accessibilityIdentifier("settings.forceEventTap")
+            Text("Only if the dictation key stops responding. This is the pre-1.6.8 mechanism: it needs VoicePlus in Privacy & Security › Input Monitoring, and macOS hands that permission over only at launch, so you have to quit and reopen. Everything else here needs no permission at all.")
+                .font(.caption).foregroundStyle(.secondary)
             Section("Presence") {
                 Toggle("Show indicator under the notch", isOn: $general.presenceIndicator)
                     .accessibilityIdentifier("settings.presenceIndicator")

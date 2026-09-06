@@ -56,7 +56,11 @@ public final class OnboardingViewModel: ObservableObject {
             initial[p] = dependencies.permissions.status(of: p)
             if dependencies.settingsStore.bool(Self.requestedKey(p)) == true { requested.insert(p) }
         }
-        machine = OnboardingStateMachine(initialStatuses: initial, alreadyRequested: requested)
+        // The walk is as long as the hotkey backend makes it. `hotkeyRequires` is nil for every
+        // binding the shipped picker can produce, so the Input Monitoring screen simply is not part
+        // of onboarding any more.
+        machine = OnboardingStateMachine(initialStatuses: initial, alreadyRequested: requested,
+                                         permissionOrder: OnboardingPermission.order(hotkeyRequires: dependencies.hotkeyRequiresPermission))
         contactsOffer = ContactsImportOffer(store: dependencies.contacts, database: dependencies.database,
                                             settings: dependencies.settingsStore)
         observeAppActivation()

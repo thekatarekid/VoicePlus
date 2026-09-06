@@ -134,6 +134,9 @@ struct CapabilityWatcherRelaunchTests {
         let checker = MockPermissionChecker(statuses: [.microphone: .granted, .inputMonitoring: .notDetermined,
                                                        .accessibility: .granted])
         let hotkey = MockHotkeyArming()
+        // Since 1.6.8 only a service on the `hotkeyForceEventTap` escape hatch waits on Input
+        // Monitoring at all — which is also the only configuration that can still reach this gap.
+        hotkey.requiredPermission = .inputMonitoring
         let clock = Clock()
         let watcher = CapabilityWatcher(checker: checker, hotkeys: [hotkey])
         watcher.clock = { clock.now }

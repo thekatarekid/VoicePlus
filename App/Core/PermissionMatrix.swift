@@ -21,7 +21,7 @@ public enum Permission: String, CaseIterable, Codable, Sendable, Identifiable {
         case .accessibility:
             return "Accessibility lets VoicePlus type what you said into the app you're using and read the field you're in so it can match the style. No screenshots, ever."
         case .inputMonitoring:
-            return "Input Monitoring is how VoicePlus notices you holding the dictation key while another app is in front. Keystrokes are not recorded."
+            return "Optional. VoicePlus only needs this if you switch it to the legacy event-tap listener; the normal dictation key needs no permission at all. Turning it on also means quitting and reopening VoicePlus, because macOS hands this one service over only at launch."
         }
     }
 
@@ -97,11 +97,32 @@ public enum PermissionPlanner {
         case allGranted
     }
 
-    /// Order matters: mic first (needed for anything), then input monitoring (hotkey), then accessibility (landing).
-    public static let order: [Permission] = [.microphone, .inputMonitoring, .accessibility]
+    /// The permissions VoicePlus needs no matter how the hotkey is delivered: the microphone to
+    /// hear, Accessibility to type the result back. Order matters — mic first (nothing works
+    /// without it), Accessibility last (it only affects landing).
+    ///
+    /// Input Monitoring is deliberately **absent**. Through 1.6.7 it sat in the middle of this list
+    /// because the only hotkey mechanism was a `.listenOnly` CGEvent tap. The default mechanism is
+    /// now `NSEvent.addGlobalMonitorForEvents`, which consults no TCC service at all (measured — see
+    /// `HotkeyBackendKind`), so demanding it of every user was a cost with nothing on the other side
+    /// of it: an extra pane to find, a switch macOS only honours after a forced quit-and-relaunch,
+    /// and four rounds of debugging when the grant went stale.
+    public static let baselineOrder: [Permission] = [.microphone, .accessibility]
 
-    public static func nextStep(_ matrix: PermissionMatrix) -> Step {
-        for permission in order {
+    /// Every permission the app knows about, in walk order. Only reached when the active hotkey
+    /// backend actually needs Input Monitoring.
+    public static let fullOrder: [Permission] = [.microphone, .inputMonitoring, .accessibility]
+
+    /// The permissions to walk, given what the *active hotkey backend* costs.
+    /// `hotkeyRequires` is `HotkeyBackendSelector.requiredPermission(for:)` — nil for every binding
+    /// the shipped picker can produce.
+    public static func order(hotkeyRequires: Permission? = nil) -> [Permission] {
+        guard let hotkeyRequires, !baselineOrder.contains(hotkeyRequires) else { return baselineOrder }
+        return [.microphone, hotkeyRequires, .accessibility]
+    }
+
+    public static func nextStep(_ matrix: PermissionMatrix, hotkeyRequires: Permission? = nil) -> Step {
+        for permission in order(hotkeyRequires: hotkeyRequires) {
             switch matrix[permission] ?? .notDetermined {
             case .granted: continue
             case .notDetermined: return .prePrompt(permission)
@@ -123,20 +144,27 @@ public enum PermissionPlanner {
             self.canInjectText = canInjectText
         }
 
-        /// Hotkey without Input Monitoring falls back to the menu-bar "Start dictation" item.
+        /// A hotkey the active backend cannot deliver falls back to the menu-bar "Start dictation"
+        /// item. With the default (permission-free) backend this is never true.
         public var needsMenuFallback: Bool { canCapture && !canUseGlobalHotkey }
     }
 
-    public static func capabilities(_ matrix: PermissionMatrix) -> Capabilities {
+    /// What the app can do with the current grants.
+    ///
+    /// `hotkeyRequires` is the permission the *active hotkey backend* needs, or nil when it needs
+    /// none — which is the shipping default. A backend that consults no TCC service can always be
+    /// armed, so `canUseGlobalHotkey` is unconditionally true there; passing `.inputMonitoring`
+    /// restores the pre-1.6.8 gate for the `hotkeyForceEventTap` escape hatch.
+    public static func capabilities(_ matrix: PermissionMatrix, hotkeyRequires: Permission? = nil) -> Capabilities {
         Capabilities(
             canCapture: matrix[.microphone] == .granted,
-            canUseGlobalHotkey: matrix[.inputMonitoring] == .granted,
+            canUseGlobalHotkey: hotkeyRequires.map { matrix[$0] == .granted } ?? true,
             canInjectText: matrix[.accessibility] == .granted
         )
     }
 
-    public static func missing(_ matrix: PermissionMatrix) -> [Permission] {
-        order.filter { matrix[$0] != .granted }
+    public static func missing(_ matrix: PermissionMatrix, hotkeyRequires: Permission? = nil) -> [Permission] {
+        order(hotkeyRequires: hotkeyRequires).filter { matrix[$0] != .granted }
     }
 }
 

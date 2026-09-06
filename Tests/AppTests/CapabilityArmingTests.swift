@@ -28,10 +28,15 @@ struct CapabilityArmingTests {
         #expect(CapabilityArming.decision(canUseGlobalHotkey: false, isArmed: false) == .hold)
     }
 
+    /// A hotkey on the `hotkeyForceEventTap` escape hatch — the only configuration left that waits
+    /// on a permission. The default backends need none and arm on the first tick
+    /// (`HotkeyArmingWithoutInputMonitoringTests`); this is the arm/disarm *mechanics*, which still
+    /// have to be right for the service that does wait.
     @Test func deniedToGrantedArmsExactlyOnceAndLaterTicksDoNothing() {
         let checker = MockPermissionChecker(statuses: [.microphone: .granted, .inputMonitoring: .denied,
                                                        .accessibility: .denied])
         let hotkey = MockHotkeyArming()
+        hotkey.requiredPermission = .inputMonitoring
         let watcher = watcher(checker, [hotkey])
 
         watcher.refresh()
@@ -53,6 +58,8 @@ struct CapabilityArmingTests {
         let checker = MockPermissionChecker(statuses: [.inputMonitoring: .granted])
         let dictate = MockHotkeyArming()
         let act = MockHotkeyArming()
+        dictate.requiredPermission = .inputMonitoring
+        act.requiredPermission = .inputMonitoring
         let watcher = watcher(checker, [dictate, act])
         watcher.refresh()
         #expect(dictate.startCount == 1 && act.startCount == 1)
@@ -99,8 +106,9 @@ struct CapabilityArmingTests {
         #expect(reports.count == 2)
         #expect(reports.last?.canInjectText == true)
         // Accessibility flipping does not disturb the hotkey capability — they are independent, which
-        // is exactly what the old "arm from the end of the walk" design got wrong.
-        #expect(reports.allSatisfy { !$0.canUseGlobalHotkey })
+        // is exactly what the old "arm from the end of the walk" design got wrong. Since 1.6.8 the
+        // hotkey capability is simply always available: no watched hotkey needs a permission.
+        #expect(reports.allSatisfy { $0.canUseGlobalHotkey })
     }
 }
 
@@ -243,7 +251,10 @@ struct OnboardingLivePollingTests {
     /// walk happened to reach it — which is how "Microphone and Input Monitoring are green but
     /// Accessibility is empty" can be read as "the app is stuck" when it is merely not looking.
     @Test func everyPermissionIsRefreshedPerTickNotOnlyTheFocusedOne() throws {
-        let deps = OnboardingDependencies.mock()
+        // The three-permission walk, i.e. a build on the escape hatch — this test is about the poll
+        // refreshing every permission, so it wants the longest list.
+        var deps = OnboardingDependencies.mock()
+        deps.hotkeyRequiresPermission = .inputMonitoring
         let checker = try #require(deps.permissions as? OnboardingMockPermissionChecker)
         checker.statuses = [.microphone: .granted, .inputMonitoring: .denied, .accessibility: .denied]
         let vm = OnboardingViewModel(dependencies: deps)

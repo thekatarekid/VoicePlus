@@ -5,24 +5,68 @@ import Shared
 
 // MARK: - Hotkey
 
-/// Hotkey choices offered in Settings. P1.1's `HotkeyBinding` consumes `rawValue` via `SettingsKeys.hotkey`.
+/// Hotkey choices offered in Settings.
+///
+/// Every case maps 1:1 onto a `HotkeyBinding.Kind` **by raw value**, which is what makes the picker
+/// real. Until 1.6.8 this enum drifted from the binding — it offered an `f5` the binding could not
+/// express and wrote to its own key, so choosing here changed nothing. It now writes the binding
+/// key `HotkeyService` reads, and the running service picks the change up live.
 public enum HotkeyChoice: String, CaseIterable, Identifiable, Sendable {
-    case rightOption, fn, rightCommand, f5
+    case rightOption, leftOption, rightCommand, rightControl, fn
+    case controlOptionD, controlOptionA
     public var id: String { rawValue }
+
+    public var binding: HotkeyBinding.Kind { HotkeyBinding.Kind(rawValue: rawValue) ?? .rightOption }
+
+    public init(binding: HotkeyBinding.Kind) { self = HotkeyChoice(rawValue: binding.rawValue) ?? .rightOption }
+
     public var title: String {
-        switch self {
-        case .rightOption: return "Right ⌥ Option (hold)"
-        case .fn: return "fn / 🌐 (hold)"
-        case .rightCommand: return "Right ⌘ Command (hold)"
-        case .f5: return "F5 (hold)"
+        switch binding.style {
+        case .bareModifier: return "\(binding.displayName) (hold)"
+        case .chord: return "\(binding.displayName) (hold)"
         }
     }
+
+    /// The one line that makes the trade-off legible in the picker. With the default backends there
+    /// is nothing to trade — which is the point, and worth saying out loud on a screen that used to
+    /// send people to Input Monitoring.
+    public var permissionNote: String {
+        switch binding.style {
+        case .bareModifier:
+            return "Watched through a global key monitor — no extra permission."
+        case .chord:
+            return "Registered as a system hotkey — no extra permission."
+        }
+    }
+
     public static let `default`: HotkeyChoice = .rightOption
 }
 
 @MainActor
 public final class GeneralSettingsViewModel: ObservableObject {
-    @Published public var hotkey: HotkeyChoice { didSet { store.set(hotkey.rawValue, for: SettingsKeys.hotkey) } }
+    /// Writes both keys: its own (`SettingsKeys.hotkey`, kept so nothing that reads it breaks) and
+    /// the one `HotkeyService` actually loads its binding from. A running service observes
+    /// `UserDefaults.didChangeNotification` and re-arms, so the change takes effect on release of
+    /// the pop-up rather than at the next launch.
+    @Published public var hotkey: HotkeyChoice {
+        didSet {
+            store.set(hotkey.rawValue, for: SettingsKeys.hotkey)
+            store.set(hotkey.binding.rawValue, for: HotkeyService.bindingDefaultsKey)
+        }
+    }
+    /// The escape hatch, and the only setting in the app that can make VoicePlus need Input
+    /// Monitoring. Off by default and stays off unless a user with a broken global monitor turns it
+    /// on deliberately.
+    @Published public var forceEventTap: Bool {
+        didSet { store.set(forceEventTap, for: HotkeyService.forceEventTapDefaultsKey) }
+    }
+
+    /// What the current choice costs, stated where the choice is made.
+    public var hotkeyPermissionNote: String {
+        forceEventTap
+            ? "Legacy event tap: needs Input Monitoring in Privacy & Security, and macOS only hands that one over when VoicePlus next launches — so you'll be asked to quit and reopen."
+            : hotkey.permissionNote
+    }
     /// P5 — the persistent indicator near the notch. Default ON.
     @Published public var presenceIndicator: Bool {
         didSet { PresenceSettings.setEnabled(presenceIndicator, store: store) }
@@ -34,7 +78,12 @@ public final class GeneralSettingsViewModel: ObservableObject {
     private let store: SettingsStore
     public init(store: SettingsStore) {
         self.store = store
-        hotkey = store.string(SettingsKeys.hotkey).flatMap(HotkeyChoice.init(rawValue:)) ?? .default
+        // The binding key wins: it is what the menu-bar submenu writes and what the service reads,
+        // so a user who changed the key from the menu sees that choice reflected here.
+        hotkey = store.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyChoice.init(rawValue:))
+            ?? store.string(SettingsKeys.hotkey).flatMap(HotkeyChoice.init(rawValue:))
+            ?? .default
+        forceEventTap = store.bool(HotkeyService.forceEventTapDefaultsKey) ?? false
         presenceIndicator = PresenceSettings.isEnabled(store)
         presenceHideInFullScreen = PresenceSettings.hidesInFullScreen(store)
     }

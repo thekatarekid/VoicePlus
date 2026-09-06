@@ -45,9 +45,17 @@ public enum TapLiveness {
 public protocol HotkeyArming: AnyObject {
     var isRunning: Bool { get }
     var livenessVerdict: TapLiveness.Verdict { get }
+    /// The TCC service the *active backend* needs, or nil when it needs none. This is what turned
+    /// Input Monitoring from a requirement into an escape hatch: with the default backends the
+    /// answer is nil, so `CapabilityWatcher` has nothing to wait for and arms on the first tick.
+    var requiredPermission: Permission? { get }
     @discardableResult func start() -> Bool
     @discardableResult func rearm() -> Bool
     func stop()
+}
+
+public extension HotkeyArming {
+    var requiredPermission: Permission? { nil }
 }
 
 extension HotkeyService: HotkeyArming {}
@@ -130,6 +138,13 @@ public final class CapabilityWatcher {
         self.hotkeys = hotkeys
     }
 
+    /// The permission the hotkeys collectively need right now — nil unless one of them is on the
+    /// `hotkeyForceEventTap` escape hatch. Read fresh on every tick because a binding change can
+    /// move a service between backends while the app is running.
+    public var hotkeyRequirement: Permission? {
+        hotkeys.compactMap(\.requiredPermission).first
+    }
+
     /// The user has just been sent to System Settings for `permission`. Told to the watcher rather
     /// than inferred, because "the app is missing a permission" is the normal state of a fresh
     /// install and must never on its own produce a restart prompt.
@@ -191,14 +206,15 @@ public final class CapabilityWatcher {
     /// One tick. Public so the permission walk, the menu item and the tests can force a read.
     public func refresh() {
         let current = checker.matrix()
-        let caps = PermissionPlanner.capabilities(current)
+        let requirement = hotkeyRequirement
+        let caps = PermissionPlanner.capabilities(current, hotkeyRequires: requirement)
         matrix = current
         if caps != capabilities {
             let previous = capabilities
             capabilities = caps
             // `.notice`, so it survives in the log the way the arming line does. A capability change
             // is exactly the transition the 1.6.5 report needed evidence of and had none.
-            Log.app.notice("capabilities: capture=\(caps.canCapture) hotkey=\(caps.canUseGlobalHotkey) inject=\(caps.canInjectText)"
+            Log.app.notice("capabilities: capture=\(caps.canCapture) hotkey=\(caps.canUseGlobalHotkey) inject=\(caps.canInjectText) hotkeyNeeds=\(requirement?.rawValue ?? "nothing")"
                 + (previous == nil ? " (first read)" : "")
                 + " [\(current.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: " "))]")
             onCapabilitiesChanged?(caps, current)
@@ -217,11 +233,11 @@ public final class CapabilityWatcher {
                 if hotkey.start() {
                     revived.remove(ObjectIdentifier(hotkey))
                 } else {
-                    // Preflight said granted but the tap could not be created — retried next tick.
-                    Log.app.warning("capabilities: Input Monitoring is granted but the tap would not arm")
+                    // Preflight passed but the source could not be installed — retried next tick.
+                    Log.app.warning("capabilities: the hotkey backend passed preflight but would not install")
                 }
             case .disarm:
-                Log.app.notice("capabilities: Input Monitoring is no longer granted — tearing the tap down")
+                Log.app.notice("capabilities: the hotkey backend is no longer authorized — tearing it down")
                 hotkey.stop()
                 revived.remove(ObjectIdentifier(hotkey))
             case .hold:
@@ -249,6 +265,9 @@ public final class CapabilityWatcher {
 /// Records arming calls instead of touching CoreGraphics. Lives in the app target next to the other
 /// mocks (`MockPermissionChecker`, `MockRelauncher`) so the tests need no CGEvent tap.
 public final class MockHotkeyArming: HotkeyArming {
+    /// Defaults to nil — the shipping backends' answer. Set it to `.inputMonitoring` to model a
+    /// service on the legacy event-tap escape hatch.
+    public var requiredPermission: Permission?
     public private(set) var isRunning = false
     public private(set) var startCount = 0
     public private(set) var stopCount = 0

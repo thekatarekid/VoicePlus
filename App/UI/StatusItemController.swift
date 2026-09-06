@@ -107,14 +107,31 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(start)
         }
         menu.addItem(.separator())
+        // The submenu is grouped by *style*, because style is what decides the mechanism and the
+        // mechanism is what used to decide the permission bill. Both groups are free now; the
+        // footer says so rather than leaving the user to wonder which one costs something.
         let hotkeyMenu = NSMenu()
-        for kind in HotkeyBinding.Kind.allCases {
-            let item = NSMenuItem(title: kind.displayName, action: #selector(pickHotkey(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = kind.rawValue
-            item.state = kind == hotkey.binding.kind ? .on : .off
-            hotkeyMenu.addItem(item)
+        for (heading, style) in [("Hold a modifier", HotkeyBinding.Style.bareModifier),
+                                 ("Hold a chord", HotkeyBinding.Style.chord)] {
+            let header = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            hotkeyMenu.addItem(header)
+            for kind in HotkeyBinding.Kind.allCases where kind.style == style {
+                let item = NSMenuItem(title: kind.displayName, action: #selector(pickHotkey(_:)), keyEquivalent: "")
+                item.target = self
+                item.indentationLevel = 1
+                item.representedObject = kind.rawValue
+                item.state = kind == hotkey.binding.kind ? .on : .off
+                item.toolTip = Self.permissionNote(for: kind, forcingEventTap: hotkey.forcesEventTap)
+                hotkeyMenu.addItem(item)
+            }
         }
+        hotkeyMenu.addItem(.separator())
+        let note = NSMenuItem(title: Self.permissionNote(for: hotkey.binding.kind,
+                                                         forcingEventTap: hotkey.forcesEventTap),
+                              action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        hotkeyMenu.addItem(note)
         let hotkeyItem = NSMenuItem(title: "Dictation key: \(m.hotkeyName)", action: nil, keyEquivalent: "")
         hotkeyItem.submenu = hotkeyMenu
         menu.addItem(hotkeyItem)
@@ -211,6 +228,21 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleDictation() {
         if coordinator.engine.state.isActive { coordinator.finalize() } else { coordinator.start() }
+    }
+
+    /// The one line that says what a binding costs. Pure and static so the copy is unit-testable
+    /// without a status item — and so "no permission" cannot quietly become a lie if the selection
+    /// rule changes: it is derived from `HotkeyBackendSelector`, not written by hand per case.
+    static func permissionNote(for kind: HotkeyBinding.Kind, forcingEventTap: Bool) -> String {
+        let backend = HotkeyBackendSelector.kind(for: HotkeyBinding(kind: kind), forceEventTap: forcingEventTap)
+        guard let permission = backend.requiredPermission else {
+            switch backend {
+            case .globalMonitor: return "Global key monitor — no extra permission"
+            case .carbon: return "System hotkey — no extra permission"
+            case .eventTap: return "Event tap"
+            }
+        }
+        return "Legacy event tap — needs \(permission.title), and a quit & reopen"
     }
 
     @objc private func pickHotkey(_ sender: NSMenuItem) {
