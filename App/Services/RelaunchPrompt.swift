@@ -55,11 +55,16 @@ public enum RelaunchPrompt {
                 dismissTitle: "OK"
             )
         }
+        // Conditional on purpose. The trigger is "you went to Settings and came back with this still
+        // reading off", which cannot distinguish "granted it and macOS is withholding it" from
+        // "looked and changed nothing" — the app cannot read TCC.db. A headline that asserted the
+        // first would be a new false claim, and this whole item exists because of one of those. The
+        // conditional sentence is true in both worlds, and costs one click to dismiss.
         return Copy(
-            title: "\(permission.title) needs VoicePlus to restart",
+            title: "If you just turned \(permission.title) on…",
             message: quoted
-                + "If you just turned \(permission.title) on and chose “Later”, macOS is holding that "
-                + "grant back from the copy of VoicePlus that is already running. \(consequence)",
+                + "macOS doesn't hand a permission to an app that is already running — VoicePlus has "
+                + "to be quit and reopened before it can see it. \(consequence)",
             relaunchTitle: "Quit & Reopen",
             dismissTitle: "Later"
         )
