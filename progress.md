@@ -408,6 +408,63 @@ whole package. Full-package total recorded at the release build. 1 commit (`329a
   an environment variable, and nothing in the shipped UI turns it on.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
 
+### 1.7.0 — the mic check now needs a microphone, not a fixture
+
+**The onboarding step that asks you to talk passed without anyone talking.** On a machine with no ASR
+model — again, every fresh install — the user ran "Say something.", **said nothing at all**, and the
+level meter filled and the step reported "Sounds good." The only admission was a small caption:
+*"Simulated meter — no real capture is running in this build."* The step passed regardless.
+
+**Root cause:** the mic-check meter was fed by the **speech engine's** state rather than by the
+microphone. `AppContainer` chose `PipelineMicLevelPublisher` (real capture) only when a live audio
+pipeline existed, and that existed only when a recogniser did — never during onboarding, which by
+definition runs before any model is on disk. It fell back to `EngineMicLevelPublisher`, forwarding the
+**mock** engine's fixture-derived `listening(level:)` numbers; the verdict fired on any level `>= 0.08`,
+so a fabricated number cleared the gate exactly as a spoken word would. After 329af01 the same install
+builds `UnavailableEngine`, which emits nothing, so the bar was dead rather than fake — still incapable
+of telling the user anything true. Separately, a user who **denied or skipped** the microphone
+permission was routed to the mic check anyway, onto a meter that could never move for a reason the
+screen never named.
+
+**What ships.**
+- **Onboarding owns a real capture session, independent of the speech engine.** New
+  `PipelineMicLevelPublisher.standalone()` builds `AcousticCaptureSource(wrapping: CoreAudioCaptureSource())`
+  → `AudioPipeline(vad: EnergyVAD())` → `PipelineAudioSource` — the same audio graph the app uses, minus
+  the recogniser. Metering a microphone never required a speech model; now the mic check does not either.
+  `EngineMicLevelPublisher` is **deleted**: no engine-derived path into the meter survives.
+- **Passing without real audio is structurally impossible**, enforced at three layers:
+  `MicLevelPublishing.isRealCapture` lost its defaulted `true`, so every conformer must declare its
+  provenance (the default was how a synthetic source got to look real by saying nothing);
+  `OnboardingViewModel` refuses to start or subscribe to a non-capture source; and
+  `OnboardingStateMachine` is **default-deny** — it discards `.micLevel` entirely while capture
+  provenance is unconfirmed, so an undeclared level never touches the peak and `verdict` is never even
+  called.
+- **The "Simulated meter" caption is gone**, along with the code path that made it reachable.
+- **A blocked microphone gets its own screen.** A denied or undetermined permission opens `.micCheck` on
+  a new **"The microphone is blocked."** verdict with no capture started, copy that names the problem, a
+  button to the Microphone privacy settings, and a **Re-check** that asks about the permission and
+  proceeds only on an actual grant — instead of a dead meter or a silent skip.
+
+**New `Tests/AppTests/OnboardingMicCheckHonestyTests.swift` — 11 tests.** They pin the property, not the
+implementation: undeclared levels can neither pass nor be counted, a non-capture publisher is never
+started or metered, retry clears provenance, a capture failure blocks the step, and a denied microphone
+is immune to injected levels. **Full package: `swift build` clean, 1224 tests passing.** 1 commit
+(`fa2c3a2`) on top of 1.6.9. Ships in the same dmg as 1.6.9.
+
+**Untested / honest limits:**
+- **The HAL leg is untested — an agent cannot speak into a microphone.** Unverified precisely: that
+  `standalone()` opens a real input device and delivers taps on real hardware, and that a genuine grant →
+  speak → "Sounds good." round trip works end to end. Everything above the hardware boundary is covered
+  by tests. **Recommend the user run a real spoken mic check on first launch**; the standalone check for
+  the same leg is `--mic-selftest` on the signed bundle, which drives the identical capture graph
+  headlessly under the app's own TCC identity.
+- **Nobody has seen the blocked screen on a machine that actually denied the microphone.** Its copy and
+  routing are covered by state-machine tests; the visual is unverified.
+- **`OnboardingDependencies.mock(pretendRealMicCapture: true)` still lets a synthetic meter stand in**, by
+  design and by name, for tests of the post-capture logic. Nothing in the app sets it — `AppContainer`
+  builds a real capture graph unconditionally.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
 ### Test-harness safety fix (2026-09-06, post-1.6.6)
 
 `Packaging/verify_install.sh` terminated processes by **name**: its cleanup trap ran `pkill -x VoicePlus`, so a verification run killed the **user's own running /Applications instance** mid-session (pid 76823 — it had to be relaunched by hand). A run during dictation would have lost the transcript. All three name-based kills are gone: the script records the pid of the instance it launched (matched by *executable path* against its own temp copy, normalised with `pwd -P` because `mktemp` returns `/var/…` while `ps` reports `/private/var/…`) and signals only that pid, guarded by `kill -0`; INT/TERM route through the same scoped cleanup so an interrupted run cannot orphan its own instance; pre-existing instances are listed before and after the run as a visible assertion they were left alone. `soak.sh`'s sampler kill was already pid-scoped (guarded against an unset `SAMPLER`); `reset_tcc.sh` kills nothing — it asks the user to quit the app, which stays the rule: **no script may stop a user's instance silently.** Verified against `VoicePlus_6_1.6.6.dmg` with two other instances running (/Applications and `Packaging/build/`): verify OK, its own instance stopped, both others still alive; same when the run was SIGTERM'd mid-flight (exit 143, no orphan, temp dir removed).
