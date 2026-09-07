@@ -9,6 +9,9 @@ public enum PillState: Equatable, Sendable {
     case preview(text: String)
     case landing
     case warning(MicQuality)
+    /// Nothing on this machine can recognise speech. Its own case so the honest "no recognizer"
+    /// notice can never be confused with — or substituted for — transcript text in `.preview`.
+    case unavailable(reason: String)
     /// P2.3 — "talk to your text": tinted pill, "editing N words", then the 5 s ghost / 8 s warm window.
     case transform(TransformPillInfo)
 
@@ -22,6 +25,7 @@ public enum PillState: Equatable, Sendable {
         case .preview: return "preview"
         case .landing: return "landing"
         case .warning: return "warning"
+        case .unavailable: return "unavailable"
         case .transform: return "transform"
         }
     }
@@ -84,6 +88,9 @@ public struct PillStateReducer: Equatable, Sendable {
         case .error(let message):
             stickyWarning = nil
             state = .preview(text: "⚠︎ \(message)")
+        case .unavailable(let reason):
+            stickyWarning = nil
+            state = .unavailable(reason: reason)
         }
         return state
     }

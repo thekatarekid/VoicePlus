@@ -33,11 +33,19 @@ public final class BiasingRecognizerProvider: RecognizerProvider, @unchecked Sen
     }
 }
 
-/// Picks the engine for this launch. Mock when `VOICEPLUS_FIXTURE` is set (or no ASR path exists
-/// at all); otherwise `RealEngine` over the live audio stack with the best recognizer on disk,
-/// falling back to Apple's on-device Speech until a Parakeet model lands.
+/// Picks the engine for this launch. `RealEngine` over the live audio stack with the best
+/// recognizer on disk, falling back to Apple's on-device Speech until a Parakeet model lands.
+///
+/// The mock engine is reachable **only** by explicit developer opt-in (`VOICEPLUS_ENGINE=mock` /
+/// `VOICEPLUS_FIXTURE`). When no recognizer exists at all the factory returns `UnavailableEngine`,
+/// which emits no transcript ever. Until 1.6.9 it silently substituted the `email_reply` fixture
+/// here, so a fresh install would preview and *type* fabricated sentences the user never said.
 public enum EngineFactory {
-    public enum Kind: Equatable, Sendable { case mock(fixture: String), real(recognizer: String) }
+    public enum Kind: Equatable, Sendable {
+        case mock(fixture: String)
+        case real(recognizer: String)
+        case unavailable(reason: String)
+    }
 
     public struct Built {
         public var engine: any EngineProtocol
@@ -67,17 +75,23 @@ public enum EngineFactory {
         return Built(engine: engine, kind: .mock(fixture: name), audio: nil, provider: nil, modelManager: nil)
     }
 
-    /// Real stack, or mock when nothing can recognise speech on this machine.
+    public static let noRecognizerReason = "No speech model installed"
+
+    /// The engine used when nothing on this machine can recognise speech. Never emits transcript.
+    public static func makeUnavailable(reason: String = noRecognizerReason, manager: ModelManager? = nil) -> Built {
+        Built(engine: UnavailableEngine(reason: reason), kind: .unavailable(reason: reason),
+              audio: nil, provider: nil, modelManager: manager)
+    }
+
+    /// Real stack, or an honestly-unavailable engine when nothing can recognise speech here.
     public static func make(environment: [String: String] = ProcessInfo.processInfo.environment) async -> Built {
         if let fixture = mockFixtureName(environment: environment) { return makeMock(fixture: fixture) }
 
         let manager = ModelManager()
         let choice = await RecognizerFactory.chooseFinal(manager: manager)
         guard let choice else {
-            Log.engine.notice("no ASR model on disk and Apple Speech unavailable; using mock engine")
-            var built = makeMock(fixture: "email_reply")
-            built.modelManager = manager
-            return built
+            Log.engine.error("no ASR model on disk and Apple Speech unavailable; dictation disabled")
+            return makeUnavailable(manager: manager)
         }
 
         let vad = await VADFactory.make()

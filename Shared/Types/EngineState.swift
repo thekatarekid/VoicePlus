@@ -34,10 +34,14 @@ public enum EngineState: Codable, Equatable, Sendable {
     case landed
     case warning(MicQuality)
     case error(String)
+    /// No recognizer exists on this machine (no ASR model on disk and no OS speech fallback).
+    /// The engine is honestly dead: it never emits partials, previews, or spans. The associated
+    /// value is a short user-facing reason ("No speech model installed").
+    case unavailable(String)
 
     public var isActive: Bool {
         switch self {
-        case .idle, .landed, .error: return false
+        case .idle, .landed, .error, .unavailable: return false
         default: return true
         }
     }
@@ -53,6 +57,7 @@ public enum EngineState: Codable, Equatable, Sendable {
         case .landed: return "landed"
         case .warning: return "warning"
         case .error: return "error"
+        case .unavailable: return "unavailable"
         }
     }
 }

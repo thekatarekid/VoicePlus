@@ -303,6 +303,7 @@ public final class AppContainer {
         switch engineKind {
         case .mock(let fixture): return "Mock engine (\(fixture))"
         case .real(let recognizer): return recognizer
+        case .unavailable(let reason): return reason
         }
     }
 

@@ -92,9 +92,19 @@ public final class DictationCoordinator {
         }
     }
 
+    /// True when the engine cannot recognise speech at all (`UnavailableEngine`). Nothing is ever
+    /// landed or injected in that case — there is no transcript, only a notice.
+    public var engineIsUnavailable: Bool { engine is UnavailableEngine }
+
     public func finalize() {
         handsFree = false
         pill.model.handsFree = false
+        // No recognizer on this machine: let the engine wind down its notice, but never route
+        // anything to the lander/injector. There is no user speech to land.
+        if engineIsUnavailable {
+            Task { _ = try? await engine.stop() }
+            return
+        }
         let focus = focusSnapshot?()
         let started = startedAt
         Task {

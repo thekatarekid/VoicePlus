@@ -11,6 +11,8 @@ public enum PresenceBlockReason: Equatable, Sendable {
     /// P3's download, injected as a fraction. Optional on purpose: P5 ships without waiting for a
     /// download service, and `nil` simply means "don't mention it".
     case modelDownloading(Double)
+    /// No ASR model on disk and no OS speech fallback: nothing can be recognised at all.
+    case modelMissing
 
     /// Short word for the resting badge.
     public var badge: String {
@@ -19,6 +21,7 @@ public enum PresenceBlockReason: Equatable, Sendable {
         case .hotkeyUnavailable: return "Key off"
         case .relaunchNeeded: return "Relaunch"
         case .modelDownloading(let p): return "\(Int((min(max(p, 0), 1)) * 100))%"
+        case .modelMissing: return "No model"
         }
     }
 
@@ -29,6 +32,7 @@ public enum PresenceBlockReason: Equatable, Sendable {
         case .hotkeyUnavailable: return "Dictation key is off — grant Input Monitoring in System Settings"
         case .relaunchNeeded: return "macOS isn't sending keys to VoicePlus — quit and reopen it"
         case .modelDownloading(let p): return "Downloading the speech model — \(Int((min(max(p, 0), 1)) * 100))%"
+        case .modelMissing: return "No speech model installed — dictation is off until one is downloaded"
         }
     }
 
@@ -38,6 +42,7 @@ public enum PresenceBlockReason: Equatable, Sendable {
         case .hotkeyUnavailable: return "keyboard.badge.ellipsis"
         case .relaunchNeeded: return "arrow.clockwise.circle.fill"
         case .modelDownloading: return "arrow.down.circle.fill"
+        case .modelMissing: return "exclamationmark.circle.fill"
         }
     }
 }
@@ -205,6 +210,8 @@ public enum PresenceStateReducer {
         case .listening(let level): return .listening(level: min(max(level, 0), 1))
         case .prewarming, .previewing, .finalizing: return .processing
         case .idle, .landed, .warning, .error: return inputs.ambientProcessing ? .processing : .ready
+        // No recognizer at all: the indicator must not read "ready" — nothing can be dictated.
+        case .unavailable: return .blocked(.modelMissing)
         }
     }
 

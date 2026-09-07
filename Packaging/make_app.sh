@@ -92,12 +92,15 @@ printf 'APPL????' > "$CONTENTS/PkgInfo"
 # --- 3. Resources -----------------------------------------------------------
 # Everything the app may read at runtime must live inside the bundle: an end user
 # has no repo checkout, so any `#filePath`-relative lookup resolves to nothing.
-# `Fixtures/audio` (10MB of dev-only WAVs, Lab harness) is deliberately excluded.
-mkdir -p "$CONTENTS/Resources/Fixtures"
-for f in transcripts directed tools; do
-  [ -d "$ROOT/Fixtures/$f" ] && cp -R "$ROOT/Fixtures/$f" "$CONTENTS/Resources/Fixtures/"
-done
-rmdir "$CONTENTS/Resources/Fixtures" 2>/dev/null || true
+# `Fixtures/` is NOT copied. Nothing in the shipping app reads it:
+#   - transcripts/  — MockEngine scripts only, and the mock engine is now developer-opt-in
+#     (VOICEPLUS_ENGINE=mock). Shipping them meant realistic human sentences ("Hi Priya, thanks
+#     for the update…") sat inside the release bundle where a fallback could — and did — replay
+#     and inject them as if they were the user's speech.
+#   - directed/     — manifest for DirectedSpeechHarness, tests only, and it references
+#     Fixtures/audio/ which was never shipped anyway.
+#   - tools/        — gen_fixtures.py, a dev script.
+# `Fixtures/audio` (10MB of dev-only WAVs, Lab harness) was already excluded.
 # P4.1 — deterministic action catalogue: ActionCatalog.defaultURL() falls back to
 # Bundle.main.resourceURL/catalog.json when the source checkout isn't present.
 if [ -f "$ROOT/Actions/Deterministic/catalog.json" ]; then

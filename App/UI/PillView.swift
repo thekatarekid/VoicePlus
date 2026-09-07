@@ -108,6 +108,7 @@ public struct PillView: View {
             if case .editing = info.stage { ProgressView().controlSize(.small).tint(.white) }
             else { Image(systemName: "wand.and.stars").foregroundStyle(.white) }
         case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+        case .unavailable: Image(systemName: "mic.slash.fill").foregroundStyle(.yellow)
         case .landing: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .idle: Image(systemName: "mic").foregroundStyle(.secondary)
         default: Image(systemName: model.handsFree ? "mic.badge.plus" : "mic.fill").foregroundStyle(.red)
@@ -123,6 +124,11 @@ public struct PillView: View {
             Text(text).font(.callout).lineLimit(2).truncationMode(.head)
         case .landing: Text("Landing…").font(.callout)
         case .transform(let info): TransformPillContent(info: info, ghost: model.ghost, morph: model.morph, onAction: model.onGhostAction)
+        case .unavailable(let reason):
+            VStack(alignment: .leading, spacing: 2) {
+                Text(reason).font(.callout.weight(.semibold))
+                Text("Dictation is off until a speech model is installed").font(.caption).foregroundStyle(.secondary)
+            }
         case .warning(let q):
             VStack(alignment: .leading, spacing: 2) {
                 Text(q.lowLevel ? "Mic level is very low" : (q.clipping > 0.05 ? "Mic is clipping" : "Noisy mic — \(Int(q.snr)) dB SNR"))
