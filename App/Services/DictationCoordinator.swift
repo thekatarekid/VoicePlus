@@ -146,6 +146,10 @@ public final class DictationCoordinator {
     /// silently replace what they had copied.
     public func guidedLanding(_ spans: [TranscriptSpan], startedAt: Date = Date()) async -> GuidedLanding {
         let heard = spans.joinedText
+        // Same rule as `finalize()`, stated in both places rather than in one. This is the second
+        // way spans reach `UtteranceLander`, and it must not be the way a fabricated utterance gets
+        // typed just because it did not come in through the hotkey.
+        guard !engineIsUnavailable else { return GuidedLanding(text: "", injected: false) }
         guard let lander else { return GuidedLanding(text: heard, injected: false) }
         let focus = focusSnapshot?()
         let result = await lander.land(spans, startedAt: startedAt, focus: focus)
