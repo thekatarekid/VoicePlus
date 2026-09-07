@@ -359,6 +359,55 @@ verify_install OK, and it left the user's running instance alone.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing since the first
   phase-6 release, deliberately not addressed here.
 
+### 1.6.9 — the app can no longer invent words the user did not say
+
+**The most serious defect found on this project.** With no ASR model on disk and no Apple Speech
+fallback — **every fresh install, including the whole of onboarding** — `App/Services/EngineFactory.swift`
+silently substituted `MockEngine` loaded from `Fixtures/transcripts/email_reply.json`. The mock replayed
+those spans on a timer **with no microphone input at all**, the pill previewed them as the user's own
+speech, and on hotkey release `UtteranceLander` typed them into the frontmost application:
+*"Hi Priya, thanks for the update. Let's sync with TeamViewer tomorrow."* A name the user never wrote and
+a meeting they never proposed, injected into a real document.
+
+**It was live in release builds, not only in development.** `Packaging/make_app.sh` copied `Fixtures/`
+into the shipped `.app`, so the bundle carried exactly the file the fallback needed. And the trigger is
+the common case, not an edge case: a fresh install has no model until the onboarding download completes.
+
+**Root cause, stated plainly:** "no recogniser available" was treated as a reason to substitute a fake
+one, and the fake output was structurally indistinguishable from a real transcript — nothing in a
+`TranscriptSpan` marked it, so nothing downstream could refuse it.
+
+**What ships.**
+- `EngineFactory` **no longer falls back to the mock**. `MockEngine` is reachable only by explicit
+  developer opt-in via `VOICEPLUS_ENGINE=mock` / `VOICEPLUS_FIXTURE`.
+- New `Shared/Engine/UnavailableEngine.swift` publishes `EngineState.unavailable(reason)` and nothing
+  else: it never emits `.partial`, `.final` or `.previewing`, and `stop()` returns no spans. There is no
+  path through it that produces a character of text.
+- New `PillState.unavailable(reason:)` — **its own case, not a transcript string**, so the notice can
+  never be mistaken for or substituted as speech. It reads "No speech model installed." The presence
+  indicator reports `blocked(.modelMissing)` instead of "ready", which was the second lie: the app
+  claimed to be listening when it could not hear.
+- `DictationCoordinator.finalize()` returns early for an unavailable engine, so the lander/injector is
+  never reached even in principle.
+- `make_app.sh` no longer copies `Fixtures/` into the bundle at all. Nothing shipping read it —
+  `transcripts/` was mock-only, `directed/` test-only, `tools/` a dev script. Verified: a built bundle
+  contains none of the fixture sentences.
+
+**New `Tests/AppTests/UnavailableEngineTests.swift` — 6/6 passing.** It pins the property, not the
+implementation: no span of any kind escapes the engine, `stop()` returns empty, finalize does not reach
+the injector. **`AppTests` 392/392 and `SharedTests` 37/37 green, 0 failed**; `swift build` clean for the
+whole package. Full-package total recorded at the release build. 1 commit (`329af01`) on top of 1.6.8.
+
+**Untested / honest limits:**
+- **Nobody has watched the unavailable pill on a genuinely fresh machine.** The behaviour is covered by
+  tests against the engine and the coordinator; the visual on a clean install is unverified.
+- **The bundle check is a string search** over one build of the current `make_app.sh` — it proves the
+  fixture text is absent from that artifact, not that a future change cannot reintroduce it. There is no
+  packaging assertion guarding this the way `verify_install.sh` guards file modes.
+- **`VOICEPLUS_ENGINE=mock` still injects fixture text**, by design. It now requires deliberately setting
+  an environment variable, and nothing in the shipped UI turns it on.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
 ### Test-harness safety fix (2026-09-06, post-1.6.6)
 
 `Packaging/verify_install.sh` terminated processes by **name**: its cleanup trap ran `pkill -x VoicePlus`, so a verification run killed the **user's own running /Applications instance** mid-session (pid 76823 — it had to be relaunched by hand). A run during dictation would have lost the transcript. All three name-based kills are gone: the script records the pid of the instance it launched (matched by *executable path* against its own temp copy, normalised with `pwd -P` because `mktemp` returns `/var/…` while `ps` reports `/private/var/…`) and signals only that pid, guarded by `kill -0`; INT/TERM route through the same scoped cleanup so an interrupted run cannot orphan its own instance; pre-existing instances are listed before and after the run as a visible assertion they were left alone. `soak.sh`'s sampler kill was already pid-scoped (guarded against an unset `SAMPLER`); `reset_tcc.sh` kills nothing — it asks the user to quit the app, which stays the rule: **no script may stop a user's instance silently.** Verified against `VoicePlus_6_1.6.6.dmg` with two other instances running (/Applications and `Packaging/build/`): verify OK, its own instance stopped, both others still alive; same when the run was SIGTERM'd mid-flight (exit 143, no orphan, temp dir removed).
