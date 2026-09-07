@@ -203,9 +203,14 @@ public struct OnboardingView: View {
 
     private var micCheck: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Say something.").font(.title.bold())
-            Text("Try: \"Testing, one two three.\" The bar should move as you talk.")
-            MicLevelMeter(level: model.micLevel)
+            let blocked = model.machine.micVerdict == .permissionRequired
+            Text(blocked ? "The microphone is blocked." : "Say something.").font(.title.bold())
+            if !blocked {
+                // The meter is only ever drawn when a live capture stack is feeding it, so a moving
+                // bar is evidence and not decoration.
+                Text("Try: \"Testing, one two three.\" The bar should move as you talk.")
+                MicLevelMeter(level: model.micLevel)
+            }
             switch model.machine.micVerdict {
             case .waiting:
                 Text("Listening…").foregroundStyle(.secondary)
@@ -234,10 +239,17 @@ public struct OnboardingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     micRecoveryButtons
                 }
-            }
-            if !model.deps.micLevel.isRealCapture {
-                Label("Simulated meter — no real capture is running in this build.", systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+            case .permissionRequired:
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Microphone access is needed.", systemImage: "mic.slash.fill").foregroundStyle(.orange)
+                    Text("VoicePlus has no permission to open the microphone, so there is nothing to measure here — and dictation cannot work until it does. Allow VoicePlus in Privacy & Security › Microphone, then press Re-check.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("Open Microphone privacy") { model.openSettings(for: .microphone) }
+                        Button("Re-check") { model.send(.verify(.microphone)) }
+                    }
+                    .font(.caption)
+                }
             }
         }
     }

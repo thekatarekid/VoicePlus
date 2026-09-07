@@ -312,11 +312,13 @@ public final class AppContainer {
     /// Onboarding / Settings dependencies over the live services.
     public func onboardingDependencies(permissions: PermissionChecking) -> OnboardingDependencies {
         let models: ModelManaging = modelManager.map { ModelManagerTiers(manager: $0, settings: settings) } ?? OnboardingMockModelManager()
-        // Meter the audio pipeline directly when there is one: the engine-state meter needs the ASR
-        // model (which the mic-check step runs before) and reports a level of 0 before any sample.
+        // Always a real capture graph. Reuse the app's pipeline when one exists; otherwise build a
+        // standalone one — metering a microphone needs no ASR model, and onboarding is precisely
+        // the moment when no model is installed yet. There is deliberately no engine-derived
+        // fallback: that was the path that let a silent user pass "Say something." on a fixture.
         let micLevel: MicLevelPublishing = audio.map { PipelineMicLevelPublisher(audio: $0) }
-            ?? EngineMicLevelPublisher(engine: engine)
-        Log.app.info("onboarding mic meter: \(audio != nil ? "audio pipeline (real capture)" : "engine state (simulated)")")
+            ?? PipelineMicLevelPublisher.standalone()
+        Log.app.info("onboarding mic meter: \(audio != nil ? "shared audio pipeline" : "standalone capture graph") (real capture)")
         return OnboardingDependencies(
             permissions: LivePermissionChecker(checker: permissions),
             micLevel: micLevel,

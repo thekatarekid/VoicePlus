@@ -337,12 +337,12 @@ public protocol MicLevelPublishing: AnyObject {
     var signalPublisher: AnyPublisher<MicCheckSignal, Never> { get }
     func startMonitoring()
     func stopMonitoring()
-    /// False when the meter is synthetic (mock engine): the UI must not claim a real mic works.
+    /// True only when the levels came out of a live capture stack. Every conformer must answer this
+    /// explicitly — there is deliberately no defaulted `true`, because the default was how a
+    /// synthetic source got to look real by saying nothing. `OnboardingViewModel` refuses to meter
+    /// at all when this is false, and the state machine will not accept levels it did not first see
+    /// declared as captured, so a `.good` verdict cannot be reached without real audio.
     var isRealCapture: Bool { get }
-}
-
-public extension MicLevelPublishing {
-    var isRealCapture: Bool { true }
 }
 
 // MARK: - Models
@@ -439,14 +439,18 @@ public struct OnboardingDependencies {
     }
 
     /// Fully in-memory dependencies: all permissions grant on request, synthetic mic level, instant "downloads".
+    /// `pretendRealMicCapture` is the only way a synthetic meter is allowed to stand in for a
+    /// microphone, and it exists for tests of the *post-capture* logic. It is never set anywhere in
+    /// the app: `AppContainer` builds a real capture graph unconditionally.
     public static func mock(permissionResults: [OnboardingPermission: OnboardingPermissionStatus] = [:],
-                            contactNames: [String] = []) -> OnboardingDependencies {
+                            contactNames: [String] = [],
+                            pretendRealMicCapture: Bool = false) -> OnboardingDependencies {
         let fixture = TranscriptFixture(name: "onboarding", spans: [
             .init(text: "The quick brown fox jumps over the lazy dog.", confidence: 0.97, audioStart: 0, audioEnd: 2.4),
         ])
         return OnboardingDependencies(
             permissions: OnboardingMockPermissionChecker(results: permissionResults),
-            micLevel: OnboardingMockMicLevelPublisher(),
+            micLevel: OnboardingMockMicLevelPublisher(pretendingRealCapture: pretendRealMicCapture),
             models: OnboardingMockModelManager(),
             engine: MockEngine(fixture: fixture, delayScale: 0.01),
             database: try? AppDatabase.inMemory(),
@@ -484,11 +488,16 @@ public final class OnboardingMockPermissionChecker: OnboardingPermissionChecking
     public func openSystemSettings(for permission: OnboardingPermission) { openedSettings.append(permission) }
 }
 
+/// Test/preview double. `isRealCapture` defaults to **false** — a synthetic source is not a
+/// microphone, and the old hardcoded `true` let every test (and every preview) reach the same
+/// "Sounds good." the shipping app could not honestly reach. A test that wants to exercise the
+/// post-capture path opts in by name: `OnboardingMockMicLevelPublisher(pretendingRealCapture: true)`,
+/// which is greppable, unlike a silent default.
 public final class OnboardingMockMicLevelPublisher: MicLevelPublishing {
     public let subject = CurrentValueSubject<MicCheckSignal, Never>(.starting)
     public private(set) var monitoring = false
-    public var isRealCapture = true
-    public init() {}
+    public var isRealCapture: Bool
+    public init(pretendingRealCapture: Bool = false) { self.isRealCapture = pretendingRealCapture }
     public var signalPublisher: AnyPublisher<MicCheckSignal, Never> { subject.eraseToAnyPublisher() }
     public func startMonitoring() { monitoring = true }
     public func stopMonitoring() { monitoring = false }

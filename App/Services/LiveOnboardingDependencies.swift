@@ -61,7 +61,30 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
 
     public init(audio: PipelineAudioSource) { self.audio = audio }
 
+    /// The mic check's **own** capture graph — the point being that metering a microphone needs no
+    /// ASR model at all.
+    ///
+    /// Before 1.6.9 onboarding borrowed whatever `AppContainer` had: a live pipeline when a
+    /// recognizer existed, and otherwise `EngineMicLevelPublisher`, which forwarded the *mock*
+    /// engine's fixture-derived `listening(level:)` numbers. On a fresh install (no model on disk —
+    /// the only state onboarding ever runs in) the meter therefore filled and the step passed with
+    /// the user silent and no microphone open. After 329af01 that same install builds
+    /// `UnavailableEngine`, which emits no levels at all, so the meter was dead instead of fake.
+    ///
+    /// This is the same object graph `MicSelfTest` and `EngineFactory.make()` build —
+    /// `AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)` →
+    /// `AudioPipeline` → `PipelineAudioSource` — minus the recognizer. Nothing here can transcribe,
+    /// so nothing here can type.
+    public static func standalone() -> PipelineMicLevelPublisher {
+        let capture = AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)
+        let pipeline = AudioPipeline(source: capture, vad: EnergyVAD())
+        Log.app.info("onboarding mic meter: standalone capture graph (no ASR engine involved)")
+        return PipelineMicLevelPublisher(audio: PipelineAudioSource(pipeline: pipeline))
+    }
+
     public var signalPublisher: AnyPublisher<MicCheckSignal, Never> { subject.eraseToAnyPublisher() }
+    /// Real hardware, always: this class only ever reports what the capture stack measured.
+    public var isRealCapture: Bool { true }
 
     public func startMonitoring() {
         subject.send(.starting)
@@ -136,36 +159,11 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
     }
 }
 
-/// Fallback meter for builds with no live pipeline (mock engine). Marked as not-real capture so the
-/// mic-check screen cannot claim a working microphone on the strength of a fixture.
-public final class EngineMicLevelPublisher: MicLevelPublishing {
-    private let engine: any EngineProtocol
-    private let subject = CurrentValueSubject<MicCheckSignal, Never>(.starting)
-    private var cancellable: AnyCancellable?
-
-    public init(engine: any EngineProtocol) { self.engine = engine }
-
-    public var signalPublisher: AnyPublisher<MicCheckSignal, Never> { subject.eraseToAnyPublisher() }
-    public var isRealCapture: Bool { false }
-
-    public func startMonitoring() {
-        subject.send(.starting)
-        cancellable = engine.statePublisher.sink { [subject] state in
-            if case .listening(let level) = state, level > 0 { subject.send(.level(level)) }
-        }
-        Task { [engine, subject] in
-            do { try await engine.start(prewarm: true) } catch {
-                Log.app.error("mic check could not start capture: \(error)")
-                subject.send(.failed(String(describing: error)))
-            }
-        }
-    }
-
-    public func stopMonitoring() {
-        cancellable = nil
-        Task { [engine] in await engine.cancel() }
-    }
-}
+// `EngineMicLevelPublisher` was deleted in 1.6.9. It forwarded `EngineState.listening(level:)` —
+// for the mock engine, a number derived from a transcript fixture with no microphone anywhere in
+// the chain — and marked itself `isRealCapture = false`, which bought nothing: the state machine
+// still turned those levels into a `.good` verdict and the screen only added a footnote. There is
+// no longer any engine-derived path into the mic check; see `PipelineMicLevelPublisher.standalone()`.
 
 /// The real models behind each friendly tier name, read from `ModelCatalog` so the picker can never
 /// drift from what is actually downloaded.

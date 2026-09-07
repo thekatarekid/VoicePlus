@@ -126,6 +126,7 @@ struct OnboardingStateMachineTests {
         #expect(m.allPermissionsGranted)
 
         // A quiet first block is not yet a verdict — see `quietVerdictWaitsForEnoughRealAudio`.
+        m.handle(.micCaptureBegan(real: true))
         m.handle(.micLevel(0.02)); #expect(m.micVerdict == .waiting)
         m.handle(.micLevel(0.4)); #expect(m.micVerdict == .good)
         m.handle(.micLevel(0.99)); #expect(m.micVerdict == .clipping)
@@ -245,9 +246,13 @@ struct OnboardingStateMachineTests {
             #expect(m.permissionPhase.isNeedsSystemSettings)
             m.handle(.next)
         }
-        // No microphone → nothing to meter, so the walk lands on model choice, not a loop.
-        #expect(m.step == .modelChoice)
+        // No microphone → nothing to meter. The walk lands on the mic check, which says exactly
+        // that, and one more skip leaves it. It must not loop, and it must not pretend to pass.
+        #expect(m.step == .micCheck)
+        #expect(m.micVerdict == .permissionRequired)
         #expect(m.currentPermission == nil)
+        m.handle(.skip)
+        #expect(m.step == .modelChoice)
     }
 
     /// A *non-promptable* permission macOS has already been asked for on an earlier launch skips the
@@ -275,16 +280,21 @@ struct OnboardingStateMachineTests {
         let effects = m.handle(.permissionResult(.accessibility, .denied))
         #expect(effects == [])
         #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
-        // Skipping the last denied permission goes straight to model choice: mic check needs the mic.
+        // Skipping the last denied permission still opens the mic check — but as the blocked
+        // screen, with no capture started and no way to reach a passing verdict.
         let skipEffects = m.handle(.next)
-        #expect(m.step == .modelChoice)
+        #expect(m.step == .micCheck)
+        #expect(m.micVerdict == .permissionRequired)
         #expect(!skipEffects.contains(.startMicMonitoring))
         #expect(m.statuses[.microphone] == .denied)
     }
 
     @Test func skipEverythingStillFinishes() {
         var m = M()
-        #expect(m.handle(.skip) == [])  // welcome skip → micCheck skipped (no mic) → modelChoice
+        #expect(m.handle(.skip) == [])  // welcome skip → micCheck, blocked (no mic grant)
+        #expect(m.step == .micCheck)
+        #expect(m.micVerdict == .permissionRequired)
+        #expect(m.handle(.skip) == [.stopMicMonitoring])
         #expect(m.step == .modelChoice)
         // Entering the dictation step now asks which recogniser is available first, so the screen
         // can name it instead of presenting a test that may not be able to work.
@@ -333,6 +343,8 @@ struct OnboardingStateMachineTests {
         #expect(m.handle(.back) == [.stopMicMonitoring, .startMicMonitoring])  // permissions all granted → bounces to mic check
         var denied = M(initialStatuses: [.microphone: .denied])
         denied.handle(.skip)
+        #expect(denied.step == .micCheck)
+        denied.handle(.skip)
         #expect(denied.step == .modelChoice)
         denied.handle(.back)
         #expect(denied.step == .permissions)
@@ -346,6 +358,9 @@ struct OnboardingStateMachineTests {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
         m.handle(.next)
         precondition(m.step == .micCheck)
+        // Every one of these cases is about audio that did or did not arrive from a *real* capture
+        // stack, which the view model declares before the first level.
+        m.handle(.micCaptureBegan(real: true))
         return m
     }
 
@@ -588,7 +603,9 @@ struct OnboardingViewModelTests {
     }
 
     @Test func fullRunWithMocksFinishesAndDownloads() async throws {
-        let deps = OnboardingDependencies.mock()
+        // Opting in explicitly: this walk is about everything *after* capture, so the synthetic
+        // meter has to declare that it is standing in for a microphone.
+        let deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
         let vm = OnboardingViewModel(dependencies: deps)
         var finished: Bool?
         vm.onFinished = { finished = $0 }
@@ -736,9 +753,9 @@ struct OnboardingViewModelTests {
     /// BUG 2 through the view model: a capture that fails to start says why, instead of the meter
     /// sitting at zero under "Very quiet".
     @Test func micCaptureFailureReachesTheScreen() async throws {
-        let deps = OnboardingDependencies.mock()
+        let deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip)                      // welcome → (no mic) → modelChoice
+        vm.send(.skip)                      // welcome → mic check (blocked, no grant)
         vm.send(.back)                      // back to permissions
         for p in vm.machine.permissionOrder {
             vm.send(.allow(p))
@@ -754,7 +771,7 @@ struct OnboardingViewModelTests {
 
     /// The watchdog fires when capture is up but silent, and says so honestly.
     @Test func noAudioWatchdogReportsSilenceNotQuietness() async throws {
-        let deps = OnboardingDependencies.mock()
+        let deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
         for p in vm.machine.permissionOrder {
@@ -771,7 +788,7 @@ struct OnboardingViewModelTests {
         let deps = OnboardingDependencies.mock()
         (deps.models as? OnboardingMockModelManager)?.failDownload = true
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip)
+        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model choice
         vm.send(.choose(.best))
         try await waitUntil { if case .failed = vm.machine.download { return true }; return false }
         vm.send(.next)

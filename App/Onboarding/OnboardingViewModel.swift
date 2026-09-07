@@ -211,6 +211,16 @@ public final class OnboardingViewModel: ObservableObject {
             deps.settingsStore.set(false, for: Self.requestedKey(p))
         case .startMicMonitoring:
             micLevel = 0
+            // Provenance before anything else. A source that is not live capture is refused outright
+            // — the meter stays at zero and the screen says the check cannot be completed, instead
+            // of animating someone else's numbers. `AppContainer` never builds such a source; this
+            // is the structural guarantee that it could not pass the step if it did.
+            guard deps.micLevel.isRealCapture else {
+                Log.app.error("onboarding mic check: level source is not live capture — refusing to meter")
+                send(.micCaptureBegan(real: false))
+                return
+            }
+            send(.micCaptureBegan(real: true))
             // Subscribe *before* starting: a publisher that emits synchronously during start()
             // would otherwise lose its first values (and the failure, which arrives immediately).
             micCancellable = deps.micLevel.signalPublisher

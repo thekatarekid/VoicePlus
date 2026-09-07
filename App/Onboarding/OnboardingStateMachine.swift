@@ -45,7 +45,20 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case clipping
         /// Capture could not start; carries the real error.
         case unavailable(String)
+        /// macOS has not granted the microphone, so there is nothing to meter and no possible pass.
+        /// Before 1.6.9 this landed on the ordinary mic check with a dead bar (or, worse, skipped
+        /// the step silently); it is now its own screen with a route to System Settings.
+        case permissionRequired
+
+        /// The one verdict that lets the user believe the microphone works. Nothing but real,
+        /// captured audio can produce it.
+        public var isPass: Bool { self == .good }
     }
+
+    /// What the screen says when something tried to feed the meter without a live capture stack.
+    /// Reachable only from a programming error now that `AppContainer` always builds real capture.
+    public static let simulatedCaptureReason =
+        "No microphone capture is running, so this check cannot be completed."
 
     /// Seconds of real audio the meter must have seen before a "too quiet" verdict is honest. The
     /// view model owns the clock and sends `.micSettled` when it elapses — a block *count* would be
@@ -86,6 +99,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         /// Background poll (0.5 s timer / app re-activation). Advances on a grant, but never moves the
         /// phase backwards or counts as a failed re-check — the user did not press anything.
         case statusRefreshed(OnboardingPermission, OnboardingPermissionStatus)
+        /// The view model has confirmed which kind of source is about to feed the meter. Sent before
+        /// any level. `real: false` is a refusal, not a mode: it produces `.unavailable` and no
+        /// level is ever accepted afterwards.
+        case micCaptureBegan(real: Bool)
         /// A real audio block was measured (normalised 0…1).
         case micLevel(Float)
         /// Capture is up but nothing arrived within the grace period.
@@ -137,6 +154,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     public private(set) var micLevelEvents = 0
     /// True once enough real audio has been heard to judge "quiet" honestly.
     public private(set) var micSettled = false
+    /// Default-deny provenance for the meter. Only a `.micCaptureBegan(real: true)` — which the view
+    /// model sends solely for a `MicLevelPublishing` that reports `isRealCapture` — flips this on,
+    /// and `.micLevel` is discarded while it is off. This is what makes a `.good` verdict
+    /// unreachable without a live microphone rather than merely unlikely.
+    public private(set) var micCaptureIsReal = false
     /// Permissions that have been requested at least once (persisted across launches): macOS will not
     /// notify again for them, so the "Allow" button would be a lie on a second run.
     public private(set) var requestedPermissions: Set<OnboardingPermission> = []
@@ -258,25 +280,42 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             return advancePermission()
 
         // Mic check
+        case (.micCheck, .micCaptureBegan(let real)):
+            micCaptureIsReal = real
+            if !real { micVerdict = .unavailable(Self.simulatedCaptureReason) }
+            return []
         case (.micCheck, .micLevel(let level)):
+            // The gate. A level that did not come from declared, live capture is not evidence about
+            // this user's microphone, so it never touches the peak and never reaches `verdict`.
+            guard micCaptureIsReal else { return [] }
             micLevelEvents += 1
             peakLevel = max(peakLevel, level)
             micVerdict = Self.verdict(for: level, peak: peakLevel, settled: micSettled)
             return []
         case (.micCheck, .micSettled):
             micSettled = true
-            if micLevelEvents > 0 { micVerdict = Self.verdict(for: 0, peak: peakLevel, settled: true) }
+            if micCaptureIsReal, micLevelEvents > 0 { micVerdict = Self.verdict(for: 0, peak: peakLevel, settled: true) }
             return []
         case (.micCheck, .micNoAudio):
             // Only meaningful while nothing has ever arrived; a late timer must not undo a good verdict.
-            if micLevelEvents == 0 { micVerdict = .noAudio }
+            if micLevelEvents == 0, micVerdict != .permissionRequired, micCaptureIsReal { micVerdict = .noAudio }
             return []
         case (.micCheck, .micFailed(let reason)):
             micVerdict = .unavailable(reason)
             return []
+        case (.micCheck, .permissionResult(.microphone, let status)),
+             (.micCheck, .statusRefreshed(.microphone, let status)):
+            // The blocked screen's "Re-check" answer. A grant re-enters the step for real; anything
+            // else leaves it blocked rather than opening a meter that cannot move.
+            statuses[.microphone] = status
+            guard micVerdict == .permissionRequired, status == .granted else { return [] }
+            return enter(.micCheck)
         case (.micCheck, .verify):
-            // "Try again" on the mic-check screen.
+            // "Try again". While the grant is missing that is a permission question, not an audio
+            // one — restarting capture would just redraw the same dead bar.
+            if micVerdict == .permissionRequired { return [.checkPermission(.microphone)] }
             peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
+            micCaptureIsReal = false
             return [.stopMicMonitoring, .startMicMonitoring]
         case (.micCheck, .next):
             return enter(.modelChoice)
@@ -348,8 +387,15 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             permissionPhase = Self.initialPhase(for: p, requested: requestedPermissions,
                                                 status: statuses[p] ?? .notDetermined)
         case .micCheck:
-            if statuses[.microphone] != .granted { step = .modelChoice; return effects }  // no mic → nothing to meter
-            peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
+            peakLevel = 0; micLevelEvents = 0; micSettled = false; micCaptureIsReal = false
+            // No grant → no capture → no possible pass. This used to fall through to `.modelChoice`
+            // without a word, which meant a user who denied (or skipped) the microphone was never
+            // told the one thing standing between them and a working app.
+            guard statuses[.microphone] == .granted else {
+                micVerdict = .permissionRequired
+                return effects
+            }
+            micVerdict = .waiting
             effects.append(.startMicMonitoring)
         case .firstDictation:
             // Readiness first: the screen must know which recogniser it is about to offer before it

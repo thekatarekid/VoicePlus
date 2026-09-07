@@ -82,8 +82,9 @@ private func onboardingAtDictationStep(engine: EngineProtocol,
     deps.models = models
     deps.landUtterance = land
     let vm = OnboardingViewModel(dependencies: deps)
-    // With no microphone grant the mic-check step falls straight through, so one skip from the
-    // welcome screen lands on the model picker.
+    // With no microphone grant the mic-check step is blocked rather than skipped silently, so it
+    // takes two skips from the welcome screen to reach the model picker.
+    vm.send(.skip)
     vm.send(.skip)
     vm.send(.choose(.balanced))
     vm.send(.next)                    // model choice → first dictation
@@ -101,7 +102,7 @@ struct GuidedDictationOutcomeTests {
 
     @Test func successMessageNeedsARealLanding() {
         var m = M()
-        m.handle(.skip); m.handle(.next)
+        m.handle(.skip); m.handle(.skip); m.handle(.next)   // welcome → mic check (blocked, no grant) → model choice
         #expect(m.step == .firstDictation)
 
         m.handle(.dictationFinished(.heard(text: "hello", recognizer: "Parakeet TDT 0.6B v3")))
@@ -118,7 +119,7 @@ struct GuidedDictationOutcomeTests {
     /// and every failure case carries its message.
     @Test func failureCanNotMasqueradeAsSuccess() {
         var m = M()
-        m.handle(.skip); m.handle(.next)
+        m.handle(.skip); m.handle(.skip); m.handle(.next)   // welcome → mic check (blocked, no grant) → model choice
         m.handle(.dictationFinished(.failed(reason: "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")))
         #expect(m.landedText == nil)
         #expect(m.heardText == nil)
@@ -132,7 +133,7 @@ struct GuidedDictationOutcomeTests {
 
     @Test func retryClearsTheStaleVerdict() {
         var m = M()
-        m.handle(.skip); m.handle(.next)
+        m.handle(.skip); m.handle(.skip); m.handle(.next)   // welcome → mic check (blocked, no grant) → model choice
         m.handle(.dictationFinished(.failed(reason: "nope")))
         #expect(m.dictationError == "nope")
         #expect(m.handle(.retryDictation) == [.checkRecognizerReadiness])
@@ -360,7 +361,7 @@ struct RecognizerReadinessTests {
 
     @Test func enteringTheDictationStepChecksReadinessBeforeAnythingElse() {
         var m = M()
-        m.handle(.skip)
+        m.handle(.skip); m.handle(.skip)
         #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
     }
 
@@ -368,7 +369,7 @@ struct RecognizerReadinessTests {
     /// (`download == .notStarted`) meant a second choice persisted the tier and downloaded nothing.
     @Test func choosingADifferentTierStartsThatTiersDownload() {
         var m = M()
-        m.handle(.skip)
+        m.handle(.skip); m.handle(.skip)
         #expect(m.handle(.choose(.fast)) == [.selectModel(.fast), .startDownload(.fast)])
         m.handle(.downloadFinished)
         #expect(m.handle(.choose(.best)) == [.selectModel(.best), .startDownload(.best)],
@@ -466,7 +467,7 @@ struct DownloadProgressTextTests {
         models.hold = { await gate.wait() }
         deps.models = models
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip)
+        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model choice
         vm.send(.choose(.best))
         try await waitUntil { vm.machine.download.isInFlight }
         let line = try #require(vm.downloadLine)
