@@ -13,7 +13,10 @@ mean what it says: real audio, from real hardware, or no pass at all.
 
 Ships in the same dmg as 1.6.9, which fixed the fabricated-transcript defect this bug sat
 on top of. Tag `release/phase-6/v1.7.0` · 1 commit (`fa2c3a2`) on top of 1.6.9 (`329af01`) ·
-sha256 and dmg size recorded at the release build.
+**1224 tests pass, 0 failures** for the whole package.
+
+sha256 `8f946c91a7ce11fe15489daaaf17aa99954536ae5d0a6449ffee897758ba4aa1`
+`VoicePlus_6_1.7.0.dmg` · 15,521,882 bytes · 2026-09-07.
 
 ## 1. What was actually happening
 

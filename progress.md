@@ -396,7 +396,8 @@ one, and the fake output was structurally indistinguishable from a real transcri
 **New `Tests/AppTests/UnavailableEngineTests.swift` — 6/6 passing.** It pins the property, not the
 implementation: no span of any kind escapes the engine, `stop()` returns empty, finalize does not reach
 the injector. **`AppTests` 392/392 and `SharedTests` 37/37 green, 0 failed**; `swift build` clean for the
-whole package. Full-package total recorded at the release build. 1 commit (`329af01`) on top of 1.6.8.
+whole package — **1224 tests green / 0 failed** for the full package at the release build. 1 commit
+(`329af01`) on top of 1.6.8.
 
 **Untested / honest limits:**
 - **Nobody has watched the unavailable pill on a genuinely fresh machine.** The behaviour is covered by
