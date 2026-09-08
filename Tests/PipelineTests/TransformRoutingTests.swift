@@ -58,10 +58,30 @@ struct TransformRoutingTests {
 
     @Test("decision is deterministic: same inputs, same output, 200×")
     func deterministic() {
-        let first = decide("tighten this up", selection: sel)
+        // The router is the subject here, so its input — one gatekeeper decision — is held
+        // fixed. Re-running `gk.decide` per iteration would NOT be the same input: that call
+        // carries a wall-clock guard (`GatekeeperStage.budgetMs`, 15 ms) that downgrades the
+        // route to the `.fallback` when the machine is loaded, so the classification an
+        // over-budget iteration returns legitimately differs from an under-budget one. That
+        // guard is a production safety valve, not a routing rule, and it is asserted
+        // separately below and in the gatekeeper's own suite.
+        let gatekeeper = gk.decide(spans("tighten this up"), context: StageContext())
+        let first = TransformRouter.decide(gatekeeper: gatekeeper, selection: sel)
         for _ in 0..<200 {
-            let d = decide("tighten this up", selection: sel)
+            let d = TransformRouter.decide(gatekeeper: gatekeeper, selection: sel)
             #expect(d.route == first.route && d.reason == first.reason && d.selection == first.selection && d.gatekeeper.route == first.gatekeeper.route)
+        }
+    }
+
+    @Test("the local classifier itself routes deterministically, 200×")
+    func classifierDeterministic() {
+        // Clock-free: `local.classify` is the pure keyword/Bayes path, with no budget guard
+        // in front of it. This is what the old determinism assertion was reaching for.
+        let ctx = StageContext()
+        let first = gk.local.classify("tighten this up", context: ctx)
+        for _ in 0..<200 {
+            let d = gk.local.classify("tighten this up", context: ctx)
+            #expect(d.route == first.route && d.register == first.register)
         }
     }
 
