@@ -137,8 +137,16 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, @unchecked Sendab
     public func prewarm() throws {
         lock.lock(); defer { lock.unlock() }
         guard !prewarmed else { return }
-        let target = device ?? policy.choose(from: AudioDeviceEnumerator.inputDevices(), systemDefault: AudioDeviceEnumerator.defaultInputDevice())
+        let decision = policy.decide(from: AudioDeviceEnumerator.inputDevices(), systemDefault: AudioDeviceEnumerator.defaultInputDevice())
+        let target = device ?? decision.device
         guard let target else { throw AudioCaptureError.noInputDevice }
+        if device == nil, let avoided = decision.avoidedNarrowbandBluetooth {
+            Log.engine.notice("""
+                audio: \(avoided.name) is the system input but its mic runs at \
+                \(Int(avoided.sampleRate)) Hz over Bluetooth (telephony quality), so dictation is \
+                using \(target.name) instead. Pick it explicitly in Settings › General if you want it.
+                """)
+        }
         try buildGraph(for: target)
         prewarmed = true
         monitor.onDefaultInputChanged = { [weak self] newDefault in self?.handleRouteChange(newDefault: newDefault) }

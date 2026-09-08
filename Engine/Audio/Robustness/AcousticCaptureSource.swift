@@ -19,6 +19,9 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
     public private(set) var bluetooth: BluetoothInputAssessment?
     /// Samples kept from the preroll and flushed at `start()` (for tests / Lab).
     public private(set) var prerollFlushed = 0
+    /// Opt-in local capture of this utterance's audio, raw and processed. Nil unless the user has
+    /// switched diagnostics on; see `UtteranceRecorder`. Injectable so tests need no `UserDefaults`.
+    public var recorder: UtteranceRecorder?
 
     private let lock = NSLock()
     private var preroll: [Float] = []
@@ -26,11 +29,13 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
     private var live = false
     private let prerollCapacity: Int
 
-    public init(wrapping inner: any AudioCaptureSource, profile: RobustnessProfile = .default, aec: (any AcousticStage)? = nil) {
+    public init(wrapping inner: any AudioCaptureSource, profile: RobustnessProfile = .default,
+                aec: (any AcousticStage)? = nil, recorder: UtteranceRecorder? = nil) {
         self.inner = inner
         self.profile = profile
         self.chain = AcousticChain(profile: profile, aec: aec)
         self.prerollCapacity = Int(profile.prerollSeconds * 16_000)
+        self.recorder = recorder ?? (UtteranceRecorder.isEnabled() ? UtteranceRecorder() : nil)
         inner.sink = { [weak self] buf in self?.ingest(buf) }
         inner.onDeviceChanged = { [weak self] old, new in
             guard let self else { return }
@@ -58,6 +63,13 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
         let held = preroll
         preroll.removeAll(keepingCapacity: true)
         lock.unlock()
+        // Arm before the pre-roll is flushed, so the recording contains the same first words the
+        // recognizer gets. A recording that starts a syllable late is worse than none.
+        recorder?.begin(device: inner.device, profile: profile,
+                        captureGraph: (inner as? CoreAudioCaptureSource)?.diagnostics.summary)
+        if !held.isEmpty {
+            held.withUnsafeBufferPointer { recorder?.appendRaw($0) }
+        }
         if !held.isEmpty {
             prerollFlushed += held.count
             deliver(chain.process(held))
@@ -71,6 +83,8 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
         let tail = chain.flush()
         if !tail.isEmpty { deliver(tail) }
         chain.reset()
+        // Off the audio thread by construction: `stop()` is called by the pipeline, not the tap.
+        do { try recorder?.finish() } catch { Log.engine.error("audio: could not save the utterance recording: \(error)") }
     }
 
     public func switchDevice(to device: AudioDeviceInfo?) throws { try inner.switchDevice(to: device) }
@@ -86,11 +100,13 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
             return
         }
         lock.unlock()
+        recorder?.appendRaw(buf)
         let out = chain.process(Array(buf))
         deliver(out)
     }
 
     private func deliver(_ samples: [Float]) {
+        recorder?.appendProcessed(samples)
         guard !samples.isEmpty, let sink else { return }
         samples.withUnsafeBufferPointer { sink($0) }
     }

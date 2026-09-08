@@ -15,6 +15,10 @@ public enum BluetoothInputMode: String, Codable, Sendable, Equatable {
     case highQuality
     /// Bluetooth device that exposes no input channels (A2DP-only headphones).
     case noInput
+
+    /// True for the HFP/SCO modes that carry speech at telephony bandwidth. `InputSelectionPolicy`
+    /// uses this to decide whether being the system default should still be decisive.
+    public var isNarrowbandSpeech: Bool { self == .scoNarrowband || self == .scoWideband }
 }
 
 public struct BluetoothInputAssessment: Codable, Equatable, Sendable {
