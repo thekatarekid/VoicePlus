@@ -124,17 +124,20 @@ public struct PillView: View {
             Text(text).font(.callout).lineLimit(2).truncationMode(.head)
         case .landing: Text("Landing…").font(.callout)
         case .transform(let info): TransformPillContent(info: info, ghost: model.ghost, morph: model.morph, onAction: model.onGhostAction)
+        // The panel was widened to fit these exact strings (`NotchGeometry.size(for:on:measure:)`);
+        // `fixedSize` lets them wrap rather than be clipped if the display forced a narrower pill.
         case .unavailable(let reason):
             VStack(alignment: .leading, spacing: 2) {
                 Text(reason).font(.callout.weight(.semibold))
-                Text("Dictation is off until a speech model is installed").font(.caption).foregroundStyle(.secondary)
+                Text(PillState.unavailableSubtitle).font(.caption).foregroundStyle(.secondary)
             }
+            .fixedSize(horizontal: false, vertical: true)
         case .warning(let q):
             VStack(alignment: .leading, spacing: 2) {
-                Text(q.lowLevel ? "Mic level is very low" : (q.clipping > 0.05 ? "Mic is clipping" : "Noisy mic — \(Int(q.snr)) dB SNR"))
-                    .font(.callout.weight(.semibold))
-                Text("Check your input device before you speak").font(.caption).foregroundStyle(.secondary)
+                Text(PillState.warningHeadline(q)).font(.callout.weight(.semibold))
+                Text(PillState.warningSubtitle).font(.caption).foregroundStyle(.secondary)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

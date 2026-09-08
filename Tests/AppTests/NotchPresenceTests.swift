@@ -80,7 +80,7 @@ struct PresenceGeometryTests {
         #expect(notched.notchRect == CGRect(x: 790, y: 1131, width: 220, height: 38))
 
         #expect(PresenceGeometry.frame(size: PresenceGeometry.restSize, on: notched)
-                == CGRect(x: 862, y: 1126, width: 76, height: 4))
+                == CGRect(x: 873, y: 1120, width: 54, height: 10))
         #expect(PresenceGeometry.frame(size: PresenceGeometry.activeSize, on: notched)
                 == CGRect(x: 840, y: 1120, width: 120, height: 10))
         #expect(PresenceGeometry.frame(size: PresenceGeometry.mutedSize, on: notched)
@@ -95,14 +95,14 @@ struct PresenceGeometryTests {
     /// still not intersecting it (a shared edge is not an intersection).
     @Test func menuBarHiddenPutsItFlushUnderTheHousing() throws {
         let frame = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: autoHiddenMenuBar)
-        #expect(frame == CGRect(x: 862, y: 1127, width: 76, height: 4))
+        #expect(frame == CGRect(x: 873, y: 1121, width: 54, height: 10))
         #expect(frame.maxY == 1131)
         #expect(!frame.intersects(try #require(autoHiddenMenuBar.notchRect)))
     }
 
     @Test func offOriginStaysOnItsOwnScreen() {
         let frame = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: notchedOffOrigin)
-        #expect(frame == CGRect(x: -938, y: 1326, width: 76, height: 4))
+        #expect(frame == CGRect(x: -927, y: 1320, width: 54, height: 10))
         #expect(notchedOffOrigin.frame.contains(frame))
     }
 
@@ -110,13 +110,13 @@ struct PresenceGeometryTests {
 
     @Test func notchlessDisplaysUseTheSameCompactChin() {
         let onExternal = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: external)
-        #expect(onExternal == CGRect(x: 2722, y: 1135, width: 76, height: 4))   // 1169 - 30 pt menu bar
+        #expect(onExternal == CGRect(x: 2733, y: 1129, width: 54, height: 10))   // 1169 - 30 pt menu bar
         #expect(external.notchRect == nil)
         #expect(PresenceGeometry.clearsHousing(onExternal, on: external))
 
         // No menu bar at all: flush with the very top of the panel.
         let flush = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: externalNoMenuBar)
-        #expect(flush == CGRect(x: 922, y: 1076, width: 76, height: 4))
+        #expect(flush == CGRect(x: 933, y: 1070, width: 54, height: 10))
     }
 
     @Test func clampsOnANarrowDisplayInsteadOfOverflowing() {

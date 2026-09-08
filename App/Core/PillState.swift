@@ -29,6 +29,31 @@ public enum PillState: Equatable, Sendable {
         case .transform: return "transform"
         }
     }
+
+    /// The fixed sentences this state draws, longest-first is not required — `NotchGeometry` sizes
+    /// the pill to the widest of them so a notice is never clipped into a dangling ellipsis.
+    /// `.preview` is deliberately absent: live transcript text is head-truncated on purpose (you
+    /// want the newest words), and sizing the pill to it would make it twitch on every syllable.
+    public var messageLines: [String] {
+        switch self {
+        case .hidden, .listening, .preview, .transform: return []
+        case .idle: return ["Warming up…"]
+        case .landing: return ["Landing…"]
+        case .unavailable(let reason): return [reason, PillState.unavailableSubtitle]
+        case .warning(let quality): return [PillState.warningHeadline(quality), PillState.warningSubtitle]
+        }
+    }
+
+    public static let unavailableSubtitle = "Dictation is off until a speech model is installed"
+    public static let warningSubtitle = "Check your input device before you speak"
+
+    /// Single source of truth for the mic-quality headline: `PillView` renders it and
+    /// `NotchGeometry` measures it, so the pill can never be narrower than its own sentence.
+    public static func warningHeadline(_ q: MicQuality) -> String {
+        if q.lowLevel { return "Mic level is very low" }
+        if q.clipping > 0.05 { return "Mic is clipping" }
+        return "Noisy mic — \(Int(q.snr)) dB SNR"
+    }
 }
 
 /// What the transform-tinted pill shows (P2.3). Additive; the engine reducer never produces it.

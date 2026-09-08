@@ -79,16 +79,24 @@ public final class PillPanelController {
         }
     }
 
+    /// The pill's size for a state, widened in the real font to fit that state's own sentences.
+    static func pillSize(for state: PillState, on metrics: ScreenMetrics) -> CGSize {
+        let font = NSFont.preferredFont(forTextStyle: .callout)
+        return NotchGeometry.size(for: state, on: metrics) { text in
+            ceil((text as NSString).size(withAttributes: [.font: font]).width) + 1
+        }
+    }
+
     /// Re-place an already visible pill (screen parameters changed) without replaying the slide-in.
     private func reposition(_ state: PillState) {
         guard let metrics = Self.currentMetrics() else { return }
-        panel.setFrame(NotchGeometry.layout(for: metrics, size: NotchGeometry.size(for: state)).shown, display: true)
+        panel.setFrame(NotchGeometry.layout(for: metrics, size: Self.pillSize(for: state, on: metrics)).shown, display: true)
     }
 
     private func render(_ state: PillState) {
         defer { lastState = state }
         guard let metrics = Self.currentMetrics() else { return }
-        let layout = NotchGeometry.layout(for: metrics, size: NotchGeometry.size(for: state))
+        let layout = NotchGeometry.layout(for: metrics, size: Self.pillSize(for: state, on: metrics))
         if state.isVisible, !lastState.isVisible {
             Log.app.info("""
                 pill placement: screen=\(NSStringFromRect(metrics.frame)) topBand=\(metrics.topBand) \

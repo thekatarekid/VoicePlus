@@ -272,7 +272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // click pops the status menu so there is a way into Settings/Quit even when macOS has
         // culled the status item. `PresenceIndicatorController` logs every computed frame.
         presence.settings = container.settings
-        presence.hotkeyHint = { [weak self] in "hold \(self?.hotkey.binding.kind.displayName ?? "the dictation key")" }
+        // Derived from the *configured* binding on every render, never hardcoded: "hold Right ⌃" for
+        // a bare modifier, "press ⌃⌥D" for a chord, and it follows a Settings change immediately.
+        presence.hotkeyHint = { [weak self] in
+            guard let kind = self?.hotkey.binding.kind else { return HotkeyHint.unknown }
+            return HotkeyHint.label(for: kind)
+        }
         presence.onClick = { [weak self] in self?.statusItem?.popUpMenu() }
         presence.pausedProvider = { [weak coordinator] in coordinator?.paused ?? false }
         presence.bind(pill: pill.model, mute: container.handsFree.mute)

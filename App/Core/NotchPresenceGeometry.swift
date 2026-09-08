@@ -29,8 +29,13 @@ public enum PresenceGeometry {
 
     // MARK: - Sizes (measured against real hardware, 2026-09-06; see NotchPresenceTests)
 
-    /// Idle: a hairline chin hanging off the bottom of the band. Unobtrusive by construction.
-    public static let restSize = CGSize(width: 76, height: 4)
+    /// Idle: a small chin hanging off the bottom of the band, carrying one lit dot.
+    ///
+    /// This used to be a 4 pt hairline drawn at 35 % black, which on a MacBook means a near-black
+    /// sliver immediately below a black bezel — i.e. invisible, which is exactly why the app read as
+    /// "only shows up on hover". It stays deliberately small (it is a status light, not a banner)
+    /// but it is now tall enough to hold a visible dot at a normal viewing distance.
+    public static let restSize = CGSize(width: 54, height: 10)
     /// Mic open / processing: tall enough to carry a level bar.
     public static let activeSize = CGSize(width: 120, height: 10)
     /// Muted: a persistent, legible badge. A hidden hot mic is the one thing that must never ship,
@@ -39,7 +44,24 @@ public enum PresenceGeometry {
     /// Blocked: room for a short reason — "Mic off", "Relaunch", "42%".
     public static let blockedSize = CGSize(width: 132, height: 16)
     /// Pointer is on it: the full "VoicePlus · Ready — hold Right ⌥" row.
+    ///
+    /// This is now a **minimum**, not the width. The row is sized to its text by
+    /// `PresenceRow.fit(...)` and passed in as `rowWidth`; a fixed 190 pt here is what clipped
+    /// "…— hold R…" with no way for the user to ever read the rest.
     public static let hoverSize = CGSize(width: 190, height: 24)
+
+    /// Widest a row may ever be on this display: the full width minus the edge margins. A row is
+    /// allowed to be wide — it is transient and it is the only thing at this anchor — but it must
+    /// never hang off the screen, and on a narrow/external display this is what forces
+    /// `PresenceRow` to shorten the message instead of clipping it.
+    public static func maxRowWidth(on metrics: ScreenMetrics) -> CGFloat {
+        max(64, metrics.frame.width - 2 * edgeMargin)
+    }
+
+    /// The expanded row's size for a measured text width.
+    public static func rowSize(width: CGFloat, on metrics: ScreenMetrics) -> CGSize {
+        CGSize(width: min(max(width, hoverSize.width), maxRowWidth(on: metrics)), height: hoverSize.height)
+    }
 
     /// Horizontal margin kept from the edges of a narrow display (same value as the pill's).
     static let edgeMargin: CGFloat = 8
@@ -76,21 +98,30 @@ public enum PresenceGeometry {
     /// Hover target: the resting chin unioned with the expanded row (so the pointer does not fall
     /// out of the region the instant the panel grows and start a collapse/expand flicker), inflated
     /// by `hoverSlop`, unioned with the camera housing itself — pointing at the notch reveals it.
-    public static func hoverRect(on metrics: ScreenMetrics) -> CGRect {
+    /// `rowWidth` is the width of the row currently on screen (when one is): a row wider than the
+    /// nominal `hoverSize` must still count as hovered under the pointer, or the panel would shrink
+    /// out from under the mouse and flicker.
+    public static func hoverRect(on metrics: ScreenMetrics, rowWidth: CGFloat? = nil) -> CGRect {
         var rect = frame(size: restSize, on: metrics)
             .union(frame(size: hoverSize, on: metrics))
-            .insetBy(dx: -hoverSlop, dy: -hoverSlop)
+        if let rowWidth { rect = rect.union(frame(size: rowSize(width: rowWidth, on: metrics), on: metrics)) }
+        rect = rect.insetBy(dx: -hoverSlop, dy: -hoverSlop)
         if let notch = metrics.notchRect { rect = rect.union(notch) }
         return rect
     }
 
-    public static func layout(for metrics: ScreenMetrics, state: PresenceState, hovered: Bool = false) -> Layout {
+    /// `expanded` = the pointer is on it, or it is announcing itself (see `PresenceIntroduction`).
+    /// `rowWidth` — measured by `PresenceRow` — sizes the expanded row to its text.
+    public static func layout(for metrics: ScreenMetrics, state: PresenceState, hovered: Bool = false,
+                              rowWidth: CGFloat? = nil) -> Layout {
         guard state != .off else {
             return Layout(frame: .zero, hoverRect: hoverRect(on: metrics), cornerRadius: 0, visible: false)
         }
-        return Layout(frame: frame(size: size(for: state, hovered: hovered), on: metrics),
-                      hoverRect: hoverRect(on: metrics),
-                      cornerRadius: hovered ? 10 : min(6, size(for: state, hovered: hovered).height / 2),
+        var size = size(for: state, hovered: hovered)
+        if hovered, let rowWidth { size = rowSize(width: rowWidth, on: metrics) }
+        return Layout(frame: frame(size: size, on: metrics),
+                      hoverRect: hoverRect(on: metrics, rowWidth: hovered ? rowWidth : nil),
+                      cornerRadius: hovered ? 10 : min(6, size.height / 2),
                       visible: true)
     }
 
@@ -112,14 +143,47 @@ public enum PresenceGeometry {
     }
 }
 
+/// When the indicator announces itself instead of sitting as a dot.
+///
+/// The complaint this answers: "no indicator that the dictation app is available and I can tap the
+/// key to dictate". A dot alone is discoverable only if you already know what it is, and a row
+/// pinned there forever would be worse than the bug — so the row shows itself at the two moments it
+/// carries news, then collapses back to the dot:
+///
+/// * the first time the app reaches `ready` in a session (launch), and
+/// * whenever it reaches `ready` *out of a blocked state* — a permission granted, or the speech
+///   model finishing its download and the engine being swapped in underneath us.
+///
+/// Deliberately NOT after every utterance: `ready` is re-entered constantly during normal use, and
+/// a row that reappears after each dictation would be a nag.
+public enum PresenceIntroduction {
+    /// How long the row stays up before collapsing to the dot.
+    public static let duration: TimeInterval = 6
+
+    public static func announces(from previous: PresenceState?, to next: PresenceState) -> Bool {
+        guard next == .ready else { return false }
+        switch previous {
+        case .none: return true
+        case .some(.blocked): return true
+        default: return false
+        }
+    }
+
+    /// Is an announcement started at `since` still on screen at `now`?
+    public static func isShowing(since: Date?, now: Date = Date()) -> Bool {
+        guard let since else { return false }
+        return now.timeIntervalSince(since) < duration
+    }
+}
+
 /// Click/focus policy, pulled out as pure logic so the "it can never swallow a click" guarantee is
 /// a unit test rather than a claim in a comment.
 public enum PresenceInteraction {
     /// The panel ignores the mouse at all times except while the pointer is actually on it.
     public static func ignoresMouse(hovering: Bool) -> Bool { !hovering }
 
-    public static func isHovering(mouse: CGPoint, on metrics: ScreenMetrics) -> Bool {
-        PresenceGeometry.hoverRect(on: metrics).contains(mouse)
+    public static func isHovering(mouse: CGPoint, on metrics: ScreenMetrics, rowWidth: CGFloat? = nil) -> Bool {
+        PresenceGeometry.hoverRect(on: metrics, rowWidth: rowWidth).contains(mouse)
     }
 
     /// Full-screen detection with no private API: the menu bar's `visibleFrame` delta collapses to

@@ -67,6 +67,22 @@ public enum NotchGeometry {
         }
     }
 
+    /// Chrome around the pill's text: icon column + horizontal padding + the script badge's slot.
+    static let textChrome: CGFloat = 76
+
+    /// Content-aware size: never narrower than `size(for:)`, widened to fit the state's own
+    /// sentences, and clamped to the display. Without this a notice longer than the fixed 420 pt
+    /// (a long "no speech model" reason, a localised string) is clipped with no state in which the
+    /// user can read the end of it.
+    public static func size(for state: PillState, on metrics: ScreenMetrics,
+                            measure: (String) -> CGFloat) -> CGSize {
+        var size = self.size(for: state)
+        guard let widest = state.messageLines.map(measure).max() else { return size }
+        let limit = max(64, metrics.frame.width - 2 * edgeMargin)
+        size.width = min(max(size.width, widest + textChrome), limit)
+        return size
+    }
+
     /// Horizontal margin kept between the pill and the edges of a narrow display.
     static let edgeMargin: CGFloat = 8
 

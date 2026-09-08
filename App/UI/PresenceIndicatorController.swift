@@ -43,6 +43,12 @@ public final class PresenceIndicatorController {
     private var state: PresenceState = .off
     private var hovered = false
     private var hoverTimer: Timer?
+    /// When the indicator last started announcing itself (see `PresenceIntroduction`).
+    private var introducedAt: Date?
+    /// The width the expanded row currently needs; drives both the panel frame and the hover rect.
+    private var rowWidth: CGFloat?
+    /// Pre-suppression state, so an announcement-worthy transition is not lost behind the pill.
+    private var lastSubstance: PresenceState?
     private var observers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
@@ -155,11 +161,26 @@ public final class PresenceIndicatorController {
         inputs.menuBarPresent = menuBarPresent(on: metrics)
 
         let next = PresenceStateReducer.reduce(inputs)
-        let hovering = next.isVisible && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics)
-        guard force || next != state || hovering != hovered else { return }
-        let changed = next != state || hovering != hovered
+        // Announce on the transitions that carry news (launch, and recovery out of a blocked state —
+        // e.g. a speech model finishing its download and the engine being swapped in). `substance`
+        // rather than the reduced state so a pill or a full-screen Space cannot eat the transition.
+        let substance = PresenceStateReducer.substance(inputs)
+        if PresenceIntroduction.announces(from: lastSubstance, to: substance) { introducedAt = Date() }
+        lastSubstance = substance
+        let introducing = next == .ready && PresenceIntroduction.isShowing(since: introducedAt)
+
+        let pointerOn = next.isVisible
+            && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics, rowWidth: rowWidth)
+        let expanded = pointerOn || introducing
+
+        // Fit the message to the display *before* placing the panel: the row is sized to its text,
+        // which is the whole of the "…— hold R…" fix.
+        let width = expanded ? Self.fittedRow(state: next, hint: hotkeyHint(), on: metrics) : nil
+        guard force || next != state || expanded != hovered || width?.width != rowWidth else { return }
+        let changed = next != state || expanded != hovered
         state = next
-        hovered = hovering
+        hovered = expanded
+        rowWidth = width?.width
 
         guard next.isVisible else {
             panel.ignoresMouseEvents = true
@@ -168,12 +189,15 @@ public final class PresenceIndicatorController {
             return
         }
 
-        let layout = PresenceGeometry.layout(for: metrics, state: next, hovered: hovering)
-        hosting.rootView = PresenceIndicatorView(state: next, hovered: hovering,
-                                                 cornerRadius: layout.cornerRadius, hint: hotkeyHint())
+        let layout = PresenceGeometry.layout(for: metrics, state: next, hovered: expanded, rowWidth: width?.width)
+        hosting.rootView = PresenceIndicatorView(state: next, hovered: expanded,
+                                                 cornerRadius: layout.cornerRadius, hint: hotkeyHint(),
+                                                 rowText: width?.text)
         // The panel can never swallow a click meant for the app underneath: it only takes the mouse
         // while the pointer is provably on it.
-        panel.ignoresMouseEvents = PresenceInteraction.ignoresMouse(hovering: hovering)
+        // Note `pointerOn`, not `expanded`: while the row is announcing itself unprompted it must
+        // still be click-through, or a launch-time announcement would eat the user's first click.
+        panel.ignoresMouseEvents = PresenceInteraction.ignoresMouse(hovering: pointerOn)
         panel.setFrame(layout.frame, display: true)
         // Belt and braces on top of `PresenceContainerView.layout()`: the chin is 4 pt tall at rest
         // and an off-by-one hosting frame is the difference between a hairline and nothing at all.
@@ -184,7 +208,8 @@ public final class PresenceIndicatorController {
         if changed {
             Log.app.notice("""
                 presence state: \(next.caseName) frame=\(NSStringFromRect(layout.frame)) \
-                hovered=\(hovering) ignoresMouse=\(self.panel.ignoresMouseEvents) \
+                expanded=\(expanded) pointerOn=\(pointerOn) row="\(width?.text ?? "")" \
+                ignoresMouse=\(self.panel.ignoresMouseEvents) \
                 clearsHousing=\(PresenceGeometry.clearsHousing(layout.frame, on: metrics)) \
                 menuBar=\(self.inputs.menuBarPresent) visible=\(self.panel.isVisible) \
                 screen=\(self.panel.screen?.localizedName ?? "none")
@@ -207,6 +232,17 @@ public final class PresenceIndicatorController {
                 key=\(self.panel.isKeyWindow) level=\(self.panel.level.rawValue) \
                 screen=\(self.panel.screen?.localizedName ?? "none")
                 """)
+        }
+    }
+
+    /// The row's text and the panel width it needs, measured in the real font. `PresenceRow` does
+    /// the choosing; this only supplies the ruler.
+    static func fittedRow(state: PresenceState, hint: String, on metrics: ScreenMetrics) -> PresenceRow.Fit {
+        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        return PresenceRow.fit(detail: state.detail,
+                               hint: PresenceRow.hint(hint, for: state),
+                               maxWidth: PresenceGeometry.maxRowWidth(on: metrics)) { text in
+            ceil((text as NSString).size(withAttributes: [.font: font]).width) + 1
         }
     }
 
