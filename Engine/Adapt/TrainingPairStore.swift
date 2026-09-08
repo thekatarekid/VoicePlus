@@ -27,6 +27,44 @@ public struct TrainingPair: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// Sanity rules for what may enter (and be used out of) the personal lexicon.
+///
+/// The adaptation loop learns `heard -> corrected` pairs from post-dictation edits. The "edited"
+/// side of that comparison is read back from the focused element, which holds the *whole* field —
+/// not just the utterance. Diffing one utterance against a whole document yields pairs like
+/// `"the" -> "<two paragraphs of unrelated text>"`; `RegressionGuard` then substitutes that blob
+/// for a real word on a later utterance, and the landed text has nothing to do with the audio.
+///
+/// A correction is only ever a word-level respelling, so anything materially longer than what was
+/// heard is not a correction and is refused — at learn time *and* at use time, so a lexicon that is
+/// already poisoned degrades to a pass-through instead of corrupting text.
+public enum LexiconSanity {
+    /// A correction may add at most this many words to what was heard ("an eat" -> "Anita" shrinks;
+    /// "musely" -> "Muesli build" is the most growth we accept).
+    public static let maxExtraWords = 1
+
+    public static func wordCount(_ text: String) -> Int { text.split(whereSeparator: \.isWhitespace).count }
+
+    /// True when `corrected` is shaped like a respelling of `heard`.
+    public static func isPlausibleCorrection(heard: String, corrected: String) -> Bool {
+        let h = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        let c = corrected.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !c.isEmpty else { return false }
+        // "Train by voice" has no heard side: a spelling, never a paragraph.
+        guard !h.isEmpty else { return wordCount(c) <= 4 }
+        guard wordCount(c) <= wordCount(h) + maxExtraWords else { return false }
+        return c.count <= h.count * 3 + 12
+    }
+
+    /// True when `edited` can plausibly be the same utterance the user just dictated, rather than
+    /// the whole document that happened to be in the field.
+    public static func isPlausibleEdit(of original: String, edited: String) -> Bool {
+        let o = wordCount(original), e = wordCount(edited)
+        guard o > 0, e > 0 else { return false }
+        return e <= o * 2 + 8
+    }
+}
+
 /// Gives the store access to the utterance audio buffer so it can cut clips. The live
 /// implementation wraps the capture ring; tests use an in-memory dictionary.
 public protocol UtteranceAudioProvider: Sendable {
@@ -84,6 +122,12 @@ public final class TrainingPairStore: @unchecked Sendable {
         var p = pair
         let trimmed = p.corrected.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.lowercased() != p.original.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else { return p }
+        // Not a respelling of what was heard → not something to learn. Dropping it is the safe
+        // default; storing it would let the regression guard rewrite good words into this text.
+        guard LexiconSanity.isPlausibleCorrection(heard: p.original, corrected: trimmed) else {
+            Log.engine.warning("adapt: refusing implausible pair (heard \(LexiconSanity.wordCount(p.original)) word(s) → corrected \(LexiconSanity.wordCount(trimmed)) word(s), source \(p.source))")
+            return p
+        }
         if p.clipFile == nil, let audio, let s = audio.samples(utteranceID: p.utteranceID, range: p.audioRange) {
             let name = "\(p.id).wav"
             try WAVFile(sampleRate: audio.sampleRate, samples: s).write(to: clipsDirectory.appendingPathComponent(name))
@@ -110,6 +154,13 @@ public final class TrainingPairStore: @unchecked Sendable {
     @discardableResult
     public func ingestEdit(utteranceID: String, spans: [TranscriptSpan], editedText: String, at: Date = Date()) throws -> [TrainingPair] {
         var out: [TrainingPair] = []
+        // `editedText` is read back from the focused element and may be the whole document rather
+        // than this utterance. Diffing against that produces nonsense pairs, so learn nothing.
+        let heard = spans.map(\.text).joined(separator: " ")
+        guard LexiconSanity.isPlausibleEdit(of: heard, edited: editedText) else {
+            Log.engine.warning("adapt: ignoring edit readback (\(LexiconSanity.wordCount(heard)) word(s) dictated, \(LexiconSanity.wordCount(editedText)) word(s) in the field)")
+            return []
+        }
         for run in WordDiff.replacedRuns(original: spans.map(\.text), edited: editedText.split(whereSeparator: \.isWhitespace).map(String.init)) {
             let covered = spans[run.originalRange]
             guard let lo = covered.map(\.audioRange.lowerBound).min(), let hi = covered.map(\.audioRange.upperBound).max() else { continue }

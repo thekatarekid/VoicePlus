@@ -295,3 +295,56 @@ struct AdaptLexiconTests {
         #expect(shown == ["Kothari"])
     }
 }
+
+/// The text-corruption bug: the zero-edit tracker reads the *whole focused field* back, so the
+/// "edited" side of a post-dictation edit can be an entire document. Learning from that taught the
+/// lexicon `heard -> <document>`, and `RegressionGuard` then substituted the document for a real
+/// word on a later utterance — dictation that came out completely unrelated to the audio.
+@Suite("Lexicon sanity — a correction is a respelling, never a document")
+struct LexiconSanityTests {
+    private let document = """
+    Dear Bob, thanks for the note about the quarterly numbers. I have attached the deck and the \
+    revised forecast, and I will follow up on Thursday once the finance team has signed off on it.
+    """
+
+    @Test func wholeFieldReadbackTeachesNothing() throws {
+        let store = try TrainingPairStore(root: tempDir())
+        let spans = [span("the", 0, 0.2), span("quick", 0.2, 0.4), span("brown", 0.4, 0.6), span("fox", 0.6, 0.8)]
+        let pairs = try store.ingestEdit(utteranceID: "u", spans: spans, editedText: document + " the quick brown fox")
+        #expect(pairs.isEmpty)
+        #expect(store.count == 0)
+    }
+
+    @Test func realWordLevelEditIsStillLearned() throws {
+        let store = try TrainingPairStore(root: tempDir())
+        let spans = [span("send", 0, 0.2), span("it", 0.2, 0.3), span("to", 0.3, 0.4), span("cotari", 0.4, 0.9)]
+        let pairs = try store.ingestEdit(utteranceID: "u", spans: spans, editedText: "send it to Kothari")
+        #expect(pairs.map(\.corrected) == ["Kothari"])
+    }
+
+    @Test func implausiblePairIsRefusedByTheStore() throws {
+        let store = try TrainingPairStore(root: tempDir())
+        try store.add(TrainingPair(utteranceID: "u", original: "the", corrected: document, audioRange: 0...1, source: "postDictationEdit"))
+        #expect(store.count == 0)
+    }
+
+    @Test func guardPassesThroughAnAlreadyPoisonedLexicon() {
+        var lex = PersonalLexicon()
+        lex.variants["the"] = .init(heard: "the", corrected: document, count: 3)
+        let spans = [span("The", 0, 0.2), span("quick", 0.2, 0.4), span("fox", 0.4, 0.6)]
+        // Neither the exact variant nor the phonetic list may substitute a paragraph for "The".
+        #expect(RegressionGuard(lexicon: lex).correction(for: "The") == nil)
+        #expect(RegressionGuard(lexicon: lex).apply(spans) == spans)
+        #expect(RegressionGuard(lexicon: lex).apply([span("thee", 0, 0.2)]).first?.text == "thee")
+    }
+
+    @Test func plausibilityRulesAreShaped() {
+        #expect(LexiconSanity.isPlausibleCorrection(heard: "cotari", corrected: "Kothari"))
+        #expect(LexiconSanity.isPlausibleCorrection(heard: "an eat", corrected: "Anita"))
+        #expect(LexiconSanity.isPlausibleCorrection(heard: "cube control", corrected: "kubectl"))
+        #expect(!LexiconSanity.isPlausibleCorrection(heard: "the", corrected: document))
+        #expect(!LexiconSanity.isPlausibleCorrection(heard: "fox", corrected: ""))
+        #expect(LexiconSanity.isPlausibleEdit(of: "the quick brown fox", edited: "the quick brown fix"))
+        #expect(!LexiconSanity.isPlausibleEdit(of: "the quick brown fox", edited: document))
+    }
+}

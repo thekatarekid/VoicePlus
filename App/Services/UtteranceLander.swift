@@ -51,6 +51,11 @@ public final class UtteranceLander: @unchecked Sendable {
     public var textFinalizer: (([TranscriptSpan]) -> String?)?
     /// Tests await the reconcile; the app runs it off the landing path.
     public var reconcileInline = false
+    /// Diagnostic: when true, the raw recognised text and the landed text are written to the log
+    /// verbatim, so one real utterance separates "bad recognition" from "good recognition, mangled
+    /// afterwards". Off by default (the summary below is always logged and names no words); opt in
+    /// with `VOICEPLUS_LOG_TEXT=1`. Local `os_log` only — nothing leaves the machine.
+    public var logsText = ProcessInfo.processInfo.environment["VOICEPLUS_LOG_TEXT"] == "1"
 
     public init(pipeline: PipelineRunner, injector: any Injector, system: SystemAccess, repair: RepairSession?,
                 flags: FeatureFlagService, database: AppDatabase?, zeroEdit: ZeroEditTracker? = nil,
@@ -156,6 +161,7 @@ public final class UtteranceLander: @unchecked Sendable {
         let finalSpans = outSpans
         let text = textFinalizer?(finalSpans) ?? finalSpans.joinedText
         result.text = text
+        logTransform(raw: spans, landed: text, finalSpans: finalSpans)
         let caret = (try? system.focusedElement())?.selectedRange?.lowerBound ?? 0
         let outcome = injector.inject(InjectionRequest(text: text, utteranceID: id.uuidString, expectedFocus: focus))
         result.injection = outcome
@@ -185,6 +191,20 @@ public final class UtteranceLander: @unchecked Sendable {
     }
 
     private func ms(since t0: Date) -> Double { clock().timeIntervalSince(t0) * 1000 }
+
+    /// One line per utterance that answers "did post-processing change the words?" — the raw text
+    /// out of `engine.stop()` against what is about to be typed, plus the stages that touched the
+    /// spans. `distance == 0` means every difference the user sees came from recognition, not from
+    /// this chain. Word-level content is logged only under `VOICEPLUS_LOG_TEXT=1`.
+    private func logTransform(raw: [TranscriptSpan], landed: String, finalSpans: [TranscriptSpan]) {
+        let rawText = raw.joinedText
+        let distance = EditDistance.levenshtein(rawText, landed)
+        var stages = [StageID]()
+        for span in finalSpans { for s in span.provenance where !stages.contains(s) { stages.append(s) } }
+        let names = stages.map(\.rawValue).joined(separator: ",")
+        Log.pipeline.notice("landing diff: raw \(raw.count) span(s)/\(rawText.count) chars → landed \(landed.count) chars, distance \(distance), stages [\(names)]")
+        if logsText { Log.pipeline.notice("landing text: raw=\u{201C}\(rawText)\u{201D} landed=\u{201C}\(landed)\u{201D}") }
+    }
 }
 
 /// Bridges `RepairSession` edits to Injection's AX replace-range (Bet 4 safety rule applied there).

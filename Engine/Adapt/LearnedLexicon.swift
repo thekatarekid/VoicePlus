@@ -94,7 +94,8 @@ public struct RegressionGuard: Sendable {
         self.lexicon = lexicon; self.metaphoneLength = metaphoneLength; self.phoneticMinCount = phoneticMinCount
         protected = Set(lexicon.terms.keys)
         let dm = DoubleMetaphone(maxLength: metaphoneLength)
-        phonetic = lexicon.variants.values.filter { $0.count >= phoneticMinCount && !$0.heard.contains(" ") }
+        phonetic = lexicon.variants.values.filter { $0.count >= phoneticMinCount && !$0.heard.contains(" ")
+                                                    && LexiconSanity.isPlausibleCorrection(heard: $0.heard, corrected: $0.corrected) }
             .sorted { $0.count > $1.count }
             .map { (dm.encode($0.heard), $0.corrected, $0.heard) }
     }
@@ -104,7 +105,11 @@ public struct RegressionGuard: Sendable {
         guard !k.isEmpty else { return nil }
         // Already the learned term: only normalise casing ("kothari" -> "Kothari").
         if protected.contains(k) { let t = lexicon.terms[k]!.text; return t == text.trimmingCharacters(in: .punctuationCharacters) ? nil : t }
-        if let v = lexicon.variants[k] { return v.corrected }
+        // A variant that is not shaped like a respelling of what was heard is not trusted, however
+        // it got into the lexicon: pass the decoded word through untouched rather than guess.
+        if let v = lexicon.variants[k] {
+            return LexiconSanity.isPlausibleCorrection(heard: k, corrected: v.corrected) ? v.corrected : nil
+        }
         guard !k.contains(" ") else { return nil }
         let codes = DoubleMetaphone(maxLength: metaphoneLength).encode(k)
         guard !codes.primary.isEmpty else { return nil }

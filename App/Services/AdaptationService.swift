@@ -50,6 +50,14 @@ public final class AdaptationService: @unchecked Sendable {
     /// A post-dictation keyboard edit (from the zero-edit tracker) becomes training pairs.
     public func ingestEdit(utteranceID: String, original: String, edited: String, at date: Date = Date()) {
         guard !original.isEmpty, !edited.isEmpty, original != edited else { return }
+        // `edited` comes from the zero-edit tracker's AX readback: the whole focused field, which
+        // usually contains text this utterance never produced. Comparing the two then teaches the
+        // lexicon nonsense (see `LexiconSanity`), so a readback that cannot be this utterance is
+        // dropped — including from the WER series, where it would be equally meaningless.
+        guard LexiconSanity.isPlausibleEdit(of: original, edited: edited) else {
+            Log.app.notice("adapt: skipping edit readback that is not this utterance (\(LexiconSanity.wordCount(original)) → \(LexiconSanity.wordCount(edited)) words)")
+            return
+        }
         let words = original.split(separator: " ").map(String.init)
         let step = 0.3
         let spans = words.enumerated().map { i, w in
