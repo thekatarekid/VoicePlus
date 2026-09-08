@@ -146,15 +146,48 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         if case .prewarming = state { setState(.idle) }
     }
 
+    /// Loads the model into memory *without* touching `EngineState`.
+    ///
+    /// `prewarm()` publishes `.prewarming`, which the pill draws as "Warming up…" — fine on a hotkey
+    /// press, wrong at launch. This is the eager load the app runs as soon as a model is on disk, so
+    /// the user's first press finds the recognizers already resolved instead of paying a cold CoreML
+    /// compile in the middle of their sentence. Failures are logged, never surfaced: nobody asked.
+    @discardableResult
+    public func preloadModel() async -> Bool {
+        let revision = await provider.revision()
+        if lock.withLock({ recognizers != nil && recognizerRevision == revision }) { return true }
+        do {
+            let t0 = Date()
+            let r = try await provider.resolve()
+            lock.withLock { recognizers = r; recognizerRevision = revision }
+            Log.engine.info("model preloaded in \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms — first dictation will not wait")
+            return true
+        } catch {
+            Log.engine.warning("model preload failed (will retry on first use): \(error)")
+            return false
+        }
+    }
+
+    /// Are the recognizers already in memory? `false` means the next `start()` is a cold one.
+    public var isModelLoaded: Bool { lock.withLock { recognizers != nil } }
+
     public func start(prewarm: Bool) async throws {
         let already = lock.withLock { listening }
         if already { throw EngineError.alreadyListening }
-        if prewarm { try await self.prewarm() }
-        let recs = lock.withLock { recognizers }
-        guard let recs else { throw EngineError.modelUnavailable("prewarm() not called") }
+        // Is the model already in memory? If not, the load below can take tens of seconds on a cold
+        // CoreML compile — and until 1.7.4 that whole wait happened *before* `audio.start()`, so the
+        // pill sat on "Warming up…" with the microphone shut and the opening words of the utterance
+        // were simply gone. Capture opens first now and the samples accumulate in `buffer` while the
+        // recognizers resolve; preview text starts flowing the moment they land.
+        let revision = prewarm ? await provider.revision() : 0
+        let ready = lock.withLock { recognizers != nil && (!prewarm || recognizerRevision == revision) }
+        guard prewarm || ready else { throw EngineError.modelUnavailable("prewarm() not called") }
         await buffer.reset()
-        await recs.preview?.reset()
+        if ready { await lock.withLock { recognizers }?.preview?.reset() }
         lock.withLock { listening = true; previewPending.removeAll() }
+        // "Warming up…" is only honest while it is *bounded and recording*. The state stays
+        // `.prewarming` until the model is in memory, but capture is already open underneath it.
+        setState(ready ? .listening(level: 0) : .prewarming)
         audio.sink = { [weak self] ptr in self?.ingest(Array(ptr)) }
         // `listening` is set *before* capture opens, because the sink can fire from inside
         // `audio.start()`. That makes the throw below the one place where the flag can outlive the
@@ -172,7 +205,45 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             setState(.error(EngineMessage.describe(error)))
             throw error
         }
+        if !ready {
+            // Cold start: the model loads *while* the user is already being recorded.
+            do {
+                let t0 = Date()
+                let pair = try await provider.resolve()
+                await pair.preview?.reset()
+                lock.withLock { recognizers = pair; recognizerRevision = revision }
+                Log.engine.info("recognizers resolved in \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms (capture was already open)")
+                flushPendingPreview()
+            } catch {
+                await rollbackSession()
+                setState(.error(EngineMessage.describe(error)))
+                throw error
+            }
+        }
         setState(.listening(level: 0))
+    }
+
+    /// Capture is open but the session cannot continue: close it and forget the audio.
+    private func rollbackSession() async {
+        audio.stop()
+        audio.sink = nil
+        lock.withLock { listening = false; previewPending.removeAll() }
+        await buffer.reset()
+    }
+
+    /// Hands the preview recognizer everything captured during a cold start, so the words spoken
+    /// while the model was loading appear in the pill instead of being dropped.
+    private func flushPendingPreview() {
+        lock.lock()
+        let preview = recognizers?.preview
+        let pending = previewPending
+        if preview != nil, !pending.isEmpty { previewPending.removeAll() }
+        lock.unlock()
+        guard let preview, !pending.isEmpty else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.buffer.schedulePreview(pending, using: preview) { [weak self] text in self?.emitPartial(text) }
+        }
     }
 
     private func ingest(_ block: [Float]) {
@@ -181,7 +252,12 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         let preview = recognizers?.preview
         previewPending.append(contentsOf: block)
         var toPreview: [Float]?
-        if Double(previewPending.count) / 16_000 >= previewBlock { toPreview = previewPending; previewPending.removeAll() }
+        // Only drain the pending buffer when there is something to drain it *into*. During a cold
+        // start the preview recognizer is still loading; those samples are kept and flushed by
+        // `flushPendingPreview()` rather than thrown away.
+        if preview != nil, Double(previewPending.count) / 16_000 >= previewBlock {
+            toPreview = previewPending; previewPending.removeAll()
+        }
         let emitLevel = Date().timeIntervalSince(lastLevelEmit) > 0.1
         if emitLevel { lastLevelEmit = Date() }
         lock.unlock()

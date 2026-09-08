@@ -30,6 +30,9 @@ public enum AudioCaptureError: Error, Equatable {
     case formatMismatch(hardware: Double, client: Double)
     /// Capture started and stayed silent: not one audio block arrived inside the watchdog window.
     case noAudio(seconds: TimeInterval)
+    /// Another owner already holds the capture graph and outranks this caller. Reported instead of
+    /// the silent no-op that used to hand a second caller a stream it had not configured.
+    case busy(owner: String)
 }
 
 extension AudioCaptureError: CustomStringConvertible {
@@ -45,6 +48,8 @@ extension AudioCaptureError: CustomStringConvertible {
             return "audio format mismatch: hardware \(Int(hardware)) Hz vs client \(Int(client)) Hz — the input tap would never fire"
         case .noAudio(let seconds):
             return "capture started but no audio block arrived within \(String(format: "%.1f", seconds))s"
+        case .busy(let owner):
+            return "the microphone is already in use by \(owner)"
         }
     }
 }

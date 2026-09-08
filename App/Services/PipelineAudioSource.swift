@@ -27,9 +27,33 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     /// passes after landing. Reset at `start()`, frozen at `stop()`. Off when nil.
     public var utteranceTap: UtteranceAudioTap?
 
+    /// Who is allowed to hold the shared capture graph, and who wins when two want it.
+    ///
+    /// One graph, one owner. Before 1.7.4 `start()` silently returned success when the source was
+    /// already running, so the onboarding mic meter and the ASR engine could each believe they had
+    /// configured capture while only the first one actually had: the second got a stream whose ring,
+    /// VAD and utterance tap still held the *previous* owner's state, and whichever one stopped
+    /// first killed capture under the other.
+    public enum Owner: String, Sendable {
+        /// Dictation. Outranks everything: a held hotkey must never lose to a meter.
+        case engine
+        /// The onboarding mic-check level meter.
+        case meter
+        /// `--mic-selftest` and other diagnostics.
+        case diagnostics
+
+        var rank: Int { self == .engine ? 1 : 0 }
+    }
+
     private let lock = NSLock()
     private var forwarder: Task<Void, Never>?
-    private var running = false
+    private var owner: Owner?
+    /// The owner that was displaced by a higher-ranked `start()`, so a meter can say "dictation took
+    /// the microphone" instead of silently going flat.
+    public var onPreempted: (@Sendable (Owner) -> Void)?
+
+    /// Who currently holds capture, if anyone. Diagnostics / tests.
+    public var currentOwner: Owner? { lock.withLock { owner } }
 
     public init(pipeline: AudioPipeline) { self.pipeline = pipeline }
 
@@ -43,10 +67,32 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
         }
     }
 
-    public func start() throws {
+    public func start() throws { try start(for: .engine) }
+
+    /// Opens capture for `owner`, or fails loudly.
+    ///
+    /// The three outcomes, none of them silent:
+    /// * nobody holds the graph → a fresh start (ring cleared, VAD reset, utterance tap reset);
+    /// * a lower-or-equal-ranked owner holds it → it is torn down completely and restarted for the
+    ///   new owner, who therefore gets a stream configured for *its* utterance, not an inherited one;
+    /// * a higher-ranked owner holds it → `AudioCaptureError.busy`, so the caller can say so.
+    public func start(for owner: Owner) throws {
         guard !requireMicrophonePermission || Self.microphoneAuthorized else { throw AudioCaptureError.noInputDevice }
-        let already = lock.withLock { () -> Bool in let r = running; running = true; return r }
-        if already { return }
+        let displaced: Owner? = try lock.withLock {
+            if let current = self.owner {
+                guard owner.rank >= current.rank else { throw AudioCaptureError.busy(owner: current.rawValue) }
+                return current
+            }
+            return nil
+        }
+        if let displaced {
+            // Never inherit somebody else's running graph. Restarting is what guarantees the
+            // recognizer is fed a stream with a cleared ring, a reset VAD and an empty utterance tap.
+            Log.engine.notice("audio source: \(owner.rawValue) takes capture from \(displaced.rawValue); restarting the graph")
+            stopGraph()
+            onPreempted?(displaced)
+        }
+        lock.withLock { self.owner = owner }
         utteranceTap?.reset()
 
         let events = pipeline.events()
@@ -86,20 +132,34 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
             // Reporting success for a pipeline that never started is what let the mic check show a
             // dead meter under a "listening" label. A timeout is a start failure.
             Log.engine.error("audio pipeline start timed out after \(startTimeout)s")
-            lock.withLock { running = false }
+            lock.withLock { self.owner = nil }
             forwarder?.cancel()
             throw AudioCaptureError.engineStartFailed("start timed out after \(startTimeout)s")
         }
         if let error = box.error {
-            lock.withLock { running = false }
+            lock.withLock { self.owner = nil }
             forwarder?.cancel()
             throw error
         }
     }
 
-    public func stop() {
-        let was = lock.withLock { () -> Bool in let r = running; running = false; return r }
-        guard was else { return }
+    public func stop() { stop(for: .engine) }
+
+    /// Releases capture **only if `owner` still holds it**. A meter that was preempted by dictation
+    /// calling `stopMonitoring()` a moment later must not close the microphone out from under the
+    /// utterance that took it — that is the other half of the shared-source bug.
+    public func stop(for owner: Owner) {
+        let mine = lock.withLock { () -> Bool in
+            guard self.owner == owner else { return false }
+            self.owner = nil
+            return true
+        }
+        guard mine else { return }
+        stopGraph()
+    }
+
+    /// Tears the capture graph down. The owner slot is the caller's business.
+    private func stopGraph() {
         let done = DispatchSemaphore(value: 0)
         Task.detached(priority: .userInteractive) { [pipeline] in
             await pipeline.stop()

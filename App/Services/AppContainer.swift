@@ -304,6 +304,20 @@ public final class AppContainer {
                                micVAD: EnergyVAD(), systemVAD: EnergyVAD())
         }
         Log.app.info("container up: engine=\(String(describing: built.kind)) db=\(database != nil) providers=\(routing.allProviders.count)")
+        warmUpEngine()
+    }
+
+    /// Loads the speech model into memory in the background, as soon as there is one.
+    ///
+    /// Called at launch and again whenever a download lands and the engine is swapped in. Before
+    /// this, the CoreML compile happened lazily inside the user's *first* `start()`: the notch sat on
+    /// "Warming up…" for as long as that took, with no progress and no end in sight. Deliberately
+    /// silent — it publishes no engine state, so nothing appears on screen for work nobody asked for.
+    public func warmUpEngine() {
+        guard case .real = engineKind else { return }
+        let engine = swappableEngine.current
+        guard let real = engine as? RealEngine, !real.isModelLoaded else { return }
+        Task.detached(priority: .utility) { await real.preloadModel() }
     }
 
     /// Called at hotkey-down: refresh the decoder's bias list from the current screen/context.
@@ -376,6 +390,8 @@ public final class AppContainer {
         recognizerProvider = built.provider
         correction.recognizers = built.provider.map { ProviderDualPathRecognizers(provider: $0) }
         codeSwitch.setRouter(built.codeSwitch)
+        // A model that just finished downloading is loaded now, not on the press that follows it.
+        warmUpEngine()
         let container = self
         await MainActor.run { container.onEngineChanged?(container) }
     }
