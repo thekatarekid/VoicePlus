@@ -1250,9 +1250,77 @@ than making it silently**; a low-quality Bluetooth mic is **labelled** in the pi
 **counts utterances, not the three files each one writes**. **New
 `Tests/EngineTests/RecordingReplayTests.swift`** is the replay harness itself, opt-in and driven by
 `VOICEPLUS_REPLAY_TEXT`. `AudioUnitTests`' `skipsDisplayAndVirtualDefaults` **expected AirPods to win
-as system default** — **that expectation was the bug**, and now says so. **`swift build` clean**; the
-full-package test total is recorded at the release build. 2 commits (`c9491df`, `8849dff`) on top of
-1.7.12. **This is the dmg — it carries 1.7.13 and 1.7.14 as well.**
+as system default** — **that expectation was the bug**, and now says so.
+
+**Then the verification pass over that new code found a privacy defect in the switch that turns it
+on.** **The recording toggle was read exactly once, when the engine was built at launch** — so
+**turning it off stopped nothing**: the recorder stayed installed and went on writing a raw and a
+processed WAV, plus a manifest, **for every dictation until the app was relaunched**, while the
+Settings copy directly under the toggle said *"Turn it off when you're done."* Turning it **on**
+mid-session was inert in the same way, with the copy asserting the opposite. A switch about **audio
+of the user's voice being written to disk** that does not take effect when it is turned off is a
+**privacy defect, not a UI nit**. **The switch is now a predicate re-read at every `start()`**, so it
+means what it says **in both directions**; **a recorder is always allocated but stays disarmed** — two
+empty buffers, **no directory, no file** — and `begin()` is only called when the switch is on, so
+`finish()` returns nil and **nothing touches the disk**. **Off by default, local-only and the
+newest-20 retention are unaffected.** An **explicitly injected recorder still records
+unconditionally**, which is what the tests and Lab ask for by passing one. **One narrow window
+remains by design:** a toggle flipped off *during* an utterance **still writes that utterance**, which
+began while opted in. 1 commit (`89611c6`).
+
+**Two more faults, in the model store, from verifying 1.7.13's migration against the shapes a real
+disk can be in.** Both matter to anyone upgrading, because **the migration runs on the next launch of
+this build**. **First, a branch could permanently blind the truncation check.**
+`voiceplus-manifest.json` records the byte count every file had when the install succeeded, and it is
+**the only thing `ModelIntegrity` can check a silently truncated file against** — the check added in
+1.7.11 because a half-downloaded model reported itself installed. `ModelLayoutMigration`'s
+`adoptedExisting` branch **kept the manifest-less copy of a model, deleted the manifest-bearing one,
+and wrote nothing in its place**, and **nothing else in the app ever writes a manifest for an
+already-installed model**, so the degradation **never healed**. **Every branch now settles the
+manifest before it returns** through one `ModelManifest.ensure`: already there → nothing to do (one
+file read, the common case); otherwise **adopt the manifest from the copy about to be deleted**, but
+only when it describes the survivor **exactly, file for file, byte for byte** — a `stat` per file
+instead of a **SHA-256 pass over 468 MB**; otherwise **rebuild** with the same writer both fetchers
+already use. **Never for an incomplete folder**, because a manifest built over a truncated file
+**records the truncation as correct**. **The no-op branch settles it too**, so an install an earlier
+build already stripped **is healed** rather than left un-checkable forever. And
+**`ModelIntegrity.assess` now distinguishes `.verified` / `.unverifiable` / `.incomplete`**: an empty
+problem list only means "nothing we can see is wrong", and **without a manifest the set of things we
+can see is strictly smaller**, so a **manifest-less model is never reported verified**. 1 commit
+(`4410afb`).
+
+**Second, the directories we park and then never delete.** Replacing an installed model is a **swap,
+not a delete-then-move**, so that a failure halfway leaves a working model under *some* name rather
+than none: `FluidAudioFetcher.fetch` parks the outgoing copy as `.replaced-<uuid>`, the migration
+parks the duplicate it undoes as `.superseded-<uuid>`. Each deletes its own park immediately
+afterwards — **if it gets that far**. Killed mid-swap, **the park survived and nothing ever looked at
+it again**: **~468 MB stranded** under a name no presence check reads and `repair` never visits, **not
+even visible as a model in Settings**. **`ParkedModelDirectories.sweep` collects them,
+conservatively**: **direct children of the models root only**; **only `<a model folder name we
+own>.<kind>-<a parsable UUID>`**, so a stranger's directory, a real model folder and our own
+`.staging-<id>` (where a cancelled download's resumable `.partial` files live on purpose) are **all
+excluded**; **never FluidAudio's own models directory**; **never symlinks**; a **15-minute grace
+period** measured from the newest of creation, content and **attribute** modification time — that last
+one is the point, because **parking is a rename**, and a rename bumps `st_ctime` while leaving
+`st_mtime` and birth time alone, so a park made by moving a year-old tree **reads as seconds old by
+the right clock**; and **claim by atomic rename to `.sweeping-<uuid>` before removing anything**, which
+**exactly one racing sweeper can win** and which an open descriptor keeps reading POSIX-style
+(`sweeping` is itself collectable, so an interrupted sweep is cleaned up next time rather than
+becoming new litter). **`ModelRootLock` puts the whole maintenance pass under an `flock`**, so **two
+VoicePlus processes launching together cannot interleave** a park, a rename and a delete over the same
+two paths; the lock is per-open-file-description so **a crash cannot leave a stale one**, and **the
+wait is bounded and then abandoned** — a hung holder must not become an app that never finishes
+launching. **And `swift test` no longer runs maintenance inside a real model store**: eleven tests
+point `ModelManager` at the real `~/Library/Application Support/VoicePlus/Models` to score WER and
+golden transcripts against whatever is actually downloaded, and since maintenance runs from `init`,
+those **read-only intentions were entitled to migrate and delete inside a user's 468 MB store**. They
+now pass `Maintenance.skip`. **Cost on an already-migrated install: one `open`, a `stat` per model,
+one directory listing.** New `Tests/EngineTests/ModelMaintenanceTests.swift` — **18 tests** over both
+fixes. 1 commit (`e96a167`).
+
+**`swift build` clean, 1430 tests passing, 0 failures** — full package, from a clean scratch path.
+5 commits (`c9491df`, `8849dff`, `89611c6`, `4410afb`, `e96a167`) on top of 1.7.12. **This is the
+dmg — it carries 1.7.13 and 1.7.14 as well.**
 
 **On the owner's specific report, recorded honestly: the Bluetooth theory did not explain it.** Their
 own unified log shows **41 of 41 capture graphs** at `device=MacBook Pro Microphone …
@@ -1279,6 +1347,13 @@ implicated after all**.
 - **The accuracy fix itself does not exist.** The Bluetooth defect is a **real latent bug found on
   the way**, not the cause of what the owner reported, and **nothing in this build claims to have
   fixed the accuracy problem**.
+- **The model-store fixes are untested against the real failures they guard.** The **sweeper has
+  never collected a park left by a real crash**, and the **cross-process `flock`** has never been
+  exercised by **two VoicePlus processes launching at once**; both are covered against temporary
+  directories only. **On the owner's own machine the migration is a no-op**: their models root
+  already holds `parakeet-tdt-0.6b-v3` and `parakeet-realtime-eou-120m-coreml-160ms`, **both with a
+  valid manifest**, **no legacy folder and nothing parked**, so the first launch of this build moves
+  **no bytes**.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
 
 ### Accuracy investigations (2026-09-08, alongside 1.7.13/1.7.14) — the noise gate and biasing are both cleared
