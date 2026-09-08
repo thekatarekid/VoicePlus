@@ -18,6 +18,12 @@ public final class PillViewModel: ObservableObject {
     /// so the composition root does not have to fan the engine out twice.
     public var onEngineState: ((EngineState) -> Void)?
     private var reducer = PillStateReducer()
+    /// S5b — the gate that stops a state being shown and taken away in the same run-loop pass.
+    /// Every write to `state` in this class goes through `route(_:)`; nothing sets it directly.
+    private var presenter = PillPresenter()
+    private var holdTimer: Timer?
+    /// Injectable clock so `PillPresenterTests` can drive dwell without sleeping.
+    public var now: () -> Date = Date.init
     private var cancellables: Set<AnyCancellable> = []
     /// When real captured levels are arriving, `.listening(level:)` must not push a second bar for
     /// the same audio (the waveform would advance at double rate).
@@ -51,20 +57,53 @@ public final class PillViewModel: ObservableObject {
             waveform.reset()
             lastCapturedLevel = nil
         }
-        state = new
+        route(new)
         onEngineState?(engineState)
     }
 
     public func hide() {
         reducer.hide()
-        state = .hidden
         ghost = nil
         morph = nil
+        route(.hidden)
     }
 
     /// Show a state the engine reducer does not produce (transform pill). Engine updates resume
     /// overriding it on the next engine event.
-    public func present(_ state: PillState) { self.state = state }
+    public func present(_ state: PillState) { route(state) }
+
+    /// The single write path to `state`. A visible state lands immediately; a retraction waits out
+    /// the current state's `PillDwell` minimum so an error or a "Landing…" can never flash past.
+    private func route(_ next: PillState) {
+        apply(decision: presenter.request(next, now: now()))
+    }
+
+    /// Test seam and timer callback: let a held retraction through once its deadline has passed.
+    public func flushPillHold() { apply(decision: presenter.flush(now: now())) }
+
+    private func apply(decision: PillPresenter.Decision) {
+        switch decision {
+        case .show(let shown):
+            holdTimer?.invalidate()
+            holdTimer = nil
+            state = shown
+        case .hold(let until):
+            scheduleHold(until: until)
+        case .unchanged:
+            break
+        }
+    }
+
+    private func scheduleHold(until: Date) {
+        holdTimer?.invalidate()
+        let delay = max(0.02, until.timeIntervalSince(now()))
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            if Thread.isMainThread { self.flushPillHold() } else { DispatchQueue.main.async { self.flushPillHold() } }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        holdTimer = timer
+    }
 }
 
 /// The pill. Single feedback channel; never a modal.
@@ -109,6 +148,7 @@ public struct PillView: View {
             else { Image(systemName: "wand.and.stars").foregroundStyle(.white) }
         case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
         case .unavailable: Image(systemName: "mic.slash.fill").foregroundStyle(.yellow)
+        case .error: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
         case .landing: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .idle: Image(systemName: "mic").foregroundStyle(.secondary)
         default: Image(systemName: model.handsFree ? "mic.badge.plus" : "mic.fill").foregroundStyle(.red)
@@ -130,6 +170,12 @@ public struct PillView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(reason).font(.callout.weight(.semibold))
                 Text(PillState.unavailableSubtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        case .error(let message):
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message).font(.callout.weight(.semibold))
+                Text(PillState.errorSubtitle).font(.caption).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
         case .warning(let q):

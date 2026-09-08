@@ -36,7 +36,8 @@ struct PillReducerTests {
 
     @Test func errorShowsInPillAndIdleHides() {
         var r = PillStateReducer()
-        #expect(r.reduce(.error("boom")).caseName == "preview")
+        #expect(r.reduce(.error("boom")) == .error(message: "boom"))
+        #expect(r.state.caseName == "error")
         r.hide()
         #expect(r.state == .hidden)
     }

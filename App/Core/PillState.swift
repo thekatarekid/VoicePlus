@@ -12,6 +12,10 @@ public enum PillState: Equatable, Sendable {
     /// Nothing on this machine can recognise speech. Its own case so the honest "no recognizer"
     /// notice can never be confused with — or substituted for — transcript text in `.preview`.
     case unavailable(reason: String)
+    /// S5b — something went wrong in this turn. Its own case rather than `.preview("⚠︎ …")`: a
+    /// notice the user must read is not transcript text, it must be *sized* like a notice, and
+    /// `PillDwell` has to be able to tell the two apart to keep it on screen long enough to read.
+    case error(message: String)
     /// P2.3 — "talk to your text": tinted pill, "editing N words", then the 5 s ghost / 8 s warm window.
     case transform(TransformPillInfo)
 
@@ -26,6 +30,7 @@ public enum PillState: Equatable, Sendable {
         case .landing: return "landing"
         case .warning: return "warning"
         case .unavailable: return "unavailable"
+        case .error: return "error"
         case .transform: return "transform"
         }
     }
@@ -40,11 +45,13 @@ public enum PillState: Equatable, Sendable {
         case .idle: return ["Warming up…"]
         case .landing: return ["Landing…"]
         case .unavailable(let reason): return [reason, PillState.unavailableSubtitle]
+        case .error(let message): return [message, PillState.errorSubtitle]
         case .warning(let quality): return [PillState.warningHeadline(quality), PillState.warningSubtitle]
         }
     }
 
     public static let unavailableSubtitle = "Dictation is off until a speech model is installed"
+    public static let errorSubtitle = "Nothing was typed — press the key again to try that turn"
     public static let warningSubtitle = "Check your input device before you speak"
 
     /// Single source of truth for the mic-quality headline: `PillView` renders it and
@@ -112,7 +119,7 @@ public struct PillStateReducer: Equatable, Sendable {
             state = .landing
         case .error(let message):
             stickyWarning = nil
-            state = .preview(text: "⚠︎ \(message)")
+            state = .error(message: message)
         case .unavailable(let reason):
             stickyWarning = nil
             state = .unavailable(reason: reason)

@@ -21,13 +21,16 @@ import SwiftUI
 ///
 /// Main-thread only, like `PillPanelController`.
 public final class PresenceIndicatorController {
-    /// Pops the same menu the status item shows — which is the point: when the status item has been
-    /// culled from a crowded menu bar, this is the way back into Settings and Quit.
+    /// Pops the same menu the status item shows. S6: this is now the *secondary* click
+    /// (right-click / ⌃-click), not the primary one — but it is still here, because when the status
+    /// item has been culled from a crowded menu bar this is the way back into Settings and Quit.
     public var onClick: (() -> Void)?
-    /// Clicking a `blocked(.relaunchNeeded)` indicator should restart the app rather than open a
-    /// menu — the seam is here; wiring it is P6's `relaunchApp` path. Unwired, the click falls
-    /// back to `onClick`, so the behaviour is never worse than the menu.
+    /// Clicking a `blocked(.relaunchNeeded)` indicator restarts the app rather than opening a menu.
+    /// Unwired, the click falls back to `onClick`, so the behaviour is never worse than the menu.
     public var onRelaunchRequested: (() -> Void)?
+    /// S6 — a blocked indicator whose fix lives in VoicePlus' own Settings (no speech model).
+    /// Unwired, falls back to `onClick`.
+    public var onOpenSettings: (() -> Void)?
     /// Where the hotkey hint in the hover row comes from ("hold Right ⌥").
     public var hotkeyHint: () -> String = { "" }
     /// Read on every refresh so a Settings toggle takes effect without re-wiring anything.
@@ -45,6 +48,8 @@ public final class PresenceIndicatorController {
     private var hoverTimer: Timer?
     /// When the indicator last started announcing itself (see `PresenceIntroduction`).
     private var introducedAt: Date?
+    /// S6 — when the user last clicked the dot to make it explain itself (`PresenceClickRouter`).
+    private var explainingSince: Date?
     /// The width the expanded row currently needs; drives both the panel frame and the hover rect.
     private var rowWidth: CGFloat?
     /// Pre-suppression state, so an announcement-worthy transition is not lost behind the pill.
@@ -78,10 +83,7 @@ public final class PresenceIndicatorController {
         hosting = NSHostingView(rootView: PresenceIndicatorView(state: .off, hovered: false, cornerRadius: 0, hint: ""))
         hosting.autoresizingMask = [.width, .height]
         container.addSubview(hosting)
-        container.onClick = { [weak self] in
-            guard let self else { return }
-            if self.state.offersRelaunch, let relaunch = self.onRelaunchRequested { relaunch() } else { self.onClick?() }
-        }
+        container.onClick = { [weak self] secondary in self?.handleClick(secondary: secondary) }
         panel.contentView = container
     }
 
@@ -150,6 +152,35 @@ public final class PresenceIndicatorController {
         }
     }
 
+    // MARK: - Clicks
+
+    /// S6 — the routing decision is `PresenceClickRouter.action(for:secondary:)` (pure, unit-tested);
+    /// this only performs it. Nothing here calls `NSApp.activate`: `.explain` pins the row open in
+    /// place, and only a remedy the user asked for by clicking a *blocked* dot opens another window.
+    func handleClick(secondary: Bool) {
+        let action = PresenceClickRouter.action(for: state, secondary: secondary)
+        Log.app.notice("presence click: state=\(self.state.caseName) secondary=\(secondary) action=\(String(describing: action))")
+        switch action {
+        case .menu:
+            onClick?()
+        case .relaunch:
+            if let onRelaunchRequested { onRelaunchRequested() } else { onClick?() }
+        case .remedy(let remedy):
+            perform(remedy)
+        case .explain:
+            explainingSince = Date()
+            refresh(force: true)
+        }
+    }
+
+    private func perform(_ remedy: PresenceRemedy) {
+        if let string = remedy.systemSettingsURL, let url = URL(string: string) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        if let onOpenSettings { onOpenSettings() } else { onClick?() }
+    }
+
     // MARK: - Rendering
 
     private func refresh(force: Bool = false) {
@@ -168,10 +199,12 @@ public final class PresenceIndicatorController {
         if PresenceIntroduction.announces(from: lastSubstance, to: substance) { introducedAt = Date() }
         lastSubstance = substance
         let introducing = next == .ready && PresenceIntroduction.isShowing(since: introducedAt)
+        // A clicked-open row stays up for `explainDuration` regardless of where the pointer went.
+        let explaining = PresenceClickRouter.isExplaining(since: explainingSince)
 
         let pointerOn = next.isVisible
             && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics, rowWidth: rowWidth)
-        let expanded = pointerOn || introducing
+        let expanded = pointerOn || introducing || explaining
 
         // Fit the message to the display *before* placing the panel: the row is sized to its text,
         // which is the whole of the "…— hold R…" fix.
@@ -301,9 +334,13 @@ public final class PresenceIndicatorController {
 /// Content view that catches the click without ever becoming key. `acceptsFirstMouse` matters: the
 /// panel is non-activating, so without it the first click would be swallowed activating nothing.
 final class PresenceContainerView: NSView {
-    var onClick: (() -> Void)?
+    /// `true` = a secondary click (right-click, or ⌃-click), which still pops the status menu.
+    var onClick: ((Bool) -> Void)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { onClick?() }
+    override func mouseDown(with event: NSEvent) {
+        onClick?(event.modifierFlags.contains(.control))
+    }
+    override func rightMouseDown(with event: NSEvent) { onClick?(true) }
     /// The hosting view is 0x0 until the panel is first sized; pin it to the bounds explicitly
     /// rather than trusting autoresizing to grow it out of nothing.
     override func layout() {

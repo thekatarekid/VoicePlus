@@ -62,7 +62,7 @@ public enum NotchGeometry {
 
     public static func size(for state: PillState) -> CGSize {
         switch state {
-        case .preview, .warning, .unavailable, .transform: return expandedSize
+        case .preview, .warning, .unavailable, .error, .transform: return expandedSize
         default: return defaultSize
         }
     }
