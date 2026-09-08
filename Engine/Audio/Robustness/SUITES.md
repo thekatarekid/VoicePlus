@@ -19,3 +19,32 @@ Engine-level metrics (`Tests/EngineTests/RobustnessTests.swift`):
 
 WER delta with/without NS is a Lab-level measurement (needs the ASR model on disk): run the harness on
 `noisy` with `RobustnessProfile.raw` vs `.default` once P1.3's engine is wired through `AcousticCaptureSource`.
+
+## Measured: does the acoustic chain cost accuracy? (2026-09-08)
+
+The open question above — "WER delta with/without NS … run the harness on `.raw` vs `.default`" — is
+now answered by `Tests/EngineTests/AcousticChainWERTests.swift`, which runs fixtures **through**
+`AcousticChain` in 100 ms blocks (as `AcousticCaptureSource` does) before recognition, rather than
+around it. Parakeet TDT 0.6B v3, M2 Pro, `Fixtures/audio/clean` (12 files):
+
+| Path | mean WER | worst file |
+|---|---|---|
+| `.raw` (no DSP at all) | 0.0291 | 0.182 `clean_06_rishi` ("3 30" vs "three thirty") |
+| `.default` (spectral gate, strength 0.6) | 0.0140 | 0.091 `clean_09_rishi` |
+
+Also measured, same fixtures:
+
+- **The gate really does damage clean speech.** SDR of the `.default` chain output against its own
+  untouched input: mean **10.9 dB** (4.0–28.7). The `.raw` control reconstructs at ~117 dB, so the
+  suppressor — not the framing, the windows, or the measurement — is the source.
+- **That damage costs no accuracy.** A simulated room floor swept from 45 dB down to 15 dB SNR
+  (`roomFloorSweepRawVersusDefault`) leaves `.default` equal or better than `.raw` at every point.
+  Every difference in the sweep is a number-formatting flip, not a recognition error.
+- The pangram "The quick brown fox jumps over the lazy dog" (macOS `say`, three accents, with and
+  without a 30 dB room floor) transcribes at WER 0.000 on **both** paths.
+
+Conclusion: a low SDR through this chain is not by itself evidence of a dictation-accuracy bug, and
+`RobustnessProfile.default` is not the cause of one. Two real defects remain inside
+`SpectralGateNoiseSuppressor` and should be fixed on their own merits, not as an accuracy fix:
+`framesSeen <= 6` seeds the noise floor from whatever the first ~112 ms contains (speech, if the user
+starts talking immediately), and `noiseRise` lets the floor creep 2 %/frame on speech-active bins.
