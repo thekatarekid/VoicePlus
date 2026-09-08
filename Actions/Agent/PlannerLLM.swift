@@ -42,3 +42,13 @@ public enum PlannerPrompt {
         return "goal: \(goal)\n\n\(observation.promptText)\n\nhistory:\n\(h.isEmpty ? "(none)" : h)"
     }
 }
+
+/// Why a planner could not produce a turn.
+///
+/// `unavailable` is a *configuration* state, not a failure: no provider is pinned for
+/// `act.planner`, the pin points at something that isn't reachable, or the feature is off.
+/// Nothing the user said went wrong, so the act path must report it in plain language and
+/// must never let it take a dictation turn down with it.
+public enum PlannerError: Error, Equatable, Sendable {
+    case unavailable(reason: String)
+}

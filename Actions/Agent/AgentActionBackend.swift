@@ -81,6 +81,27 @@ public enum AgentRunStatus: Equatable, Sendable {
     case declined                      // user cancelled a confirmation card
     case failed(reason: String)
     case gaveUp(reason: String)        // planner could not make progress
+    /// The act path is switched off or unconfigured (no planner provider pinned). A configuration
+    /// state, never an error: `reason` is a debug breadcrumb for the log and is deliberately not
+    /// what `userMessage` shows.
+    case unavailable(reason: String)
+
+    /// What a person may be shown. Plain language, no `failed(reason:)`, no stage ids, no
+    /// `String(describing:)` of an `Error` — those are debug descriptions and leak internals into
+    /// the UI. Every case has to answer "what happened, in words the user would use".
+    public var userMessage: String {
+        switch self {
+        case .completed(let summary):
+            let s = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            return s.isEmpty ? "Done" : "Done — \(s)"
+        case .stopped: return "Stopped"
+        case .timedOut: return "That took too long, so I stopped"
+        case .declined: return "Cancelled"
+        case .gaveUp: return "I couldn't work out how to do that"
+        case .failed: return "That didn't work"
+        case .unavailable: return "Actions need a model set up in Settings"
+        }
+    }
 }
 
 public struct StepRecord: Equatable, Sendable {
@@ -95,6 +116,8 @@ public struct AgentRunReport: Equatable, Sendable {
     public let records: [StepRecord]
     public let rounds: Int
     public var executedSteps: [PlanStep] { records.compactMap { if case .done = $0.outcome { return $0.step }; return nil } }
+    /// The one string the UI is allowed to show for a run. See `AgentRunStatus.userMessage`.
+    public var userMessage: String { status.userMessage }
 }
 
 /// P4.5 backend contract. `NativeAgentBackend` is the shipped implementation; a Cua-backed one can be slotted later

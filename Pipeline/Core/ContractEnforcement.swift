@@ -69,7 +69,24 @@ public struct ContractEnforcingStage: PipelineStage {
             return spans
         }
         let start = DispatchTime.now().uptimeNanoseconds
-        let output = try await inner.process(spans, context: context)
+        let output: [TranscriptSpan]
+        do {
+            output = try await inner.process(spans, context: context)
+        } catch {
+            // A stage that throws is one optional step of post-processing that could not run —
+            // a provider that is off, a store that would not open, a formatter that gave up. It
+            // is never a reason to lose the user's words. Under the production policy the stage
+            // degrades to pass-through (input, marked as touched, so provenance still records
+            // that it ran) and the rest of the pipeline continues; before this, one throw
+            // unwound the whole run and discarded every earlier stage's output.
+            let latencyMs = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+            if case .strict = policy { throw error }
+            log.warning("stage \(id) failed, passing its input through: \(error)")
+            sink.record(StageMetrics(stage: id, latencyMs: latencyMs, skipped: true, editDistance: 0,
+                                     inputSpanCount: spans.count, outputSpanCount: spans.count,
+                                     contractViolations: ["stage threw: \(error)"]))
+            return spans.map { $0.touched(by: id) }
+        }
         let latencyMs = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         let violations = ConfidenceContract.verify(input: spans, output: output)
         let inText = spans.joinedText, outText = output.joinedText

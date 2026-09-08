@@ -161,7 +161,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         container.actHook.onRoute = { [weak session] route in
             Task { await session?.route(route) }
         }
-        actHotkey.onAction = { [weak session, weak inkOverlay, weak container] action in
+        actHotkey.onAction = { [weak session, weak inkOverlay, weak container, weak self] action in
+            // The act key must be a *different* key from the dictation key. Re-checked per event
+            // rather than at launch, because either binding can change from Settings while the
+            // app runs. See `ActKeyBinding`.
+            guard let self, ActKeyBinding.isDistinct(act: self.actHotkey.binding, dictation: self.hotkey.binding) else {
+                Log.app.notice("act key is bound to the same key as dictation — the act domain stays closed so dictation lands normally")
+                return
+            }
             if case .startCapture = action {
                 container?.deixis.beginCapture()
                 Task { @MainActor in inkOverlay?.show() }
@@ -380,7 +387,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pill.model.present(.preview(text: "Couldn't do that (\(result.request.kind.rawValue))"))
             }
         case .agentic(let report):
-            pill.model.present(.preview(text: "Agent: \(String(describing: report.status))"))
+            // Plain language only. `String(describing:)` on the status put
+            // `Agent: failed(reason: "planner: disabled(stage: act.planner)")` in the pill.
+            pill.model.present(.preview(text: report.userMessage))
         case .stopped:
             pill.model.present(.preview(text: "Stopped"))
         case .cancelled:

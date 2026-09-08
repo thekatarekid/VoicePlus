@@ -44,6 +44,21 @@ public final class ActPreRouteHook: GatekeeperPreRouting, @unchecked Sendable {
     }
 }
 
+/// Bet 5 is "two keys, never inferred from phrasing" — which only holds while the two keys are
+/// actually two different keys. Nothing stopped the act key (default Right ⌘) and the dictation
+/// key from being bound to the same physical modifier: one press then drove *both* `HotkeyService`
+/// instances, so a plain dictation hold also opened the act domain, `ActSessionController`
+/// raced `engine.stop()` for the transcript, and the words were parsed as an act goal — falling
+/// through the deterministic catalogue into `.agentic`, the planner, and an error in the pill
+/// where the user's sentence should have been.
+///
+/// Dictation wins the collision: it is the product. The act key stays inert until it is rebound.
+public enum ActKeyBinding {
+    public static func isDistinct(act: HotkeyBinding, dictation: HotkeyBinding) -> Bool {
+        act.kind != dictation.kind
+    }
+}
+
 /// P4.5 — Providers-backed `PlannerLLM` over the same `RoutingTable` the pipeline uses (every
 /// call goes through the Data Panel logging in `RoutingTableProviderRouting`). Screenshot-free
 /// by construction: the prompt is `PlannerPrompt` over the AX summary.
@@ -55,11 +70,33 @@ public final class ProviderPlanner: PlannerLLM, @unchecked Sendable {
 
     public func plan(goal: String, observation: AXSummary, history: [StepRecord],
                      tools: [AgentTool]) async throws -> PlannerTurn {
-        let reply = try await providers.complete(stage: Self.stage,
+        let context = StageContext()
+        // Ask before calling. `complete` throws `ProviderRoutingError.disabled` when nothing is
+        // pinned for `act.planner`, and that used to surface as
+        // `failed(reason: "planner: disabled(stage: act.planner)")` — a debug description in the
+        // pill. "No provider chosen" is a setting, so it becomes `PlannerError.unavailable`, which
+        // the backend reports as a state rather than a failure.
+        guard providers.isProviderEnabled(for: Self.stage, context: context) else {
+            throw PlannerError.unavailable(reason: "no provider chosen for \(Self.stage.rawValue)")
+        }
+        let reply: String
+        do {
+            reply = try await providers.complete(stage: Self.stage,
                                                  prompt: PlannerPrompt.system(tools: tools),
                                                  input: PlannerPrompt.user(goal: goal, observation: observation, history: history),
-                                                 context: StageContext())
+                                                 context: context)
+        } catch let error as ProviderRoutingError {
+            throw PlannerError.unavailable(reason: Self.describe(error))
+        }
         return Self.parse(reply, goal: goal)
+    }
+
+    /// Log-only breadcrumb. Never shown to a user — see `AgentRunStatus.userMessage`.
+    static func describe(_ error: ProviderRoutingError) -> String {
+        switch error {
+        case .unavailable: return "provider unreachable for \(stage.rawValue)"
+        case .disabled(let s): return "no provider chosen for \(s.rawValue)"
+        }
     }
 
     /// The contract from `PlannerPrompt.system`: an ordered list of `tool(param=value, …)` lines,

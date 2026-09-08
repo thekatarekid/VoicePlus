@@ -72,7 +72,15 @@ public final class NativeAgentBackend: AgentActionBackend, @unchecked Sendable {
                 sync { cancelPlanner = { task.cancel() } }
                 turn = try await task.value
             } catch {
-                status = shouldStop ? .stopped : .failed(reason: "planner: \(error)"); break
+                // A planner that is simply not configured is a *state*, not a failure: it gets its
+                // own status so the UI can say something a person understands, and so nothing
+                // upstream mistakes "the act feature is off" for "the turn went wrong".
+                // `String(describing:)` on an `Error` is a debug description — it must never
+                // become the reason a user reads (see `AgentRunStatus.userMessage`).
+                if shouldStop { status = .stopped }
+                else if case PlannerError.unavailable(let why) = error { status = .unavailable(reason: why) }
+                else { status = .failed(reason: "planner did not answer") }
+                break
             }
             switch turn {
             case .done(let s): status = .completed(summary: s); break loop
