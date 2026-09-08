@@ -80,28 +80,77 @@ public enum ModelIntegrity {
         problems(for: descriptor, at: folder, fileManager: fileManager).isEmpty
     }
 
-    /// Relative paths of every `*.partial` / `*.part` / `*.etag` beneath `folder`, sorted.
-    public static func scratchFiles(under folder: URL, fileManager: FileManager = .default) -> [String] {
-        guard let walker = fileManager.enumerator(at: folder, includingPropertiesForKeys: nil) else { return [] }
-        var found: [String] = []
-        let prefix = folder.path + "/"
-        for case let url as URL in walker where scratchExtensions.contains(url.pathExtension) {
-            found.append(url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.lastPathComponent)
+    /// Every `*.partial` / `*.part` / `*.etag` beneath `folder`, as (path relative to `folder`, URL),
+    /// sorted by path.
+    ///
+    /// Walked by hand rather than by `FileManager.enumerator` + prefix arithmetic. On macOS the same
+    /// file has two spellings (`/var/...` and `/private/var/...`) and `resolvingSymlinksInPath`
+    /// rewrites between them, so subtracting one path string from another silently produced bare
+    /// filenames — which turned "delete the debris" into a no-op and left the bug in place.
+    static func scratchEntries(under folder: URL, fileManager: FileManager = .default) -> [(path: String, url: URL)] {
+        var found: [(path: String, url: URL)] = []
+        func walk(_ directory: URL, _ prefix: [String]) {
+            let contents = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+            for url in contents {
+                let components = prefix + [url.lastPathComponent]
+                if scratchExtensions.contains(url.pathExtension) {
+                    found.append((components.joined(separator: "/"), url))
+                    continue
+                }
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                    walk(url, components)
+                }
+            }
         }
-        return found.sorted()
+        walk(folder, [])
+        return found.sorted { $0.path < $1.path }
     }
 
-    /// Delete the interrupted-download debris under `folder` and return what was removed.
+    /// Paths of the scratch files beneath `folder`, relative to it, sorted.
+    public static func scratchFiles(under folder: URL, fileManager: FileManager = .default) -> [String] {
+        scratchEntries(under: folder, fileManager: fileManager).map(\.path)
+    }
+
+    /// Delete the interrupted-download debris under `folder`, along with the CoreML bundle each
+    /// piece of debris sits in, and return what was removed (paths relative to `folder`).
     ///
-    /// Only the scratch files go: the whole-file siblings that *did* land stay, so a retry
-    /// re-fetches one file rather than half a gigabyte. Deleting the debris is the point — a stale
-    /// `.partial` is what a re-download trips over, and it is the file the user saw named in an
-    /// error they could do nothing about.
+    /// Removing the enclosing `.mlmodelc` matters as much as removing the `.partial`. A bundle
+    /// caught mid-download is missing an interior weight file that no `requiredPaths` list names,
+    /// so deleting only the scratch file leaves a bundle that passes every check and still cannot
+    /// load — the original bug, one step further along. Dropping the bundle makes the model report
+    /// *not installed*, which is both true and the thing that gets it re-downloaded. Its intact
+    /// siblings stay, so a retry costs one bundle rather than the whole model.
+    @discardableResult
+    public static func removeIncompleteParts(under folder: URL, fileManager: FileManager = .default) -> [String] {
+        var removed: Set<String> = []
+        for entry in scratchEntries(under: folder, fileManager: fileManager) {
+            // The outermost `.mlmodelc` between `folder` and the scratch file, if any.
+            var components: [String] = []
+            var target = entry.url
+            for component in entry.path.split(separator: "/").map(String.init) {
+                components.append(component)
+                if component.hasSuffix(".mlmodelc") {
+                    target = components.reduce(folder) { $0.appendingPathComponent($1) }
+                    break
+                }
+            }
+            let relative = target == entry.url ? entry.path : components.joined(separator: "/")
+            guard (try? fileManager.removeItem(at: target)) != nil else { continue }
+            removed.insert(relative)
+        }
+        return removed.sorted()
+    }
+
+    /// Delete only the interrupted-download scratch files under `folder`, leaving every real file
+    /// in place. For staging directories, where the surrounding tree is not yet anybody's model.
     @discardableResult
     public static func removeScratchFiles(under folder: URL, fileManager: FileManager = .default) -> [String] {
-        let scratch = scratchFiles(under: folder, fileManager: fileManager)
-        for path in scratch { try? fileManager.removeItem(at: folder.appendingPathComponent(path)) }
-        return scratch
+        var removed: [String] = []
+        for entry in scratchEntries(under: folder, fileManager: fileManager) {
+            guard (try? fileManager.removeItem(at: entry.url)) != nil else { continue }
+            removed.append(entry.path)
+        }
+        return removed
     }
 }
 

@@ -39,11 +39,15 @@ extension ModelManagerError: LocalizedError {
         case .notPresent(let id):
             return "The \(ModelCatalog.descriptor(id).displayName) speech model isn\u{2019}t installed yet. Download it from Settings \u{203A} Models."
         case .verificationFailed(let id, let paths), .incomplete(let id, let paths):
+            // Deliberately no scratch filenames. "weight.bin.partial" is what the 1.7.9 screenshot
+            // said, and naming an internal staging file tells the user nothing they can act on —
+            // the count does, and the log carries the paths for whoever needs them.
             let name = ModelCatalog.descriptor(id).displayName
-            let detail = paths.prefix(2).joined(separator: "; ")
-            return "The \(name) speech model didn\u{2019}t finish downloading, so it can\u{2019}t be used yet"
-                + (detail.isEmpty ? "." : " (\(detail)).")
-                + " The incomplete files have been cleared \u{2014} download the model again from Settings \u{203A} Models."
+            let count = paths.count
+            let detail = count == 1 ? "1 file" : "\(count) files"
+            return "The \(name) speech model didn\u{2019}t finish downloading"
+                + (count == 0 ? "" : " \u{2014} \(detail) are missing or incomplete")
+                + ". The unfinished pieces have been cleared; download the model again from Settings \u{203A} Models."
         }
     }
 }
@@ -64,12 +68,34 @@ public actor ModelManager {
     /// Extra read-only places to look for already-downloaded models (warm start without re-download).
     private let externalCaches: [ModelID: [URL]]
 
+    /// How a located model becomes a resident one. Injectable so the dedupe contract in `load(_:)`
+    /// can be exercised without CoreML (which no test machine here has models for).
+    public typealias ModelLoader = @Sendable (ModelID, ModelDescriptor, URL) async throws -> LoadedModel
+    private let loader: ModelLoader
+
     public init(root: URL = ModelCatalog.modelsRoot(),
                 fetchers: [ModelKind: ModelFetcher]? = nil,
-                externalCaches: [ModelID: [URL]]? = nil) {
+                externalCaches: [ModelID: [URL]]? = nil,
+                loader: ModelLoader? = nil) {
         self.root = root
         self.fetchers = fetchers ?? [.finalTDT: FluidAudioFetcher(), .streamingEOU: FluidAudioFetcher(), .whisper: ManifestFetcher()]
         self.externalCaches = externalCaches ?? Self.defaultExternalCaches()
+        self.loader = loader ?? Self.coreMLLoader
+    }
+
+    /// The real thing: CoreML compile + ANE warm through FluidAudio.
+    static let coreMLLoader: ModelLoader = { id, descriptor, url in
+        switch descriptor.kind {
+        case .finalTDT:
+            let version: AsrModelVersion = (id == .parakeetTDTCTC110m) ? .tdtCtc110m : .v3
+            return .tdt(try await AsrModels.load(from: url, version: version))
+        case .streamingEOU:
+            let manager = StreamingEouAsrManager(chunkSize: .ms160)
+            try await manager.loadModels(from: url)
+            return .eou(manager)
+        case .whisper:
+            throw ModelManagerError.unsupported(id)
+        }
     }
 
     /// FluidAudio's own cache (current + legacy folder names) so a model pulled by upstream tools is reused.
@@ -159,15 +185,14 @@ public actor ModelManager {
     public func repair(_ id: ModelID) -> [String] {
         let own = folder(for: id)
         guard fileManager.fileExists(atPath: own.path) else { return [] }
-        let removed = ModelIntegrity.removeScratchFiles(under: own, fileManager: fileManager)
-        if !removed.isEmpty { Log.engine.info("cleared \(removed.count) unfinished download file(s) under \(id.rawValue)") }
-        // A folder with no debris left but still missing required files is not resumable in any
-        // useful sense — it is a shell that would keep reporting "installed" to nothing. Drop it so
-        // the next download starts from a clean directory.
-        if !ModelIntegrity.isComplete(ModelCatalog.descriptor(id), at: own, fileManager: fileManager),
-           ModelIntegrity.scratchFiles(under: own, fileManager: fileManager).isEmpty {
-            try? fileManager.removeItem(at: own)
+        let removed = ModelIntegrity.removeIncompleteParts(under: own, fileManager: fileManager)
+        if !removed.isEmpty {
+            Log.engine.info("cleared \(removed.count) unfinished part(s) of \(id.rawValue): \(removed.joined(separator: ", "))")
         }
+        // Deliberately nothing else. What is left after the incomplete bundles go is either a
+        // complete model or one that is now honestly missing a required path — and a model that
+        // reports "not installed" is exactly what makes the UI offer a re-download. Deleting the
+        // rest would only throw away bytes that the next download would otherwise skip.
         return removed
     }
 
@@ -200,19 +225,8 @@ public actor ModelManager {
             repair(id)
             throw ModelManagerError.incomplete(id, problems)
         }
-        let task = Task<LoadedModel, Error> {
-            switch d.kind {
-            case .finalTDT:
-                let version: AsrModelVersion = (id == .parakeetTDTCTC110m) ? .tdtCtc110m : .v3
-                return .tdt(try await AsrModels.load(from: url, version: version))
-            case .streamingEOU:
-                let mgr = StreamingEouAsrManager(chunkSize: .ms160)
-                try await mgr.loadModels(from: url)
-                return .eou(mgr)
-            case .whisper:
-                throw ModelManagerError.unsupported(id)
-            }
-        }
+        let load = loader
+        let task = Task<LoadedModel, Error> { try await load(id, d, url) }
         loads[id] = task
         defer { loads[id] = nil }
         do {

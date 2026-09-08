@@ -38,9 +38,10 @@ extension DownloadError: LocalizedError {
         case .noRemoteFiles(let id):
             return "There is nothing to download for \(ModelCatalog.descriptor(id).displayName)."
         case .incompleteDownload(let id, let problems):
-            let detail = problems.prefix(2).joined(separator: "; ")
+            let detail = problems.count == 1 ? "1 file" : "\(problems.count) files"
             return "\(ModelCatalog.descriptor(id).displayName) didn\u{2019}t download completely"
-                + (detail.isEmpty ? "." : " (\(detail)).") + " Nothing was installed \u{2014} try again."
+                + (problems.isEmpty ? "." : " \u{2014} \(detail) are missing or incomplete.")
+                + " Nothing was installed; try the download again."
         }
     }
 }
