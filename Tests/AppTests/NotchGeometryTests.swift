@@ -1,4 +1,5 @@
 import CoreGraphics
+import Shared
 import Testing
 @testable import VoicePlusApp
 
@@ -128,6 +129,88 @@ struct NotchGeometryTests {
         #expect(NotchGeometry.hostScreen(screens: [externalNoMenuBar, external],
                                          mouse: CGPoint(x: -5, y: 10), main: external) == external)
         #expect(NotchGeometry.hostScreen(screens: [], mouse: .zero, main: nil) == nil)
+    }
+
+    // MARK: - The regression guard for the "black slab" (1.7.9)
+
+    /// A ruler in the same shape as `PillPanelController.pillSize`, without AppKit: 7 pt per
+    /// character is wider than any real callout glyph, so the bound proved here is conservative.
+    private func measure(_ text: String) -> CGFloat { CGFloat(text.count) * 7 }
+
+    private func size(_ state: PillState, on metrics: ScreenMetrics) -> CGSize {
+        NotchGeometry.size(for: state, on: metrics, measure: measure)
+    }
+
+    /// The reported bug: a raw error string from deep in the stack sized the panel into a black slab
+    /// over half the display. Any message, at any length, must produce a pill inside the ceiling.
+    @Test func aVeryLongErrorMessageStaysABoundedPill() throws {
+        let monstrous = String(repeating: "The file “weight.bin.partial” doesn’t exist and nothing was typed. ", count: 40)
+        for metrics in [notched, autoHiddenMenuBar, external, externalNoMenuBar, notchedOffOrigin] {
+            let bounds = NotchGeometry.maximumSize(on: metrics)
+            for state: PillState in [.error(message: monstrous), .unavailable(reason: monstrous),
+                                     .error(message: String(repeating: "x", count: 5_000))] {
+                let s = size(state, on: metrics)
+                #expect(s.width <= bounds.width)
+                #expect(s.height <= bounds.height)
+                #expect(s.height <= NotchGeometry.absoluteMaximumSize.height)
+                let shown = NotchGeometry.layout(for: metrics, size: s).shown
+                #expect(metrics.frame.contains(shown))
+                // Comfortably a notice, not a panel: never more than a tenth of the display's height
+                // and never more than 60% of its width.
+                #expect(shown.height <= metrics.frame.height / 10)
+                #expect(shown.width <= max(NotchGeometry.expandedSize.width, metrics.frame.width * 0.6))
+                if let housing = metrics.notchRect { #expect(!shown.intersects(housing)) }
+            }
+        }
+    }
+
+    /// Not just `.error`: every state the pill can be in is bounded, including the two-line notices
+    /// that share the same wrapping layout and the ones that never measure their content at all.
+    @Test func everyPillStateStaysWithinTheCeiling() {
+        let long = String(repeating: "unreadably long reason ", count: 30)
+        let states: [PillState] = [.hidden, .idle, .listening(level: 1), .preview(text: long), .landing,
+                                   .warning(MicQuality(snr: 3, clipping: 0.9, lowLevel: true, verdict: .bad)),
+                                   .unavailable(reason: long), .error(message: long),
+                                   .transform(TransformPillInfo(editingWords: 9, stage: .editing))]
+        for metrics in [notched, external, externalNoMenuBar] {
+            let bounds = NotchGeometry.maximumSize(on: metrics)
+            for state in states {
+                let s = size(state, on: metrics)
+                #expect(s.width <= bounds.width, "\(state.caseName) width \(s.width)")
+                #expect(s.height <= bounds.height, "\(state.caseName) height \(s.height)")
+                #expect(s.height <= 96)
+                #expect(metrics.frame.contains(NotchGeometry.layout(for: metrics, size: s).shown))
+            }
+        }
+    }
+
+    /// A message that fits gets exactly the room it needs — the widening the ceiling is protecting,
+    /// not replacing — and one that does not gets a second line and no more.
+    @Test func aMessageIsWidenedToFitAndThenWraps() {
+        // Sized to the widest of the *state's* sentences — here the fixed subtitle, not the message.
+        let short = PillState.error(message: "Mic went away")
+        #expect(size(short, on: notched) ==
+                CGSize(width: measure(PillState.errorSubtitle) + NotchGeometry.textChrome,
+                       height: NotchGeometry.expandedSize.height))
+        let mid = PillState.error(message: String(repeating: "a", count: 60))
+        let midSize = size(mid, on: notched)
+        #expect(midSize.width == 60 * 7 + NotchGeometry.textChrome) // widened to fit, still under the cap
+        #expect(midSize.height == NotchGeometry.expandedSize.height) // one line, no extra height
+        let over = PillState.error(message: String(repeating: "a", count: 400))
+        let overSize = size(over, on: notched)
+        #expect(overSize.width == NotchGeometry.maximumSize(on: notched).width)
+        #expect(overSize.height == NotchGeometry.expandedSize.height + NotchGeometry.wrapExtraHeight)
+    }
+
+    /// `layout(for:size:)` is the last gate: even a caller that asks for a slab directly gets a pill.
+    @Test func layoutClampsAnAbsurdRequestedSize() {
+        for metrics in [notched, external, externalNoMenuBar] {
+            let l = NotchGeometry.layout(for: metrics, size: CGSize(width: 9_000, height: 9_000))
+            #expect(metrics.frame.contains(l.shown))
+            #expect(l.shown.height <= NotchGeometry.absoluteMaximumSize.height)
+            #expect(l.shown.width <= NotchGeometry.absoluteMaximumSize.width)
+            if let housing = metrics.notchRect { #expect(!l.shown.intersects(housing)) }
+        }
     }
 
     @Test func sizeDependsOnState() {

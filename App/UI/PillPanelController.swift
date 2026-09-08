@@ -23,7 +23,18 @@ public final class PillPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
-        panel.contentView = NSHostingView(rootView: PillView(model: model))
+        // ROOT CAUSE OF THE 1.7.9 "BLACK SLAB": `NSHostingView.sizingOptions` defaults to
+        // `.standardBounds` (min + intrinsic + max), which publishes the SwiftUI content's *minimum*
+        // size as the window's `contentMinSize`. A wrapping notice's minimum width is one word, so
+        // its minimum height is the fully wrapped paragraph — measured here at 1187 pt for a short
+        // error and 4727 pt for a long one — and AppKit then grew the panel to that on the next
+        // layout pass, straight through every frame `NotchGeometry` had computed. The pill's frame
+        // is placement math, never content: opt out entirely.
+        let host = NSHostingView(rootView: PillView(model: model))
+        host.sizingOptions = []
+        panel.contentView = host
+        panel.contentMinSize = .zero
+        panel.contentMaxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         cancellable = model.$state.receive(on: DispatchQueue.main).sink { [weak self] state in self?.render(state) }
         // Display arrangement can change mid-utterance (external display plugged in, resolution change,
         // clamshell open/close): re-place the pill against the new geometry while it is on screen.

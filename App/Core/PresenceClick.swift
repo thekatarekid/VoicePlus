@@ -1,67 +1,35 @@
 import Foundation
 
-/// S6 — what a click on the presence dot does.
+/// What a click on the presence dot does.
 ///
-/// The bug: every click, in every state, popped the status-bar menu ("I clicked on the green dot
-/// notch and it opened menu bar's app menu"). That was deliberate — the indicator exists because
-/// macOS culls the status item — but it is the wrong *primary* affordance. A small status light
-/// answers one question, "what are you telling me?", and when it is telling you something is broken
-/// it should offer the fix. A menu is neither.
+/// History, because this file has now changed its mind once. 1.7.9 (S6) made the *primary* click
+/// explain the dot in place — or, for a blocked dot, jump straight to the fix (relaunch, the
+/// Microphone / Input Monitoring privacy pane, our own Settings for a missing speech model) — and
+/// moved the status menu to a right-click / ⌃-click. The owner used it and asked for the old
+/// behaviour back: "It was ok to open menu on left clicking the notch. No need to make it right
+/// click."
 ///
-/// So: the primary click explains or repairs; the *secondary* click (right-click, or ⌃-click) keeps
-/// the menu, which is what preserves the "way back in when the status item is gone" guarantee.
+/// So every click, primary or secondary, pops the status menu. The per-state remedies are gone
+/// rather than kept for blocked states only: a control whose click means something different
+/// depending on a colour the user has to decode first is exactly the unpredictability being
+/// complained about, and the menu is not a dead end for any blocked state — "Check permissions…",
+/// "Settings…" (where speech models are downloaded) and "Quit VoicePlus" are all one item away in
+/// `StatusItemController.rebuild()`. That is also the guarantee the indicator exists for: when
+/// macOS culls the status item from a crowded menu bar, the chin under the notch is the way back in.
 ///
-/// Nothing here activates the app except a remedy the user explicitly asked for by clicking a
-/// broken state — `.explain` and `.menu` never take focus from what they are typing into.
+/// Nothing on this path activates the app: `StatusItemController.popUpMenu` pops a menu, and the
+/// panel behind it stays a non-activating `NSPanel`, so focus never leaves what the user is typing in.
 public enum PresenceClickAction: Equatable, Sendable {
-    /// Pin the expanded row open so the sentence behind the glyph can be read without hovering.
-    case explain
-    /// `blocked(.relaunchNeeded)`: quit and reopen, the only fix for a dead event tap.
-    case relaunch
-    /// Take the user to the thing that is missing.
-    case remedy(PresenceRemedy)
-    /// The status menu — Settings, mute, Quit.
+    /// The status menu — Settings, permissions, mute, Quit.
     case menu
 }
 
-/// Where a blocked indicator sends the user to unblock itself.
-public enum PresenceRemedy: Equatable, Sendable {
-    case microphonePrivacy
-    case inputMonitoringPrivacy
-    /// VoicePlus' own Settings, where speech models are downloaded.
-    case speechModelSettings
-
-    /// System Settings deep link; `nil` for panes that are ours, not the system's.
-    public var systemSettingsURL: String? {
-        switch self {
-        case .microphonePrivacy: return "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-        case .inputMonitoringPrivacy: return "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
-        case .speechModelSettings: return nil
-        }
-    }
-}
-
 public enum PresenceClickRouter {
+    /// One answer, deliberately: the state and the mouse button are both accepted and both ignored,
+    /// so "which click, in which state?" has exactly one answer and the tests can prove it.
     /// `secondary` = right-click or ⌃-click.
     public static func action(for state: PresenceState, secondary: Bool = false) -> PresenceClickAction {
-        if secondary { return .menu }
-        switch state {
-        case .blocked(.relaunchNeeded): return .relaunch
-        case .blocked(.microphoneDenied): return .remedy(.microphonePrivacy)
-        case .blocked(.hotkeyUnavailable): return .remedy(.inputMonitoringPrivacy)
-        case .blocked(.modelMissing): return .remedy(.speechModelSettings)
-        // A download is already doing the only thing that would help; say how far along it is.
-        case .blocked(.modelDownloading): return .explain
-        case .off, .ready, .listening, .processing, .muted, .paused: return .explain
-        }
-    }
-
-    /// How long a clicked-open row stays pinned. Longer than the hover row (which the pointer
-    /// controls) and shorter than the launch announcement.
-    public static let explainDuration: TimeInterval = 5
-
-    public static func isExplaining(since: Date?, now: Date = Date()) -> Bool {
-        guard let since else { return false }
-        return now.timeIntervalSince(since) < explainDuration
+        _ = (state, secondary)
+        return .menu
     }
 }

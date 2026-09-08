@@ -70,16 +70,41 @@ public enum NotchGeometry {
     /// Chrome around the pill's text: icon column + horizontal padding + the script badge's slot.
     static let textChrome: CGFloat = 76
 
+    /// Hard ceiling on the pill in *any* state. The pill is a notice hanging off the notch, never a
+    /// panel: 1.7.9 shipped a content-measuring path with no upper bound, so a long error message
+    /// produced a black slab. Height allows two wrapped headline lines plus the subtitle and no more.
+    public static let absoluteMaximumSize = CGSize(width: 560, height: 96)
+
+    /// Extra height granted when the headline is too long for one line and has to wrap.
+    static let wrapExtraHeight: CGFloat = 20
+
+    /// The ceiling applied on a particular display: never wider than `absoluteMaximumSize`, never wider than
+    /// 60% of the display (a notice spanning a 6K screen is not a notice), never wider than the
+    /// display minus its margins, and never taller than the area below the forbidden top band.
+    /// Never *smaller* than `expandedSize` either, so a narrow display still gets the full pill it
+    /// always got — it is clamped by the display-width rule below instead.
+    public static func maximumSize(on metrics: ScreenMetrics) -> CGSize {
+        let displayLimit = max(64, metrics.frame.width - 2 * edgeMargin)
+        let width = min(min(absoluteMaximumSize.width, max(expandedSize.width, metrics.frame.width * 0.6)), displayLimit)
+        let room = max(1, metrics.frame.height - metrics.topBand - edgeMargin)
+        return CGSize(width: width, height: min(absoluteMaximumSize.height, room))
+    }
+
     /// Content-aware size: never narrower than `size(for:)`, widened to fit the state's own
-    /// sentences, and clamped to the display. Without this a notice longer than the fixed 420 pt
-    /// (a long "no speech model" reason, a localised string) is clipped with no state in which the
-    /// user can read the end of it.
+    /// sentences, and clamped to `maximumSize(on:)`. Without the widening a notice longer than the
+    /// fixed 420 pt is clipped; without the clamp (the 1.7.9 bug) an arbitrarily long message — a
+    /// raw error string from deep in the stack — sizes the panel off the screen.
     public static func size(for state: PillState, on metrics: ScreenMetrics,
                             measure: (String) -> CGFloat) -> CGSize {
+        let bounds = maximumSize(on: metrics)
         var size = self.size(for: state)
+        size.width = min(size.width, bounds.width)
+        size.height = min(size.height, bounds.height)
         guard let widest = state.messageLines.map(measure).max() else { return size }
-        let limit = max(64, metrics.frame.width - 2 * edgeMargin)
-        size.width = min(max(size.width, widest + textChrome), limit)
+        size.width = min(max(size.width, widest + textChrome), bounds.width)
+        // Still too long for one line at the widest we allow: the view wraps it to a second line
+        // (`lineLimit(2)`, tail-truncated beyond that), so give it exactly one line's worth of room.
+        if widest > size.width - textChrome { size.height = min(size.height + wrapExtraHeight, bounds.height) }
         return size
     }
 
@@ -95,8 +120,11 @@ public enum NotchGeometry {
         if let notchWidth = metrics.notchWidth, metrics.hasNotch {
             size.width = max(size.width, notchWidth + 24)
         }
-        size.width = min(size.width, max(64, metrics.frame.width - 2 * edgeMargin))
-        size.height = min(size.height, max(1, metrics.frame.height - metrics.topBand - edgeMargin))
+        // Last line of defence, and the one that matters: whatever anybody asks for, the pill is
+        // clamped to `maximumSize(on:)` and therefore to the display. No caller can produce a slab.
+        let bounds = maximumSize(on: metrics)
+        size.width = min(min(size.width, bounds.width), max(64, metrics.frame.width - 2 * edgeMargin))
+        size.height = min(min(size.height, bounds.height), max(1, metrics.frame.height - metrics.topBand - edgeMargin))
 
         // The one rule: the pill's top edge is the bottom of the forbidden band.
         let topBoundary = metrics.frame.maxY - metrics.topBand

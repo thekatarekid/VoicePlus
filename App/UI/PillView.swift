@@ -164,26 +164,29 @@ public struct PillView: View {
             Text(text).font(.callout).lineLimit(2).truncationMode(.head)
         case .landing: Text("Landing…").font(.callout)
         case .transform(let info): TransformPillContent(info: info, ghost: model.ghost, morph: model.morph, onAction: model.onGhostAction)
-        // The panel was widened to fit these exact strings (`NotchGeometry.size(for:on:measure:)`);
-        // `fixedSize` lets them wrap rather than be clipped if the display forced a narrower pill.
-        case .unavailable(let reason):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(reason).font(.callout.weight(.semibold))
-                Text(PillState.unavailableSubtitle).font(.caption).foregroundStyle(.secondary)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        case .error(let message):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(message).font(.callout.weight(.semibold))
-                Text(PillState.errorSubtitle).font(.caption).foregroundStyle(.secondary)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        case .warning(let q):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(PillState.warningHeadline(q)).font(.callout.weight(.semibold))
-                Text(PillState.warningSubtitle).font(.caption).foregroundStyle(.secondary)
-            }
-            .fixedSize(horizontal: false, vertical: true)
+        // The panel is widened to fit these exact strings (`NotchGeometry.size(for:on:measure:)`) up
+        // to `NotchGeometry.absoluteMaximumSize`; past that the headline wraps to a second line and
+        // then tail-truncates. Never `fixedSize(vertical:)` here: it makes the SwiftUI content
+        // demand however tall a fully wrapped paragraph is, which is exactly how 1.7.9 turned a long
+        // error message into a black slab (`NSHostingView` publishes that as the panel's min size).
+        case .unavailable(let reason): Notice(headline: reason, subtitle: PillState.unavailableSubtitle)
+        case .error(let message): Notice(headline: message, subtitle: PillState.errorSubtitle)
+        case .warning(let q): Notice(headline: PillState.warningHeadline(q), subtitle: PillState.warningSubtitle)
+        }
+    }
+}
+
+/// A two-line notice (error / warning / "no speech model"). Bounded on purpose: at most two lines
+/// of headline and one of subtitle, so no message length can grow the pill beyond the size
+/// `NotchGeometry` reserved for it.
+struct Notice: View {
+    let headline: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(headline).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.tail)
+            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
         }
     }
 }

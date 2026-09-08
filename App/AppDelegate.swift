@@ -289,14 +289,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let kind = self?.hotkey.binding.kind else { return HotkeyHint.unknown }
             return HotkeyHint.label(for: kind)
         }
-        // S6 — the primary click explains the dot (or fixes what it is complaining about); the
-        // status menu moved to the *secondary* click. `PresenceClickRouter` owns the decision.
+        // Any click on the dot — left, right or ⌃-click — pops the status menu; `PresenceClickRouter`
+        // owns that decision. (1.7.9 briefly made the left click explain/repair instead; reverted at
+        // the owner's request.) Popping a menu takes no focus from the app being typed into.
         presence.onClick = { [weak self] in self?.statusItem?.popUpMenu() }
-        presence.onOpenSettings = { [weak self, weak container] in
-            guard let self, let container else { return }
-            SettingsWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
-                                          connectedProviders: container.connectedProviderNames)
-        }
         presence.pausedProvider = { [weak coordinator] in coordinator?.paused ?? false }
         presence.bind(pill: pill.model, mute: container.handsFree.mute)
         presence.start()

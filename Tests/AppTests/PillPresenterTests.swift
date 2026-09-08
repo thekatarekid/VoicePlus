@@ -105,45 +105,23 @@ struct PillPresenterTests {
     }
 }
 
-@Suite("Presence click routing (S6)")
+@Suite("Presence click routing")
 struct PresenceClickTests {
-    @Test func primaryClickExplainsRatherThanOpeningTheMenu() {
-        // The reported bug: every click popped the menu bar app's menu.
-        for state: PresenceState in [.ready, .listening(level: 0.5), .processing, .muted, .paused,
+    /// The owner's call after living with 1.7.9: "It was ok to open menu on left clicking the notch.
+    /// No need to make it right click." A click is a click, in every state.
+    @Test func everyPrimaryClickOpensTheMenu() {
+        for state: PresenceState in [.off, .ready, .listening(level: 0.5), .processing, .muted, .paused,
+                                     .blocked(.relaunchNeeded), .blocked(.microphoneDenied),
+                                     .blocked(.hotkeyUnavailable), .blocked(.modelMissing),
                                      .blocked(.modelDownloading(0.4))] {
-            #expect(PresenceClickRouter.action(for: state) == .explain, "\(state.caseName)")
+            #expect(PresenceClickRouter.action(for: state) == .menu, "\(state.caseName)")
         }
     }
 
-    @Test func aBlockedDotOffersItsOwnFix() {
-        #expect(PresenceClickRouter.action(for: .blocked(.relaunchNeeded)) == .relaunch)
-        #expect(PresenceClickRouter.action(for: .blocked(.microphoneDenied)) == .remedy(.microphonePrivacy))
-        #expect(PresenceClickRouter.action(for: .blocked(.hotkeyUnavailable)) == .remedy(.inputMonitoringPrivacy))
-        #expect(PresenceClickRouter.action(for: .blocked(.modelMissing)) == .remedy(.speechModelSettings))
-    }
-
-    @Test func secondaryClickKeepsTheMenuEscapeHatch() {
-        // The indicator exists because macOS culls the status item; the way into Settings and Quit
-        // must survive the change — it just is not the primary gesture any more.
+    /// The right-click / ⌃-click escape hatch did not go anywhere — it just is not the only way in.
+    @Test func secondaryClickStillOpensTheSameMenu() {
         for state: PresenceState in [.ready, .muted, .paused, .blocked(.relaunchNeeded), .blocked(.modelMissing)] {
             #expect(PresenceClickRouter.action(for: state, secondary: true) == .menu, "\(state.caseName)")
         }
-    }
-
-    @Test func systemRemediesDeepLinkAndOursDoNot() {
-        #expect(PresenceRemedy.microphonePrivacy.systemSettingsURL?.contains("Privacy_Microphone") == true)
-        #expect(PresenceRemedy.inputMonitoringPrivacy.systemSettingsURL?.contains("Privacy_ListenEvent") == true)
-        #expect(PresenceRemedy.speechModelSettings.systemSettingsURL == nil)
-        for remedy: PresenceRemedy in [.microphonePrivacy, .inputMonitoringPrivacy] {
-            #expect(URL(string: remedy.systemSettingsURL ?? "") != nil)
-        }
-    }
-
-    @Test func aClickedOpenRowStaysUpWithoutThePointer() {
-        let t0 = Date(timeIntervalSince1970: 500)
-        #expect(!PresenceClickRouter.isExplaining(since: nil, now: t0))
-        #expect(PresenceClickRouter.isExplaining(since: t0, now: t0.addingTimeInterval(1)))
-        #expect(!PresenceClickRouter.isExplaining(since: t0,
-                                                 now: t0.addingTimeInterval(PresenceClickRouter.explainDuration)))
     }
 }
