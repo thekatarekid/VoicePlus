@@ -11,8 +11,8 @@ It was never audio and never recognition. **The app's own learned-corrections sy
 poisoning itself**, and the poison was only applied on one of the two paths.
 
 Ships in the same dmg as 1.7.4, 1.7.5, 1.7.6, 1.7.7 and 1.7.8 — **this is the dmg**. Tag
-`release/phase-6/v1.7.9` · 1 commit (`8e440fe`) on top of 1.7.8 (`3842440`) · sha256 and dmg
-size recorded at the release build.
+`release/phase-6/v1.7.9` · 1 commit (`8e440fe`) on top of 1.7.8 (`3842440`) · sha256
+`d9d422479892103b9e9326413a9fdcaab5f7d3a1c3e123d146180b6fac4de68a`, 15,632,650 bytes.
 
 ## 1. What was actually happening
 
@@ -67,8 +67,7 @@ None of them silently degrade into inventing text.
 - **5 new tests** in `Tests/EngineTests/AdaptTests.swift` covering the sanity rule at each of
   the three enforcement points, including an already-poisoned lexicon degrading to
   pass-through.
-- **Full package: `swift build` clean.** The total test count is recorded at the release build
-  (1313 at 1.7.8).
+- **Full package: `swift build` clean, 1318 tests passing.**
 
 ## What you need to do
 

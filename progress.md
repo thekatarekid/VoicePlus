@@ -886,7 +886,7 @@ text.
 
 **5 new tests in `Tests/EngineTests/AdaptTests.swift`**, covering the sanity rule at each of the three
 enforcement points including an already-poisoned lexicon degrading to pass-through. **`swift build`
-clean**; the full-package test total is recorded at the release build (1313 at 1.7.8). 1 commit
+clean, 1318 tests passing.** 1 commit
 (`8e440fe`) on top of 1.7.8. **This is the dmg — it carries 1.7.4 through 1.7.8 as well.**
 
 **Untested / honest limits:**
