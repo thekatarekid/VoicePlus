@@ -145,6 +145,42 @@ struct UtteranceRecorderTests {
         #expect(delivered == 1_600)
     }
 
+    /// Regression, 1.7.15. The switch used to be read once, when the engine was built at launch, so
+    /// turning it *off* stopped nothing: the recorder stayed installed and kept writing a WAV pair
+    /// per dictation until the app was relaunched — while the Settings copy said "Turn it off when
+    /// you're done". A switch that only takes effect at the next launch is not a switch.
+    @Test func turningTheSwitchOffStopsTheNextRecordingRatherThanTheNextLaunch() throws {
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let inner = MockCaptureSource()
+        let source = AcousticCaptureSource(wrapping: inner, profile: .raw,
+                                           recorder: UtteranceRecorder(directory: dir))
+        var enabled = true
+        source.isRecordingEnabled = { enabled }
+        let tone = (0..<1_600).map { Float(sin(Double($0) * 0.03)) * 0.4 }
+
+        func dictate() throws {
+            try source.start()
+            inner.push(tone)
+            source.stop()
+        }
+        func rawWAVs() throws -> Int {
+            try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasSuffix("-raw.wav") }.count
+        }
+
+        try dictate()
+        #expect(try rawWAVs() == 1, "opted in, the utterance is on disk")
+
+        enabled = false
+        try dictate()
+        #expect(try rawWAVs() == 1, "switched off, the very next utterance writes nothing — no relaunch")
+
+        enabled = true
+        try dictate()
+        #expect(try rawWAVs() == 2, "and switching it back on arms the next one, also without a relaunch")
+    }
+
     // MARK: narrowband Bluetooth avoidance
 
     @Test func airPodsAsSystemDefaultDoNotWinOverTheBuiltInMic() {

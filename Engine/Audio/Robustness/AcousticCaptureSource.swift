@@ -19,9 +19,20 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
     public private(set) var bluetooth: BluetoothInputAssessment?
     /// Samples kept from the preroll and flushed at `start()` (for tests / Lab).
     public private(set) var prerollFlushed = 0
-    /// Opt-in local capture of this utterance's audio, raw and processed. Nil unless the user has
-    /// switched diagnostics on; see `UtteranceRecorder`. Injectable so tests need no `UserDefaults`.
+    /// Opt-in local capture of this utterance's audio, raw and processed. Allocated but disarmed
+    /// unless the user has switched diagnostics on; see `UtteranceRecorder`. Injectable so tests
+    /// need no `UserDefaults`.
     public var recorder: UtteranceRecorder?
+    /// Whether the diagnostic is armed for the *next* utterance, re-read at every `start()` rather
+    /// than decided once at construction.
+    ///
+    /// Until 1.7.15 the switch was read a single time, when the engine was built at launch. Turning
+    /// the toggle **off** therefore did not stop anything: the recorder stayed installed and went on
+    /// writing a WAV pair per dictation until the app was relaunched — while the Settings copy said
+    /// "Turn it off when you're done". Turning it *on* was equally inert. The predicate is cheap
+    /// (one `UserDefaults` read per utterance, off the audio thread), so it is read per utterance
+    /// and the toggle means what it says.
+    public var isRecordingEnabled: () -> Bool = { UtteranceRecorder.isEnabled() }
 
     private let lock = NSLock()
     private var preroll: [Float] = []
@@ -35,7 +46,11 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
         self.profile = profile
         self.chain = AcousticChain(profile: profile, aec: aec)
         self.prerollCapacity = Int(profile.prerollSeconds * 16_000)
-        self.recorder = recorder ?? (UtteranceRecorder.isEnabled() ? UtteranceRecorder() : nil)
+        // An explicitly injected recorder is the caller's own intent (tests, Lab) and records
+        // unconditionally. Otherwise one is allocated unarmed — two empty buffers, no directory, no
+        // file — and `start()` decides per utterance whether to arm it.
+        self.recorder = recorder ?? UtteranceRecorder()
+        if recorder != nil { self.isRecordingEnabled = { true } }
         inner.sink = { [weak self] buf in self?.ingest(buf) }
         inner.onDeviceChanged = { [weak self] old, new in
             guard let self else { return }
@@ -64,9 +79,12 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
         preroll.removeAll(keepingCapacity: true)
         lock.unlock()
         // Arm before the pre-roll is flushed, so the recording contains the same first words the
-        // recognizer gets. A recording that starts a syllable late is worse than none.
-        recorder?.begin(device: inner.device, profile: profile,
-                        captureGraph: (inner as? CoreAudioCaptureSource)?.diagnostics.summary)
+        // recognizer gets. A recording that starts a syllable late is worse than none. Disarmed
+        // means `begin()` is never called, so `finish()` returns nil and nothing touches the disk.
+        if isRecordingEnabled() {
+            recorder?.begin(device: inner.device, profile: profile,
+                            captureGraph: (inner as? CoreAudioCaptureSource)?.diagnostics.summary)
+        }
         if !held.isEmpty {
             held.withUnsafeBufferPointer { recorder?.appendRaw($0) }
         }
