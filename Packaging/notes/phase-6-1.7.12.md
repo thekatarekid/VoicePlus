@@ -12,8 +12,8 @@ separately:
 > It was ok to open menu on left clicking the notch. No need to make it right click.
 
 Ships in the same dmg as 1.7.10 and 1.7.11 — **this is the dmg**. Tag
-`release/phase-6/v1.7.12` · 1 commit (`30911bb`) on top of 1.7.11 (`a2f2887`) · sha256 and dmg
-size recorded at the release build.
+`release/phase-6/v1.7.12` · 1 commit (`30911bb`) on top of 1.7.11 (`a2f2887`) · sha256
+`d2114de0a682e74b754928fbd9b67b55e7df1a4176c4faa71046c8df3970be01`, 15,655,544 bytes.
 
 ## 1. What was actually happening
 
@@ -57,7 +57,7 @@ we no longer have**.
   bounded across five display shapes**, in both sizing and layout, including a caller demanding
   an absurd size.
 - `Tests/AppTests/PillPresenterTests.swift` updated for the simplified click contract.
-- **`swift build` clean**; the full-package test total is recorded at the release build.
+- **`swift build` clean, 1347 tests passing** for the whole package.
 
 ## What you need to do
 

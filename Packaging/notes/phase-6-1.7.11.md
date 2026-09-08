@@ -73,7 +73,7 @@ conclusion.
   plain-language sentence.
 - `ModelManager`'s loader was made **injectable** so the dedupe contract is testable **without
   CoreML models**.
-- **`swift build` clean**; the full-package test total is recorded at the release build.
+- **`swift build` clean, 1347 tests passing** for the whole package.
 
 ## What you need to do
 

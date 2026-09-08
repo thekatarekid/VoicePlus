@@ -946,7 +946,7 @@ an unconfigured planner resolving to `.unavailable` rather than `.failed`, a gen
 whose reason carries no debug text, the two hotkeys being required to be two different keys, a disabled
 `act.planner` stage still landing the recognised text in the frontmost field, and a throwing stage
 passing its input through with the span invariants intact while strict mode rethrows. **`swift build`
-clean**; the full-package test total is recorded at the release build. 2 commits (`68e75d0`, `69638f5`)
+clean, 1347 tests passing.** 2 commits (`68e75d0`, `69638f5`)
 on top of 1.7.9. Ships in the 1.7.12 dmg.
 
 **Untested / honest limits:**
@@ -1004,8 +1004,8 @@ plainly because *"it only happens on Fast"* was the comfortable and wrong conclu
 installed on **any tier**; an interrupted or cancelled download leaves nothing that does; a download that
 lands incomplete **throws instead of publishing**; **concurrent loads share one load task**; and the
 **verbatim Cocoa error from the report is rewritten**. `ModelManager`'s loader was made **injectable** so
-the dedupe contract is testable **without CoreML models**. **`swift build` clean**; the full-package test
-total is recorded at the release build. 2 commits (`c5fe8ae`, `a2f2887`) on top of 1.7.10. Ships in the
+the dedupe contract is testable **without CoreML models**. **`swift build` clean, 1347 tests passing** for the whole
+package. 2 commits (`c5fe8ae`, `a2f2887`) on top of 1.7.10. Ships in the
 1.7.12 dmg.
 
 **Untested / honest limits:**
@@ -1050,7 +1050,7 @@ became the **fully wrapped paragraph**. Measured with a standalone AppKit probe:
 `Tests/AppTests/NotchGeometryTests.swift` covers **2,600- and 5,000-character messages staying bounded
 across five display shapes**, in both sizing and layout, including a caller demanding an absurd size;
 `Tests/AppTests/PillPresenterTests.swift` is updated for the simplified click contract. **`swift build`
-clean**; the full-package test total is recorded at the release build. 1 commit (`30911bb`) on top of
+clean, 1347 tests passing.** 1 commit (`30911bb`) on top of
 1.7.11. **This is the dmg — it carries 1.7.10 and 1.7.11 as well.**
 
 **Untested / honest limits:**

@@ -72,7 +72,7 @@ next stage that throws for its own reasons cannot take a dictation turn down wit
   disabled `act.planner` stage still landing the recognised text in the frontmost field, and a
   throwing stage passing its input through with the span invariants intact while strict mode
   rethrows.
-- **`swift build` clean**; the full-package test total is recorded at the release build.
+- **`swift build` clean, 1347 tests passing** for the whole package.
 
 ## What you need to do
 
