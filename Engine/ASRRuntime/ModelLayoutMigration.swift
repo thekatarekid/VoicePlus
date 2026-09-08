@@ -44,10 +44,19 @@ extension ModelCatalog {
 ///   preferring the legacy copy because it carries our manifest (the byte sizes `ModelIntegrity`
 ///   checks truncation against); delete the other. Either way the user re-downloads nothing.
 /// - **Only the new folder exists** → already migrated, or FluidAudio's copy is all that is left.
-///   Adopt it as-is; it is a complete model whether or not it has a manifest.
+///   Adopt it as-is.
+///
+/// Whichever branch runs, the surviving folder is left carrying a `voiceplus-manifest.json` before
+/// this returns — see `ModelManifest.ensure`. That is not decoration: the manifest's byte counts are
+/// the only thing `ModelIntegrity` can check a *truncated* file against, and a branch that keeps the
+/// manifest-less copy and deletes the manifest-bearing one (which is exactly what the both-exist
+/// case can do) would otherwise blind that check for that model permanently, since nothing else in
+/// the app ever writes a manifest for an already-installed model.
 ///
 /// The publish is a swap, not a delete-then-move — the same shape as `FluidAudioFetcher.fetch` — so
 /// a failure at any point leaves the user with a working model under *some* name rather than none.
+/// The cost of that shape is a `.superseded-<uuid>` directory left behind by a crash mid-swap;
+/// `ParkedModelDirectories.sweep` is what eventually collects it.
 public enum ModelLayoutMigration {
     /// What happened to one model. Values are logged and asserted on; keep them stable.
     public enum Outcome: String, Equatable, Sendable {
@@ -68,8 +77,13 @@ public enum ModelLayoutMigration {
         public var outcome: Outcome
         /// Bytes freed by deleting a duplicate. 0 for a plain rename.
         public var reclaimedBytes: Int64
-        public init(id: ModelID, outcome: Outcome, reclaimedBytes: Int64 = 0) {
+        /// What it took to leave the surviving folder with a `voiceplus-manifest.json`. Every branch
+        /// that keeps a model ends by settling this; see `ModelManifest.ensure`.
+        public var manifest: ModelManifest.EnsureOutcome
+        public init(id: ModelID, outcome: Outcome, reclaimedBytes: Int64 = 0,
+                    manifest: ModelManifest.EnsureOutcome = .alreadyPresent) {
             self.id = id; self.outcome = outcome; self.reclaimedBytes = reclaimedBytes
+            self.manifest = manifest
         }
     }
 
@@ -80,7 +94,12 @@ public enum ModelLayoutMigration {
     public static func migrate(root: URL, fileManager: FileManager = .default) -> [Result] {
         ModelID.allCases.compactMap { id in
             let result = migrate(id, root: root, fileManager: fileManager)
-            return result.outcome == .nothingToDo ? nil : result
+            // A no-op is only worth reporting when it healed something anyway — a model left with no
+            // manifest by an earlier build's `adoptedExisting`, which nothing else ever repairs.
+            guard result.outcome != .nothingToDo else {
+                return [.rebuilt, .adopted].contains(result.manifest) ? result : nil
+            }
+            return result
         }
     }
 
@@ -90,12 +109,19 @@ public enum ModelLayoutMigration {
         guard let legacy = d.legacyFolderNames
             .map({ root.appendingPathComponent($0, isDirectory: true) })
             .first(where: { fileManager.fileExists(atPath: $0.path) })
-        else { return Result(id: id, outcome: .nothingToDo) }
+        else {
+            // Nothing to move. Still settle the manifest: an install that already went through the
+            // 1.7.13 migration's `adoptedExisting` branch kept FluidAudio's manifest-less copy and
+            // deleted ours, and would otherwise stay un-checkable for truncation forever.
+            return Result(id: id, outcome: .nothingToDo,
+                          manifest: ModelManifest.ensure(for: d, at: target, fileManager: fileManager))
+        }
 
         guard fileManager.fileExists(atPath: target.path) else {
             guard move(legacy, to: target, fileManager) else { return Result(id: id, outcome: .failed) }
             Log.engine.notice("model layout: renamed \(legacy.lastPathComponent) → \(target.lastPathComponent)")
-            return Result(id: id, outcome: .renamed)
+            return Result(id: id, outcome: .renamed,
+                          manifest: ModelManifest.ensure(for: d, at: target, fileManager: fileManager))
         }
 
         // Both are here. One of them is the duplicate download this migration exists to undo.
@@ -104,10 +130,15 @@ public enum ModelLayoutMigration {
         // Prefer the legacy copy: identical bytes, plus the manifest that makes truncation
         // detectable later. Only step aside for it when it is the broken one.
         if !legacyComplete && targetComplete {
+            // Salvage the manifest *before* the copy carrying it is deleted. Until this line the
+            // branch threw away the only record of what the model's files are supposed to weigh and
+            // wrote nothing in its place, which permanently disabled `ModelIntegrity`'s truncation
+            // check for this model — the reason a half-downloaded model reported installed in 1.7.9.
+            let manifest = ModelManifest.ensure(for: d, at: target, donor: legacy, fileManager: fileManager)
             let freed = directorySize(legacy, fileManager)
-            guard (try? fileManager.removeItem(at: legacy)) != nil else { return Result(id: id, outcome: .failed) }
-            Log.engine.notice("model layout: adopted \(target.lastPathComponent), removed the incomplete \(legacy.lastPathComponent) (\(freed) bytes)")
-            return Result(id: id, outcome: .adoptedExisting, reclaimedBytes: freed)
+            guard (try? fileManager.removeItem(at: legacy)) != nil else { return Result(id: id, outcome: .failed, manifest: manifest) }
+            Log.engine.notice("model layout: adopted \(target.lastPathComponent) (manifest \(manifest.rawValue)), removed the incomplete \(legacy.lastPathComponent) (\(freed) bytes)")
+            return Result(id: id, outcome: .adoptedExisting, reclaimedBytes: freed, manifest: manifest)
         }
 
         let freed = directorySize(target, fileManager)
@@ -117,9 +148,12 @@ public enum ModelLayoutMigration {
             try? fileManager.moveItem(at: parked, to: target)   // put the user back where they were
             return Result(id: id, outcome: .failed)
         }
+        // The kept copy is normally the manifest-bearing one, so this is a single file read. When it
+        // is not, the copy about to be deleted is still on disk and can donate.
+        let manifest = ModelManifest.ensure(for: d, at: target, donor: parked, fileManager: fileManager)
         try? fileManager.removeItem(at: parked)
-        Log.engine.notice("model layout: \(legacy.lastPathComponent) → \(target.lastPathComponent), removed the duplicate download (\(freed) bytes reclaimed)")
-        return Result(id: id, outcome: .replacedDuplicate, reclaimedBytes: freed)
+        Log.engine.notice("model layout: \(legacy.lastPathComponent) → \(target.lastPathComponent), removed the duplicate download (\(freed) bytes reclaimed, manifest \(manifest.rawValue))")
+        return Result(id: id, outcome: .replacedDuplicate, reclaimedBytes: freed, manifest: manifest)
     }
 
     private static func move(_ from: URL, to: URL, _ fileManager: FileManager) -> Bool {

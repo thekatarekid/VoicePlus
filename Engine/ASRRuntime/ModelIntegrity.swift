@@ -167,3 +167,138 @@ public extension ModelManifest {
         }.sorted()
     }
 }
+
+// MARK: - How much we actually know
+
+public extension ModelIntegrity {
+    /// What a check of a model folder is *entitled* to conclude.
+    ///
+    /// The distinction `problems(for:at:)` alone cannot make: an empty problem list means "nothing
+    /// we can see is wrong", and without a manifest the set of things we can see is strictly
+    /// smaller. `voiceplus-manifest.json` carries the byte count every file had when the install
+    /// succeeded, and it is the only reason a *silently truncated* file — right name, right place,
+    /// half the bytes — is detectable at all. A folder with no manifest can be structurally sound
+    /// and still be short 200 MB, and nothing here would know.
+    ///
+    /// So a manifest-less model reports `.unverifiable`, never `.verified`. Callers that only need
+    /// "can I load this?" ask `isUsable`; callers reporting on integrity must not flatten the two.
+    enum Verification: Equatable, Sendable {
+        /// Structurally complete *and* covered by a manifest, so recorded byte counts agreed too.
+        case verified
+        /// Complete as far as the checks that are possible without a manifest can tell.
+        case unverifiable(reason: String)
+        /// Not loadable. Carries `problems(for:at:)`'s findings, in the order it found them.
+        case incomplete([String])
+
+        /// Is this a model we would hand to CoreML? True for `.verified` and `.unverifiable`.
+        public var isUsable: Bool { if case .incomplete = self { return false }; return true }
+        /// Only `.verified`. Deliberately not true for `.unverifiable` — that is the whole point.
+        public var isManifestBacked: Bool { self == .verified }
+        /// One line for the log.
+        public var summary: String {
+            switch self {
+            case .verified: return "verified against its manifest"
+            case .unverifiable(let reason): return "usable but unverified — \(reason)"
+            case .incomplete(let problems): return "incomplete: \(problems.joined(separator: ", "))"
+            }
+        }
+    }
+
+    /// `problems(for:at:)` plus the honest caveat about what was not checked.
+    static func assess(_ descriptor: ModelDescriptor, at folder: URL,
+                       fileManager: FileManager = .default) -> Verification {
+        let problems = problems(for: descriptor, at: folder, fileManager: fileManager)
+        guard problems.isEmpty else { return .incomplete(problems) }
+        guard ModelManifest.load(from: folder) != nil else {
+            return .unverifiable(reason: "no \(ModelManifest.fileName), so truncated files cannot be detected")
+        }
+        return .verified
+    }
+}
+
+// MARK: - Guaranteeing a manifest exists
+
+public extension ModelManifest {
+    /// What `ensure(for:at:donor:)` did. Logged and asserted on; keep the raw values stable.
+    enum EnsureOutcome: String, Equatable, Sendable {
+        /// A manifest was already there. The overwhelmingly common case; costs one file read.
+        case alreadyPresent
+        /// Taken from `donor` — the copy of the same model we were about to throw away — after
+        /// checking that every file it records is present at exactly the recorded size.
+        case adopted
+        /// Rebuilt by hashing what is on disk, because no usable manifest existed anywhere.
+        case rebuilt
+        /// The folder is not a complete model. Writing a manifest here would record the damage as
+        /// if it were the intended contents, which is worse than having none.
+        case notRebuilt
+        /// There is nothing at that path.
+        case noFolder
+        /// Hashing or writing failed. The model still loads; integrity checking stays degraded.
+        case failed
+    }
+
+    /// Guarantee that `folder` ends up with a `voiceplus-manifest.json`.
+    ///
+    /// Exists because a migration that *keeps the manifest-less copy of a model and deletes the
+    /// manifest-bearing one* silently and permanently blinds `ModelIntegrity`'s truncation check for
+    /// that model: nothing else in the app ever writes a manifest for an already-installed model, so
+    /// the degradation never heals. See `ModelLayoutMigration`.
+    ///
+    /// Order of preference is cost-ordered and truth-ordered at once:
+    ///
+    /// 1. A manifest already there — nothing to do.
+    /// 2. `donor`'s manifest, if every file it records is present in `folder` at *exactly* the
+    ///    recorded size. The two folders in this migration are byte-identical copies of one
+    ///    download, so the donor's counts are the counts, and adopting them costs a `stat` per file
+    ///    instead of a SHA-256 pass over 468 MB. An exact whole-tree size match is strong evidence;
+    ///    a single byte off anywhere and we fall through to rebuilding rather than record a guess.
+    /// 3. Rebuild with `ModelManifest.build` — the same writer both fetchers use, never a second one.
+    ///
+    /// Never writes a manifest for a folder `ModelIntegrity` calls incomplete: a manifest built over
+    /// a truncated file records the truncated length as correct, which converts a detectable fault
+    /// into a permanent lie.
+    @discardableResult
+    static func ensure(for descriptor: ModelDescriptor, at folder: URL, donor: URL? = nil,
+                       fileManager: FileManager = .default) -> EnsureOutcome {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return .noFolder
+        }
+        if load(from: folder) != nil { return .alreadyPresent }
+
+        if let donor, let candidate = load(from: donor), candidate.modelID == descriptor.id,
+           candidate.describesExactly(folder, fileManager: fileManager) {
+            do {
+                try candidate.save(to: folder)
+                return .adopted
+            } catch {
+                Log.engine.error("manifest: could not adopt \(donor.lastPathComponent)'s manifest into \(folder.lastPathComponent): \(error)")
+            }
+        }
+
+        guard ModelIntegrity.isComplete(descriptor, at: folder, fileManager: fileManager) else {
+            Log.engine.notice("manifest: not writing one for \(folder.lastPathComponent) — it is not a complete model")
+            return .notRebuilt
+        }
+        do {
+            try build(modelID: descriptor.id, hfRepo: descriptor.hfRepo, folder: folder,
+                      fileManager: fileManager).save(to: folder)
+            Log.engine.notice("manifest: rebuilt \(fileName) for \(folder.lastPathComponent) from what is on disk")
+            return .rebuilt
+        } catch {
+            Log.engine.error("manifest: could not rebuild one for \(folder.lastPathComponent): \(error)")
+            return .failed
+        }
+    }
+
+    /// Is every file this manifest records present in `folder` at exactly the recorded size?
+    /// Stat-only, and deliberately exact rather than `>=`: this decides whether a manifest may be
+    /// adopted by a *different* directory, so "close enough" is not a standard worth having.
+    func describesExactly(_ folder: URL, fileManager: FileManager = .default) -> Bool {
+        !files.isEmpty && files.allSatisfy { entry in
+            let path = folder.appendingPathComponent(entry.path).path
+            let size = (try? fileManager.attributesOfItem(atPath: path))?[.size] as? Int64
+            return size == entry.size
+        }
+    }
+}
