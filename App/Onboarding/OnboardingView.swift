@@ -340,6 +340,12 @@ public struct OnboardingView: View {
                         }
                         Text(tier.modelNameLine).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        // Said *before* the download, not discovered after it: "Best" is "Balanced"
+                        // plus one more model, so installing it necessarily installs Balanced too.
+                        if let composition = ModelTierComposition.compositionLine(for: tier) {
+                            Text(composition).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         // Wraps rather than truncating: 1.7.0 cut these mid-sentence ("Fine for chat
                         // and n…"), which is the half of the row a user actually chooses on.
                         Text(tier.tradeoff).font(.callout).foregroundStyle(.secondary)
@@ -361,10 +367,19 @@ public struct OnboardingView: View {
         switch model.machine.downloadState(for: tier) {
         case .installed:
             VStack(alignment: .trailing, spacing: 2) {
-                Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+                // "Included with Best" rather than a bare "Installed": the shared model arrived
+                // because of the user's own choice, and saying which one closes the only reading
+                // where the app went and fetched 500 MB nobody asked for.
+                Label(model.installedBadge(for: tier), systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green).font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.trailing)
                 Button("Use this") { model.send(.choose(tier)) }
                     .font(.caption)
                     .disabled(model.machine.chosenTier == tier)
+                if model.machine.chosenTier != tier, model.isReadyToUseWithoutDownload(tier) {
+                    Text("Switching downloads nothing.").font(.caption2).foregroundStyle(.secondary)
+                }
             }
         case .downloading(let progress):
             VStack(alignment: .trailing, spacing: 2) {

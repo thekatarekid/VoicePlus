@@ -187,6 +187,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// True when the user left this screen with nothing installed — the one case where dictation
     /// genuinely cannot work, and therefore the one case the later screens must say so out loud.
     public private(set) var skippedModelChoiceWithoutModel = false
+    /// Tiers the user actually pressed Download for. Distinct from `installedTiers`, because
+    /// installing "Best" also completes "Balanced" — they share Parakeet TDT 0.6B v3. Without this
+    /// distinction the picker showed a bare "Installed" beside an option nobody asked for, which
+    /// reads as a 500 MB download the app decided to make on its own.
+    public private(set) var explicitlyDownloadedTiers: Set<ModelTier> = []
 
     /// What the given option's own button should show.
     public func downloadState(for tier: ModelTier) -> DownloadState {
@@ -412,6 +417,7 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case (_, .download(let tier)):
             // Downloading an option is also choosing it — nobody fetches 500 MB they did not want.
             chosenTier = tier
+            explicitlyDownloadedTiers.insert(tier)
             guard !installedTiers.contains(tier), !downloadState(for: tier).isInFlight else {
                 return [.selectModel(tier)]
             }

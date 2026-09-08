@@ -422,11 +422,25 @@ public final class OnboardingViewModel: ObservableObject {
     }
 
     /// What the option's Download button says. Counts only the models this tier is actually
-    /// missing, so "Best" after "Balanced" offers the 120 MB top-up rather than 900 MB again.
+    /// missing, so "Best" after "Balanced" offers the 400 MB top-up rather than 900 MB again.
     public func downloadButtonTitle(for tier: ModelTier) -> String {
         let remaining = deps.models.remainingBytes(for: tier)
         guard remaining > 0 else { return "Download" }
         return "Download \(ByteText.short(remaining))"
+    }
+
+    /// What the option's "Installed" badge reads. "Included with Best" for the option the user's own
+    /// choice brought along, so a shared model never looks like a download the app made by itself.
+    public func installedBadge(for tier: ModelTier) -> String {
+        ModelTierComposition.installedNote(for: tier,
+                                           installed: machine.installedTiers,
+                                           explicitlyDownloaded: machine.explicitlyDownloadedTiers)
+            ?? "Installed"
+    }
+
+    /// True when picking this option costs nothing at all — every model it needs is already here.
+    public func isReadyToUseWithoutDownload(_ tier: ModelTier) -> Bool {
+        machine.installedTiers.contains(tier) && deps.models.remainingBytes(for: tier) == 0
     }
 
     /// True when this option only needs the part it does not share with one already on disk.

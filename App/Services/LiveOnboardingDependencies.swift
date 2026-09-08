@@ -118,10 +118,17 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
         starter = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self, !self.isStopped else { return }
             do {
-                try self.audio.start()
+                // As `.meter`, never as the engine: the shared source now refuses a meter while
+                // dictation holds capture (rather than handing it a stream it did not configure),
+                // and a meter's `stop` can no longer close a microphone dictation took over.
+                self.audio.onPreempted = { [weak self] owner in
+                    guard owner == .meter else { return }
+                    self?.subject.send(.failed("The microphone was taken over by dictation."))
+                }
+                try self.audio.start(for: .meter)
                 // A `stopMonitoring()` that landed while the HAL was opening must still win, or the
                 // microphone stays live after the screen is gone.
-                if self.isStopped { self.audio.stop(); return }
+                if self.isStopped { self.audio.stop(for: .meter); return }
                 Log.app.info("mic check: capture started on \(self.audio.deviceName ?? "default device")")
             } catch {
                 // The old code logged this and left the UI claiming "very quiet" forever.
@@ -136,7 +143,7 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
         reader?.cancel()
         reader = nil
         starter = nil
-        audio.stop()
+        audio.stop(for: .meter)
         Log.app.debug("mic check: capture stopped after \(self.blocks) audio blocks")
     }
 
@@ -153,6 +160,8 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
                 : "VoicePlus could not agree a format with the microphone (\(Int(hardware)) Hz hardware vs \(Int(client)) Hz). Capture was stopped instead of running silently."
         case .noAudio:
             return "No sound is reaching VoicePlus. Capture started but not one audio block arrived."
+        case .busy(let owner):
+            return "The microphone is already in use by \(owner). Finish that first, then run the check again."
         default:
             return String(describing: capture)
         }
@@ -239,7 +248,7 @@ public final class ModelManagerTiers: ModelManaging {
     public func isInstalled(_ tier: ModelTier) -> Bool { presence[tier] ?? false }
 
     /// Only the models this tier is actually missing. "Best" shares Parakeet TDT v3 with "Balanced",
-    /// so after Balanced has landed this reports the 120 MB EOU model alone — the same subset
+    /// so after Balanced has landed this reports the 400 MB EOU model alone — the same subset
     /// `download(_:progress:)` will fetch.
     public func remainingBytes(for tier: ModelTier) -> Int64 {
         Self.models(for: tier)

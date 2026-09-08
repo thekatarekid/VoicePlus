@@ -383,8 +383,9 @@ public enum ModelTier: String, CaseIterable, Codable, Sendable, Identifiable {
 
 public protocol ModelManaging: AnyObject {
     func isInstalled(_ tier: ModelTier) -> Bool
-    /// Bytes still to fetch for this tier, counted per *model*. "Best" is "Balanced" plus a 120 MB
-    /// end-of-utterance model, so once Balanced is on disk this must report the 120 MB — telling
+    /// Bytes still to fetch for this tier, counted per *model*. "Best" is "Balanced" plus a 400 MB
+    /// end-of-utterance model ("120M" in its name is parameters, not megabytes), so once Balanced is
+    /// on disk this must report the 400 MB — telling
     /// the user to re-download 900 MB they already have is simply false.
     func remainingBytes(for tier: ModelTier) -> Int64
     /// Background download. Must be cancellable via the returned task being cancelled.
