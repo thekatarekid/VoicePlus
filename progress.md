@@ -608,6 +608,241 @@ in its dmg.
   appearance at each rung is not.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
 
+### 1.7.4 — dictation no longer wedges itself permanently after one use
+
+**Onboarding's "Dictate now" worked exactly once.** Pressing **"Try again"** then said *"VoicePlus is
+already recording."* — and said it forever. With the real hotkey the same fault wore a different face:
+an error appeared on key **release**, and after four or five attempts the hotkey **stopped working
+altogether** — no listening state on press, and a broken animation flashing on release. Only relaunching
+the app cleared it.
+
+**Root cause — two defects compounding into one symptom.** `RealEngine.start()` set `listening = true`
+**before** `try audio.start()` and never rolled it back when that threw (a denied microphone, a 3 s HAL
+start timeout, a format mismatch), so the flag outlived the session it described: it stood up with no
+capture behind it, and every later start threw `alreadyListening` for the rest of the process. And
+`DictationCoordinator` ran start, finalize and cancel as **three independent racing `Task`s**, so a key
+released during warm-up ran `stop()` **before its own `start()` finished** — the stop threw
+`notListening` and was swallowed, the start then succeeded, and the engine was left recording with
+nobody left to stop it. Onboarding and the hotkey **share one engine**, which is why a failure on either
+path killed the other.
+
+**What ships.**
+- **One session flag with one owner**, held by the coordinator and written by nothing else.
+- **All engine calls on a serial chain**, so a release can never overtake its own start.
+- **Unconditional teardown on every exit path** — success, throw, cancel — so a session cannot outlive
+  the code that created it.
+- **`RealEngine.start` rolls back fully on a failed `audio.start()`**, so a capture that never opened
+  leaves no flag behind.
+- **A held-over session is released and retried rather than refused**: an `alreadyListening` start is
+  retried once after a forced cancel, so **a wedge clears itself instead of needing a relaunch**.
+- **Bounded preflight** (`refreshEngineIfNeeded` sits in the hotkey path), **`SwappableEngine.swap`
+  cancels the outgoing engine unconditionally**, and **`AppDelegate` resets the hotkey gesture when
+  capture never opened** — the reason the hotkey went dead after four or five failures.
+
+**New `Tests/AppTests/DictationSessionLifecycleTests.swift` and
+`Tests/EngineTests/RealEngineStartRollbackTests.swift` — 11 tests** over the four ways the session used
+to leak: a second utterance after a success, after a failed start, after a cancel, after a stop that
+threw; a key released during warm-up; an engine another owner left recording; an engine swap
+mid-utterance; and a preflight that overruns. The preflight bound is a **raced continuation, not a task
+group** — `withTaskGroup` waits for its children on exit, so the timeout never actually fired. **Full
+package: `swift build` clean, 1313 tests passing** (1259 at 1.7.3). 2 commits (`14010b7`, `9a01b91`) on
+top of 1.7.3. Ships in the 1.7.8 dmg.
+
+**Untested / honest limits:**
+- **No agent on this machine has a microphone**, so the failure modes that *start* this bug — a denied
+  mic, a real HAL start timeout, a format mismatch — are reproduced against the capture protocol and
+  mocks. The rollback, the serialisation and the self-healing retry are covered by tests.
+- **No agent has driven the hotkey with a real key press.** The gesture reset is tested at the
+  coordinator boundary; the CGEvent leg is not.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.5 — the onboarding window no longer clips its own buttons
+
+**The window was a hard-coded 520 × 420 for six steps of very different heights, with no scroller.**
+When a model download started, roughly **120 pt** of progress UI appeared on the model step — a progress
+bar, a wrapping progress line, a Cancel button, an info line and a two-line amber warning — and the
+footer went off the bottom edge. That footer is **Back / Skip / Continue**: the only way forward, cut in
+half by the window it lived in. Option subtitles were truncating mid-sentence in the same window.
+
+**Root cause:** a fixed `.frame(width: 520, height: 420)` suits a step at rest and nothing else; nothing
+scrolled, so content that did not fit simply overflowed; and the action row had **no reserved space** —
+laid out after the step content, it was the first thing to lose when the content grew, which is the
+worst possible casualty since it is the only exit.
+
+**What ships.**
+- **Each step reports its own laid-out height and the window adopts it** — new
+  `App/Onboarding/OnboardingWindowSizing.swift` — **clamped to the usable area of the display the window
+  opens on**, so sizing to content can never size past the screen.
+- **The step area is the only flexible region, and it scrolls.** The progress bar and the action row
+  keep their space at any content height, so **the clipped footer is structurally impossible** rather
+  than merely unlikely.
+- **Progress text sits in a reserved fixed-height box**, so a tick from *"95 MB"* to *"96 MB"* is a text
+  change rather than a window relayout, and **sub-1 pt geometry republishes are ignored**, which removes
+  the residual jitter from measurement noise during a live download.
+- **Option subtitles wrap** instead of truncating mid-sentence.
+
+**New `Tests/AppTests/OnboardingWindowSizingTests.swift` — 15 tests**: the window adopts the tallest
+reported content, the clamp holds against a small display, the chrome keeps its height while the step
+area absorbs the overflow, a sub-point change does not republish, and a step that grows mid-flight (the
+download case) still leaves the action row fully on screen. **All six steps checked in their tallest
+states.** **Full package: `swift build` clean, 1313 tests passing.** 1 commit (`8b359e3`) on top of
+1.7.4. Ships in the 1.7.8 dmg.
+
+**Untested / honest limits:**
+- **Every visual judgement is unverified — an agent has no window server.** Precisely unknown: how the
+  resized window *looks* at each step, whether the grow animation is pleasant, and whether the scrolling
+  step area is ever visibly scrolled on a normal display. The sizing arithmetic, the clamp, the fixed
+  chrome and the jitter suppression are covered by tests.
+- **The clamp has not been seen against a genuinely small display** — its behaviour is tested, its
+  appearance is not.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.6 — the dot's click means something, and errors stay long enough to read
+
+**Two faults on the notch surface introduced with 1.7.3's presence row.** Clicking the new **green
+presence dot** opened the menu bar app's menu — not sometimes: the dot was wired unconditionally to
+`statusItem.popUpMenu()` for **every** state, so the one control that describes the app's health
+answered every click with a list of commands. And errors **flashed past unread**: `RealEngine` emits
+`.landed` then `.idle` back to back while the reducer mapped `.error` to a preview the next `.idle`
+erased, so the pill ran its slide-in and slide-out in the **same run-loop pass** — the "broken
+animation" the owner saw on key release, and the reason he could not screenshot the error he was
+hitting.
+
+**Root cause:** one click behaviour for every state, so a dot meaning "the microphone is denied"
+answered a click with something other than the way to fix it; `landing` → `hidden` reduced in one pass
+with no time in between; and an error was **not its own state** — it was `.preview("⚠︎ …")`, a
+transcript-shaped string, so it could not be sized, dwelled or styled as a notice, and any later `.idle`
+erased it as though it had been speech.
+
+**What ships.**
+- **A click router** (new `App/Core/PresenceClick.swift`). The **primary click** pins the expanded row
+  open for **5 s in place**, with no focus change, so the dot explains itself — or, on a **blocked** dot,
+  goes to the actual remedy: relaunch, the **Microphone** or **Input Monitoring** privacy pane, or our
+  own **Settings** for a missing model. **Right-click / ⌃-click still opens the menu**, preserving the
+  escape hatch for a culled status item.
+- **A presenter owns the single write path to the pill** (new `App/Core/PillPresentation.swift`).
+  `PillPresenter` gates every write to `PillViewModel.state`: a **visible state lands immediately**, but
+  a **retraction waits out the current state's `PillDwell` minimum** — **4 s** for an error or warning,
+  **0.6 s** for *"Landing…"*, 0 for everything else. The flicker is not smoothed; it is unreachable.
+- **`.error` is its own `PillState` case** with a **headline and subtitle**, so it can be sized and
+  dwelled as a notice — **legible for four seconds**, long enough to read and to photograph.
+- The panel stays a **non-activating `NSPanel`** and nothing on the explain path activates the app.
+
+**New `Tests/AppTests/PillPresenterTests.swift` — 13 tests**: a visible state lands with no delay, a
+retraction inside the dwell is held and then applied, `landed` followed immediately by `idle` produces
+one visible notice rather than a flicker, an error outlives its erasing `.idle`, and the dwell differs
+correctly between a notice and "Landing…". `PillTests` updated for `.error` as its own case. **Full
+package: `swift build` clean, 1313 tests passing.** 1 commit (`243c57a`) on top of 1.7.5. Ships in the
+1.7.8 dmg.
+
+**Untested / honest limits:**
+- **Every visual judgement here is unverified — an agent has no window server.** Precisely unknown:
+  whether the pinned click-to-explain row reads as an explanation, whether five seconds is the right
+  pin, and whether the four-second error pill is long enough to read without being long enough to annoy.
+  The dwell arithmetic, the routing per dot state and the single write path are covered by tests.
+- **The privacy-pane deep links have not been followed on this machine** — the URLs are pinned by test;
+  whether each lands on the right pane on the owner's macOS version is not verified here.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.7 — the warm-up records, and only one owner holds the microphone
+
+**"Dictate now" left the notch on "Warming up…" for a long time before anything happened**, and whatever
+was said during that time was gone. Separately, **two owners were fighting over the microphone**:
+onboarding's level meter and the speech engine each believed they had configured capture while only the
+first of them actually had.
+
+**Root cause:** `RealEngine.start(prewarm:)` resolved the recognizers **before** `audio.start()`, so a
+**cold CoreML load of Parakeet TDT** ran with the microphone shut — unbounded, with no progress to show,
+and **every word spoken during it discarded**. Nothing loaded the model eagerly, so the **first** key
+press of the session paid the entire compile. And `PipelineAudioSource.start()` **returned success while
+doing nothing** whenever the source was already running — the onboarding meter is handed the **same
+source the engine uses**, so the second owner inherited a graph whose **ring, VAD and utterance tap
+belonged to the first owner's session**, and whichever owner stopped first **closed the microphone under
+the other**.
+
+**What ships.**
+- **Explicit audio ownership with rank and preemption** — the **engine outranks** the meter and
+  diagnostics. A start either **takes the graph and restarts it clean** (ring, VAD and tap rebuilt for
+  the new owner) **or throws `AudioCaptureError.busy`**. There is no third outcome that quietly
+  succeeds, and **displaced owners are told**.
+- **A stop releases the graph only if that owner still holds it**, so a displaced owner's late `stop()`
+  cannot close the new owner's microphone.
+- **Capture-first cold start:** `RealEngine.start` **opens the microphone before resolving the model**;
+  samples captured while the model loads are **buffered** and the preview pass is flushed the moment the
+  recognizer is ready, so a push-to-talk press **never loses its opening words**.
+- **Eager preload** — new `RealEngine.preloadModel()` and `AppContainer.warmUpEngine()` load the model
+  **at launch** and again **after a download-driven engine swap**, so the first press is not the cold
+  one.
+
+**New `Tests/AppTests/AudioSourceOwnershipTests.swift` and
+`Tests/EngineTests/RealEngineColdStartTests.swift` — 8 tests**: the engine taking the graph from the
+meter and getting it restarted, tap and all; a meter refused out loud while dictation holds capture; a
+displaced owner's late stop that must not close the new owner's microphone; a failed start that leaves
+no owner; audio **and preview text spoken during a cold model load surviving**; a failed cold start
+releasing capture; and `preloadModel()` loading **without** publishing *"Warming up…"*. **Full package:
+`swift build` clean, 1313 tests passing.** 2 commits (`9f4b0c3`, `54888e6`) on top of 1.7.6. Ships in
+the 1.7.8 dmg.
+
+**Untested / honest limits:**
+- **The badly-wrong hotkey transcription is not confirmed fixed.** The owner reported the hotkey path
+  producing **completely wrong text** where onboarding was accurate. Recognizer configuration was proven
+  **identical** between the two paths and biasing was **ruled out** as a text corruptor, which leaves a
+  shared-capture-graph corruption as the leading explanation — and this is exactly the fix for that —
+  but **the cause is not confirmed on hardware.** Recommend the owner retry the hotkey and report.
+- **The real cold-load duration is unmeasured.** No agent here has loaded Parakeet TDT, so how long the
+  eager preload actually takes at launch is unknown.
+- **No agent on this machine has a microphone**, so ownership, preemption and the buffered cold start
+  are covered against the capture protocol and mocks, not a real HAL device.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.8 — "it downloaded the Balanced model by itself"
+
+**Reported, after choosing Best and watching 900 MB download:** *"I only downloaded the best 900 MB
+model. It downloaded the Balanced itself."* It did not. **Best** is Parakeet TDT 0.6B v3 **plus** the
+EOU model, and **Balanced** is that same TDT v3 — so completing Best completes Balanced with **not one
+extra byte fetched**. Per-model presence (1.7.2, `3b9c75e`) is right and stays. What was missing was
+**the sentence**: both rows read a bare **"Installed"**, and a green check beside an option nobody asked
+for reads as **500 MB the app decided to spend on its own**. Technically correct is not good enough on a
+several-hundred-megabyte download; presented bare, it destroys trust.
+
+**Root cause:** the overlap was **never stated** — nothing before the download said Best contains
+Balanced, and nothing after it explained why a second row had turned green — and **"Installed" could not
+tell two different facts apart**: a tier the user **explicitly downloaded** and a tier their choice
+**brought along** rendered identically. Separately, **three code comments called the EOU model
+"120 MB"**, misreading the **"120M"** in its name as **parameters**, not megabytes. It is **400 MB**;
+the advertised **900 MB** total was right all along — **500 + 400**.
+
+**What ships.**
+- **The containment is stated *before* anything is downloaded** — the Best row reads *"Includes
+  Balanced's 500 MB model, plus 400 MB more."*, computed from `ModelCatalog` in new
+  `App/Onboarding/ModelTierComposition.swift`, so the figures cannot drift from what is actually
+  fetched.
+- **Afterwards the Balanced row reads "Included with Best"**, not a bare "Installed" — a visible
+  consequence of the user's own choice rather than a mystery download.
+- **A non-selected installed row says "Switching downloads nothing."** and fetches nothing, which is now
+  a test rather than a claim.
+- **The state machine tracks `explicitlyDownloadedTiers`** — the buttons the user actually pressed —
+  because "installed" alone cannot distinguish a tier the user fetched from one their choice carried in.
+  **A tier downloaded on its own keeps the plain "Installed"**; crediting it to Best would be its own
+  small lie. With nobody's presses remembered (after a relaunch) the shared row still explains itself.
+- **The "120 MB" comments are corrected to 400 MB.**
+
+**New `Tests/AppTests/OnboardingTierCompositionTests.swift` — 7 tests.** One **pins each tier's label to
+the sum of its catalogue entries**, so the advertised figures cannot drift again; the rest cover the
+containment line appearing before any download, "Included with Best" only for a tier the user did not
+press, "Installed" surviving for one they did, "Switching downloads nothing." fetching nothing, and the
+shared row explaining itself with no press history. **Full package: `swift build` clean, 1313 tests
+passing.** 1 commit (`3842440`) on top of 1.7.7. **Carries 1.7.4, 1.7.5, 1.7.6 and 1.7.7 in its dmg.**
+
+**Untested / honest limits:**
+- **Whether "Included with Best" reads correctly in its column is unverified** — no window server, so
+  the wording is tested and its appearance is not.
+- **The real HuggingFace download remains unverified** — pre-existing since 1.7.2, unchanged here. The
+  composition arithmetic is computed from the catalogue and pinned by test; the bytes are not fetched by
+  anyone here.
+- **The badly-wrong hotkey transcription is still unconfirmed on hardware** — see 1.7.7.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
 ### Test-harness safety fix (2026-09-06, post-1.6.6)
 
 `Packaging/verify_install.sh` terminated processes by **name**: its cleanup trap ran `pkill -x VoicePlus`, so a verification run killed the **user's own running /Applications instance** mid-session (pid 76823 — it had to be relaunched by hand). A run during dictation would have lost the transcript. All three name-based kills are gone: the script records the pid of the instance it launched (matched by *executable path* against its own temp copy, normalised with `pwd -P` because `mktemp` returns `/var/…` while `ps` reports `/private/var/…`) and signals only that pid, guarded by `kill -0`; INT/TERM route through the same scoped cleanup so an interrupted run cannot orphan its own instance; pre-existing instances are listed before and after the run as a visible assertion they were left alone. `soak.sh`'s sampler kill was already pid-scoped (guarded against an unset `SAMPLER`); `reset_tcc.sh` kills nothing — it asks the user to quit the app, which stays the rule: **no script may stop a user's instance silently.** Verified against `VoicePlus_6_1.6.6.dmg` with two other instances running (/Applications and `Packaging/build/`): verify OK, its own instance stopped, both others still alive; same when the run was SIGTERM'd mid-flight (exit 143, no orphan, temp dir removed).
