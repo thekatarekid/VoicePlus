@@ -7,27 +7,60 @@ public struct OnboardingView: View {
     /// Which permission's "Remove the old entry…" confirmation is up, if any.
     @State private var confirmingRowReset: OnboardingPermission?
 
+    /// Height the current step wants, and the height of the fixed chrome around it. Both are
+    /// measured rather than guessed: every step has a different resting height, and three of them
+    /// (permissions, mic check, model choice) grow and shrink while they are on screen.
+    @State private var stepHeight: CGFloat = OnboardingWindowSizing.minimumStepHeight
+    @State private var progressHeight: CGFloat = 0
+    @State private var footerHeight: CGFloat = 0
+
     public init(model: OnboardingViewModel) { self.model = model }
 
     public var body: some View {
         VStack(spacing: 16) {
             ProgressView(value: model.machine.progress).progressViewStyle(.linear)
-            Group {
-                switch model.step {
-                case .welcome: welcome
-                case .permissions: permissions
-                case .micCheck: micCheck
-                case .modelChoice: modelChoice
-                case .firstDictation: firstDictation
-                case .done: done
+                .measureHeight { h in
+                    if OnboardingWindowSizing.shouldResize(from: progressHeight, to: h) { progressHeight = h }
+                }
+            // The step scrolls; the action row below never does. Even at a content height the
+            // display cannot fit, Back / Skip / Continue keep their own space — the clipped-in-half
+            // button row from 1.7.0 is structurally impossible now, not merely unlikely.
+            ScrollView {
+                Group {
+                    switch model.step {
+                    case .welcome: welcome
+                    case .permissions: permissions
+                    case .micCheck: micCheck
+                    case .modelChoice: modelChoice
+                    case .firstDictation: firstDictation
+                    case .done: done
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .measureHeight { h in
+                    // Sub-point republishes (and the constant re-layout of the progress text) must
+                    // not move the window.
+                    if OnboardingWindowSizing.shouldResize(from: stepHeight, to: h) { stepHeight = h }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            footer
+            footer.measureHeight { h in
+                if OnboardingWindowSizing.shouldResize(from: footerHeight, to: h) { footerHeight = h }
+            }
         }
         .padding(24)
-        .frame(width: 520, height: 420)
+        .frame(width: OnboardingWindowSizing.contentWidth, height: windowContentHeight)
         .sheet(isPresented: $model.showContactsOffer) { contactsOffer }
+    }
+
+    /// The height the window should adopt: chrome + the step's own fitting height, clamped to the
+    /// display it opens on. `NSHostingController`'s `.preferredContentSize` sizing turns this into a
+    /// window resize, anchored at the top-left, so a step that grows mid-flight (a download starting)
+    /// extends downwards instead of jumping the window around the screen.
+    private var windowContentHeight: CGFloat {
+        OnboardingWindowSizing.contentHeight(stepHeight: stepHeight,
+                                             chromeHeight: progressHeight + footerHeight,
+                                             usableHeight: OnboardingWindowSizing.usableFrame().height)
     }
 
     // MARK: Steps
@@ -40,11 +73,11 @@ public struct OnboardingView: View {
         }
     }
 
-    /// Scrollable since 1.6.6: the recovery panel now carries three numbered steps at body size, and
-    /// the window is a fixed 520×420 — without this the instructions are the first thing clipped,
-    /// which is the exact failure being fixed.
+    /// No longer carries its own `ScrollView`: since 1.7.1 the whole step area scrolls and the
+    /// window sizes itself to the step, so a nested scroller would only report a collapsed height
+    /// and defeat that.
     private var permissions: some View {
-        ScrollView {
+        Group {
             VStack(alignment: .leading, spacing: 12) {
                 if let p = model.machine.currentPermission {
                     Text(p.title).font(.title.bold())
@@ -307,7 +340,11 @@ public struct OnboardingView: View {
                         }
                         Text(tier.modelNameLine).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        // Wraps rather than truncating: 1.7.0 cut these mid-sentence ("Fine for chat
+                        // and n…"), which is the half of the row a user actually chooses on.
                         Text(tier.tradeoff).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 0)
                 }
@@ -332,9 +369,13 @@ public struct OnboardingView: View {
         case .downloading(let progress):
             VStack(alignment: .trailing, spacing: 2) {
                 ProgressView(value: progress.fraction)
+                // Fixed box: this line re-renders on every progress tick, and a line that changed
+                // its own height would resize the window several times a second.
                 Text(model.downloadLine(for: tier) ?? "Downloading… \(progress.percent)%")
                     .font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(3).minimumScaleFactor(0.85)
+                    .frame(height: OnboardingWindowSizing.downloadLineHeight, alignment: .topTrailing)
                 Button("Cancel") { model.send(.cancelDownload(tier)) }.font(.caption)
             }
         case .failed(let why):
@@ -474,6 +515,26 @@ public struct OnboardingView: View {
             case .done: Button("Close") { OnboardingWindowController.close() }.keyboardShortcut(.defaultAction)
             }
         }
+    }
+}
+
+/// Reports a subview's laid-out height upwards, so the window can size itself to whichever step is
+/// showing instead of to one hard-coded number that fits none of them.
+struct OnboardingHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+extension View {
+    func measureHeight(_ onChange: @escaping (CGFloat) -> Void) -> some View {
+        background(
+            GeometryReader { geo in
+                Color.clear.preference(key: OnboardingHeightKey.self, value: geo.size.height)
+            }
+        )
+        .onPreferenceChange(OnboardingHeightKey.self) { onChange($0) }
     }
 }
 
