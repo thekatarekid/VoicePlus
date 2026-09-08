@@ -129,7 +129,7 @@ struct BiasedDecodeWERTests {
     /// is that biasing costs nothing, because on this decoder it *cannot* cost anything.
     @Test(.timeLimit(.minutes(60)))
     func biasingCannotChangeTheDecodedWords() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else {
             print("SKIPPED: parakeet-tdt-0.6b-v3 not on disk."); return
         }
@@ -161,7 +161,7 @@ struct BiasedDecodeWERTests {
     /// stuffed with phonetic neighbours of every content word in the pangram.
     @Test(.timeLimit(.minutes(20)))
     func pangramThroughTheShippingBiasedPath() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else { print("SKIPPED: no model."); return }
         guard let biaser = Self.makeAppBiaser(extraTerms: ["Quake", "Fogs", "Doll", "Above", "Jump"]) else {
             print("SKIPPED: no Parakeet vocabulary on disk."); return

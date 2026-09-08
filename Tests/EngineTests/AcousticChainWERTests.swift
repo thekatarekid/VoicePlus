@@ -74,7 +74,7 @@ struct AcousticChainWERTests {
     /// Budget matches the bypass test (mean ≤ 0.10) — the front end must not cost accuracy.
     @Test(.timeLimit(.minutes(30)))
     func defaultProfileDoesNotDegradeCleanSpeech() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else {
             print("SKIPPED: parakeet-tdt-0.6b-v3 not on disk."); return
         }
@@ -92,7 +92,7 @@ struct AcousticChainWERTests {
         guard ProcessInfo.processInfo.environment["VOICEPLUS_CHAIN_AB"] == "1" else {
             print("SKIPPED: set VOICEPLUS_CHAIN_AB=1 for the raw-vs-default A/B."); return
         }
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else { print("SKIPPED: no model."); return }
         let (dir, entries) = try Self.loadFixtures()
         let final = try await RecognizerFactory.makeFinal(manager: manager)
@@ -169,7 +169,7 @@ extension AcousticChainWERTests {
         guard ProcessInfo.processInfo.environment["VOICEPLUS_CHAIN_AB"] == "1" else {
             print("SKIPPED: set VOICEPLUS_CHAIN_AB=1 for the room-floor sweep."); return
         }
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else { print("SKIPPED: no model."); return }
         let (dir, entries) = try Self.loadFixtures()
         let final = try await RecognizerFactory.makeFinal(manager: manager)

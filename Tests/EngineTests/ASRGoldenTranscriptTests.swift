@@ -35,7 +35,7 @@ struct ASRGoldenTranscriptTests {
 
     @Test(.timeLimit(.minutes(30)))
     func cleanSuiteWithParakeetTDTv3() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         let live = ProcessInfo.processInfo.environment["VOICEPLUS_LIVE_MODELS"] == "1"
         if await !manager.isPresent(.parakeetTDTv3) {
             guard live else {
@@ -76,7 +76,7 @@ extension ASRGoldenTranscriptTests {
     /// VOICEPLUS_LIVE_MODELS=1 and the model is absent. Skipped otherwise.
     @Test(.timeLimit(.minutes(30)))
     func eouPreviewStreamsOnCleanFixture() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         let live = ProcessInfo.processInfo.environment["VOICEPLUS_LIVE_MODELS"] == "1"
         if await !manager.isPresent(.parakeetEOU160) {
             guard live else { print("SKIPPED: parakeet-realtime-eou-120m (160ms) not on disk; VOICEPLUS_LIVE_MODELS=1 downloads it."); return }
@@ -108,7 +108,7 @@ extension ASRGoldenTranscriptTests {
     /// Acceptance: preview streams, final spans carry confidence + timestamps, final ≤ 400 ms after stop.
     @Test(.timeLimit(.minutes(10)))
     func realEngineEndToEndOnFixture() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else { print("SKIPPED: no TDT v3 model on disk."); return }
         let fixtures = try #require(AppPaths.fixturesDirectory()).appendingPathComponent("audio/clean")
         let audio = try SampleAudioSource(url: fixtures.appendingPathComponent("clean_02_daniel.wav"), blockDuration: 0.05, realtime: true)

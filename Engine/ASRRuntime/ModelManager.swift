@@ -73,22 +73,54 @@ public actor ModelManager {
     public typealias ModelLoader = @Sendable (ModelID, ModelDescriptor, URL) async throws -> LoadedModel
     private let loader: ModelLoader
 
+    /// Whether this manager may rearrange the models root it is pointed at.
+    ///
+    /// `.skip` exists for tests. Ten of them construct `ModelManager()` — no arguments, so the *real*
+    /// `~/Library/Application Support/VoicePlus/Models` — to run WER and golden-transcript checks
+    /// against whatever the developer actually has downloaded. Those are read-only intentions, but
+    /// maintenance runs from `init`, so `swift test` was silently entitled to migrate and delete
+    /// directories in a real user's 468 MB model store. A test suite that can do that is a hazard
+    /// regardless of how careful the migration is.
+    public enum Maintenance: Sendable {
+        /// Migrate the layout and sweep parked directories. What the app does.
+        case run
+        /// Touch nothing. For reading a real models root without being entitled to change it.
+        case skip
+    }
+
     public init(root: URL = ModelCatalog.modelsRoot(),
                 fetchers: [ModelKind: ModelFetcher]? = nil,
                 externalCaches: [ModelID: [URL]]? = nil,
-                loader: ModelLoader? = nil) {
+                loader: ModelLoader? = nil,
+                maintenance: Maintenance = .run) {
         self.root = root
         self.fetchers = fetchers ?? [.finalTDT: FluidAudioFetcher(), .streamingEOU: FluidAudioFetcher(), .whisper: ManifestFetcher()]
         self.externalCaches = externalCaches ?? Self.defaultExternalCaches()
         self.loader = loader ?? Self.coreMLLoader
-        // Before anything can ask where a model is. A `stat` per model on an already-migrated
-        // install; on a pre-1.7.13 one, a rename and the deletion of the duplicate that layout
-        // caused. Deliberately here and not lazily behind `locate`: a migration that runs halfway
-        // through a load would move the directory out from under CoreML.
-        let migrated = ModelLayoutMigration.migrate(root: root)
-        if !migrated.isEmpty {
-            let reclaimed = migrated.reduce(0) { $0 + $1.reclaimedBytes }
-            Log.engine.notice("model layout migrated: \(migrated.map { "\($0.id.rawValue)=\($0.outcome.rawValue)" }.joined(separator: ", ")); \(reclaimed) bytes reclaimed")
+        if case .run = maintenance { Self.runMaintenance(root: root) }
+    }
+
+    /// Layout migration + parked-directory sweep, under a cross-process lock.
+    ///
+    /// Deliberately here in `init` and not lazily behind `locate`: a migration that ran halfway
+    /// through a load would move the directory out from under CoreML. It has to be finished before
+    /// anything can ask where a model is.
+    ///
+    /// The lock is what keeps two VoicePlus processes launching together from interleaving each
+    /// other's park/rename/delete over the same two paths. `init` is synchronous and non-isolated,
+    /// so it is already a place that can block; `ModelRootLock` bounds how long it will.
+    ///
+    /// Cost on an already-migrated install: one `open`, a `stat` per model, one directory listing.
+    private static func runMaintenance(root: URL) {
+        ModelRootLock.withLock(root: root) {
+            let migrated = ModelLayoutMigration.migrate(root: root)
+            if !migrated.isEmpty {
+                let reclaimed = migrated.reduce(0) { $0 + $1.reclaimedBytes }
+                Log.engine.notice("model layout migrated: \(migrated.map { "\($0.id.rawValue)=\($0.outcome.rawValue)/manifest=\($0.manifest.rawValue)" }.joined(separator: ", ")); \(reclaimed) bytes reclaimed")
+            }
+            // The other half of "a swap, not a delete-then-move": the parked copies that a crash
+            // between the swap and the cleanup would otherwise strand forever.
+            ParkedModelDirectories.sweep(root: root)
         }
     }
 
@@ -152,10 +184,26 @@ public actor ModelManager {
     public func isPresent(_ id: ModelID) -> Bool { locate(id) != nil }
     public func isLoaded(_ id: ModelID) -> Bool { loaded[id] != nil }
 
-    /// Verify the manifest (if one exists). Returns mismatching paths; empty = OK / no manifest.
+    /// Re-hash every file the manifest records and return the paths that do not match.
+    ///
+    /// An empty result means "nothing disagreed", which is **not** the same as "verified": a model
+    /// with no manifest has nothing to disagree with and also returns empty. Ask `assess(_:)` when
+    /// the difference matters — it does whenever the answer is being reported as integrity rather
+    /// than used as a go/no-go for loading.
     public func verify(_ id: ModelID) -> [String] {
-        guard let url = locate(id), let manifest = ModelManifest.load(from: url) else { return [] }
+        guard let url = locate(id) else { return [] }
+        guard let manifest = ModelManifest.load(from: url) else {
+            Log.engine.notice("verify \(id.rawValue): no \(ModelManifest.fileName) at \(url.path) — nothing to re-hash against, so this is 'not checked', not 'checked and fine'")
+            return []
+        }
         return manifest.verify(in: url)
+    }
+
+    /// What we are entitled to say about the model on disk: `.verified`, `.unverifiable` (usable, but
+    /// with no manifest to catch a truncated file), or `.incomplete`. Cheap — no hashing.
+    public func assess(_ id: ModelID) -> ModelIntegrity.Verification {
+        guard let url = locate(id) else { return .incomplete(["\(id.rawValue) is not installed"]) }
+        return ModelIntegrity.assess(ModelCatalog.descriptor(id), at: url, fileManager: fileManager)
     }
 
     /// Download if missing. Concurrent callers share one download task. Returns the model folder.
@@ -198,6 +246,10 @@ public actor ModelManager {
     /// External caches are somebody else's directory and are never touched.
     @discardableResult
     public func repair(_ id: ModelID) -> [String] {
+        // Parked copies (`.superseded-`/`.replaced-`) are the other kind of debris a failed install
+        // leaves, and they are the expensive kind — a whole 468 MB tree, not a scratch file. Nothing
+        // used to look at them at all, so a crash mid-swap stranded them permanently.
+        ParkedModelDirectories.sweep(root: root)
         let own = folder(for: id)
         guard fileManager.fileExists(atPath: own.path) else { return [] }
         let removed = ModelIntegrity.removeIncompleteParts(under: own, fileManager: fileManager)
@@ -247,7 +299,15 @@ public actor ModelManager {
         do {
             let model = try await task.value
             loaded[id] = model
-            Log.engine.info("ModelManager loaded \(d.displayName) from \(url.path)")
+            // Say out loud when what we just loaded is only *structurally* sound. Without a manifest
+            // there are no recorded byte counts, so a file that is silently short would have passed
+            // every check above. External caches are the normal reason: they are FluidAudio's
+            // directory, we never write into it, so a model borrowed from there has no manifest.
+            if ModelManifest.load(from: url) == nil {
+                Log.engine.notice("ModelManager loaded \(d.displayName) from \(url.path) with no \(ModelManifest.fileName) — usable, but truncation cannot be detected for it")
+            } else {
+                Log.engine.info("ModelManager loaded \(d.displayName) from \(url.path)")
+            }
             return model
         } catch is CancellationError {
             throw CancellationError()

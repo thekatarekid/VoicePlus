@@ -115,7 +115,7 @@ struct LiveCapturePathWERTests {
     /// Compared against the same fixtures fed at native 16 kHz, so the delta is attributable.
     @Test(.timeLimit(.minutes(30)))
     func liveCaptureResamplingDoesNotDegradeCleanSpeech() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else {
             print("SKIPPED: parakeet-tdt-0.6b-v3 not on disk."); return
         }
@@ -166,7 +166,7 @@ struct LiveCapturePathWERTests {
     /// mic actually produces?
     @Test(.timeLimit(.minutes(30)))
     func inputLevelSweepOnCleanSpeech() async throws {
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else {
             print("SKIPPED: parakeet-tdt-0.6b-v3 not on disk."); return
         }

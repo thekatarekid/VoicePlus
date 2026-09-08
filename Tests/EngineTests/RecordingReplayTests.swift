@@ -59,7 +59,7 @@ struct RecordingReplayTests {
                 """)
             return
         }
-        let manager = ModelManager()
+        let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else {
             print("SKIPPED: parakeet-tdt-0.6b-v3 not on disk."); return
         }
