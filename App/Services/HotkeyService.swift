@@ -201,6 +201,13 @@ public final class HotkeyService {
     public static let forceEventTapDefaultsKey = "hotkeyForceEventTap"
 
     public var onAction: ((HotkeyStateMachine.Action) -> Void)?
+    /// Whether this service should hold a live source at all. Read fresh on every arming tick, so
+    /// a Settings-side switch tears the source down (and puts it back) without a relaunch.
+    ///
+    /// The dictation key leaves this at `true` forever — it is the product. The act key hangs it on
+    /// `ActKeySettings.isEnabled`, which is how "turn Actions off entirely" reaches the mechanism
+    /// rather than just the delivery point.
+    public var isWanted: () -> Bool = { true }
     public private(set) var machine: HotkeyStateMachine
     public private(set) var binding: HotkeyBinding
     public private(set) var isRunning = false
@@ -226,6 +233,9 @@ public final class HotkeyService {
 
     /// The permission the current binding costs. nil for everything the shipped picker offers.
     public var requiredPermission: Permission? { backendKind.requiredPermission }
+
+    /// `HotkeyArming`: the user has switched this key off, so the watcher must not arm it.
+    public var isDisabledByUser: Bool { !isWanted() }
 
     /// Whether the legacy event tap has been forced on for this service.
     public var forcesEventTap: Bool { defaults.bool(forKey: Self.forceEventTapDefaultsKey) }
@@ -375,6 +385,11 @@ public final class HotkeyService {
     @discardableResult
     public func start() -> Bool {
         guard !isRunning else { return true }
+        // A disarmed service is not observing `UserDefaults` (that starts below), so a binding
+        // written while it was switched off has not reached it. Re-read before choosing a backend:
+        // arming with the stale binding is how "I set the Actions key to ⌃⌥A, turned Actions on,
+        // and it still listens on Right ⌘" would happen.
+        reloadBindingFromDefaults()
         // A half-torn state — a source installed while `isRunning` is false — must never survive into
         // a second creation. One service, one live source, always.
         teardownSource()

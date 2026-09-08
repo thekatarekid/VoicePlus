@@ -50,6 +50,33 @@ public enum SettingsKeys {
     /// Hide it in a full-screen Space — quiet states ONLY. `listening`, `processing` and `muted`
     /// always draw: a hidden hot mic in full screen is exactly what the product spec forbids.
     public static let presenceHideInFullScreen = "presence.indicator.hideInFullScreen"
+    /// P4.2 — whether the second (act) key is live at all. Default OFF; see `ActKeySettings`.
+    public static let actKeyEnabled = "act.key.enabled"
+}
+
+/// The on/off switch for the act key, defaults included, in one place.
+///
+/// ## Why off is the default
+/// Actions is the one feature in VoicePlus that cannot do anything useful until the user has
+/// connected and pinned a cloud provider for `act.planner`. Before 1.7.11 the act key shipped live
+/// on Right ⌘ with no UI to rebind or silence it, so the first thing a fresh install could do with
+/// it was swallow a keypress the user meant for dictation and answer "Actions need a model set up
+/// in Settings" — an error that was also unreachable, because `act.planner` had no Settings row.
+/// A key that can only produce an error until configured has no business being armed by default.
+/// Turning it on is now one picker away, and the picker is what pins the key.
+public enum ActKeySettings {
+    public static func isEnabled(_ store: SettingsStore?) -> Bool {
+        guard let store else { return false }
+        if let explicit = store.bool(SettingsKeys.actKeyEnabled) { return explicit }
+        // No explicit choice. The only installs that can have an act binding without one are the
+        // `defaults write in.adityakatare.voiceplus actHotkeyBinding …` era, before there was a
+        // switch to flip — that write *was* the opt-in, so honour it.
+        return store.string(HotkeyService.actBindingDefaultsKey) != nil
+    }
+
+    public static func setEnabled(_ enabled: Bool, store: SettingsStore?) {
+        store?.set(enabled, for: SettingsKeys.actKeyEnabled)
+    }
 }
 
 /// P5 — reading the two presence switches, defaults included, in one place.

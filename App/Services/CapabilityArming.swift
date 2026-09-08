@@ -49,6 +49,10 @@ public protocol HotkeyArming: AnyObject {
     /// Input Monitoring from a requirement into an escape hatch: with the default backends the
     /// answer is nil, so `CapabilityWatcher` has nothing to wait for and arms on the first tick.
     var requiredPermission: Permission? { get }
+    /// The user has switched this key off. Independent of permissions: a disabled key is not armed
+    /// even when every permission is in place, which is what makes "Actions: Off" mean the source
+    /// does not exist rather than merely that its events are dropped.
+    var isDisabledByUser: Bool { get }
     @discardableResult func start() -> Bool
     @discardableResult func rearm() -> Bool
     func stop()
@@ -56,6 +60,7 @@ public protocol HotkeyArming: AnyObject {
 
 public extension HotkeyArming {
     var requiredPermission: Permission? { nil }
+    var isDisabledByUser: Bool { false }
 }
 
 extension HotkeyService: HotkeyArming {}
@@ -228,7 +233,11 @@ public final class CapabilityWatcher {
 
     private func applyArming(canUseGlobalHotkey: Bool) {
         for hotkey in hotkeys {
-            switch CapabilityArming.decision(canUseGlobalHotkey: canUseGlobalHotkey, isArmed: hotkey.isRunning) {
+            // A key the user has turned off is treated exactly like a key whose permission was
+            // revoked: never armed, and torn down if it is. Re-read every tick, so flipping the
+            // switch in Settings takes effect within one second and needs no relaunch.
+            let wanted = canUseGlobalHotkey && !hotkey.isDisabledByUser
+            switch CapabilityArming.decision(canUseGlobalHotkey: wanted, isArmed: hotkey.isRunning) {
             case .arm:
                 if hotkey.start() {
                     revived.remove(ObjectIdentifier(hotkey))
@@ -237,7 +246,7 @@ public final class CapabilityWatcher {
                     Log.app.warning("capabilities: the hotkey backend passed preflight but would not install")
                 }
             case .disarm:
-                Log.app.notice("capabilities: the hotkey backend is no longer authorized — tearing it down")
+                Log.app.notice("capabilities: the hotkey backend is \(hotkey.isDisabledByUser ? "switched off" : "no longer authorized") — tearing it down")
                 hotkey.stop()
                 revived.remove(ObjectIdentifier(hotkey))
             case .hold:
@@ -268,6 +277,8 @@ public final class MockHotkeyArming: HotkeyArming {
     /// Defaults to nil — the shipping backends' answer. Set it to `.inputMonitoring` to model a
     /// service on the legacy event-tap escape hatch.
     public var requiredPermission: Permission?
+    /// Models the act key with Actions switched off.
+    public var isDisabledByUser = false
     public private(set) var isRunning = false
     public private(set) var startCount = 0
     public private(set) var stopCount = 0

@@ -36,6 +36,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     /// about meetings runs (or prompts) until the user does. nil hides the item entirely.
     public var meetingCaptureEnabled: (() -> Bool)?
     public var onToggleMeetingCapture: (() -> Void)?
+    /// P4.2 — the act key (Bet 5's second key). Supplied by the composition root together with the
+    /// store that holds its on/off switch; with either nil the "Actions key" item is not shown at
+    /// all, which keeps every existing shell test's menu unchanged.
+    public var actHotkey: HotkeyService?
+    public var actKeyStore: SettingsStore?
     public var frontmostBundleID: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
 
@@ -135,6 +140,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         let hotkeyItem = NSMenuItem(title: "Dictation key: \(m.hotkeyName)", action: nil, keyEquivalent: "")
         hotkeyItem.submenu = hotkeyMenu
         menu.addItem(hotkeyItem)
+
+        if let actItem = actKeyItem() { menu.addItem(actItem) }
 
         let flagMenu = NSMenu()
         for flag in flags.knownFlags {
@@ -248,6 +255,62 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func pickHotkey(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let kind = HotkeyBinding.Kind(rawValue: raw) else { return }
         hotkey.setBinding(kind)
+    }
+
+    /// The act key gets the same treatment as the dictation key — one submenu, grouped by style —
+    /// plus the entry the dictation key must never have: **Off**. Until 1.7.11 this key was live on
+    /// Right ⌘ on every install and appeared in no menu and no settings pane, so the only way to
+    /// stop it swallowing a keypress was `defaults write`.
+    func actKeyItem() -> NSMenuItem? {
+        guard let actHotkey, let actKeyStore else { return nil }
+        let enabled = ActKeySettings.isEnabled(actKeyStore)
+        let submenu = NSMenu()
+        let off = NSMenuItem(title: "Off", action: #selector(pickActKey(_:)), keyEquivalent: "")
+        off.target = self
+        off.representedObject = ActKeyChoice.off.rawValue
+        off.state = enabled ? .off : .on
+        off.toolTip = "Actions does nothing and no second key is armed."
+        submenu.addItem(off)
+        for (heading, style) in [("Hold a modifier", HotkeyBinding.Style.bareModifier),
+                                 ("Hold a chord", HotkeyBinding.Style.chord)] {
+            let header = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            submenu.addItem(header)
+            for kind in HotkeyBinding.Kind.allCases where kind.style == style {
+                let collides = kind == hotkey.binding.kind
+                let item = NSMenuItem(title: collides ? "\(kind.displayName) — your dictation key" : kind.displayName,
+                                      action: #selector(pickActKey(_:)), keyEquivalent: "")
+                item.target = self
+                item.indentationLevel = 1
+                item.representedObject = kind.rawValue
+                item.state = (enabled && kind == actHotkey.binding.kind) ? .on : .off
+                // Offered, not hidden — a user swapping both keys passes through this state — but
+                // never silently: dictation wins the collision and the act key would stay inert.
+                item.toolTip = collides
+                    ? "Dictation already uses this key. Pick a different one or the Actions key stays inert."
+                    : Self.permissionNote(for: kind, forcingEventTap: actHotkey.forcesEventTap)
+                submenu.addItem(item)
+            }
+        }
+        submenu.addItem(.separator())
+        let note = NSMenuItem(title: "Actions needs a provider pinned for “Actions (voice commands)” in Settings › Models.",
+                              action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        submenu.addItem(note)
+        let item = NSMenuItem(title: "Actions key: \(enabled ? actHotkey.binding.kind.displayName : "Off")",
+                              action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func pickActKey(_ sender: NSMenuItem) {
+        guard let actHotkey, let actKeyStore, let raw = sender.representedObject as? String else { return }
+        guard let kind = HotkeyBinding.Kind(rawValue: raw) else {
+            ActKeySettings.setEnabled(false, store: actKeyStore)   // "Off"
+            return
+        }
+        actHotkey.setBinding(kind)
+        ActKeySettings.setEnabled(true, store: actKeyStore)
     }
 
     @objc private func toggleFlag(_ sender: NSMenuItem) {

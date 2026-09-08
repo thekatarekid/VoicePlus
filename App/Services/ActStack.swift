@@ -57,6 +57,16 @@ public enum ActKeyBinding {
     public static func isDistinct(act: HotkeyBinding, dictation: HotkeyBinding) -> Bool {
         act.kind != dictation.kind
     }
+
+    /// The single predicate that decides whether an act-key edge may open the act domain.
+    ///
+    /// Two independent reasons to stay shut, and both are re-read per event rather than at launch:
+    /// the feature is switched off (`ActKeySettings`, off on a fresh install), or the user has
+    /// bound both keys to the same physical key, in which case dictation wins and the act key is
+    /// inert until it is rebound.
+    public static func isLive(enabled: Bool, act: HotkeyBinding, dictation: HotkeyBinding) -> Bool {
+        enabled && isDistinct(act: act, dictation: dictation)
+    }
 }
 
 /// P4.5 — Providers-backed `PlannerLLM` over the same `RoutingTable` the pipeline uses (every

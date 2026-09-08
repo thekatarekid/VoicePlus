@@ -42,6 +42,58 @@ public enum HotkeyChoice: String, CaseIterable, Identifiable, Sendable {
     public static let `default`: HotkeyChoice = .rightOption
 }
 
+/// What the **act key** (Bet 5's second key, the one that opens a voice-command session) is bound
+/// to — including "nothing at all", which until 1.7.11 was not expressible.
+///
+/// One control, not two. A separate key picker and an on/off toggle would let a user pick a key and
+/// still have a dead feature, or switch Actions on with no key; folding "Off" into the picker makes
+/// the state legible in a single line of the menu and a single row in Settings.
+public enum ActKeyChoice: Hashable, Identifiable, Sendable {
+    /// Actions is switched off: the key is never armed and nothing it does reaches the act domain.
+    case off
+    case key(HotkeyChoice)
+
+    public var id: String { rawValue }
+
+    public var rawValue: String {
+        switch self {
+        case .off: return "off"
+        case .key(let choice): return choice.rawValue
+        }
+    }
+
+    public init?(rawValue: String) {
+        if rawValue == "off" { self = .off; return }
+        guard let choice = HotkeyChoice(rawValue: rawValue) else { return nil }
+        self = .key(choice)
+    }
+
+    public var title: String {
+        switch self {
+        case .off: return "Off"
+        case .key(let choice): return choice.title
+        }
+    }
+
+    public var hotkeyChoice: HotkeyChoice? {
+        if case .key(let choice) = self { return choice }
+        return nil
+    }
+
+    /// Off first: it is the default, and the first thing a reader of the picker should see is that
+    /// switching the feature off is an option.
+    public static var allCases: [ActKeyChoice] { [.off] + HotkeyChoice.allCases.map(ActKeyChoice.key) }
+
+    /// Off. Actions needs a cloud provider pinned for `act.planner` before it can do anything at
+    /// all, so an armed-by-default act key can only ever swallow a keypress and report that the
+    /// provider is missing. See `ActKeySettings`.
+    public static let `default`: ActKeyChoice = .off
+
+    /// What the act key falls back to when the user switches Actions on without ever having picked
+    /// a key. Right ⌘ — the pre-1.7.11 default, kept so an upgrade lands where it used to.
+    public static let suggestedKey: HotkeyChoice = .rightCommand
+}
+
 @MainActor
 public final class GeneralSettingsViewModel: ObservableObject {
     /// Writes both keys: its own (`SettingsKeys.hotkey`, kept so nothing that reads it breaks) and
@@ -54,6 +106,18 @@ public final class GeneralSettingsViewModel: ObservableObject {
             store.set(hotkey.binding.rawValue, for: HotkeyService.bindingDefaultsKey)
         }
     }
+    /// P4.2 — the act key, including Off. Writes the same `actHotkeyBinding` key `HotkeyService`
+    /// loads the second service's binding from, plus the switch the arming rule reads, so the
+    /// running app picks both up on its next tick rather than at the next launch.
+    @Published public var actKey: ActKeyChoice {
+        didSet {
+            if let choice = actKey.hotkeyChoice {
+                store.set(choice.binding.rawValue, for: HotkeyService.actBindingDefaultsKey)
+            }
+            ActKeySettings.setEnabled(actKey != .off, store: store)
+        }
+    }
+
     /// The escape hatch, and the only setting in the app that can make VoicePlus need Input
     /// Monitoring. Off by default and stays off unless a user with a broken global monitor turns it
     /// on deliberately.
@@ -67,6 +131,22 @@ public final class GeneralSettingsViewModel: ObservableObject {
             ? "Legacy event tap: needs Input Monitoring in Privacy & Security, and macOS only hands that one over when VoicePlus next launches — so you'll be asked to quit and reopen."
             : hotkey.permissionNote
     }
+    /// True when the act key would land on the same physical key as dictation. Not an error the
+    /// picker refuses — the user may be mid-way through swapping both — but a state the UI has to
+    /// say out loud, because the consequence (the act key silently does nothing) is invisible.
+    public var actKeyCollidesWithDictation: Bool { actKey == .key(hotkey) }
+
+    /// What the current act-key choice actually means, said where the choice is made.
+    public var actKeyNote: String {
+        guard let choice = actKey.hotkeyChoice else {
+            return "Off. Nothing is listening on a second key. Actions needs a provider pinned for “Actions (voice commands)” under Models before it can do anything, so it ships off."
+        }
+        if actKeyCollidesWithDictation {
+            return "\(choice.binding.displayName) is already your dictation key. Dictation wins — the Actions key stays inert until you pick a different one."
+        }
+        return "Hold \(choice.binding.displayName) and say a command. Needs a provider pinned for “Actions (voice commands)” under Models."
+    }
+
     /// P5 — the persistent indicator near the notch. Default ON.
     @Published public var presenceIndicator: Bool {
         didSet { PresenceSettings.setEnabled(presenceIndicator, store: store) }
@@ -83,6 +163,9 @@ public final class GeneralSettingsViewModel: ObservableObject {
         hotkey = store.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyChoice.init(rawValue:))
             ?? store.string(SettingsKeys.hotkey).flatMap(HotkeyChoice.init(rawValue:))
             ?? .default
+        let actBinding = store.string(HotkeyService.actBindingDefaultsKey)
+            .flatMap(HotkeyChoice.init(rawValue:)) ?? ActKeyChoice.suggestedKey
+        actKey = ActKeySettings.isEnabled(store) ? .key(actBinding) : .off
         forceEventTap = store.bool(HotkeyService.forceEventTapDefaultsKey) ?? false
         presenceIndicator = PresenceSettings.isEnabled(store)
         presenceHideInFullScreen = PresenceSettings.hidesInFullScreen(store)
@@ -125,6 +208,18 @@ public struct RoutableStage: Identifiable, Hashable, Sendable {
     public let id: StageID
     public let title: String
     public let acceptsProviders: Bool
+    /// Whether a local model can serve this stage. False for the act planner, which has no local
+    /// implementation at all: offering "Local · balanced" there would be a second way to be told to
+    /// do something that cannot work.
+    public let acceptsLocal: Bool
+
+    public init(id: StageID, title: String, acceptsProviders: Bool, acceptsLocal: Bool = true) {
+        self.id = id
+        self.title = title
+        self.acceptsProviders = acceptsProviders
+        self.acceptsLocal = acceptsLocal
+    }
+
     public static let all: [RoutableStage] = [
         .init(id: .asr, title: "Transcription", acceptsProviders: false),
         .init(id: .formatterEmail, title: "Email formatting", acceptsProviders: true),
@@ -132,6 +227,14 @@ public struct RoutableStage: Identifiable, Hashable, Sendable {
         .init(id: .formatterCode, title: "Code formatting", acceptsProviders: true),
         .init(id: .formatterProse, title: "Prose formatting", acceptsProviders: true),
         .init(id: .style, title: "Style", acceptsProviders: true),
+        // 1.7.11 — the act planner was routable in every sense except the one that mattered: the
+        // pill told users to set a model for Actions "in Settings" and there was no such row, so
+        // the only way to configure it was a `defaults write` of this exact key. It reads
+        // `routing.act.planner` through the same `SettingsKeys.routingPrefix` as every stage above,
+        // so listing it here is all that was ever missing. Appended, not inserted: the routing
+        // tests address this array by index.
+        .init(id: ProviderPlanner.stage, title: "Actions (voice commands)",
+              acceptsProviders: true, acceptsLocal: false),
     ]
 }
 
@@ -156,7 +259,8 @@ public final class ModelsSettingsViewModel: ObservableObject {
     public func choice(for stage: StageID) -> ProviderChoice { routing[stage] ?? .auto }
 
     public func options(for stage: RoutableStage) -> [ProviderChoice] {
-        var out: [ProviderChoice] = [.auto] + ModelTier.allCases.map(ProviderChoice.local)
+        var out: [ProviderChoice] = [.auto]
+        if stage.acceptsLocal { out += ModelTier.allCases.map(ProviderChoice.local) }
         if stage.acceptsProviders { out += connectedProviders.map(ProviderChoice.provider) }
         return out
     }

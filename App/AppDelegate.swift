@@ -165,8 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The act key must be a *different* key from the dictation key. Re-checked per event
             // rather than at launch, because either binding can change from Settings while the
             // app runs. See `ActKeyBinding`.
-            guard let self, ActKeyBinding.isDistinct(act: self.actHotkey.binding, dictation: self.hotkey.binding) else {
-                Log.app.notice("act key is bound to the same key as dictation — the act domain stays closed so dictation lands normally")
+            guard let self,
+                  ActKeyBinding.isLive(enabled: ActKeySettings.isEnabled(container?.settings),
+                                       act: self.actHotkey.binding, dictation: self.hotkey.binding) else {
+                Log.app.notice("act key is switched off or bound to the dictation key — the act domain stays closed so dictation lands normally")
                 return
             }
             if case .startCapture = action {
@@ -238,6 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                           hotkey: hotkey, updater: updater)
         status.activeModelName = { [weak container] in container?.activeModelName ?? "—" }
         status.micName = { [weak container] in container?.microphoneName ?? "Default microphone" }
+        status.actHotkey = actHotkey
+        status.actKeyStore = container.settings
         status.corrections = container.correction.ledger
         status.correctionSettings = container.settings
         status.correctionRevertSink = { [weak container] in container?.repair.replaceSink }
@@ -304,6 +308,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // twenty minutes and no tap had ever been created, because the walk was parked on the
         // Accessibility pre-prompt — a permission the hotkey does not need. That is the whole of the
         // "it needs a relaunch" symptom: the app only ever tried once, at the wrong moment.
+        // Actions ships off (`ActKeySettings`): with the switch off the act service is never armed
+        // at all, so the key it is bound to reaches the frontmost app untouched. Read per tick, so
+        // the Settings picker takes effect within a second and without a relaunch.
+        actHotkey.isWanted = { [weak container] in ActKeySettings.isEnabled(container?.settings) }
         let watcher = CapabilityWatcher(checker: permissionChecker, hotkeys: [hotkey, actHotkey])
         watcher.onCapabilitiesChanged = { [weak self] caps, _ in
             self?.statusItem?.capabilities = caps
