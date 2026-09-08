@@ -1062,6 +1062,154 @@ clean, 1347 tests passing.** 1 commit (`30911bb`) on top of
   everything across 1.7.10–1.7.12 is covered against protocols, mocks and synthesised trees on disk.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
 
+### 1.7.13 — every speech model was downloaded twice
+
+**After choosing a model the owner watched "Warming up…" for well over a minute**, and then found
+**two byte-identical 468 MB copies of Parakeet TDT v3** on disk. The wait was real work — it was just
+work that had already been done once.
+
+**Root cause: VoicePlus stored the model in a folder FluidAudio would never look in, and then asked
+FluidAudio to load from it.** The folder was named from **`ModelID.rawValue`**
+(`parakeet-tdt-0.6b-v3-coreml`), but **`AsrModels.load(from:)` ignores the directory it is passed** —
+it takes the **parent** as a models root and asks **`ModelHub`** to resolve the name itself, and
+**`Repo.folderName` strips `-coreml`**, so it descended into **`parakeet-tdt-0.6b-v3`**. Finding that
+**empty**, it **re-downloaded the entire model from HuggingFace**. **Only `parakeet_vocab.json` was
+ever read from our own copy.** Measured from the owner's log: the duplicate download cost roughly
+**81 seconds** of the wait, on top of a genuinely one-time **~19 second Neural Engine compile**. **All
+tiers were affected** — one naming rule, one loader.
+
+**What ships.**
+- **The on-disk folder name now comes from `ModelDescriptor.folderName`**, decoupled from
+  **`ModelID.rawValue`** — which stays the model's **stable identity**, since it is `Codable` and is
+  already written into every `voiceplus-manifest.json` on disk — and set to **FluidAudio's own
+  `Repo.folderName`**, so **the path it resolves is the path we wrote**.
+- **`ModelCatalog.fluidAudioFolderName(for:)` reads `Repo.folderName` out of the dependency** rather
+  than repeating the string, and **a test pins our name to FluidAudio's**: an **upstream rename fails
+  the build here** instead of costing every user another **468 MB**.
+- **The EOU model keeps its own name** — `StreamingEouAsrManager.loadModels(from:)` opens the files
+  **in the directory it is given** and never re-downloads, so it was never affected.
+- **New `Engine/ASRRuntime/ModelLayoutMigration.swift` runs from `ModelManager.init`** and leaves
+  **exactly one folder per model, re-downloading nothing**: a **lone legacy folder is renamed**; where
+  **both** exist the **complete one is kept** (ours first, since it carries the manifest) and the
+  **orphan deleted**. Publishing is a **swap**, so a failure leaves a working model under *some* name
+  rather than none. **Nobody re-downloads, and an affected user reclaims 461 MB on first launch.**
+- **`BiasVocabulary.discoverParakeet` builds its candidates from the descriptor**, legacy name
+  included — it is the one thing that ever read from our own copy, so a hard-coded name there would
+  have **stopped finding it the moment the migration ran**.
+
+**Verified against the real 461 MB model on disk** with **`ModelHub.offlineMode = true`**, so nothing
+*could* be fetched: the **new** path loads with *"no download needed"*; the **old** path reports the
+model **missing** — **exactly where it used to re-fetch**.
+
+**Also fixed: the weakest model went first.** `BundledModel.firstLaunchOrder` was a constant headed by
+the **110M TDT-CTC** tiny model, so a user who **already had the far better 0.6B v3** could still end
+up on the tiny one. It is now **a function of what is already installed**, and **`chooseFinal` and
+`bestFinalModelOnDisk` read one shared ranking** (`BundledModel.finalModelsByQuality`) rather than
+duplicating the same quality order in three places. **Cold start is unchanged** — tiny first, because
+110 MB is what makes dictation work in seconds.
+
+**New `Tests/EngineTests/ModelLayoutTests.swift` — 14 tests**, one of them **pinning our folder name to
+FluidAudio's `Repo.folderName` read out of the library**; the rest cover the round trip landing where
+we wrote, a lone legacy folder being renamed, both folders collapsing to the complete one, the
+migration fetching nothing, and `firstLaunchOrder` preferring an installed better model while cold
+start stays tiny-first. `ASRModelManagerTests`, `ModelIntegrityTests` and `OnboardingDictationTests`
+updated — two of them had the old folder name spelled out. **`swift build` clean**; the full-package
+test total is recorded at the release build. 2 commits (`6e45b4e`, `dfdad8a`) on top of 1.7.12. Ships
+in the 1.7.14 dmg.
+
+**Untested / honest limits:**
+- **The reclaim is unverified against a real duplicate pair on a user's disk** — the migration is
+  covered against **synthesised trees**, and the load path is confirmed against the **real 461 MB
+  model offline**, but nobody here has the owner's actual two-copy layout.
+- **The real HuggingFace download remains unverified** — pre-existing since 1.7.2, unchanged here.
+- **No agent on this machine has a microphone or hardware**, so the warm-up timing is read from the
+  owner's log rather than reproduced.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.14 — the Actions key could not be rebound or turned off
+
+**The owner pressed Right ⌘ expecting to dictate and got *"Actions need a model set up in Settings"*.**
+**Right ⌘ was their _Actions_ key; dictation was Right ⌥** — so the message was, strictly, correct, and
+**their dictation was never broken.** But two things about that were genuinely wrong, and both have the
+same root cause: **the Actions feature shipped with no UI at all.**
+
+**Root cause, first half: the message named a Settings row that did not exist.** **`act.planner` was
+not among the routable stages**, so there was **nothing in the UI to configure** and the only route was
+a **`defaults write`**. It is now routable and appears as **"Actions (voice commands)"** under Models,
+persisted through the **same `routing.<stage>` key** as every other stage — the exact key the old
+workaround used — and offers **Auto and connected providers only**, with **no misleading local option**,
+because **there is no local planner** and a *"Local · balanced"* row would have been a **second
+unreachable instruction**.
+
+**Root cause, second half: the Actions key had no UI at all.** **Nothing wrote `actHotkeyBinding`**, it
+appeared in **no menu and no settings pane**, and there was **no way to disable it** — so **every fresh
+install shipped a live Right ⌘** that users would **press by accident**, with **no discoverable way to
+change or silence it**.
+
+**What ships.**
+- **The Actions key is rebindable from both the menu-bar item and Settings › General**, with **"off"
+  folded into the same picker**, so **you cannot end up with a live key and a dead feature** — which is
+  exactly the state the owner was in.
+- **The default is now off.** **Actions can do nothing until a provider is pinned**, so an
+  armed-by-default key could only **swallow a keypress and report a missing provider**. **Installs that
+  had set the binding by hand keep their opt-in.**
+- **Off means the event source is never installed**, not that its events are dropped — `CapabilityWatcher`
+  treats a switched-off key like a **revoked permission** — and the switch is **re-read each tick**, so
+  the picker **takes effect within a second without a relaunch**.
+- **The 1.7.10 collision guard is byte-for-byte unchanged.** It now sits behind **`ActKeyBinding.isLive`**,
+  which only **ANDs a second reason to stay shut** onto `isDistinct`: **bind both to the same key and
+  dictation still wins**. Both pickers **label the colliding key rather than hiding it**.
+
+**New `Tests/AppTests/ActKeySettingsTests.swift` — 14 tests**: `act.planner` is a routable stage whose
+pin **persists under `routing.act.planner`**; the act key is **off on a fresh install**, **rebindable**
+and **silenceable**; a switched-off key is **inert for every pairing of the two bindings** *and* is
+**never armed by `CapabilityWatcher` at all**; arming **re-reads a binding written while the key was
+off**; and the **1.7.10 `isDistinct` guard is unchanged**. **`swift build` clean**; the full-package
+test total is recorded at the release build. 2 commits (`86c41da`, `59ad925`) on top of 1.7.12,
+interleaved in history with 1.7.13's. **This is the dmg — it carries 1.7.13 as well**, and a further
+fix may still land before the release build.
+
+**Untested / honest limits:**
+- **That a switched-off Actions key is silent under a real key press is unverified**, as is **that
+  rebinding it from either picker arms the new key without a relaunch** — no agent here has a keyboard
+  event tap, a microphone or a window server; the switch, the arming rule and the collision guard are
+  covered against protocols and mocks.
+- **Every visual judgement is unverified** — the new picker in **Settings › General** and in the
+  **menu-bar item**, and how the colliding key is labelled. The wording is tested; its appearance is not.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### Accuracy investigations (2026-09-08, alongside 1.7.13/1.7.14) — the noise gate and biasing are both cleared
+
+**Two plausible diagnoses of the dictation-accuracy problem, both refuted by measurement rather than
+confirmed.** Neither changed any behaviour; both closed a real test gap, and both are written down so
+nobody re-derives them.
+
+- **The always-on spectral-gate noise suppressor was the first suspect. It is _better_, not worse.**
+  Measured **through** the acoustic chain — 100 ms blocks, as `AcousticCaptureSource` feeds it — over
+  **12 clean fixtures**: **`.raw` mean WER 0.0291 versus `.default` 0.0140**, and `.default` is equal or
+  better at **every point of a 45→15 dB SNR room-floor sweep**. The pangram scored **WER 0.000 on both
+  paths** across **3 accents and ±30 dB room floors**. The gate **does** mangle the waveform — **mean
+  SDR 10.9 dB**, against a ~117 dB passthrough control — but **Parakeet is robust to it**, so a low SDR
+  through this chain is **not by itself evidence of an accuracy bug**. A **through-the-chain WER
+  regression test** now sits **alongside the existing bypass test**, so this class of question is
+  **answered by measurement in future**. Recorded in `Engine/Audio/Robustness/SUITES.md`;
+  `Tests/EngineTests/AcousticChainWERTests.swift`. 1 commit (`429638b`).
+- **Biasing was suspected next. It was measured too.** **`FeatureFlag.contextBiasing` is off by
+  default** and **no flags file exists on this machine**, so **no biaser was installed at all**; and
+  **even enabled, the rescorer only adjusts the confidence of tokens already chosen** — it runs
+  **after** greedy TDT has finished and **cannot substitute a word**. **Byte-identical output on all 12
+  fixtures, WER 0.0291 both ways.** The new coverage exercises the decoder **as `AppContainer` actually
+  builds it** — a configuration that had **never been tested**, because every existing test resolved the
+  recognizer through `RecognizerFactory` and left the biaser nil. **Privacy was confirmed clean along
+  the way**: screen context is **accessibility-only**, held **in memory**, **rebuilt per utterance**,
+  and **never written to disk**. Recorded in `Engine/Biasing/README.md`;
+  `Tests/EngineTests/BiasedDecodeWERTests.swift` and `Tests/AppTests/ShippingDecoderConfigTests.swift`.
+  1 commit (`4158ec4`).
+
+**Recorded honestly: the live-microphone accuracy issue remains unresolved.** The **model, the decoder,
+the DSP and the post-processing are all measured clean on fixture audio**, so **the remaining suspect is
+live capture itself**. Nothing in 1.7.13 or 1.7.14 claims to have fixed it.
+
 ### Test-harness safety fix (2026-09-06, post-1.6.6)
 
 `Packaging/verify_install.sh` terminated processes by **name**: its cleanup trap ran `pkill -x VoicePlus`, so a verification run killed the **user's own running /Applications instance** mid-session (pid 76823 — it had to be relaunched by hand). A run during dictation would have lost the transcript. All three name-based kills are gone: the script records the pid of the instance it launched (matched by *executable path* against its own temp copy, normalised with `pwd -P` because `mktemp` returns `/var/…` while `ps` reports `/private/var/…`) and signals only that pid, guarded by `kill -0`; INT/TERM route through the same scoped cleanup so an interrupted run cannot orphan its own instance; pre-existing instances are listed before and after the run as a visible assertion they were left alone. `soak.sh`'s sampler kill was already pid-scoped (guarded against an unset `SAMPLER`); `reset_tcc.sh` kills nothing — it asks the user to quit the app, which stays the rule: **no script may stop a user's instance silently.** Verified against `VoicePlus_6_1.6.6.dmg` with two other instances running (/Applications and `Packaging/build/`): verify OK, its own instance stopped, both others still alive; same when the run was SIGTERM'd mid-flight (exit 143, no orphan, temp dir removed).
