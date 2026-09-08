@@ -70,3 +70,53 @@ passthrough) → `SpectralGateNoiseSuppressor` (toggle per profile) → sink; Bl
 `VoiceProcessingCaptureSource` is the Apple-AEC variant of `CoreAudioCaptureSource`.
 `BluetoothInputDetector.assess(device)` classifies SCO 8k/16k as low-quality and yields a `MicQuality` + message.
 See `Robustness/SUITES.md` for the Lab fixture registration and `Robustness/AEC.swift` for license notes.
+
+## Which microphone, and proving what it captured (1.7.13)
+
+**Device choice.** `InputSelectionPolicy` gave the system default `+50`, which dwarfs every
+transport score — so the moment AirPods connect and macOS makes them the default input, dictation
+dropped onto an HFP/SCO link at 8 kHz (CVSD) or 16 kHz (mSBC): telephony bandwidth, and exactly the
+input that produces phonetically-adjacent errors. That bonus is now withheld from a narrowband
+Bluetooth mic (`BluetoothInputMode.isNarrowbandSpeech`), so the built-in or a USB mic wins instead.
+It is still chosen when it is the only input, an explicit user pin (`audio.input.preferredUID`)
+still overrides, and wideband Bluetooth (≥24 kHz, LE Audio) is untouched. `InputSelectionPolicy.decide`
+returns `Choice.avoidedNarrowbandBluetooth` so the substitution can be stated rather than made
+silently — `CoreAudioCaptureSource.prewarm()` logs it, and Settings › General › Microphone says it.
+
+**`UtteranceRecorder` — the diagnostic that settles an accuracy report.** Opt-in, off by default,
+local only, newest 20 utterances kept. Wired into `AcousticCaptureSource`, which writes both sides
+of the chain: `<stamp>-raw.wav` (what capture delivered, pre-DSP), `<stamp>-processed.wav` (what the
+recognizer got), and `<stamp>.json` (device, transport, nominal rate, capture-graph summary,
+profile, level stats). Files land in `~/Library/Application Support/VoicePlus/Recordings`.
+
+### Capturing and replaying one bad dictation
+
+1. Settings › General › Microphone → turn on **“Save recordings of what I dictate.”** The note
+   under it turns orange while it is on; nothing is uploaded.
+2. Dictate the sentence that comes out wrong. Note what you actually said.
+3. Turn the toggle back off.
+4. Replay it through the real model:
+
+   ```sh
+   eval "$(Scripts/bootstrap-toolchain.sh)"
+   VOICEPLUS_REPLAY_TEXT="the quick brown fox jumps over the lazy dog" \
+     swift test --scratch-path .build-capture --filter replaySavedRecordings
+   ```
+
+   Add `VOICEPLUS_REPLAY=/path/to/one-raw.wav` to replay a single file or another folder.
+
+The output prints, per recording, the manifest, the level, what the model heard, and the WER.
+Reading it:
+
+| What you see | What it means |
+|---|---|
+| Replay WER is low, live dictation was wrong | The audio was fine; the fault is downstream of capture (landing, post-processing). |
+| Replay WER is high, and the audio sounds fine to you | Capture is faithful; the model is genuinely failing on this voice/room. |
+| `-raw` scores well but `-processed` badly | The acoustic chain is the culprit — compare against `RobustnessProfile.raw`. |
+| `deviceRate` is 8000/16000 with `transport=bluetooth` | Captured over a Bluetooth phone-call link. Pick the Mac's mic. |
+| `rms` far below −40 dBFS | Input gain is very low; raise it in System Settings › Sound › Input. |
+
+`Tests/EngineTests/LiveCapturePathWERTests.swift` covers the link the fixture suites cannot: at
+16 kHz `AudioConverter16k` is a **no-op**, so no test had ever exercised the 44.1 kHz tap conversion
+a real mic forces. Measured on this hardware: WER 0.0140 identically at 16 k, 44.1 k and 48 k, and
+flat from −20 to −60 dBFS. Resampling and absolute level are both ruled out.

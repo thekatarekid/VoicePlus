@@ -15,6 +15,9 @@ public struct SettingsView: View {
     @ObservedObject var sync: SyncSettingsViewModel
     let deps: OnboardingDependencies
     @Binding var selectedTab: SettingsTab
+    /// Owned here rather than injected: it reads and writes the `UserDefaults` keys the engine
+    /// already owns, so there is nothing for the container to hold on its behalf.
+    @StateObject private var audio = AudioInputSettingsViewModel()
 
     public var body: some View {
         TabView(selection: $selectedTab) {
@@ -47,6 +50,29 @@ public struct SettingsView: View {
             Text(general.actKeyNote).font(.caption)
                 .foregroundStyle(general.actKeyCollidesWithDictation ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .accessibilityIdentifier("settings.actKeyNote")
+            Section("Microphone") {
+                Picker("Microphone", selection: $audio.selection) {
+                    Text("Automatic").tag(AudioInputSettingsViewModel.automatic)
+                    ForEach(audio.devices) { Text(audio.title(for: $0)).tag($0.uid) }
+                }
+                .accessibilityIdentifier("settings.microphone")
+                Text(audio.note).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings.microphoneNote")
+                Toggle("Save recordings of what I dictate", isOn: $audio.saveRecordings)
+                    .accessibilityIdentifier("settings.saveRecordings")
+                Text(audio.saveRecordings
+                     ? "ON — every dictation is being saved as audio on this Mac, so a bad transcription can be replayed and diagnosed. Nothing is uploaded and nothing leaves this Mac. Turn it off when you're done."
+                     : "Off. Turn this on only to chase down bad accuracy: it saves each dictation's audio on this Mac so it can be replayed. Nothing is ever uploaded.")
+                    .font(.caption)
+                    .foregroundStyle(audio.saveRecordings ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .accessibilityIdentifier("settings.saveRecordingsNote")
+                HStack {
+                    Text(audio.recordingsSummary).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Show in Finder") { audio.revealRecordings() }
+                    Button("Delete all", role: .destructive) { audio.deleteRecordings() }
+                }
+            }
             Toggle("Use the legacy event-tap listener", isOn: $general.forceEventTap)
                 .accessibilityIdentifier("settings.forceEventTap")
             Text("Only if the dictation key stops responding. This is the pre-1.6.8 mechanism: it needs VoicePlus in Privacy & Security › Input Monitoring, and macOS hands that permission over only at launch, so you have to quit and reopen. Everything else here needs no permission at all.")

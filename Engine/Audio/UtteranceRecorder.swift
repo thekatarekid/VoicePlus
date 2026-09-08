@@ -161,7 +161,7 @@ public final class UtteranceRecorder: @unchecked Sendable {
     }
 
     /// The stamp shared by an utterance's three files (`2026-09-08-231455-123-raw.wav` → the date part).
-    static func stamp(of url: URL) -> String {
+    public static func stamp(of url: URL) -> String {
         let name = url.deletingPathExtension().lastPathComponent
         for suffix in ["-raw", "-processed"] where name.hasSuffix(suffix) {
             return String(name.dropLast(suffix.count))
@@ -180,15 +180,15 @@ public final class UtteranceRecorder: @unchecked Sendable {
     /// Digital silence is `-inf` dBFS, and JSON has no way to write that — encoding one would throw
     /// and take the whole recording with it, exactly when a silent capture is the thing worth
     /// keeping. Floored at −200 dBFS, which no real signal reaches.
-    static let silenceFloorDBFS: Double = -200
+    public static let silenceFloorDBFS: Double = -200
 
-    static func rmsDBFS(_ s: [Float]) -> Double {
+    public static func rmsDBFS(_ s: [Float]) -> Double {
         guard !s.isEmpty else { return silenceFloorDBFS }
         let mean = s.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(s.count)
         return mean > 0 ? max(20 * log10(sqrt(mean)), silenceFloorDBFS) : silenceFloorDBFS
     }
 
-    static func peakDBFS(_ s: [Float]) -> Double {
+    public static func peakDBFS(_ s: [Float]) -> Double {
         let peak = s.reduce(0.0) { max($0, abs(Double($1))) }
         return peak > 0 ? max(20 * log10(peak), silenceFloorDBFS) : silenceFloorDBFS
     }

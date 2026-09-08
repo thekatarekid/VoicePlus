@@ -1,4 +1,6 @@
+import AppKit
 import Combine
+import Engine
 import Foundation
 import GRDB
 import Shared
@@ -367,5 +369,108 @@ public final class DataPanelViewModel: ObservableObject {
         entries = (try? database?.networkLog(limit: 200)) ?? []
         let dayStart = Calendar.current.startOfDay(for: Date())
         bytesOutToday = (try? database?.bytesEgressed(since: dayStart)) ?? 0
+    }
+}
+
+// MARK: - Microphone
+
+/// The microphone picker and the recording diagnostic, in one place because they answer the same
+/// question: *which* mic is this, and can I prove what it captured?
+///
+/// Both read and write the keys the engine already owns — `InputSelectionPolicy.preferredUIDKey`
+/// and `UtteranceRecorder.defaultsKey` in `UserDefaults.standard` — so nothing here is a second
+/// source of truth for a setting the capture source reads.
+@MainActor
+public final class AudioInputSettingsViewModel: ObservableObject {
+    /// Sentinel for "let VoicePlus decide", which is the default and what most people should keep.
+    public static let automatic = ""
+
+    @Published public private(set) var devices: [AudioDeviceInfo] = []
+    @Published public private(set) var systemDefault: AudioDeviceInfo?
+
+    /// A device UID, or `automatic`.
+    @Published public var selection: String {
+        didSet {
+            policy.preferredUID = selection == Self.automatic ? nil : selection
+            objectWillChange.send()
+        }
+    }
+
+    /// Opt-in local audio capture. Off unless the owner turns it on, and loud about being on.
+    @Published public var saveRecordings: Bool {
+        didSet { UtteranceRecorder.setEnabled(saveRecordings, defaults) }
+    }
+
+    private let defaults: UserDefaults
+    private let policy: InputSelectionPolicy
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.policy = InputSelectionPolicy(defaults: defaults)
+        self.selection = policy.preferredUID ?? Self.automatic
+        self.saveRecordings = UtteranceRecorder.isEnabled(defaults)
+        refresh()
+    }
+
+    public func refresh() {
+        devices = AudioDeviceEnumerator.inputDevices()
+        systemDefault = AudioDeviceEnumerator.defaultInputDevice()
+        // A device that was unplugged since the choice was made would otherwise show a blank picker.
+        if selection != Self.automatic, !devices.contains(where: { $0.uid == selection }) {
+            selection = Self.automatic
+        }
+    }
+
+    public func title(for device: AudioDeviceInfo) -> String {
+        var t = device.name
+        if device.uid == systemDefault?.uid { t += " (system input)" }
+        if BluetoothInputDetector.mode(for: device).isNarrowbandSpeech { t += " — low quality" }
+        return t
+    }
+
+    /// What the automatic choice resolves to *right now*, including the case the whole rule exists
+    /// for. Said in the picker, because a silent substitution is the thing being fixed.
+    public var note: String {
+        let decision = policy.decide(from: devices, systemDefault: systemDefault)
+        if selection != Self.automatic {
+            guard let chosen = devices.first(where: { $0.uid == selection }) else {
+                return "That microphone isn't connected. VoicePlus is choosing automatically until it is."
+            }
+            if BluetoothInputDetector.mode(for: chosen).isNarrowbandSpeech {
+                return "\(chosen.name) is a Bluetooth headset mic: macOS runs it at \(Int(chosen.sampleRate)) Hz "
+                     + "over a phone-call link, which noticeably hurts accuracy. Switch to Automatic to use the Mac's mic instead."
+            }
+            return "Dictation always uses \(chosen.name)."
+        }
+        if let avoided = decision.avoidedNarrowbandBluetooth, let using = decision.device {
+            return "\(avoided.name) is your system input, but its mic runs at \(Int(avoided.sampleRate)) Hz over "
+                 + "Bluetooth — phone-call quality. VoicePlus is using \(using.name) instead, which is more accurate. "
+                 + "Pick \(avoided.name) above if you'd rather have it."
+        }
+        guard let using = decision.device else { return "No microphone is connected." }
+        return "Using \(using.name). VoicePlus follows your system input, except for Bluetooth headset mics, "
+             + "which macOS drops to phone-call quality."
+    }
+
+    // MARK: recordings
+
+    public var recordingsDirectory: URL { UtteranceRecorder.directory() }
+
+    /// Counts whole utterances, not files, so the number matches what a person would count.
+    public var recordingsSummary: String {
+        let files = (try? FileManager.default.contentsOfDirectory(at: recordingsDirectory, includingPropertiesForKeys: nil)) ?? []
+        let count = Set(files.map(UtteranceRecorder.stamp(of:))).count
+        guard count > 0 else { return "No recordings saved yet." }
+        return "\(count) recording\(count == 1 ? "" : "s") saved on this Mac. Only the most recent \(UtteranceRecorder.retainedUtterances) are kept."
+    }
+
+    public func revealRecordings() {
+        try? FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([recordingsDirectory])
+    }
+
+    public func deleteRecordings() {
+        try? FileManager.default.removeItem(at: recordingsDirectory)
+        objectWillChange.send()
     }
 }

@@ -191,7 +191,11 @@ private func sine(_ hz: Double, rate: Int, seconds: Double, amp: Float = 0.5) ->
     @Test func skipsDisplayAndVirtualDefaults() {
         let p = InputSelectionPolicy(defaults: defaults())
         #expect(p.choose(from: [builtIn, monitor, loopback], systemDefault: monitor)?.uid == "builtin")
-        #expect(p.choose(from: [builtIn, airpods], systemDefault: airpods)?.uid == "airpods")
+        // Changed in 1.7.13. This used to expect "airpods": being the system default was decisive,
+        // so dictation followed macOS onto the HFP/SCO mic the moment AirPods connected — 16 kHz
+        // telephony bandwidth, and a large accuracy cost paid silently. A narrowband Bluetooth mic
+        // no longer collects the system-default bonus. See `UtteranceRecorderTests` for the rest.
+        #expect(p.choose(from: [builtIn, airpods], systemDefault: airpods)?.uid == "builtin")
         #expect(p.choose(from: [monitor, loopback], systemDefault: loopback)?.uid == "monitor")
     }
 
