@@ -832,7 +832,7 @@ the sum of its catalogue entries**, so the advertised figures cannot drift again
 containment line appearing before any download, "Included with Best" only for a tier the user did not
 press, "Installed" surviving for one they did, "Switching downloads nothing." fetching nothing, and the
 shared row explaining itself with no press history. **Full package: `swift build` clean, 1313 tests
-passing.** 1 commit (`3842440`) on top of 1.7.7. **Carries 1.7.4, 1.7.5, 1.7.6 and 1.7.7 in its dmg.**
+passing.** 1 commit (`3842440`) on top of 1.7.7. **Ships in the 1.7.9 dmg.**
 
 **Untested / honest limits:**
 - **Whether "Included with Best" reads correctly in its column is unverified** — no window server, so
@@ -841,6 +841,62 @@ passing.** 1 commit (`3842440`) on top of 1.7.7. **Carries 1.7.4, 1.7.5, 1.7.6 a
   composition arithmetic is computed from the catalogue and pinned by test; the bytes are not fetched by
   anyone here.
 - **The badly-wrong hotkey transcription is still unconfirmed on hardware** — see 1.7.7.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.9 — dictation no longer types a paragraph of your document instead of your words
+
+**The most alarming thing the owner reported.** Dictating *"The quick brown fox jumps over the lazy dog"*
+through the **hotkey** landed **completely wrong text**, while the **same sentence** through
+**onboarding** was accurate — same model, same microphone, same session.
+
+**Root cause: it was never audio and never recognition — the app's own learned-corrections system was
+poisoning itself.** `ZeroEditTracker` finalised an edit with `finalText` set to the **entire focused
+field's accessibility value** — the whole document the user was typing into — while `originalText` was
+just the one utterance (`Lab/Counter/ZeroEditTracker.swift:126`). `AdaptationService.ingestEdit` then
+**word-diffed a single utterance against a whole document**, and `BiasListLearner` dutifully stored the
+result as corrections — variants mapping an ordinary word like **"the"** to **two paragraphs of the
+user's own document** (`Engine/Adapt/AdapterTrainer.swift:84-90`). On a later utterance
+`RegressionGuard.apply` **substituted that blob for the real word**
+(`Engine/Adapt/LearnedLexicon.swift:114`), and its **phonetic fallback matched on a single occurrence**,
+so one poisoned pair spread to **any similar-sounding word**. **That asymmetry is the whole explanation
+of the two paths:** `RegressionGuardStage` is installed **only in the hotkey pipeline**
+(`AppContainer.swift:157-158`); the onboarding path displays **raw recognised spans**.
+
+**What ships.**
+- **New `LexiconSanity` states the rule a correction has to satisfy — a respelling, never a document.**
+  It is enforced at **three** points: when a pair is **stored**, when an edit readback is **ingested**,
+  and, critically, **when a variant is used** — so a `lexicon.json` **already poisoned on a user's
+  machine degrades to pass-through** rather than continuing to corrupt text. **No manual reset is
+  required**, though a user who wants a clean slate can still clear learned data.
+- **A "landing diff" diagnostic.** `UtteranceLander` logs **one line per utterance** — **raw recognised
+  text vs landed text**, their **Levenshtein distance**, and **which stages touched the spans** — so **a
+  single real utterance** definitively separates *"the recogniser misheard"* from *"post-processing
+  mangled it"*. Local `os_log` only, nothing leaves the machine, consistent with the no-telemetry
+  stance; **verbatim text stays off** unless the app is launched with `VOICEPLUS_LOG_TEXT=1`. Read with
+  `log show --last 30m --predicate 'subsystem == "in.adityakatare.voiceplus" AND category == "pipeline"'
+  --info | grep "landing diff"` — **`distance 0`** means post-processing is innocent and the recogniser
+  is at fault; anything else points back into the pipeline.
+
+**Cleared with evidence**, worth recording because it is the rest of the post-processing chain:
+`ContractEnforcingStage`/`ConfidenceContract.verify` enforce the confidence/audioRange/provenance
+invariant on **every** stage (a violation falls back to the stage's input), `CodeSwitchService.finalize`
+returns `nil` unless **two scripts are genuinely present**, and **every provider stage falls back to a
+deterministic local path** when no API key is configured — none of them silently degrade into inventing
+text.
+
+**5 new tests in `Tests/EngineTests/AdaptTests.swift`**, covering the sanity rule at each of the three
+enforcement points including an already-poisoned lexicon degrading to pass-through. **`swift build`
+clean**; the full-package test total is recorded at the release build (1313 at 1.7.8). 1 commit
+(`8e440fe`) on top of 1.7.8. **This is the dmg — it carries 1.7.4 through 1.7.8 as well.**
+
+**Untested / honest limits:**
+- **It is not confirmed that this specific poisoning is what the owner hit.** No agent here has
+  hardware, and their `lexicon.json` may or may not have been in that state. The mechanism is proven in
+  test and it explains the hotkey/onboarding asymmetry exactly, but **the diagnosis on that machine is
+  unconfirmed.** The new landing-diff line settles it in **a single key press** — that is the
+  recommended next check.
+- **No agent on this machine has a microphone or a window server**, so everything here is covered
+  against protocols and mocks rather than a real capture device.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
 
 ### Test-harness safety fix (2026-09-06, post-1.6.6)

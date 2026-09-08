@@ -11,7 +11,7 @@ sentence**. Both rows read a bare **"Installed"**, and a green check beside an o
 asked for reads as **500 MB the app decided to spend on its own**. Technically correct is
 not good enough on a several-hundred-megabyte download; presented bare, it destroys trust.
 
-Ships in the same dmg as 1.7.4, 1.7.5, 1.7.6 and 1.7.7 — **this is the dmg**. Tag
+Ships in the same dmg as 1.7.4, 1.7.5, 1.7.6, 1.7.7 and 1.7.9. Tag
 `release/phase-6/v1.7.8` · 1 commit (`3842440`) on top of 1.7.7 (`54888e6`) · sha256 and
 dmg size recorded at the release build.
 
@@ -61,9 +61,10 @@ dmg size recorded at the release build.
 
        xattr -dr com.apple.quarantine /Applications/VoicePlus.app
 
-2. **This dmg carries 1.7.4 through 1.7.8.** Its four companions are the wedged-dictation
-   fix, the clipped onboarding footer, the presence dot and error pill, and the audio
-   ownership / warm-up fix — read their notes for what to check.
+2. **This dmg carries 1.7.4 through 1.7.9.** Its five companions are the wedged-dictation
+   fix, the clipped onboarding footer, the presence dot and error pill, the audio
+   ownership / warm-up fix, and the learned-corrections poisoning fix — read their notes
+   for what to check.
 
 3. **Look at the model rows.** Best should tell you what it contains **before** you press
    Download, and Balanced should say **"Included with Best"** afterwards.
