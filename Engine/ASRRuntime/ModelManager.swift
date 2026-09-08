@@ -81,6 +81,15 @@ public actor ModelManager {
         self.fetchers = fetchers ?? [.finalTDT: FluidAudioFetcher(), .streamingEOU: FluidAudioFetcher(), .whisper: ManifestFetcher()]
         self.externalCaches = externalCaches ?? Self.defaultExternalCaches()
         self.loader = loader ?? Self.coreMLLoader
+        // Before anything can ask where a model is. A `stat` per model on an already-migrated
+        // install; on a pre-1.7.13 one, a rename and the deletion of the duplicate that layout
+        // caused. Deliberately here and not lazily behind `locate`: a migration that runs halfway
+        // through a load would move the directory out from under CoreML.
+        let migrated = ModelLayoutMigration.migrate(root: root)
+        if !migrated.isEmpty {
+            let reclaimed = migrated.reduce(0) { $0 + $1.reclaimedBytes }
+            Log.engine.notice("model layout migrated: \(migrated.map { "\($0.id.rawValue)=\($0.outcome.rawValue)" }.joined(separator: ", ")); \(reclaimed) bytes reclaimed")
+        }
     }
 
     /// The real thing: CoreML compile + ANE warm through FluidAudio.
@@ -101,15 +110,21 @@ public actor ModelManager {
     /// FluidAudio's own cache (current + legacy folder names) so a model pulled by upstream tools is reused.
     public static func defaultExternalCaches() -> [ModelID: [URL]] {
         let fa = MLModelConfigurationUtils.defaultModelsDirectory()
+        // FluidAudio's own `Repo.folderName` first in each list: that is the folder its loaders
+        // resolve to, so borrowing *that* one costs no download either. The `-coreml` spellings stay
+        // as a fallback for caches written by older upstream tools.
         return [
-            .parakeetTDTv3: [fa.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml"), fa.appendingPathComponent("parakeet-tdt-0.6b-v3")],
-            .parakeetTDTCTC110m: [fa.appendingPathComponent("parakeet-tdt-ctc-110m-coreml")],
+            .parakeetTDTv3: [fa.appendingPathComponent("parakeet-tdt-0.6b-v3"), fa.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")],
+            .parakeetTDTCTC110m: [fa.appendingPathComponent("parakeet-tdt-ctc-110m"), fa.appendingPathComponent("parakeet-tdt-ctc-110m-coreml")],
             .parakeetEOU160: [fa.appendingPathComponent("parakeet-eou-streaming/160ms"),
                               fa.appendingPathComponent("parakeet-realtime-eou-120m-coreml/160ms")],
         ]
     }
 
-    public func folder(for id: ModelID) -> URL { root.appendingPathComponent(id.rawValue, isDirectory: true) }
+    /// Where we store `id`. Not `<root>/<id.rawValue>`: the folder name has to be the one FluidAudio
+    /// resolves back to from the parent directory, or every load re-downloads the model into a second
+    /// folder. See `ModelDescriptor.folderName` and `ModelLayoutMigration`.
+    public func folder(for id: ModelID) -> URL { ModelCatalog.folder(for: id, in: root) }
 
     /// Is this a complete, loadable model — not just a directory with the right name?
     ///
@@ -268,7 +283,8 @@ public actor ModelManager {
     }
 
     /// The best final-pass model currently on disk: full TDT v3, else the tiny one.
+    /// Shares `BundledModel.finalModelsByQuality` with `RecognizerFactory.chooseFinal`.
     public func bestFinalModelOnDisk() -> ModelID? {
-        [ModelID.parakeetTDTv3, .parakeetTDTCTC110m].first { isPresent($0) }
+        BundledModel.finalModelsByQuality.first { isPresent($0) }
     }
 }

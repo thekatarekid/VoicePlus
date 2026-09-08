@@ -186,7 +186,9 @@ struct ASRModelManagerTests {
         #expect(ModelCatalog.all.count == ModelID.allCases.count)
         #expect(ModelCatalog.modelsRoot().path.hasSuffix("VoicePlus/Models"))
         #expect(BundledModel.id == .parakeetTDTCTC110m)
-        #expect(BundledModel.firstLaunchOrder.first == BundledModel.id)
+        // Cold start only: with a better final model already on disk the tiny one is skipped
+        // entirely. See `ModelLayoutTests.bestAvailableModelWinsFirstLaunch`.
+        #expect(BundledModel.firstLaunchOrder(bestFinalOnDisk: nil).first == BundledModel.id)
         #expect(ModelCatalog.descriptor(.parakeetTDTv3).requiredPaths.contains("JointDecisionv3.mlmodelc"))
     }
 }

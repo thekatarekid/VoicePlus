@@ -170,9 +170,10 @@ public struct FluidAudioFetcher: ModelFetcher {
     public init() {}
 
     /// Staging directory for `id`. Deliberately named so it can never be mistaken for an installed
-    /// model: `ModelManager.folder(for:)` is `<root>/<ModelID.rawValue>`, and no `ModelID` raw value
-    /// starts with a dot. A cancelled or crashed download leaves its `.partial` files *here*, where
-    /// they stay resumable and where nothing ever reports them as installed.
+    /// model: `ModelManager.folder(for:)` is `<root>/<ModelDescriptor.folderName>`, and no folder name
+    /// (current or legacy) starts with a dot, so `ModelLayoutMigration` never sees a staging directory
+    /// either. A cancelled or crashed download leaves its `.partial` files *here*, where they stay
+    /// resumable and where nothing ever reports them as installed.
     public static func stagingFolder(for id: ModelID, beside folder: URL) -> URL {
         folder.deletingLastPathComponent().appendingPathComponent(".staging-\(id.rawValue)", isDirectory: true)
     }

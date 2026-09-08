@@ -164,13 +164,13 @@ struct ModelIntegrityTests {
         #expect(await manager.bestFinalModelOnDisk() == nil)
         // And the debris is gone, so the retry is a retry rather than a second trip over the
         // same file. This is the recovery a user with a broken model on disk gets, unprompted.
-        #expect(ModelIntegrity.scratchFiles(under: root.appendingPathComponent("parakeet-tdt-ctc-110m-coreml")).isEmpty)
+        #expect(ModelIntegrity.scratchFiles(under: ModelCatalog.folder(for: .parakeetTDTCTC110m, in: root)).isEmpty)
         #expect(await !manager.isPresent(.parakeetTDTCTC110m), "repair must not leave a shell that reports installed")
     }
 
     @Test func incompleteModelFailsWithPlainLanguageNotAFileNSError() async throws {
         let root = try Self.tempDir()
-        let folder = try Self.makeModel(Self.tiny, at: root.appendingPathComponent("parakeet-tdt-ctc-110m-coreml"))
+        let folder = try Self.makeModel(Self.tiny, at: ModelCatalog.folder(for: .parakeetTDTCTC110m, in: root))
         try Data(repeating: 3, count: 16).write(
             to: folder.appendingPathComponent("Decoder.mlmodelc/weights/weight.bin.partial"))
         let manager = ModelManager(root: root, fetchers: [:], externalCaches: [:])
@@ -254,7 +254,7 @@ struct ModelIntegrityTests {
     /// `weight.bin.partial`: one wins the move, the loser reports it missing.
     @Test func concurrentLoadsShareOneLoad() async throws {
         let root = try Self.tempDir()
-        try Self.makeModel(Self.tiny, at: root.appendingPathComponent("parakeet-tdt-ctc-110m-coreml"))
+        try Self.makeModel(Self.tiny, at: ModelCatalog.folder(for: .parakeetTDTCTC110m, in: root))
         let counter = LoadCounter()
         let manager = ModelManager(root: root, fetchers: [:], externalCaches: [:]) { _, _, _ in
             counter.enter()
@@ -275,7 +275,7 @@ struct ModelIntegrityTests {
     /// recoverable, plain-language error, and the debris is cleared so pressing the key again works.
     @Test func loadFailingOnScratchFileBecomesRecoverable() async throws {
         let root = try Self.tempDir()
-        let folder = root.appendingPathComponent("parakeet-tdt-ctc-110m-coreml")
+        let folder = ModelCatalog.folder(for: .parakeetTDTCTC110m, in: root)
         try Self.makeModel(Self.tiny, at: folder)
         let scratch = folder.appendingPathComponent("Decoder.mlmodelc/weights/weight.bin.partial")
         let manager = ModelManager(root: root, fetchers: [:], externalCaches: [:]) { _, _, _ in
