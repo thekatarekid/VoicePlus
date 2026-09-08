@@ -466,6 +466,148 @@ is immune to injected levels. **Full package: `swift build` clean, 1224 tests pa
   builds a real capture graph unconditionally.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
 
+### 1.7.1 — dictation now starts working when the model finishes downloading
+
+**The app downloaded 900 MB, said it had the model, and stayed dead.** The owner installed 1.7.0, ran
+onboarding, chose **Best**, watched the whole download complete, and read the next screen confirm
+*"Using Parakeet TDT 0.6B v3."* Pressing the hotkey then produced **"No speech model installed —
+Dictation is off until a speech model is installed"**, and onboarding's own **"Dictate now"** showed
+**"Listening…"** and never recognised a word. The microphone was fine — the mic-check step earlier in
+the same run had passed for real.
+
+**Root cause:** the speech engine was resolved **exactly once, at app launch**, and never re-resolved. A
+fresh install necessarily launches with no model on disk, so every collaborator that took the engine at
+startup — coordinator, pill, presence indicator, code switcher, onboarding, a dozen in all — took
+`UnavailableEngine` and held it for the life of the process, however many models the user then
+downloaded. The staleness was **pre-existing but masked**: before 1.7.0 an app with no recogniser fell
+back silently to `MockEngine` replaying a fixture, so a stale engine produced *fabricated* transcripts
+rather than silence. Removing that fallback in 329af01 was correct, and it turned a hidden bug into a
+visibly dead app.
+
+**What ships.**
+- **The engine has a stable lifetime, not stable contents.** New `Shared/Engine/SwappableEngine.swift`
+  is a box owning **one** state subject and **one** event broadcaster, re-attached to whichever engine
+  is inside — so the dozen-odd collaborators holding it subscribe once and keep working across a swap,
+  with no refactor of the call sites and no second subscription path to go stale differently.
+  Availability is queried through a new `EngineAvailabilityReporting` protocol.
+- **`AppContainer.refreshEngineIfNeeded()` swaps only on an availability flip** — a real engine when a
+  model lands, `UnavailableEngine` when one disappears — so an ordinary utterance never disturbs a
+  working engine. It runs at three moments that were three faces of one bug, not three bugs: a download
+  completing (`ModelManagerTiers.onModelsChanged`), **hotkey-down preflight**, and before onboarding's
+  **"Dictate now."**
+- **A mid-utterance swap lands nothing rather than something wrong.** The outgoing engine is cancelled,
+  and a `stop()` whose `start()` belonged to a previous generation returns no spans — so a swap in
+  flight cannot land half an utterance, and cannot land the same one twice.
+- **A failed or cancelled download changes nothing.** The change notification never fires, so the app
+  stays honestly unavailable instead of swapping in an engine with no model behind it.
+
+**New `Tests/AppTests/EngineSwapTests.swift` — 8 tests.** They pin the property, not the
+implementation: a subscriber bound before the swap sees the new engine's states, a swap happens only on
+an availability flip, a stale `stop()` returns no spans, and a failed download leaves the engine
+unavailable. **Full package: `swift build` clean, 1258 tests passing** (1224 at 1.7.0). 1 commit
+(`d4f804d`) on top of 1.7.0. Ships in the 1.7.3 dmg.
+
+**Untested / honest limits:**
+- **No agent on this machine has a real downloaded model**, so the construction of the *real* engine
+  inside the swap — the CoreAudio graph plus the FluidAudio model load — is unverified. What is covered
+  is the swap machinery: subscriber continuity, the availability-flip condition, generation-scoped
+  `stop()`, and the no-swap-on-failure path.
+- **A true end-to-end round trip — download → speak → text appears — has not been run by anyone.**
+  Recommend the owner do it once on a real machine.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.2 — choosing a model is no longer the same act as downloading it
+
+**Two reported bugs on onboarding's "Pick a free local model." step, both about consent rather than
+plumbing.** The three options were radio buttons, so merely *selecting* one silently began a
+several-hundred-megabyte download; nothing said a selection was also a commitment. And **Continue was
+enabled while the chosen model sat at 3%**, so the user clicked through to a dictation step with no
+model on disk — the exact route into the dead app 1.7.1 fixes.
+
+**Root cause:** `.choose` both selected a tier and started fetching it; Continue was live from the
+moment a fetch *started* rather than the moment a model *landed*, treating "we began a download" as "the
+user has a model." Download state was shared rather than per option, so one row's progress or failure
+was painted under all three. And presence was tracked **per tier** — "Best" is "Balanced" plus an extra
+120 MB model, so with Balanced already on disk, choosing Best offered the whole 900 MB again.
+
+**What ships.**
+- **Every option has its own Download button**, so choosing and committing are separate acts: `.choose`
+  selects and nothing else, and a new `.download(tier)` event — raised only by that option's own button
+  — is the only path to a fetch. **Selection alone never downloads.**
+- **Each row shows its own state** from `downloadStates`: **Download**, or that option's live progress
+  (*"1 of 2 — 27 MB of 900 MB"*) with **Cancel**, or **Installed** with **"Use this"**.
+- **Continue waits for the model to genuinely be on disk** — gated on `installedTiers` read back from
+  the model manager rather than inferred from a started fetch, and `.next` is **refused by the state
+  machine**, not merely greyed out in the view. It says why: *"Balanced is still downloading (3%).
+  Continue turns on the moment it lands."*
+- **Presence is per model, not per tier**, so an already-downloaded model is never offered for
+  re-download: Best reads **"Download 120 MB · Only the part you don't have yet."**
+- **Skip stays — and states its cost.** It records that it was taken without a model and warns, on the
+  dictation step and the final screen, that dictation will not work until one is installed.
+
+**New `Tests/AppTests/OnboardingModelPickerTests.swift` — 9 tests**: selection does not download, only
+`.download(tier)` fetches, `.next` is refused while the chosen model is absent, the blocked reason names
+the model and percent, per-row state does not bleed across options, an installed model is not
+re-offered, and skip records its cost. `OnboardingStateMachineTests` and `OnboardingDictationTests`
+updated for the split. **Full package: `swift build` clean, 1258 tests passing.** 1 commit (`3b9c75e`)
+on top of 1.7.1. Ships in the 1.7.3 dmg.
+
+**Untested / honest limits:**
+- **The real HuggingFace download is unverified.** No agent here has fetched a model, so live byte
+  counts, the *"1 of 2"* multi-file progress, and **mid-flight Cancel** against a real transfer are
+  covered against the model-manager protocol and mocks only.
+- Everything above the download boundary is tested: gating, refusal, per-row state, per-model presence,
+  the blocked-reason text, and the skip warnings.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.3 — the status row fits its text, and you can see it without hovering
+
+**Three complaints about one surface, the little row under the notch.** It was **cut off** —
+*"VoicePlus · Ready — hold R…"*, with no state in which the rest ever became readable. It was
+**invisible**: at rest the indicator drew nothing at all inside a 4 pt chin at 35% black, a near-black
+sliver under a black bezel, so the app appeared to have no presence unless you happened to hover over
+the notch. And it was **mute about how to use the app**: no ambient sign that VoicePlus was running and
+armed, and no discoverable reminder of the dictation hotkey.
+
+**Root cause:** the hover panel was a hard-coded **190 pt** drawing `lineLimit(1)` with
+`truncationMode(.tail)`, so any longer message was clipped permanently — and "hold Right ⌃" was exactly
+the part that fell off, so the one thing the row existed to teach was the one thing it hid. `.ready` at
+rest was an `EmptyView`, and where a hotkey label existed it was a literal, so a rebound key would have
+been described wrongly.
+
+**What ships.**
+- **The row is sized to its content.** New `App/Core/PresenceRow.swift` handles text fitting and the
+  hotkey hint; `PresenceRow.fit` measures in the **real font** and `NotchGeometry`/
+  `NotchPresenceGeometry` clamp against actual notch and screen geometry. The pill gets the same
+  treatment for its fixed notices.
+- **A narrow display degrades in order, never mid-word** — the **hint** drops first, then the
+  **"VoicePlus · " prefix**, then **trailing whole words**. No half a word plus an ellipsis.
+- **At rest it is a status light, not a banner**: a 10 pt chin at 72% carrying one small lit dot.
+- **It announces itself when there is something to announce** — the full row expands for **six seconds**
+  at launch and whenever the app **recovers out of a blocked state**, so it tells the user the moment a
+  model download makes dictation live again. Never after an ordinary utterance, and click-through while
+  announcing so it cannot eat a click.
+- **The hotkey label is read live from the configured binding** (`HotkeyHint.label`): *"hold Right ⌃"*
+  for a bare modifier, *"press ⌃⌥D"* for a chord — so it follows a change in Settings instead of
+  hardcoding "Right Control".
+
+**New `Tests/AppTests/PresenceRowTests.swift` — 17 tests.** They pin the property, not the pixels: the
+fitted width holds the whole string, degradation drops components in order and never splits a word, the
+hint tracks the binding rather than a literal, and the announce window fires on launch and on unblock
+but not after an utterance. `NotchPresenceTests` updated for content-sized geometry. **Full package:
+`swift build` clean, 1258 tests passing.** 1 commit (`06c5ccd`) on top of 1.7.2. Carries 1.7.1 and 1.7.2
+in its dmg.
+
+**Untested / honest limits:**
+- **Every visual judgement here is unverified — an agent has no window server.** Precisely unknown:
+  whether the lit-dot chin reads as visible-but-quiet against a **real** bezel, whether six seconds
+  feels informative or intrusive in daily use, and the **true measured width** of the expanded row in
+  the system font on real hardware. Fitting, degradation order, hint derivation and announce triggers
+  are covered by tests; how any of it *looks* is not.
+- **The degradation ladder has not been seen on a genuinely narrow display** — its order is tested, its
+  appearance at each rung is not.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
 ### Test-harness safety fix (2026-09-06, post-1.6.6)
 
 `Packaging/verify_install.sh` terminated processes by **name**: its cleanup trap ran `pkill -x VoicePlus`, so a verification run killed the **user's own running /Applications instance** mid-session (pid 76823 — it had to be relaunched by hand). A run during dictation would have lost the transcript. All three name-based kills are gone: the script records the pid of the instance it launched (matched by *executable path* against its own temp copy, normalised with `pwd -P` because `mktemp` returns `/var/…` while `ps` reports `/private/var/…`) and signals only that pid, guarded by `kill -0`; INT/TERM route through the same scoped cleanup so an interrupted run cannot orphan its own instance; pre-existing instances are listed before and after the run as a visible assertion they were left alone. `soak.sh`'s sampler kill was already pid-scoped (guarded against an unset `SAMPLER`); `reset_tcc.sh` kills nothing — it asks the user to quit the app, which stays the rule: **no script may stop a user's instance silently.** Verified against `VoicePlus_6_1.6.6.dmg` with two other instances running (/Applications and `Packaging/build/`): verify OK, its own instance stopped, both others still alive; same when the run was SIGTERM'd mid-flight (exit 143, no orphan, temp dir removed).
