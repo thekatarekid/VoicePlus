@@ -63,7 +63,7 @@ same defect surfacing honestly.
   implementation: a subscriber bound before the swap sees the new engine's states, a swap
   happens only on an availability flip, a stale `stop()` returns no spans, and a failed
   download leaves the engine unavailable.
-- **Full package: `swift build` clean, 1258 tests passing** (1224 at 1.7.0).
+- **Full package: `swift build` clean, 1259 tests passing** (1224 at 1.7.0).
 
 ## What you need to do
 

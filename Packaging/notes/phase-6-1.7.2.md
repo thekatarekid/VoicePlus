@@ -56,7 +56,7 @@ build.
   across options, an installed model is not re-offered, and skip records its cost.
 - `OnboardingStateMachineTests` and `OnboardingDictationTests` updated for the split
   between selecting and downloading.
-- **Full package: `swift build` clean, 1258 tests passing.**
+- **Full package: `swift build` clean, 1259 tests passing.**
 
 ## What you need to do
 

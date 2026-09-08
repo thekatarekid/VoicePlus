@@ -57,7 +57,7 @@ build.
   never splits a word, the hint tracks the binding rather than a literal, and the announce
   window fires on launch and on unblock but not after an utterance.
 - `NotchPresenceTests` updated for content-sized geometry.
-- **Full package: `swift build` clean, 1258 tests passing.**
+- **Full package: `swift build` clean, 1259 tests passing.**
 
 ## What you need to do
 

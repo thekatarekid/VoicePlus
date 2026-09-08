@@ -504,7 +504,7 @@ visibly dead app.
 **New `Tests/AppTests/EngineSwapTests.swift` — 8 tests.** They pin the property, not the
 implementation: a subscriber bound before the swap sees the new engine's states, a swap happens only on
 an availability flip, a stale `stop()` returns no spans, and a failed download leaves the engine
-unavailable. **Full package: `swift build` clean, 1258 tests passing** (1224 at 1.7.0). 1 commit
+unavailable. **Full package: `swift build` clean, 1259 tests passing** (1224 at 1.7.0). 1 commit
 (`d4f804d`) on top of 1.7.0. Ships in the 1.7.3 dmg.
 
 **Untested / honest limits:**
@@ -549,7 +549,7 @@ was painted under all three. And presence was tracked **per tier** — "Best" is
 `.download(tier)` fetches, `.next` is refused while the chosen model is absent, the blocked reason names
 the model and percent, per-row state does not bleed across options, an installed model is not
 re-offered, and skip records its cost. `OnboardingStateMachineTests` and `OnboardingDictationTests`
-updated for the split. **Full package: `swift build` clean, 1258 tests passing.** 1 commit (`3b9c75e`)
+updated for the split. **Full package: `swift build` clean, 1259 tests passing.** 1 commit (`3b9c75e`)
 on top of 1.7.1. Ships in the 1.7.3 dmg.
 
 **Untested / honest limits:**
@@ -595,7 +595,7 @@ been described wrongly.
 fitted width holds the whole string, degradation drops components in order and never splits a word, the
 hint tracks the binding rather than a literal, and the announce window fires on launch and on unblock
 but not after an utterance. `NotchPresenceTests` updated for content-sized geometry. **Full package:
-`swift build` clean, 1258 tests passing.** 1 commit (`06c5ccd`) on top of 1.7.2. Carries 1.7.1 and 1.7.2
+`swift build` clean, 1259 tests passing.** 1 commit (`06c5ccd`) on top of 1.7.2. Carries 1.7.1 and 1.7.2
 in its dmg.
 
 **Untested / honest limits:**
