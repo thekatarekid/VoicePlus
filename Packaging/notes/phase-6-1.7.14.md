@@ -8,9 +8,9 @@ The owner pressed **Right ⌘** expecting to dictate, and got:
 correct, and **their dictation was never broken.** But two things about that were genuinely
 wrong, and both are the same root cause: **the Actions feature shipped with no UI at all.**
 
-Ships in the same dmg as 1.7.13 — **this is the dmg**. Tag `release/phase-6/v1.7.14` · 2 commits
-(`86c41da`, `59ad925`) on top of 1.7.12 (`823fda0`), interleaved in history with 1.7.13's ·
-sha256, date and dmg size ⏳ recorded at the release build.
+Ships in the same dmg as 1.7.13 and 1.7.15 — **1.7.15 is the dmg**, and it carries this. Tag
+`release/phase-6/v1.7.14` · 2 commits (`86c41da`, `59ad925`) on top of 1.7.12 (`823fda0`),
+interleaved in history with 1.7.13's · sha256, date and dmg size recorded at the release build.
 
 ## 1. What was actually happening
 
@@ -92,8 +92,9 @@ Commits `429638b` and `4158ec4`; tests in `Tests/EngineTests/AcousticChainWERTes
 
        xattr -dr com.apple.quarantine /Applications/VoicePlus.app
 
-2. **This dmg carries 1.7.13 and 1.7.14.** Its companion is the speech model that was downloaded
-   twice — read its notes for what to check.
+2. **This dmg carries 1.7.13, 1.7.14 and 1.7.15.** Its companions are the speech model that was
+   downloaded twice and the microphone VoicePlus would have quietly picked — read their notes for
+   what to check.
 
 3. **Press your dictation key and confirm nothing else fires.** After this update the Actions
    key is **off by default** unless you had set it by hand, so a stray press should do

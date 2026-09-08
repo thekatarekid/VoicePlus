@@ -1115,7 +1115,7 @@ migration fetching nothing, and `firstLaunchOrder` preferring an installed bette
 start stays tiny-first. `ASRModelManagerTests`, `ModelIntegrityTests` and `OnboardingDictationTests`
 updated — two of them had the old folder name spelled out. **`swift build` clean**; the full-package
 test total is recorded at the release build. 2 commits (`6e45b4e`, `dfdad8a`) on top of 1.7.12. Ships
-in the 1.7.14 dmg.
+in the 1.7.15 dmg.
 
 **Untested / honest limits:**
 - **The reclaim is unverified against a real duplicate pair on a user's disk** — the migration is
@@ -1166,8 +1166,7 @@ and **silenceable**; a switched-off key is **inert for every pairing of the two 
 **never armed by `CapabilityWatcher` at all**; arming **re-reads a binding written while the key was
 off**; and the **1.7.10 `isDistinct` guard is unchanged**. **`swift build` clean**; the full-package
 test total is recorded at the release build. 2 commits (`86c41da`, `59ad925`) on top of 1.7.12,
-interleaved in history with 1.7.13's. **This is the dmg — it carries 1.7.13 as well**, and a further
-fix may still land before the release build.
+interleaved in history with 1.7.13's. **Ships in the 1.7.15 dmg**, which carries 1.7.13 and this.
 
 **Untested / honest limits:**
 - **That a switched-off Actions key is silent under a real key press is unverified**, as is **that
@@ -1176,6 +1175,110 @@ fix may still land before the release build.
   covered against protocols and mocks.
 - **Every visual judgement is unverified** — the new picker in **Settings › General** and in the
   **menu-bar item**, and how the colliding key is labelled. The wording is tested; its appearance is not.
+- **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
+
+### 1.7.15 — AirPods would have silently ruined dictation, and a way to prove what the microphone actually heard
+
+**This landed out of the hunt for the live-microphone accuracy problem.** The owner read *"The quick
+brown fox jumps over the lazy dog"* and got *"the quake brown fogs jump above the lazy doll"* —
+**roughly 55% WER on a clean read**. Successive investigations had already **measured and cleared**
+the acoustic chain, the decoder, biasing, audio format conversion, the preview-versus-final landing,
+end-of-utterance truncation, the VAD and post-processing. This round **cleared the last synthetic
+suspects** and shipped the two things that came out of it.
+
+**The latent bug found and fixed.** **`InputSelectionPolicy` awarded the system default input a
+bonus of `+50`**, which **dwarfed every transport score**. The consequence: the moment a **Bluetooth
+headset connects and becomes the system default**, dictation would **silently move onto an HFP/SCO
+link** — a **narrowband 8 kHz (CVSD) or 16 kHz (mSBC), heavily compressed microphone**, telephony
+bandwidth — **with no indication to the user and a large accuracy cost**.
+
+- **The bonus is now withheld from a narrowband Bluetooth input.** `BluetoothInputDetector` already
+  owned the transport classification; it now exposes it as one bit,
+  **`BluetoothInputMode.isNarrowbandSpeech`**, which the policy reads.
+- **It still wins when it is the only input available**, **an explicit user pin
+  (`audio.input.preferredUID`) still overrides everything**, and **wideband / LE Audio Bluetooth is
+  untouched** — the rule is about **telephony bandwidth**, not about Bluetooth.
+- **When the app substitutes a different microphone it says so**, in the UI and in the log, rather
+  than doing it silently: **`InputSelectionPolicy.decide` returns `Choice.avoidedNarrowbandBluetooth`**.
+- **Settings › General gains a Microphone picker** — **Automatic** or a specific device, with
+  **low-quality inputs labelled as such**, and a **pinned-then-unplugged device falling back**
+  instead of showing a blank row.
+
+**The diagnostic.** **Every accuracy measurement so far has been taken on synthetic fixtures, and
+the failure is not reproducible from them** — so the deliverable is **the ability to capture the
+real thing**. New **`Engine/Audio/UtteranceRecorder.swift`** saves the **raw and post-DSP audio of
+an utterance as WAVs** alongside a **manifest recording the device, transport, sample rate, capture
+graph and levels**, so a failing dictation can be **replayed through the existing fixture harness**.
+It is **opt-in and off by default, written locally, never leaving the machine**, keeps **only the
+newest 20 recordings**, and shows an **orange note in Settings while it is on**, with **Show in
+Finder** and **Delete all**. The owner turns it on in **Settings › General › Microphone**,
+reproduces a bad dictation, turns it off, and replays with:
+
+```sh
+eval "$(Scripts/bootstrap-toolchain.sh)"
+VOICEPLUS_REPLAY_TEXT="the quick brown fox jumps over the lazy dog" \
+  swift test --scratch-path .build-capture --filter replaySavedRecordings
+```
+
+`RecordingReplayTests` reads the recordings back **through the real recognizer** and prints, per
+recording, the manifest, the level, what the model heard and the **WER against the reference** —
+**no fixture manifest to author**. **The whole loop was verified end to end against a fixture.**
+**`Engine/Audio/README.md` carries a table explaining how to read each outcome.**
+
+**What was measured and cleared this round.** **Every prior accuracy figure had been taken on 16 kHz
+fixtures, where `AudioConverter16k` is a no-op** — so **the 44.1 kHz conversion that a real
+microphone forces had never actually been exercised**. It now has been: **WER 0.0140 identically at
+16 kHz, 44.1 kHz and 48 kHz**, **duration drift 0.01%**, and **zero sample drift** between streaming
+and one-shot conversion. **Absolute level was cleared too** — **flat WER from −20 dBFS down to
+−60 dBFS**. **A genuine bug surfaced while testing this:** **silent audio produced `-inf` dBFS,
+which JSON cannot encode**, so the recording **would have been discarded in precisely the "the
+microphone delivered nothing" case that most needs capturing**. Levels are now **floored at
+−200 dBFS**, which no real signal reaches.
+
+**New `Tests/EngineTests/UtteranceRecorderTests.swift` — 12 tests**: nothing is written unasked; raw,
+processed and a manifest that explains the recording; **a silent processed track still encodes a
+manifest**; the newest-20 cap; capture through `AcousticCaptureSource` **without changing what the
+sink receives**; and the device rules — **AirPods as system default do not win over the built-in
+mic**, narrowband Bluetooth **is still used when it is the only input**, an **explicit user choice of
+AirPods is honoured**, **high-quality Bluetooth keeps its system-default standing**, and a **wired mic
+still beats the built-in**. **New `Tests/EngineTests/LiveCapturePathWERTests.swift` — 4 tests**: the
+duration and streaming-versus-one-shot checks, and the **WER sweeps across sample rate and across
+absolute level**. **New `Tests/AppTests/MicrophoneSettingsTests.swift` — 6 tests**: Automatic is the
+default and a choice writes the key the capture source reads; the recording toggle is **off by
+default**; an unplugged pinned device **falls back**; the note **explains the substitution rather
+than making it silently**; a low-quality Bluetooth mic is **labelled** in the picker; and the summary
+**counts utterances, not the three files each one writes**. **New
+`Tests/EngineTests/RecordingReplayTests.swift`** is the replay harness itself, opt-in and driven by
+`VOICEPLUS_REPLAY_TEXT`. `AudioUnitTests`' `skipsDisplayAndVirtualDefaults` **expected AirPods to win
+as system default** — **that expectation was the bug**, and now says so. **`swift build` clean**; the
+full-package test total is recorded at the release build. 2 commits (`c9491df`, `8849dff`) on top of
+1.7.12. **This is the dmg — it carries 1.7.13 and 1.7.14 as well.**
+
+**On the owner's specific report, recorded honestly: the Bluetooth theory did not explain it.** Their
+own unified log shows **41 of 41 capture graphs** at `device=MacBook Pro Microphone …
+tap=44100Hz/1ch`, and **the affected dictations match that window row for row** — those were captured
+on the **built-in microphone**, with **AirPods paired but not connected**. **So the live-microphone
+accuracy issue remains unresolved.** The **model, decoder, DSP, conversion and post-processing are
+all now measured clean**; **the open hypothesis is far-field reverberation from a MacBook microphone
+at arm's length**, since **every fixture tested to date is anechoic text-to-speech with no reverb**,
+and reverb is a **classic source of exactly these phonetically-adjacent, right-syllable-count
+substitutions**. **The replay diagnostic is what will confirm or refute it:** if the replayed audio
+**scores badly but sounds fine**, capture is faithful and **the model is failing on real-room
+speech**; if the **raw file scores well and the processed one badly**, **the spectral gate is
+implicated after all**.
+
+**Untested / honest limits:**
+- **Everything that needs a real microphone is unverified** — that a connected Bluetooth headset is
+  actually **stepped around at the HAL**, that the **picker rebinds the live device**, and that a
+  **real utterance records and replays**. No agent here has a microphone or TCC permission; the
+  policy, the recorder and the replay path are covered against **protocols, mocks and fixture
+  audio**, and the **replay loop was verified against a fixture** rather than against a live capture.
+- **Every visual judgement is unverified** — the new **Microphone section in Settings › General**,
+  the substitution note, the **orange recording note**, and **Show in Finder / Delete all**. The
+  wording is tested; its appearance is not.
+- **The accuracy fix itself does not exist.** The Bluetooth defect is a **real latent bug found on
+  the way**, not the cause of what the owner reported, and **nothing in this build claims to have
+  fixed the accuracy problem**.
 - **The appcast enclosure URL still 404s anonymously** — private repo, pre-existing, unchanged.
 
 ### Accuracy investigations (2026-09-08, alongside 1.7.13/1.7.14) — the noise gate and biasing are both cleared

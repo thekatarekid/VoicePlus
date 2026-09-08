@@ -71,7 +71,7 @@ passthrough) → `SpectralGateNoiseSuppressor` (toggle per profile) → sink; Bl
 `BluetoothInputDetector.assess(device)` classifies SCO 8k/16k as low-quality and yields a `MicQuality` + message.
 See `Robustness/SUITES.md` for the Lab fixture registration and `Robustness/AEC.swift` for license notes.
 
-## Which microphone, and proving what it captured (1.7.13)
+## Which microphone, and proving what it captured (1.7.15)
 
 **Device choice.** `InputSelectionPolicy` gave the system default `+50`, which dwarfs every
 transport score — so the moment AirPods connect and macOS makes them the default input, dictation

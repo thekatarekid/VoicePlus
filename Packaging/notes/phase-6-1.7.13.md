@@ -5,7 +5,8 @@ then found **two byte-identical 468 MB copies of Parakeet TDT v3** sitting on di
 
 The wait was real work. It was just work that had already been done once.
 
-Ships in the same dmg as 1.7.14. Tag `release/phase-6/v1.7.13` · 2 commits (`6e45b4e`,
+Ships in the same dmg as 1.7.14 and 1.7.15 — **1.7.15 is the dmg**. Tag
+`release/phase-6/v1.7.13` · 2 commits (`6e45b4e`,
 `dfdad8a`) on top of 1.7.12 (`823fda0`) · sha256 and dmg size recorded at the release build.
 
 ## 1. What was actually happening
@@ -85,8 +86,9 @@ rather than duplicating the same quality order in three places where it could dr
 
        xattr -dr com.apple.quarantine /Applications/VoicePlus.app
 
-2. **This dmg carries 1.7.13 and 1.7.14.** Its companion is the Actions key that could not be
-   rebound or turned off — read its notes for what to check.
+2. **This dmg carries 1.7.13, 1.7.14 and 1.7.15.** Its companions are the Actions key that could
+   not be rebound or turned off and the microphone VoicePlus would have quietly picked — read their
+   notes for what to check.
 
 3. **Launch it once and do nothing.** The migration runs at startup. If you were affected you
    should get **461 MB back** without being asked anything.
