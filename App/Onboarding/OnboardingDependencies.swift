@@ -1,4 +1,5 @@
 import Combine
+import Engine
 import Foundation
 import Shared
 
@@ -382,6 +383,10 @@ public enum ModelTier: String, CaseIterable, Codable, Sendable, Identifiable {
 
 public protocol ModelManaging: AnyObject {
     func isInstalled(_ tier: ModelTier) -> Bool
+    /// Bytes still to fetch for this tier, counted per *model*. "Best" is "Balanced" plus a 120 MB
+    /// end-of-utterance model, so once Balanced is on disk this must report the 120 MB — telling
+    /// the user to re-download 900 MB they already have is simply false.
+    func remainingBytes(for tier: ModelTier) -> Int64
     /// Background download. Must be cancellable via the returned task being cancelled.
     func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws
     func select(_ tier: ModelTier)
@@ -512,7 +517,15 @@ public final class OnboardingMockMicLevelPublisher: MicLevelPublishing {
 }
 
 public final class OnboardingMockModelManager: ModelManaging {
-    public var installed: Set<ModelTier>
+    /// Per-model, not per-tier, so the overlap between "Balanced" and "Best" behaves in tests
+    /// exactly as it does on disk.
+    public private(set) var installedModels: Set<ModelID> = []
+    /// The tier-shaped view tests are written against: reading it asks which tiers are *complete*,
+    /// writing it declares those tiers' models present.
+    public var installed: Set<ModelTier> {
+        get { Set(ModelTier.allCases.filter { tier in ModelManagerTiers.models(for: tier).allSatisfy(installedModels.contains) }) }
+        set { installedModels = Set(newValue.flatMap(ModelManagerTiers.models(for:))) }
+    }
     public var selectedTier: ModelTier
     public var failDownload = false
     /// What `readiness(for:)` reports when the tier is not installed. Nil = nothing can transcribe,
@@ -523,17 +536,28 @@ public final class OnboardingMockModelManager: ModelManaging {
     public var hold: (@Sendable () async -> Void)?
 
     public init(installed: Set<ModelTier> = [.fast], selected: ModelTier = .fast) {
-        self.installed = installed
         self.selectedTier = selected
+        self.installed = installed
     }
 
-    public func isInstalled(_ tier: ModelTier) -> Bool { installed.contains(tier) }
+    public func isInstalled(_ tier: ModelTier) -> Bool {
+        ModelManagerTiers.models(for: tier).allSatisfy(installedModels.contains)
+    }
+
+    public func remainingBytes(for tier: ModelTier) -> Int64 {
+        ModelManagerTiers.models(for: tier)
+            .filter { !installedModels.contains($0) }
+            .reduce(0) { $0 + ModelCatalog.descriptor($1).approxBytes }
+    }
 
     public func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
         downloads.append(tier)
         if failDownload { throw URLError(.notConnectedToInternet) }
-        let total = tier.approximateBytes
+        let total = max(remainingBytes(for: tier), 1)
         for step in 1...4 {
+            // Cancellation is part of the contract — the picker's per-option Cancel button is
+            // nothing but a cancelled task — so the mock has to honour it too.
+            try Task.checkCancellation()
             let fraction = Double(step) / 4
             progress(ModelDownloadProgress(fraction: fraction,
                                            bytesReceived: Int64(Double(total) * fraction),
@@ -541,13 +565,13 @@ public final class OnboardingMockModelManager: ModelManaging {
                                            modelName: tier.modelNames.first ?? tier.title))
             if step == 1, let hold { await hold() }
         }
-        installed.insert(tier)
+        for id in ModelManagerTiers.models(for: tier) { installedModels.insert(id) }
     }
 
     public func select(_ tier: ModelTier) { selectedTier = tier }
 
     public func readiness(for tier: ModelTier) -> RecognizerReadiness {
-        if installed.contains(tier) { return .ready(name: tier.modelNames.first ?? tier.title) }
+        if isInstalled(tier) { return .ready(name: tier.modelNames.first ?? tier.title) }
         guard let fallbackName else {
             return .unavailable(reason: "No speech model is on this Mac yet, and macOS' own speech recogniser isn't available either.")
         }

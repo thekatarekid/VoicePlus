@@ -87,7 +87,8 @@ private func onboardingAtDictationStep(engine: EngineProtocol,
     vm.send(.skip)
     vm.send(.skip)
     vm.send(.choose(.balanced))
-    vm.send(.next)                    // model choice → first dictation
+    // Continue only opens once the model is really there; a test with nothing installed skips.
+    vm.send(vm.machine.canContinueFromModelChoice ? .next : .skip)
     return vm
 }
 
@@ -102,7 +103,10 @@ struct GuidedDictationOutcomeTests {
 
     @Test func successMessageNeedsARealLanding() {
         var m = M()
-        m.handle(.skip); m.handle(.skip); m.handle(.next)   // welcome → mic check (blocked, no grant) → model choice
+        // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
+        // installed model now, so the model step is reached with one already present.
+        m.handle(.skip); m.handle(.skip)
+        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast)); m.handle(.next)
         #expect(m.step == .firstDictation)
 
         m.handle(.dictationFinished(.heard(text: "hello", recognizer: "Parakeet TDT 0.6B v3")))
@@ -119,7 +123,10 @@ struct GuidedDictationOutcomeTests {
     /// and every failure case carries its message.
     @Test func failureCanNotMasqueradeAsSuccess() {
         var m = M()
-        m.handle(.skip); m.handle(.skip); m.handle(.next)   // welcome → mic check (blocked, no grant) → model choice
+        // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
+        // installed model now, so the model step is reached with one already present.
+        m.handle(.skip); m.handle(.skip)
+        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast)); m.handle(.next)
         m.handle(.dictationFinished(.failed(reason: "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")))
         #expect(m.landedText == nil)
         #expect(m.heardText == nil)
@@ -133,7 +140,10 @@ struct GuidedDictationOutcomeTests {
 
     @Test func retryClearsTheStaleVerdict() {
         var m = M()
-        m.handle(.skip); m.handle(.skip); m.handle(.next)   // welcome → mic check (blocked, no grant) → model choice
+        // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
+        // installed model now, so the model step is reached with one already present.
+        m.handle(.skip); m.handle(.skip)
+        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast)); m.handle(.next)
         m.handle(.dictationFinished(.failed(reason: "nope")))
         #expect(m.dictationError == "nope")
         #expect(m.handle(.retryDictation) == [.checkRecognizerReadiness])
@@ -362,21 +372,23 @@ struct RecognizerReadinessTests {
     @Test func enteringTheDictationStepChecksReadinessBeforeAnythingElse() {
         var m = M()
         m.handle(.skip); m.handle(.skip)
+        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast))
         #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
     }
 
-    /// The second half of P3: choosing a tier that is not installed always fetches it. The old guard
-    /// (`download == .notStarted`) meant a second choice persisted the tier and downloaded nothing.
-    @Test func choosingADifferentTierStartsThatTiersDownload() {
+    /// The second half of P3, restated for the explicit buttons: each option's Download press fetches
+    /// that option, whatever any other option has already done — and a failure is retryable.
+    @Test func eachOptionsDownloadButtonFetchesThatOption() {
         var m = M()
         m.handle(.skip); m.handle(.skip)
-        #expect(m.handle(.choose(.fast)) == [.selectModel(.fast), .startDownload(.fast)])
-        m.handle(.downloadFinished)
-        #expect(m.handle(.choose(.best)) == [.selectModel(.best), .startDownload(.best)],
-                "a tier chosen after another one finished must still be fetched")
-        m.handle(.downloadFailed("no network"))
-        #expect(m.handle(.choose(.best)) == [.selectModel(.best), .startDownload(.best)],
-                "re-picking after a failure retries it")
+        #expect(m.handle(.download(.fast)) == [.selectModel(.fast), .startDownload(.fast)])
+        m.handle(.downloadFinished(.fast))
+        #expect(m.handle(.download(.best)) == [.selectModel(.best), .startDownload(.best)],
+                "a tier downloaded after another one finished must still be fetched")
+        m.handle(.downloadFailed(.best, "no network"))
+        #expect(m.downloadState(for: .fast) == .installed, "one option's failure is not another's")
+        #expect(m.handle(.download(.best)) == [.selectModel(.best), .startDownload(.best)],
+                "Retry after a failure fetches it again")
     }
 
     /// `ModelManagerTiers.readiness` mirrors `RecognizerFactory.chooseFinal`, so the screen names the
@@ -468,12 +480,12 @@ struct DownloadProgressTextTests {
         deps.models = models
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model choice
-        vm.send(.choose(.best))
+        vm.send(.download(.best))
         try await waitUntil { vm.machine.download.isInFlight }
         let line = try #require(vm.downloadLine)
         #expect(line.contains("Parakeet TDT 0.6B v3"))
         #expect(line.contains("900 MB"), "the denominator is the tier's real total, not a bare percentage")
-        #expect(vm.downloadStartedAt != nil)
+        #expect(vm.downloadStartedAt[.best] != nil)
         gate.open()
         vm.teardown()
     }

@@ -16,8 +16,8 @@ public final class OnboardingViewModel: ObservableObject {
     /// a second press would otherwise start a second `engine.stop()`, which throws `notListening`
     /// and would overwrite a perfectly good result with a failure the user did not cause.
     @Published public private(set) var isFinalizing = false
-    /// When the current tier download started, so the progress line can estimate what is left.
-    @Published public private(set) var downloadStartedAt: Date?
+    /// When each tier's download started, so every option's own line can estimate what is left.
+    @Published public private(set) var downloadStartedAt: [ModelTier: Date] = [:]
     @Published public var contactsOutcome: ContactsImportOffer.Outcome?
     @Published public var showContactsOffer = false
     /// Result of the last "Remove the old entry" press, so the panel can say what happened instead
@@ -29,7 +29,8 @@ public final class OnboardingViewModel: ObservableObject {
     public var onFinished: ((Bool) -> Void)?
 
     private var micCancellable: AnyCancellable?
-    private var downloadTask: Task<Void, Never>?
+    /// One task per option, so cancelling "Best" cannot stop a "Fast" download the user also started.
+    private var downloadTasks: [ModelTier: Task<Void, Never>] = [:]
     private var dictationTask: Task<Void, Never>?
     private var dictationEvents: Task<Void, Never>?
     private var dictationWatchdog: Timer?
@@ -177,7 +178,8 @@ public final class OnboardingViewModel: ObservableObject {
         dictationWatchdog?.invalidate(); dictationWatchdog = nil
         micCancellable = nil
         deps.micLevel.stopMonitoring()
-        downloadTask?.cancel()
+        for task in downloadTasks.values { task.cancel() }
+        downloadTasks.removeAll()
         dictationTask?.cancel()
         dictationEvents?.cancel(); dictationEvents = nil
         // Closing the window mid-utterance must release the microphone, not leave the engine
@@ -249,25 +251,37 @@ public final class OnboardingViewModel: ObservableObject {
             deps.micLevel.stopMonitoring()
         case .selectModel(let tier):
             deps.models.select(tier)
+        case .checkModelPresence:
+            send(.modelPresenceChanged(Set(ModelTier.allCases.filter { deps.models.isInstalled($0) })))
+        case .cancelDownload(let tier):
+            downloadTasks[tier]?.cancel()
+            downloadTasks[tier] = nil
+            downloadStartedAt[tier] = nil
+            Log.app.notice("onboarding: \(tier.rawValue) download cancelled by the user")
         case .startDownload(let tier):
-            guard !deps.models.isInstalled(tier) else { send(.downloadFinished); return }
-            downloadTask?.cancel()
-            downloadStartedAt = Date()
-            Log.app.notice("onboarding: downloading \(tier.rawValue) — \(tier.modelNames.joined(separator: " + ")) (\(ByteText.short(tier.approximateBytes)))")
-            downloadTask = Task { [weak self] in
+            guard !deps.models.isInstalled(tier) else { send(.downloadFinished(tier)); return }
+            downloadTasks[tier]?.cancel()
+            downloadStartedAt[tier] = Date()
+            Log.app.notice("onboarding: downloading \(tier.rawValue) — \(tier.modelNames.joined(separator: " + ")) (\(ByteText.short(deps.models.remainingBytes(for: tier))) still to fetch)")
+            downloadTasks[tier] = Task { [weak self] in
                 guard let self else { return }
                 do {
                     try await deps.models.download(tier) { progress in
-                        Task { @MainActor [weak self] in self?.send(.downloadProgress(progress)) }
+                        Task { @MainActor [weak self] in self?.send(.downloadProgress(tier, progress)) }
                     }
                     Log.app.notice("onboarding: \(tier.rawValue) download finished")
-                    send(.downloadFinished)
+                    send(.downloadFinished(tier))
+                } catch is CancellationError {
+                    // The user pressed Cancel; the state machine already moved this option back to
+                    // "Download". Reporting a failure here would blame them for their own choice.
+                    return
                 } catch {
+                    guard !Task.isCancelled else { return }
                     // `localizedDescription` on a bare Swift enum is a generic bridge string; this
                     // is the same reason the pill used to show "invalidAudioData".
                     let reason = EngineMessage.describe(error)
                     Log.app.error("onboarding: \(tier.rawValue) download failed — \(reason)")
-                    send(.downloadFailed(reason))
+                    send(.downloadFailed(tier, reason))
                 }
             }
         case .checkRecognizerReadiness:
@@ -396,11 +410,29 @@ public final class OnboardingViewModel: ObservableObject {
         GuidedDictationGate.decide(readiness: machine.readiness, download: machine.download)
     }
 
-    /// The line under the download bar: bytes, percent and an estimate once one means anything.
-    public var downloadLine: String? {
-        guard case .downloading(let progress) = machine.download else { return nil }
-        let elapsed = downloadStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+    /// The line under the chosen option's bar: bytes, percent and an estimate once one means anything.
+    public var downloadLine: String? { machine.chosenTier.flatMap { downloadLine(for: $0) } }
+
+    /// The same line, for one specific option — each row reports its own download, never a
+    /// neighbour's.
+    public func downloadLine(for tier: ModelTier) -> String? {
+        guard case .downloading(let progress) = machine.downloadState(for: tier) else { return nil }
+        let elapsed = downloadStartedAt[tier].map { Date().timeIntervalSince($0) } ?? 0
         return DownloadProgressText.line(progress, elapsed: elapsed)
+    }
+
+    /// What the option's Download button says. Counts only the models this tier is actually
+    /// missing, so "Best" after "Balanced" offers the 120 MB top-up rather than 900 MB again.
+    public func downloadButtonTitle(for tier: ModelTier) -> String {
+        let remaining = deps.models.remainingBytes(for: tier)
+        guard remaining > 0 else { return "Download" }
+        return "Download \(ByteText.short(remaining))"
+    }
+
+    /// True when this option only needs the part it does not share with one already on disk.
+    public func isPartialDownload(_ tier: ModelTier) -> Bool {
+        let remaining = deps.models.remainingBytes(for: tier)
+        return remaining > 0 && remaining < tier.approximateBytes
     }
 
     /// Re-reads which recogniser would actually transcribe the next utterance. Cheap (a few

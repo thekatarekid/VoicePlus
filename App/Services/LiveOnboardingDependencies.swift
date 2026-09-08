@@ -238,6 +238,15 @@ public final class ModelManagerTiers: ModelManaging {
 
     public func isInstalled(_ tier: ModelTier) -> Bool { presence[tier] ?? false }
 
+    /// Only the models this tier is actually missing. "Best" shares Parakeet TDT v3 with "Balanced",
+    /// so after Balanced has landed this reports the 120 MB EOU model alone — the same subset
+    /// `download(_:progress:)` will fetch.
+    public func remainingBytes(for tier: ModelTier) -> Int64 {
+        Self.models(for: tier)
+            .filter { modelPresence[$0] != true }
+            .reduce(0) { $0 + ModelCatalog.descriptor($1).approxBytes }
+    }
+
     /// Model downloads are the one egress path outside the provider table: they honour the
     /// Data Panel kill switch and are logged to `network_log` like any other request (T3/T5).
     ///

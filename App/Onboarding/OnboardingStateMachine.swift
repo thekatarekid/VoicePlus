@@ -111,10 +111,20 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case micSettled
         /// Capture failed to start, with the underlying reason.
         case micFailed(String)
+        /// Selection only. Deliberately starts nothing: until 1.7.0 this event *also* kicked off a
+        /// several-hundred-megabyte download, so a radio button — the one control on a screen that
+        /// promises to be inert — spent the user's bandwidth without being asked.
         case choose(ModelTier)
-        case downloadProgress(ModelDownloadProgress)
-        case downloadFinished
-        case downloadFailed(String)
+        /// The explicit "Download" press for one option. The only way a fetch ever starts.
+        case download(ModelTier)
+        case cancelDownload(ModelTier)
+        case downloadProgress(ModelTier, ModelDownloadProgress)
+        case downloadFinished(ModelTier)
+        case downloadFailed(ModelTier, String)
+        /// What is actually on disk right now, re-read from the model manager. Presence is per
+        /// *model*, so "Best" counts as installed the moment its second model lands beside the one
+        /// "Balanced" already fetched.
+        case modelPresenceChanged(Set<ModelTier>)
         /// What the guided dictation actually achieved — success *and* failure travel through the
         /// same event, but as different cases. Until 1.6.6 failure was reported as
         /// `.dictationLanded("")`, which the view read as success because it only checked for nil.
@@ -137,7 +147,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case startMicMonitoring
         case stopMicMonitoring
         case startDownload(ModelTier)
+        case cancelDownload(ModelTier)
         case selectModel(ModelTier)
+        /// Ask the model manager which tiers are fully present on disk, and feed it back as
+        /// `.modelPresenceChanged`.
+        case checkModelPresence
         case beginGuidedDictation
         /// Ask the model manager which recogniser would run, and feed it back as `.readinessChanged`.
         case checkRecognizerReadiness
@@ -163,10 +177,63 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// notify again for them, so the "Allow" button would be a lie on a second run.
     public private(set) var requestedPermissions: Set<OnboardingPermission> = []
     public private(set) var chosenTier: ModelTier?
-    public private(set) var download: DownloadState = .notStarted
-    /// The tier the current `download` belongs to, so re-choosing a *different* tier is recognised
-    /// as needing its own download instead of inheriting the first one's state.
-    public private(set) var downloadingTier: ModelTier?
+    /// One state per option, so each row can say what *it* is doing. A single shared `download`
+    /// could only ever describe one of the three, which is why the old screen showed one progress
+    /// bar under all of them.
+    public private(set) var downloadStates: [ModelTier: DownloadState] = [:]
+    /// Tiers whose every model is present on disk. Fed from the model manager, never inferred from
+    /// "we started a download for it".
+    public private(set) var installedTiers: Set<ModelTier> = []
+    /// True when the user left this screen with nothing installed — the one case where dictation
+    /// genuinely cannot work, and therefore the one case the later screens must say so out loud.
+    public private(set) var skippedModelChoiceWithoutModel = false
+
+    /// What the given option's own button should show.
+    public func downloadState(for tier: ModelTier) -> DownloadState {
+        if installedTiers.contains(tier) { return .installed }
+        return downloadStates[tier] ?? .notStarted
+    }
+
+    /// The chosen option's state — what the dictation gate and the older call sites ask about.
+    public var download: DownloadState {
+        guard let chosenTier else { return .notStarted }
+        return downloadState(for: chosenTier)
+    }
+
+    /// The tier a fetch is running for right now, if any.
+    public var downloadingTier: ModelTier? {
+        ModelTier.allCases.first { downloadState(for: $0).isInFlight }
+    }
+
+    /// Continue is allowed only when the model the user picked is actually on this Mac. Anything
+    /// less walks them onto the dictation screen with nothing to transcribe with.
+    public var canContinueFromModelChoice: Bool {
+        guard let chosenTier else { return false }
+        return installedTiers.contains(chosenTier)
+    }
+
+    /// Why Continue is off, in the user's words. A disabled button with no explanation is its own
+    /// dead end — the user cannot tell a bug from a precondition.
+    public var continueBlockedReason: String? {
+        guard !canContinueFromModelChoice else { return nil }
+        guard let tier = chosenTier else {
+            return "Pick a model and press its Download button. Continue turns on once it's on this Mac."
+        }
+        switch downloadState(for: tier) {
+        case .downloading(let p):
+            return "\(tier.title) is still downloading (\(p.percent)%). Continue turns on the moment it lands."
+        case .failed(let why):
+            return "\(tier.title) didn't download: \(why). Retry it, pick another, or Skip — but with no model on this Mac, dictation won't work."
+        case .notStarted, .installed:
+            return "Press Download next to \(tier.title). Continue turns on once it's on this Mac."
+        }
+    }
+
+    /// What Skip costs right now. Nil when a model is present, so the warning cannot cry wolf.
+    public var skipConsequence: String? {
+        guard installedTiers.isEmpty else { return nil }
+        return "Skipping is fine, but with no model on this Mac dictation won't work until you install one — from Settings → Models, or by coming back here."
+    }
     /// What the last guided-dictation attempt achieved. Nil = not attempted.
     public private(set) var dictation: GuidedDictationOutcome?
     /// What would transcribe right now. `.unavailable` until the step asks.
@@ -321,26 +388,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             return enter(.modelChoice)
 
         // Model choice
-        case (.modelChoice, .choose(let tier)):
-            chosenTier = tier
-            // A download is started for any tier that does not already have one in flight or
-            // finished. The old rule was `download == .notStarted`, which meant that once *any*
-            // download had begun, picking a different tier silently persisted the choice and
-            // fetched nothing — the user's model never arrived and nothing said so. The view model
-            // still short-circuits to `.downloadFinished` when the tier is already on disk, so this
-            // costs nothing in the common case.
-            guard needsDownload(tier) else { return [.selectModel(tier)] }
-            downloadingTier = tier
-            download = .notStarted
-            return [.selectModel(tier), .startDownload(tier)]
-        case (.modelChoice, .downloadProgress(let p)):
-            download = .downloading(p); return []
-        case (.modelChoice, .downloadFinished):
-            download = .installed; return [.checkRecognizerReadiness]
-        case (.modelChoice, .downloadFailed(let reason)):
-            download = .failed(reason); return [.checkRecognizerReadiness]
         case (.modelChoice, .next):
-            if chosenTier == nil { chosenTier = .fast }
+            // The gate, not merely a disabled button: a `.next` that arrives anyway (a keyboard
+            // shortcut, a stale view) must not walk the user onto the dictation screen with no model.
+            guard canContinueFromModelChoice else { return [] }
             return enter(.firstDictation)
 
         // First dictation
@@ -352,24 +403,42 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case (.firstDictation, .next):
             return enter(.done)
 
-        // Readiness and download events can arrive on any step (a background download finishing, the
+        // Selection and download events can arrive on any step (a background download finishing, the
         // dictation step opening); keep the state coherent wherever the user is.
+        case (_, .choose(let tier)):
+            // Selection, and nothing else. No side effect but persisting the preference.
+            chosenTier = tier
+            return [.selectModel(tier)]
+        case (_, .download(let tier)):
+            // Downloading an option is also choosing it — nobody fetches 500 MB they did not want.
+            chosenTier = tier
+            guard !installedTiers.contains(tier), !downloadState(for: tier).isInFlight else {
+                return [.selectModel(tier)]
+            }
+            downloadStates[tier] = .notStarted
+            return [.selectModel(tier), .startDownload(tier)]
+        case (_, .cancelDownload(let tier)):
+            guard downloadState(for: tier).isInFlight else { return [] }
+            downloadStates[tier] = .notStarted
+            return [.cancelDownload(tier)]
         case (_, .readinessChanged(let r)): readiness = r; return []
-        case (_, .downloadProgress(let p)): download = .downloading(p); return []
-        case (_, .downloadFinished): download = .installed; return [.checkRecognizerReadiness]
-        case (_, .downloadFailed(let r)): download = .failed(r); return [.checkRecognizerReadiness]
+        case (_, .downloadProgress(let tier, let p)):
+            guard !installedTiers.contains(tier) else { return [] }
+            downloadStates[tier] = .downloading(p); return []
+        case (_, .downloadFinished(let tier)):
+            downloadStates[tier] = .installed
+            installedTiers.insert(tier)
+            return [.checkModelPresence, .checkRecognizerReadiness]
+        case (_, .downloadFailed(let tier, let r)):
+            downloadStates[tier] = .failed(r)
+            return [.checkModelPresence, .checkRecognizerReadiness]
+        case (_, .modelPresenceChanged(let present)):
+            installedTiers = present
+            // A tier that turned out to be present keeps no stale progress or failure beside it.
+            for tier in present { downloadStates[tier] = nil }
+            return []
         default:
             return []
-        }
-    }
-
-    /// Whether choosing `tier` should kick off a fetch: anything except a download already running
-    /// or already finished *for that same tier*.
-    private func needsDownload(_ tier: ModelTier) -> Bool {
-        guard downloadingTier == tier else { return true }
-        switch download {
-        case .downloading, .installed: return false
-        case .notStarted, .failed: return true
         }
     }
 
@@ -397,6 +466,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             }
             micVerdict = .waiting
             effects.append(.startMicMonitoring)
+        case .modelChoice:
+            // What is on disk decides every button on this screen — including whether Continue is
+            // allowed — so the screen must never draw before it has asked.
+            effects.append(.checkModelPresence)
+            effects.append(.checkRecognizerReadiness)
         case .firstDictation:
             // Readiness first: the screen must know which recogniser it is about to offer before it
             // draws the button, or it is back to presenting a test that cannot work.
@@ -446,7 +520,12 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .permissions: return advancePermission()
         case .welcome: skippedSteps.insert(step); return enter(.micCheck)
         case .micCheck: skippedSteps.insert(step); return enter(.modelChoice)
-        case .modelChoice: skippedSteps.insert(step); return enter(.firstDictation)
+        case .modelChoice:
+            skippedSteps.insert(step)
+            // Skipping stays allowed — it is a legitimate choice — but it is recorded honestly, so
+            // the screens after this one can say that dictation has nothing to run on.
+            skippedModelChoiceWithoutModel = installedTiers.isEmpty
+            return enter(.firstDictation)
         case .firstDictation, .done: skippedSteps.insert(step); return enter(.done)
         }
     }

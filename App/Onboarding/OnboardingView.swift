@@ -271,29 +271,15 @@ public struct OnboardingView: View {
             Text("Pick a free local model.").font(.title.bold())
             Text("It downloads in the background. Until it lands, VoicePlus uses whatever is already on this Mac — the next screen says which.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            ForEach(ModelTier.allCases) { tier in
-                Button {
-                    model.send(.choose(tier))
-                } label: {
-                    HStack(alignment: .top) {
-                        Image(systemName: model.machine.chosenTier == tier ? "largecircle.fill.circle" : "circle")
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack {
-                                Text(tier.title).bold()
-                                Text("· \(tier.sizeLabel)").foregroundStyle(.secondary)
-                                if tier == .recommended { Text("Recommended").font(.caption).padding(3).background(.quaternary, in: Capsule()) }
-                            }
-                            Text(tier.modelNameLine).font(.caption).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text(tier.tradeoff).font(.callout).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+            ForEach(ModelTier.allCases) { tier in modelRow(tier) }
+            if let reason = model.machine.continueBlockedReason {
+                Label(reason, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            downloadStatus
+            if let consequence = model.machine.skipConsequence {
+                Label(consequence, systemImage: "exclamationmark.triangle").font(.caption)
+                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
             Divider()
             HStack {
                 Text("Already pay for ChatGPT, Claude, or an API key? That improves rewrites — not transcription.").font(.caption).foregroundStyle(.secondary)
@@ -303,22 +289,69 @@ public struct OnboardingView: View {
         }
     }
 
-    @ViewBuilder private var downloadStatus: some View {
-        switch model.machine.download {
-        case .notStarted:
-            EmptyView()
-        case .downloading(let progress):
-            // Bytes, percent and a time estimate. A bare percentage was the whole of the old copy,
-            // and it left the user unable to answer "has the 1.2 GB even started?".
-            ProgressView(value: progress.fraction) {
-                Text(model.downloadLine ?? "Downloading… \(progress.percent)%").font(.caption)
+    /// One option: a selectable description on the left, and its **own** download control on the
+    /// right. Selecting is inert — until 1.7.0 tapping the radio button silently began fetching up
+    /// to 900 MB, which is not something a selection control may do.
+    private func modelRow(_ tier: ModelTier) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                model.send(.choose(tier))
+            } label: {
+                HStack(alignment: .top) {
+                    Image(systemName: model.machine.chosenTier == tier ? "largecircle.fill.circle" : "circle")
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack {
+                            Text(tier.title).bold()
+                            Text("· \(tier.sizeLabel)").foregroundStyle(.secondary)
+                            if tier == .recommended { Text("Recommended").font(.caption).padding(3).background(.quaternary, in: Capsule()) }
+                        }
+                        Text(tier.modelNameLine).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(tier.tradeoff).font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(model.machine.chosenTier == tier ? [.isSelected] : [])
+            modelRowControl(tier).frame(width: 210, alignment: .trailing)
+        }
+    }
+
+    /// The per-option state, in the only three shapes it can take: on disk, in flight, or offered.
+    @ViewBuilder private func modelRowControl(_ tier: ModelTier) -> some View {
+        switch model.machine.downloadState(for: tier) {
         case .installed:
-            Label("Ready.", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+            VStack(alignment: .trailing, spacing: 2) {
+                Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+                Button("Use this") { model.send(.choose(tier)) }
+                    .font(.caption)
+                    .disabled(model.machine.chosenTier == tier)
+            }
+        case .downloading(let progress):
+            VStack(alignment: .trailing, spacing: 2) {
+                ProgressView(value: progress.fraction)
+                Text(model.downloadLine(for: tier) ?? "Downloading… \(progress.percent)%")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Cancel") { model.send(.cancelDownload(tier)) }.font(.caption)
+            }
         case .failed(let why):
-            Label("Download failed: \(why). Pick a tier again to retry, or carry on — the next screen says what will be used instead.",
-                  systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange).font(.caption).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .trailing, spacing: 2) {
+                Label("Download failed: \(why)", systemImage: "exclamationmark.triangle")
+                    .font(.caption2).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Button("Retry") { model.send(.download(tier)) }.font(.caption)
+            }
+        case .notStarted:
+            VStack(alignment: .trailing, spacing: 2) {
+                Button(model.downloadButtonTitle(for: tier)) { model.send(.download(tier)) }
+                if model.isPartialDownload(tier) {
+                    // Never claim a re-download of a model that is already here: "Best" is
+                    // "Balanced" plus one small extra model.
+                    Text("Only the part you don't have yet.").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -328,6 +361,12 @@ public struct OnboardingView: View {
             Text("Now for real.").font(.title.bold())
             Text("Press Dictate now, say the sentence, then press Stop.")
             Text("“The quick brown fox jumps over the lazy dog.”").font(.title3).italic()
+            if model.machine.skippedModelChoiceWithoutModel {
+                // Said here, once, rather than left for the user to infer from a test that fails.
+                Label("You skipped the model download, so there is no speech model on this Mac yet. Dictation won't work until one is installed — go Back to pick one, or install it later from Settings → Models.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
             let gate = model.dictationGate
             Label(gate.banner, systemImage: gate.isWarning ? "exclamationmark.triangle" : "cpu")
                 .font(.caption).foregroundStyle(gate.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
@@ -384,6 +423,11 @@ public struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("That's it.").font(.largeTitle.bold())
             Text("Hold the key and talk, anywhere. Settings live in the menu bar.")
+            if model.machine.skippedModelChoiceWithoutModel {
+                Label("One thing left: no speech model is installed, so dictation won't work yet. Install one from Settings → Models.",
+                      systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
             if let outcome = model.contactsOutcome, case .imported(let n) = outcome {
                 Text("Added \(n) names from Contacts to your dictionary.").foregroundStyle(.secondary)
             }
@@ -417,7 +461,13 @@ public struct OnboardingView: View {
                     model.send(.next)
                 }
             case .micCheck: Button("Continue") { model.send(.next) }.keyboardShortcut(.defaultAction)
-            case .modelChoice: Button("Continue") { model.send(.next) }
+            case .modelChoice:
+                // Off until the chosen model is really on this Mac. The reason is printed above the
+                // divider, so a disabled button is never a guessing game.
+                Button("Continue") { model.send(.next) }
+                    .disabled(!model.machine.canContinueFromModelChoice)
+                    .help(model.machine.continueBlockedReason ?? "")
+                    .keyboardShortcut(model.machine.canContinueFromModelChoice ? .defaultAction : nil)
             // "Finish" once VoicePlus has actually heard something — not merely once an event with
             // an empty payload arrived, which is what `landedText != nil` used to mean.
             case .firstDictation: Button(model.machine.heardText == nil ? "Continue" : "Finish") { model.send(.next) }
