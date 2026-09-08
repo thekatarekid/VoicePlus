@@ -1,5 +1,25 @@
+import FluidAudio
 import Foundation
 import Shared
+
+extension ModelCatalog {
+    /// FluidAudio's own folder name for the repo behind `id` — the name its loaders resolve to from
+    /// the *parent* of whatever directory they are handed — or nil for a model FluidAudio does not
+    /// resolve through `ModelHub` at all.
+    ///
+    /// `folderName` must equal this wherever it is non-nil, or the load re-downloads the model into a
+    /// second folder. Read from upstream rather than copied into a string here, so that a rename in
+    /// FluidAudio fails a test instead of quietly costing every user another 468 MB.
+    static func fluidAudioFolderName(for id: ModelID) -> String? {
+        switch id {
+        case .parakeetTDTv3: return Repo.parakeetV3.folderName
+        case .parakeetTDTCTC110m: return Repo.parakeetTdtCtc110m.folderName
+        // Loaded file-by-file out of the directory we pass (`StreamingEouAsrManager.loadModels(from:)`
+        // / no FluidAudio runtime at all), so no name to agree with.
+        case .parakeetEOU160, .whisperSmall: return nil
+        }
+    }
+}
 
 /// Moves an existing install from the pre-1.7.13 folder layout onto the one FluidAudio resolves to,
 /// and reclaims the duplicate the old layout caused.

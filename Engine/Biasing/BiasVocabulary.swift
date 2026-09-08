@@ -42,10 +42,17 @@ public struct BiasVocabulary: Sendable {
     public static func discoverParakeet() -> BiasVocabulary? {
         let fm = FileManager.default
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let candidates = [
-            support.appendingPathComponent("VoicePlus/Models/parakeet-tdt-0.6b-v3-coreml/parakeet_vocab.json"),
-            support.appendingPathComponent("FluidAudio/Models/parakeet-tdt-0.6b-v3/parakeet_vocab.json"),
-        ]
+        // Built from the catalog rather than spelled out: the VoicePlus folder name changed in
+        // 1.7.13 (see `ModelDescriptor.folderName`), and a hard-coded copy of it here would have
+        // silently stopped finding the vocab the moment the migration ran. The legacy name stays as
+        // a fallback for the window before `ModelManager.init` has migrated the folder.
+        let d = ModelCatalog.descriptor(.parakeetTDTv3)
+        let vocab = "parakeet_vocab.json"
+        let voicePlus = support.appendingPathComponent("VoicePlus/Models", isDirectory: true)
+        let fluidAudio = support.appendingPathComponent("FluidAudio/Models", isDirectory: true)
+        let candidates = ([d.folderName] + d.legacyFolderNames).map {
+            voicePlus.appendingPathComponent($0).appendingPathComponent(vocab)
+        } + [fluidAudio.appendingPathComponent(d.folderName).appendingPathComponent(vocab)]
         for c in candidates where fm.fileExists(atPath: c.path) { return try? load(from: c) }
         return nil
     }

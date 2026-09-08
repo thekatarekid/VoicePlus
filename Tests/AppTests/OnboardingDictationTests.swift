@@ -420,7 +420,9 @@ struct RecognizerReadinessTests {
     }
 
     private func stubModel(_ id: ModelID, under root: URL) throws {
-        let folder = root.appendingPathComponent(id.rawValue, isDirectory: true)
+        // Not `id.rawValue`: since 1.7.13 the folder is `ModelDescriptor.folderName`, which is
+        // FluidAudio's own `Repo.folderName` — the name its loaders resolve to. See `ModelCatalog`.
+        let folder = ModelCatalog.folder(for: id, in: root)
         for path in ModelCatalog.descriptor(id).requiredPaths {
             let file = folder.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)

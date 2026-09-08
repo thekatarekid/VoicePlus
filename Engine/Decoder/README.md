@@ -61,7 +61,7 @@ uses the **min-prob rule**: word confidence = min over its tokens' `probability`
 = first token start … last token end. See `Engine/Confidence/WordConfidence.swift`.
 
 ## Runtime layout (Engine/ASRRuntime)
-- `ModelManager` (actor): disk layout `~/Library/Application Support/VoicePlus/Models/<ModelID>/`, HF download with
+- `ModelManager` (actor): disk layout `~/Library/Application Support/VoicePlus/Models/<ModelDescriptor.folderName>/` (= FluidAudio's `Repo.folderName`, so its loaders resolve to the same folder instead of re-downloading), HF download with
   byte-range resume (`HFDownloader`) + `voiceplus-manifest.json` (SHA256 per file), load/unload, `warmStart()`,
   and warm-start discovery of FluidAudio's own cache. Catalog: TDT v3 (final), EOU 120M/160 ms (preview),
   TDT-CTC 110M (bundled tiny), Whisper small (placeholder, no runtime).

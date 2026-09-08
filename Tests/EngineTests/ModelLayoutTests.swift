@@ -73,6 +73,18 @@ struct ModelLayoutTests {
         }
     }
 
+    /// The same claim, but read out of FluidAudio itself instead of transcribed. If upstream renames
+    /// a repo folder, this fails here rather than costing every user another 468 MB.
+    @Test func folderNameAgreesWithFluidAudiosOwn() {
+        for id in ModelID.allCases {
+            guard let upstream = ModelCatalog.fluidAudioFolderName(for: id) else { continue }
+            #expect(ModelCatalog.folderName(for: id) == upstream, "\(id.rawValue) must be stored where FluidAudio looks")
+        }
+        // And the two models that go through ModelHub are covered — a nil for both would pass vacuously.
+        #expect(ModelCatalog.fluidAudioFolderName(for: .parakeetTDTv3) != nil)
+        #expect(ModelCatalog.fluidAudioFolderName(for: .parakeetTDTCTC110m) != nil)
+    }
+
     /// What the bug looked like: the old layout resolved *away* from the folder we filled.
     @Test func oldLayoutResolvedToADifferentFolder() {
         let root = URL(fileURLWithPath: "/tmp/Models", isDirectory: true)
