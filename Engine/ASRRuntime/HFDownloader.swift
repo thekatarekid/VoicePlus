@@ -20,6 +20,29 @@ public enum DownloadError: Error, Equatable {
     case sizeMismatch(path: String, expected: Int64, actual: Int64)
     case cancelled
     case noRemoteFiles(ModelID)
+    /// The fetcher returned without throwing, but what it wrote is not a complete model.
+    case incompleteDownload(ModelID, [String])
+}
+
+extension DownloadError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .httpStatus(let code, _):
+            return "The download failed (HTTP \(code)). Check your connection and try again."
+        case .checksumMismatch(let path, _, _):
+            return "\u{201C}\(path)\u{201D} arrived corrupted and was discarded. Try the download again."
+        case .sizeMismatch(let path, _, _):
+            return "\u{201C}\(path)\u{201D} arrived incomplete and was discarded. Try the download again."
+        case .cancelled:
+            return "The model download was cancelled."
+        case .noRemoteFiles(let id):
+            return "There is nothing to download for \(ModelCatalog.descriptor(id).displayName)."
+        case .incompleteDownload(let id, let problems):
+            let detail = problems.prefix(2).joined(separator: "; ")
+            return "\(ModelCatalog.descriptor(id).displayName) didn\u{2019}t download completely"
+                + (detail.isEmpty ? "." : " (\(detail)).") + " Nothing was installed \u{2014} try again."
+        }
+    }
 }
 
 /// Fetches a model's files into `folder`. Implementations: `ManifestFetcher` (our own
@@ -134,6 +157,8 @@ public struct ManifestFetcher: ModelFetcher {
             }
             doneBytes += got
         }
+        let problems = ModelIntegrity.problems(for: d, at: folder, fileManager: FileManager.default)
+        guard problems.isEmpty else { throw DownloadError.incompleteDownload(d.id, problems) }
         try ModelManifest.build(modelID: d.id, hfRepo: d.hfRepo, folder: folder).save(to: folder)
     }
 }
@@ -143,23 +168,50 @@ public struct ManifestFetcher: ModelFetcher {
 public struct FluidAudioFetcher: ModelFetcher {
     public init() {}
 
+    /// Staging directory for `id`. Deliberately named so it can never be mistaken for an installed
+    /// model: `ModelManager.folder(for:)` is `<root>/<ModelID.rawValue>`, and no `ModelID` raw value
+    /// starts with a dot. A cancelled or crashed download leaves its `.partial` files *here*, where
+    /// they stay resumable and where nothing ever reports them as installed.
+    public static func stagingFolder(for id: ModelID, beside folder: URL) -> URL {
+        folder.deletingLastPathComponent().appendingPathComponent(".staging-\(id.rawValue)", isDirectory: true)
+    }
+
     public func fetch(_ d: ModelDescriptor, into folder: URL, progress: ModelProgressHandler?) async throws {
         guard let repo = Repo(rawValue: d.hfSubdirectory.isEmpty ? d.hfRepo : d.hfRepo + "/" + d.hfSubdirectory) else {
             throw DownloadError.noRemoteFiles(d.id)
         }
         // ModelHub downloads into `<root>/<repo.folderName>`; we stage there and move into our folder.
-        let staging = folder.deletingLastPathComponent().appendingPathComponent(".staging-\(d.id.rawValue)", isDirectory: true)
-        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let staging = Self.stagingFolder(for: d.id, beside: folder)
+        let fm = FileManager.default
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         let approx = d.approxBytes
         try await ModelHub.download(repo, to: staging, progressHandler: { p in
             progress?(DownloadProgressInfo(modelID: d.id, fraction: p.fractionCompleted,
                                            bytesReceived: Int64(p.fractionCompleted * Double(approx)), bytesExpected: approx))
         })
         let produced = staging.appendingPathComponent(repo.folderName, isDirectory: true)
-        let fm = FileManager.default
-        if fm.fileExists(atPath: folder.path) { try fm.removeItem(at: folder) }
+
+        // Verify *before* publishing. `ModelHub.download` can return having written a tree that is
+        // structurally there but missing bytes, and until 1.7.10 that tree was moved straight into
+        // place and reported installed — the shape of the 1.7.9 report. Nothing incomplete gets a
+        // name a presence check will believe.
+        let staged = ModelIntegrity.problems(for: d, at: produced, fileManager: fm)
+        guard staged.isEmpty else { throw DownloadError.incompleteDownload(d.id, staged) }
+
         try fm.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fm.moveItem(at: produced, to: folder)
+        // Swap, don't delete-then-move. The old code removed the destination first, so a failed move
+        // left the user with neither the old model nor the new one — and, while the removal was in
+        // flight, a concurrent reader saw the folder vanish underneath it.
+        let previous = folder.appendingPathExtension("replaced-\(UUID().uuidString)")
+        let hadPrevious = fm.fileExists(atPath: folder.path)
+        if hadPrevious { try fm.moveItem(at: folder, to: previous) }
+        do {
+            try fm.moveItem(at: produced, to: folder)
+        } catch {
+            if hadPrevious { try? fm.moveItem(at: previous, to: folder) }
+            throw error
+        }
+        if hadPrevious { try? fm.removeItem(at: previous) }
         try? fm.removeItem(at: staging)
         try ModelManifest.build(modelID: d.id, hfRepo: d.hfRepo, folder: folder).save(to: folder)
     }

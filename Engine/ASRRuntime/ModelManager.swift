@@ -22,6 +22,30 @@ public enum ModelManagerError: Error, Equatable {
     case unsupported(ModelID)
     case notPresent(ModelID)
     case verificationFailed(ModelID, [String])
+    /// On disk but not usable: an interrupted download left scratch files, a required file is
+    /// missing, or a file is shorter than it was when it installed. Recoverable by re-downloading.
+    case incomplete(ModelID, [String])
+}
+
+/// Plain language, because these reach the notch. Until 1.7.10 an incomplete model surfaced as
+/// whatever Cocoa error the failing move threw — the user's screenshot read `The file
+/// "weight.bin.partial" doesn't exist.`, which names an internal scratch file, explains nothing and
+/// offers no way out. `EngineMessage.describe` prefers `errorDescription`, so this is what shows.
+extension ModelManagerError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .unsupported(let id):
+            return "VoicePlus can\u{2019}t run the \u{201C}\(ModelCatalog.descriptor(id).displayName)\u{201D} model on this Mac."
+        case .notPresent(let id):
+            return "The \(ModelCatalog.descriptor(id).displayName) speech model isn\u{2019}t installed yet. Download it from Settings \u{203A} Models."
+        case .verificationFailed(let id, let paths), .incomplete(let id, let paths):
+            let name = ModelCatalog.descriptor(id).displayName
+            let detail = paths.prefix(2).joined(separator: "; ")
+            return "The \(name) speech model didn\u{2019}t finish downloading, so it can\u{2019}t be used yet"
+                + (detail.isEmpty ? "." : " (\(detail)).")
+                + " The incomplete files have been cleared \u{2014} download the model again from Settings \u{203A} Models."
+        }
+    }
 }
 
 /// Owns disk layout (`AppPaths` → `Models/<id>`), downloads (resume + SHA256 manifest),
@@ -32,6 +56,10 @@ public actor ModelManager {
     private var fileManager: FileManager { .default }
     private var loaded: [ModelID: LoadedModel] = [:]
     private var downloads: [ModelID: Task<URL, Error>] = [:]
+    /// In-flight loads, keyed by model. See `load(_:)` — without this, actor reentrancy let two
+    /// callers run two CoreML loads (and, underneath them, two HuggingFace downloads) over the same
+    /// folder at once.
+    private var loads: [ModelID: Task<LoadedModel, Error>] = [:]
     private var progress: [ModelID: Double] = [:]
     /// Extra read-only places to look for already-downloaded models (warm start without re-download).
     private let externalCaches: [ModelID: [URL]]
@@ -57,8 +85,13 @@ public actor ModelManager {
 
     public func folder(for id: ModelID) -> URL { root.appendingPathComponent(id.rawValue, isDirectory: true) }
 
+    /// Is this a complete, loadable model — not just a directory with the right name?
+    ///
+    /// This used to be `requiredPaths.allSatisfy(fileExists)`. Every required path is a `.mlmodelc`
+    /// *directory*, and that directory exists from the first byte the downloader writes into it, so
+    /// a download interrupted mid-weights reported as installed. See `ModelIntegrity`.
     private func hasRequiredFiles(_ d: ModelDescriptor, at url: URL) -> Bool {
-        d.requiredPaths.allSatisfy { fileManager.fileExists(atPath: url.appendingPathComponent($0).path) }
+        ModelIntegrity.isComplete(d, at: url, fileManager: fileManager)
     }
 
     /// Where the model lives on disk, if anywhere (our folder first, then external caches).
@@ -103,8 +136,39 @@ public actor ModelManager {
         downloads[id] = task
         defer { downloads[id] = nil; progress[id] = nil }
         let url = try await task.value
-        guard hasRequiredFiles(d, at: url) else { throw ModelManagerError.notPresent(id) }
+        // The install is only an install once every file is actually there. A fetcher that returned
+        // without throwing but left the folder incomplete used to be indistinguishable from success:
+        // `notPresent` here, and the debris stayed to poison the retry.
+        let problems = ModelIntegrity.problems(for: d, at: url, fileManager: fileManager)
+        guard problems.isEmpty else {
+            Log.engine.error("model \(id.rawValue) downloaded but incomplete: \(problems.joined(separator: ", "))")
+            repair(id)
+            throw ModelManagerError.incomplete(id, problems)
+        }
         return url
+    }
+
+    /// Clear the interrupted-download debris in our own folder for `id`, and return what went.
+    ///
+    /// The recovery half of the 1.7.9 `weight.bin.partial` report. A stale `.partial` is precisely
+    /// what the next download trips over — FluidAudio streams into it and then moves it into place,
+    /// so a leftover one from a killed run turns a retry into the same cryptic Cocoa error. Only the
+    /// scratch files go; whole files that landed are kept, so a retry costs one file, not the model.
+    /// External caches are somebody else's directory and are never touched.
+    @discardableResult
+    public func repair(_ id: ModelID) -> [String] {
+        let own = folder(for: id)
+        guard fileManager.fileExists(atPath: own.path) else { return [] }
+        let removed = ModelIntegrity.removeScratchFiles(under: own, fileManager: fileManager)
+        if !removed.isEmpty { Log.engine.info("cleared \(removed.count) unfinished download file(s) under \(id.rawValue)") }
+        // A folder with no debris left but still missing required files is not resumable in any
+        // useful sense — it is a shell that would keep reporting "installed" to nothing. Drop it so
+        // the next download starts from a clean directory.
+        if !ModelIntegrity.isComplete(ModelCatalog.descriptor(id), at: own, fileManager: fileManager),
+           ModelIntegrity.scratchFiles(under: own, fileManager: fileManager).isEmpty {
+            try? fileManager.removeItem(at: own)
+        }
+        return removed
     }
 
     private func setProgress(_ id: ModelID, _ p: Double) { progress[id] = p }
@@ -112,26 +176,63 @@ public actor ModelManager {
     public func cancelDownload(_ id: ModelID) { downloads[id]?.cancel() }
 
     /// Load into memory (CoreML compile/ANE warm). Idempotent. Does not download.
+    ///
+    /// Concurrent callers share one load task, and that sharing is the fix for the 1.7.9 report.
+    /// `load` is actor-isolated but it suspends on `AsrModels.load`, and an actor releases itself
+    /// across a suspension: two callers — the launch preload (`AppContainer.warmUpEngine`) and the
+    /// user's first hotkey press — both saw `loaded[id] == nil` and both went on to load. Underneath,
+    /// `AsrModels.load` is not a pure read: it calls `ModelHub.loadModels`, which re-downloads
+    /// anything the cache is missing. Two of those over one folder race on the same scratch file, one
+    /// wins the move, and the loser reports `The file "weight.bin.partial" doesn't exist.` — the
+    /// error in the screenshot. Eager preload (9f4b0c3) did not cause this; it supplied the second
+    /// caller that made it reachable.
     @discardableResult
     public func load(_ id: ModelID) async throws -> LoadedModel {
         if let m = loaded[id] { return m }
+        if let inFlight = loads[id] { return try await inFlight.value }
         guard let url = locate(id) else { throw ModelManagerError.notPresent(id) }
         let d = ModelCatalog.descriptor(id)
-        let model: LoadedModel
-        switch d.kind {
-        case .finalTDT:
-            let version: AsrModelVersion = (id == .parakeetTDTCTC110m) ? .tdtCtc110m : .v3
-            model = .tdt(try await AsrModels.load(from: url, version: version))
-        case .streamingEOU:
-            let mgr = StreamingEouAsrManager(chunkSize: .ms160)
-            try await mgr.loadModels(from: url)
-            model = .eou(mgr)
-        case .whisper:
-            throw ModelManagerError.unsupported(id)
+        // `locate` already applies this, but an external cache can change under us and a load is the
+        // last moment we can say something useful instead of letting CoreML throw about a temp file.
+        let problems = ModelIntegrity.problems(for: d, at: url, fileManager: fileManager)
+        guard problems.isEmpty else {
+            Log.engine.error("refusing to load incomplete model \(id.rawValue): \(problems.joined(separator: ", "))")
+            repair(id)
+            throw ModelManagerError.incomplete(id, problems)
         }
-        loaded[id] = model
-        Log.engine.info("ModelManager loaded \(d.displayName) from \(url.path)")
-        return model
+        let task = Task<LoadedModel, Error> {
+            switch d.kind {
+            case .finalTDT:
+                let version: AsrModelVersion = (id == .parakeetTDTCTC110m) ? .tdtCtc110m : .v3
+                return .tdt(try await AsrModels.load(from: url, version: version))
+            case .streamingEOU:
+                let mgr = StreamingEouAsrManager(chunkSize: .ms160)
+                try await mgr.loadModels(from: url)
+                return .eou(mgr)
+            case .whisper:
+                throw ModelManagerError.unsupported(id)
+            }
+        }
+        loads[id] = task
+        defer { loads[id] = nil }
+        do {
+            let model = try await task.value
+            loaded[id] = model
+            Log.engine.info("ModelManager loaded \(d.displayName) from \(url.path)")
+            return model
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A load that failed on a folder that has since gone incomplete is the corruption case,
+            // not a CoreML-can't-run-here case: say so in words the user can act on, and clear the
+            // debris so pressing the key again is a real retry rather than the same crash.
+            let after = ModelIntegrity.problems(for: d, at: url, fileManager: fileManager)
+            let scratchNamed = "\(error)".contains(".partial") || "\(error)".contains(".part")
+            guard !after.isEmpty || scratchNamed else { throw error }
+            Log.engine.error("load of \(id.rawValue) failed on an incomplete model: \(error)")
+            repair(id)
+            throw ModelManagerError.incomplete(id, after.isEmpty ? ["an unfinished download was left behind"] : after)
+        }
     }
 
     public func unload(_ id: ModelID) async {

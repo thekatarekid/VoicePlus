@@ -23,6 +23,12 @@ public enum EngineMessage {
         }
         if let engine = error as? EngineError { return engine.readable }
         let ns = error as NSError
+        // Last line of defence for the 1.7.9 report. A file error naming a download scratch file
+        // ("The file \u{201C}weight.bin.partial\u{201D} doesn\u{2019}t exist.") is a half-downloaded
+        // model, but it reads as a bug in something the user has never heard of and suggests nothing
+        // they can do. `ModelManager` now converts these at the source; this catches any that reach
+        // the notch from a layer that does not know what a model is.
+        if let readable = Self.incompleteModelDownload(ns) { return readable }
         // A Swift error with no NSError bridging of its own gets a synthesised domain equal to its
         // fully qualified type name; anything else (NSURLErrorDomain, NSCocoaErrorDomain, an OSStatus
         // domain) came from Cocoa and its `localizedDescription` is worth showing. Comparing the two
@@ -31,6 +37,23 @@ public enum EngineMessage {
             return ns.localizedDescription
         }
         return String(describing: error)
+    }
+
+    /// Scratch-file suffixes used by the two downloaders: FluidAudio's `FileDownloader`
+    /// (`.partial`, plus its `.etag` resume sidecar) and our own `HFDownloader` (`.part`).
+    static let downloadScratchExtensions = ["partial", "part", "etag"]
+
+    /// A Cocoa file error whose path is download scratch → the sentence a human should read.
+    static func incompleteModelDownload(_ ns: NSError) -> String? {
+        guard ns.domain == NSCocoaErrorDomain else { return nil }
+        let path = (ns.userInfo[NSFilePathErrorKey] as? String)
+            ?? (ns.userInfo[NSURLErrorKey] as? URL)?.path
+            ?? ns.localizedDescription
+        let suffix = URL(fileURLWithPath: path).pathExtension
+        guard downloadScratchExtensions.contains(suffix)
+            || downloadScratchExtensions.contains(where: { path.contains(".\($0)") }) else { return nil }
+        return "The speech model didn\u{2019}t finish downloading, so it can\u{2019}t be used yet. "
+            + "Download it again from Settings \u{203A} Models."
     }
 }
 

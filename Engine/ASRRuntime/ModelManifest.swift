@@ -45,7 +45,10 @@ public struct ModelManifest: Codable, Equatable, Sendable {
         if let en = fileManager.enumerator(at: folder, includingPropertiesForKeys: keys) {
             for case let url as URL in en {
                 let rv = try url.resourceValues(forKeys: Set(keys))
-                guard rv.isRegularFile == true, url.lastPathComponent != fileName else { continue }
+                // Never record download scratch (`*.part`, `*.partial`, `*.etag`): a manifest that
+                // lists an unfinished file as model content makes the corruption look official.
+                guard rv.isRegularFile == true, url.lastPathComponent != fileName,
+                      !ModelIntegrity.scratchExtensions.contains(url.pathExtension) else { continue }
                 let rel = url.resolvingSymlinksInPath().path.replacingOccurrences(of: folder.path + "/", with: "")
                 entries.append(Entry(path: rel, sha256: try SHA256Hasher.hexDigest(of: url), size: Int64(rv.fileSize ?? 0)))
             }
