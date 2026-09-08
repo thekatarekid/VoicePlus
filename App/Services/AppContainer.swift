@@ -20,10 +20,13 @@ public final class AppContainer {
     public let database: AppDatabase?
     public let flags: FeatureFlagService
     public let settings: SettingsStore
+    /// The stable engine face every collaborator holds. Its *contents* change when a speech model
+    /// lands (or disappears) — see `refreshEngineIfNeeded()`.
     public let engine: any EngineProtocol
-    public let engineKind: EngineFactory.Kind
-    public let audio: PipelineAudioSource?
-    public let modelManager: ModelManager?
+    private let swappableEngine: SwappableEngine
+    public private(set) var engineKind: EngineFactory.Kind
+    public private(set) var audio: PipelineAudioSource?
+    public private(set) var modelManager: ModelManager?
     public let system: SystemAccess
     public let injector: TextInjector
     public let pipeline: PipelineRunner
@@ -62,7 +65,13 @@ public final class AppContainer {
     public let codeSwitch: CodeSwitchService
     public let sync: SyncService
     public let audioTap = UtteranceAudioTap()
-    private let recognizerProvider: BiasingRecognizerProvider?
+    private var recognizerProvider: BiasingRecognizerProvider?
+    /// Fired on the main queue after the engine has been replaced, so the shell can rebind the
+    /// things that hang off the *audio pipeline* (waveform, mic-quality) rather than off the engine.
+    public var onEngineChanged: ((AppContainer) -> Void)?
+    private let environment: [String: String]
+    private let refreshLock = NSLock()
+    private var refreshingEngine = false
     private var zeroEditTimer: Timer?
     private var adaptTimer: Timer?
 
@@ -99,15 +108,20 @@ public final class AppContainer {
             ? await ProviderWiring.makeTable(database: database, flags: flags, gate: gate)
             : RoutingTable(providers: [LocalRulesProvider()], logger: InMemoryNetworkLogger())
         return AppContainer(database: database, flags: flags, settings: settings, built: built,
-                            system: options.system ?? LiveSystemAccess(), gate: gate, routing: routing)
+                            system: options.system ?? LiveSystemAccess(), gate: gate, routing: routing,
+                            environment: options.environment)
     }
 
     init(database: AppDatabase?, flags: FeatureFlagService, settings: SettingsStore, built: EngineFactory.Built,
-         system: SystemAccess, gate: EgressGate, routing: RoutingTable) {
+         system: SystemAccess, gate: EgressGate, routing: RoutingTable,
+         environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.database = database
         self.flags = flags
         self.settings = settings
-        self.engine = built.engine
+        self.environment = environment
+        let swappable = SwappableEngine(built.engine)
+        self.swappableEngine = swappable
+        self.engine = swappable
         self.engineKind = built.kind
         self.audio = built.audio
         self.modelManager = built.modelManager
@@ -264,20 +278,6 @@ public final class AppContainer {
         // and asks for nothing — see MeetingCoordinator.startMonitoring().
         let meetingCoordinator = MeetingCoordinator(settings: settings)
         let meetingStore = meetingCoordinator.store
-        let recognizerProvider = built.provider
-        meetingCoordinator.makeSession = { prompt in
-            let transcriber: any MeetingTranscriber = recognizerProvider.map { p in
-                ProviderMeetingTranscriber(resolve: { try await p.resolve().final })
-            } ?? SilentMeetingTranscriber()
-            return MeetingSession(title: prompt.title, event: prompt.event, transcriber: transcriber,
-                                  labeler: DiarizationFactory.make(enrolledUserEmbedding: nil), store: meetingStore)
-        }
-        if case .real = built.kind {
-            meetingCoordinator.makeCapture = {
-                DualCapture(mic: CoreAudioCaptureSource(), system: SystemAudioRecorder.live(),
-                            micVAD: EnergyVAD(), systemVAD: EnergyVAD())
-            }
-        }
         meeting = meetingCoordinator
 
         labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, biasing: biasing)
@@ -288,6 +288,21 @@ public final class AppContainer {
         adaptTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak adaptationService] _ in
             adaptationService?.retrainIfNeeded()
         }
+        // Both read through `self`, so they must be installed after every stored property exists.
+        // Reading the *current* provider/kind rather than capturing `built`'s is the point: a
+        // container that came up without a model gains both when the download lands.
+        meetingCoordinator.makeSession = { [weak self] prompt in
+            let transcriber: any MeetingTranscriber = (self?.recognizerProvider).flatMap { p in
+                ProviderMeetingTranscriber(resolve: { try await p.resolve().final })
+            } ?? SilentMeetingTranscriber()
+            return MeetingSession(title: prompt.title, event: prompt.event, transcriber: transcriber,
+                                  labeler: DiarizationFactory.make(enrolledUserEmbedding: nil), store: meetingStore)
+        }
+        meetingCoordinator.makeCapture = { [weak self] in
+            guard let self, case .real = self.engineKind else { return nil }
+            return DualCapture(mic: CoreAudioCaptureSource(), system: SystemAudioRecorder.live(),
+                               micVAD: EnergyVAD(), systemVAD: EnergyVAD())
+        }
         Log.app.info("container up: engine=\(String(describing: built.kind)) db=\(database != nil) providers=\(routing.allProviders.count)")
     }
 
@@ -297,6 +312,72 @@ public final class AppContainer {
         let biaser = biasing.makeBiaser()
         recognizerProvider.install(biaser)
         if let biaser { Log.engine.debug("biasing: \(biaser.tree.entryCount) entries in \(String(format: "%.1f", biasing.lastBuildMs)) ms") }
+    }
+
+    /// Re-resolve the recognizer and swap the engine if what is on disk no longer matches what the
+    /// app is running.
+    ///
+    /// This is the fix for the 1.7.0 "downloaded a model, dictation still says no model" bug: the
+    /// engine used to be resolved once, at launch, and a fresh install necessarily launches with no
+    /// model. Cheap enough to call on every hotkey-down — the precheck is
+    /// `RecognizerFactory.chooseFinal`, i.e. a couple of `FileManager` lookups — and the expensive
+    /// rebuild only runs when availability actually flipped.
+    ///
+    /// Both directions are handled: unavailable → real when a download lands, and real →
+    /// unavailable when the models directory is emptied under a running app.
+    public func refreshEngineIfNeeded() async {
+        // The mock engine is an explicit developer opt-in; never take it away from them.
+        if case .mock = engineKind { return }
+        guard let modelManager else { return }
+        let begin = refreshLock.withLock { () -> Bool in
+            if refreshingEngine { return false }
+            refreshingEngine = true
+            return true
+        }
+        guard begin else { return }
+        defer { refreshLock.withLock { refreshingEngine = false } }
+
+        let choice = await RecognizerFactory.chooseFinal(manager: modelManager)
+        switch Self.refreshDecision(kind: engineKind, canRecognize: choice != nil) {
+        case .activate:
+            let built = await EngineFactory.make(environment: environment, manager: modelManager)
+            guard case .real = built.kind else { return }  // raced with a deletion; stay honest
+            Log.engine.notice("speech model became available — swapping in \(String(describing: built.kind))")
+            await apply(built)
+        case .deactivate:
+            Log.engine.notice("speech model disappeared — dictation is off until one is installed")
+            await apply(EngineFactory.makeUnavailable(manager: modelManager))
+        case .none:
+            return
+        }
+    }
+
+    /// What a refresh should do, given what the app is running and what is on disk. Pure so the
+    /// rule can be tested without a microphone: only an *availability flip* swaps the engine.
+    /// A real engine that gains a better model re-resolves inside `RealEngine` (provider revision),
+    /// and the mock engine is a developer opt-in that nothing may take away.
+    public enum RefreshDecision: Equatable, Sendable { case none, activate, deactivate }
+
+    public static func refreshDecision(kind: EngineFactory.Kind, canRecognize: Bool) -> RefreshDecision {
+        switch kind {
+        case .mock: return .none
+        case .unavailable: return canRecognize ? .activate : .none
+        case .real: return canRecognize ? .none : .deactivate
+        }
+    }
+
+    /// Installs a freshly built engine and everything that hangs off it. Swapping cancels any
+    /// utterance in flight, so nothing half-recognised lands (`SwappableEngine.swap`).
+    private func apply(_ built: EngineFactory.Built) async {
+        await swappableEngine.swap(to: built.engine)
+        engineKind = built.kind
+        audio = built.audio
+        audio?.utteranceTap = audioTap
+        recognizerProvider = built.provider
+        correction.recognizers = built.provider.map { ProviderDualPathRecognizers(provider: $0) }
+        codeSwitch.setRouter(built.codeSwitch)
+        let container = self
+        await MainActor.run { container.onEngineChanged?(container) }
     }
 
     public var activeModelName: String {
@@ -311,7 +392,17 @@ public final class AppContainer {
 
     /// Onboarding / Settings dependencies over the live services.
     public func onboardingDependencies(permissions: PermissionChecking) -> OnboardingDependencies {
-        let models: ModelManaging = modelManager.map { ModelManagerTiers(manager: $0, settings: settings) } ?? OnboardingMockModelManager()
+        let tiers = modelManager.map { manager -> ModelManagerTiers in
+            let tiers = ModelManagerTiers(manager: manager, settings: settings)
+            // The moment a model lands, the engine stops being `UnavailableEngine`. Without this
+            // the download finishes, onboarding says "Using Parakeet TDT 0.6B v3." and every
+            // dictation still reports "No speech model installed" until the app is relaunched.
+            tiers.onModelsChanged = { [weak self] in
+                Task { await self?.refreshEngineIfNeeded() }
+            }
+            return tiers
+        }
+        let models: ModelManaging = tiers ?? OnboardingMockModelManager()
         // Always a real capture graph. Reuse the app's pipeline when one exists; otherwise build a
         // standalone one — metering a microphone needs no ASR model, and onboarding is precisely
         // the moment when no model is installed yet. There is deliberately no engine-derived
@@ -319,7 +410,7 @@ public final class AppContainer {
         let micLevel: MicLevelPublishing = audio.map { PipelineMicLevelPublisher(audio: $0) }
             ?? PipelineMicLevelPublisher.standalone()
         Log.app.info("onboarding mic meter: \(audio != nil ? "shared audio pipeline" : "standalone capture graph") (real capture)")
-        return OnboardingDependencies(
+        var dependencies = OnboardingDependencies(
             permissions: LivePermissionChecker(checker: permissions),
             micLevel: micLevel,
             models: models,
@@ -333,6 +424,8 @@ public final class AppContainer {
                 Task { @MainActor in SettingsWindowController.show(dependencies: self.onboardingDependencies(permissions: permissions), tab: .models, connectedProviders: self.connectedProviderNames) }
             }
         )
+        dependencies.prepareEngine = { [weak self] in await self?.refreshEngineIfNeeded() }
+        return dependencies
     }
 
     public var connectedProviderNames: [String] {

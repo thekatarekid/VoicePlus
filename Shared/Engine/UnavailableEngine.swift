@@ -12,7 +12,9 @@ import Foundation
 /// Contract: it never emits `.partial`, `.final`, or `.previewing`, and `stop()` returns no spans.
 /// The only thing it publishes is `EngineState.unavailable(reason)` while the hotkey is held, so
 /// the pill can say why nothing is happening.
-public final class UnavailableEngine: EngineProtocol, @unchecked Sendable {
+public final class UnavailableEngine: EngineProtocol, EngineAvailabilityReporting, @unchecked Sendable {
+    public var isUnavailable: Bool { true }
+
     /// Short, user-facing explanation shown in the pill.
     public let reason: String
     /// How long the notice stays up after the hotkey is released.

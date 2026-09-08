@@ -418,6 +418,11 @@ public struct OnboardingDependencies {
     /// whether onboarding shows the Input Monitoring step at all. Defaults to the live answer for
     /// this install, so nothing outside `HotkeyService` has to know the rule.
     public var hotkeyRequiresPermission: Permission?
+    /// Awaited immediately before the guided dictation test opens the microphone, so the engine is
+    /// re-resolved against what is on disk *now*. The "Dictate now" button is the first thing the
+    /// user presses after a download finishes; without this it inherits whatever engine the app
+    /// launched with — on a fresh install, one that can never transcribe.
+    public var prepareEngine: (@Sendable () async -> Void)?
 
     public init(permissions: OnboardingPermissionChecking, micLevel: MicLevelPublishing, models: ModelManaging,
                 engine: EngineProtocol, database: AppDatabase?, flags: FeatureFlagService,

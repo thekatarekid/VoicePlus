@@ -444,9 +444,12 @@ public final class OnboardingViewModel: ObservableObject {
                 }
             }
         }
+        let prepare = deps.prepareEngine
         dictationTask = Task { [weak self] in
             guard let self else { return }
             do {
+                // Re-resolve first: the model this test is about may have landed a second ago.
+                await prepare?()
                 try await engine.start(prewarm: true)
                 startDictationWatchdog()
             } catch {

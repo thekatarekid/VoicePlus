@@ -84,10 +84,13 @@ public enum EngineFactory {
     }
 
     /// Real stack, or an honestly-unavailable engine when nothing can recognise speech here.
-    public static func make(environment: [String: String] = ProcessInfo.processInfo.environment) async -> Built {
+    /// - Parameter manager: reuse an existing `ModelManager` (a rebuild after a download must not
+    ///   fork a second view of the models directory); nil creates one.
+    public static func make(environment: [String: String] = ProcessInfo.processInfo.environment,
+                            manager existing: ModelManager? = nil) async -> Built {
         if let fixture = mockFixtureName(environment: environment) { return makeMock(fixture: fixture) }
 
-        let manager = ModelManager()
+        let manager = existing ?? ModelManager()
         let choice = await RecognizerFactory.chooseFinal(manager: manager)
         guard let choice else {
             Log.engine.error("no ASR model on disk and Apple Speech unavailable; dictation disabled")

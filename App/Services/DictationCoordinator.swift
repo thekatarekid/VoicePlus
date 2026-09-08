@@ -82,10 +82,16 @@ public final class DictationCoordinator {
         if quality.verdict != .good { pill.model.apply(.warning(quality)) }
     }
 
+    /// Runs before capture starts. `AppContainer.refreshEngineIfNeeded()` lives here, so a model
+    /// that landed (or was deleted) since the last utterance is picked up without a relaunch even
+    /// if no download callback fired.
+    public var preflight: (() async -> Void)?
+
     public func start() {
         startedAt = Date()
         onPrepare?()
         Task {
+            await preflight?()
             do { try await engine.start(prewarm: true) } catch {
                 Log.app.error("engine start failed: \(error)")
             }
@@ -94,7 +100,9 @@ public final class DictationCoordinator {
 
     /// True when the engine cannot recognise speech at all (`UnavailableEngine`). Nothing is ever
     /// landed or injected in that case — there is no transcript, only a notice.
-    public var engineIsUnavailable: Bool { engine is UnavailableEngine }
+    /// Asked through `EngineAvailabilityReporting`, not by class identity: the engine handed in is
+    /// normally a `SwappableEngine`, whose answer changes when a model is installed at runtime.
+    public var engineIsUnavailable: Bool { (engine as? EngineAvailabilityReporting)?.isUnavailable ?? false }
 
     public func finalize() {
         handsFree = false

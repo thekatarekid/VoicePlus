@@ -198,6 +198,9 @@ public final class ModelManagerTiers: ModelManaging {
     /// Injected so the "nothing can transcribe" branch is reachable in a test on a Mac where Apple
     /// Speech happens to be available.
     public var appleSpeechAvailable: () -> Bool = { AppleSpeechRecognizer.isAvailable() }
+    /// Fired after `refresh()` has re-read the models directory — a download landing, or a tier
+    /// that turned out to be installed already. `AppContainer` uses it to re-resolve the engine.
+    public var onModelsChanged: (() -> Void)?
 
     public init(manager: ModelManager, settings: SettingsStore) {
         self.manager = manager
@@ -221,7 +224,16 @@ public final class ModelManagerTiers: ModelManaging {
             byTier[tier] = Self.models(for: tier).allSatisfy { models[$0] == true }
         }
         let (tiers, perModel) = (byTier, models)
-        await MainActor.run { presence = tiers; modelPresence = perModel }
+        await MainActor.run {
+            let before = Set(modelPresence.filter(\.value).keys)
+            let after = Set(perModel.filter(\.value).keys)
+            let changed = before != after
+            presence = tiers
+            modelPresence = perModel
+            // Only when what is on disk actually moved: the first refresh (from `init`) and every
+            // no-op poll must not make the composition root re-resolve the engine.
+            if changed { onModelsChanged?() }
+        }
     }
 
     public func isInstalled(_ tier: ModelTier) -> Bool { presence[tier] ?? false }

@@ -64,6 +64,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The pill waveform runs off real captured audio for the whole utterance (levels from
         // `EngineState` stop at the first preview). No pipeline (mock engine) → engine states.
         if let audio = container.audio { coordinator.bindWaveform(to: audio) }
+        coordinator.preflight = { [weak container] in await container?.refreshEngineIfNeeded() }
+        // A model downloaded mid-session replaces the engine *and* the audio pipeline behind it;
+        // rebind the two things that hang off the pipeline rather than off the engine.
+        container.onEngineChanged = { [weak coordinator] container in
+            guard let coordinator, let audio = container.audio else { return }
+            coordinator.bindWaveform(to: audio)
+            audio.onMicQuality = { [weak coordinator] q in
+                DispatchQueue.main.async { coordinator?.noteMicQuality(q) }
+            }
+            Log.app.info("engine swapped: \(container.activeModelName)")
+        }
         self.coordinator = coordinator
 
         // P2.3 — transform pill (tint, "editing N words", ghost, 8 s warm window).

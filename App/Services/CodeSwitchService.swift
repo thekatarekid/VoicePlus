@@ -9,7 +9,9 @@ import Shared
 /// used. No language toggle anywhere.
 public final class CodeSwitchService: @unchecked Sendable {
     public let merger = ScriptAwareMerger()
-    public let router: CodeSwitchRouter?
+    /// Rebuilt with the engine: a container that came up without a speech model has no router until
+    /// one is downloaded (`AppContainer.refreshEngineIfNeeded()`).
+    public private(set) var router: CodeSwitchRouter?
     public private(set) var indicator = ScriptIndicatorModel()
     /// Pill badge: "" | "EN" | "हि" | "EN·हि".
     public var onIndicatorChange: ((String) -> Void)?
@@ -18,6 +20,11 @@ public final class CodeSwitchService: @unchecked Sendable {
     private let lock = NSLock()
 
     public init(router: CodeSwitchRouter? = nil) { self.router = router }
+
+    public func setRouter(_ router: CodeSwitchRouter?) {
+        lock.lock(); defer { lock.unlock() }
+        self.router = router
+    }
 
     /// `UtteranceLander.textFinalizer` — returns the merged script-aware string for
     /// code-switched utterances (nil keeps the default joined text), updating the indicator
