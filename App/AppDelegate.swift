@@ -65,6 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `EngineState` stop at the first preview). No pipeline (mock engine) → engine states.
         if let audio = container.audio { coordinator.bindWaveform(to: audio) }
         coordinator.preflight = { [weak container] in await container?.refreshEngineIfNeeded() }
+        // Capture never opened. Clear the gesture so the key-up that follows emits nothing: without
+        // this the release ran `finalize()` against an engine that was never started, which is the
+        // "broken notch animation that appears and disappears" at the end of a dead press.
+        coordinator.onStartFailure = { [weak self] _ in self?.hotkey.resetGesture() }
         // A model downloaded mid-session replaces the engine *and* the audio pipeline behind it;
         // rebind the two things that hang off the pipeline rather than off the engine.
         container.onEngineChanged = { [weak coordinator] container in
@@ -278,7 +282,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let kind = self?.hotkey.binding.kind else { return HotkeyHint.unknown }
             return HotkeyHint.label(for: kind)
         }
+        // S6 — the primary click explains the dot (or fixes what it is complaining about); the
+        // status menu moved to the *secondary* click. `PresenceClickRouter` owns the decision.
         presence.onClick = { [weak self] in self?.statusItem?.popUpMenu() }
+        presence.onOpenSettings = { [weak self, weak container] in
+            guard let self, let container else { return }
+            SettingsWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
+                                          connectedProviders: container.connectedProviderNames)
+        }
         presence.pausedProvider = { [weak coordinator] in coordinator?.paused ?? false }
         presence.bind(pill: pill.model, mute: container.handsFree.mute)
         presence.start()

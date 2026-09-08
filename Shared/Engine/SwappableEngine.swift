@@ -99,7 +99,11 @@ public final class SwappableEngine: EngineProtocol, EngineAvailabilityReporting,
     public func swap(to engine: any EngineProtocol) async {
         let outgoing = current
         guard outgoing !== engine else { return }
-        if outgoing.state.isActive { await outgoing.cancel() }
+        // Unconditionally, not `if outgoing.state.isActive`: published state is not evidence about
+        // capture. An engine whose `start()` threw part-way sits in `.error` while still holding the
+        // microphone, and that is precisely the engine a swap is most likely to be replacing.
+        // `cancel()` is idempotent on every engine in the tree.
+        await outgoing.cancel()
         detach()
         lock.withLock {
             _current = engine

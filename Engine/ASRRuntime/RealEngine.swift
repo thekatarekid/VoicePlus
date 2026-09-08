@@ -156,7 +156,22 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         await recs.preview?.reset()
         lock.withLock { listening = true; previewPending.removeAll() }
         audio.sink = { [weak self] ptr in self?.ingest(Array(ptr)) }
-        try audio.start()
+        // `listening` is set *before* capture opens, because the sink can fire from inside
+        // `audio.start()`. That makes the throw below the one place where the flag can outlive the
+        // session it describes: until 1.7.3 a failed `audio.start()` (denied microphone, HAL start
+        // timeout, format mismatch) left `listening == true` with no capture behind it, so every
+        // later `start()` threw `alreadyListening` — "VoicePlus is already recording." — for the
+        // rest of the process. Roll the whole session back here rather than relying on some caller
+        // to notice and call `cancel()`; not one of the five callers did.
+        do {
+            try audio.start()
+        } catch {
+            audio.sink = nil
+            lock.withLock { listening = false; previewPending.removeAll() }
+            await buffer.reset()
+            setState(.error(EngineMessage.describe(error)))
+            throw error
+        }
         setState(.listening(level: 0))
     }
 
