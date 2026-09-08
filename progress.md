@@ -867,7 +867,8 @@ of the two paths:** `RegressionGuardStage` is installed **only in the hotkey pip
   It is enforced at **three** points: when a pair is **stored**, when an edit readback is **ingested**,
   and, critically, **when a variant is used** — so a `lexicon.json` **already poisoned on a user's
   machine degrades to pass-through** rather than continuing to corrupt text. **No manual reset is
-  required**, though a user who wants a clean slate can still clear learned data.
+  required**, though a user who wants a clean slate can quit VoicePlus and remove
+  `~/Library/Application Support/VoicePlus/Adapt` (there is no in-app control for this).
 - **A "landing diff" diagnostic.** `UtteranceLander` logs **one line per utterance** — **raw recognised
   text vs landed text**, their **Levenshtein distance**, and **which stages touched the spans** — so **a
   single real utterance** definitively separates *"the recogniser misheard"* from *"post-processing

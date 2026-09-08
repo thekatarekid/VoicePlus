@@ -39,8 +39,9 @@ Ships in the same dmg as 1.7.4, 1.7.5, 1.7.6, 1.7.7 and 1.7.8 — **this is the 
   document.** It is enforced at **three** points — when a pair is **stored**, when an edit
   readback is **ingested**, and, critically, **when a variant is used**. That last one matters:
   a `lexicon.json` **already poisoned on a user's machine** degrades to **pass-through**
-  instead of continuing to corrupt text. **No manual reset is required** — though a user who
-  wants a clean slate can still clear learned data.
+  instead of continuing to corrupt text. **No manual reset is required** — though a user who wants a
+  clean slate can quit VoicePlus and remove `~/Library/Application Support/VoicePlus/Adapt`
+  (there is no in-app control for this).
 - **A "landing diff" diagnostic.** `UtteranceLander` now logs **one line per utterance** — the
   **raw recognised text** versus the **landed text**, their **Levenshtein distance**, and
   **which stages touched the spans** — so a **single real utterance** definitively separates
