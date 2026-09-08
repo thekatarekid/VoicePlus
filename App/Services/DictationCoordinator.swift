@@ -213,13 +213,20 @@ public final class DictationCoordinator {
     /// it — indefinitely.
     private func runPreflight() async {
         guard let preflight else { return }
-        let work = Task { await preflight() }
         let timeout = max(0, preflightTimeout)
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await work.value }
-            group.addTask { try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) }
-            await group.next()
-            group.cancelAll()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let once = FirstPast()
+            Task {
+                await preflight()
+                if once.take() { continuation.resume() }
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                if once.take() {
+                    Log.app.notice("dictation: preflight overran \(timeout)s; starting capture anyway")
+                    continuation.resume()
+                }
+            }
         }
     }
 
@@ -323,5 +330,19 @@ public final class DictationCoordinator {
         }
         Log.app.info("landed \(spans.count) spans (\(text.count) chars)")
         onFinal?(spans)
+    }
+}
+
+/// One-shot gate: the first of two racing tasks to call `take()` gets true, the other false.
+/// Used to resume a continuation exactly once when a bounded wait is raced against its timeout.
+final class FirstPast: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    func take() -> Bool {
+        lock.withLock {
+            if fired { return false }
+            fired = true
+            return true
+        }
     }
 }
