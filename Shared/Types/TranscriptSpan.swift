@@ -22,6 +22,35 @@ public struct Alternate: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+/// R2.1 — how settled a piece of text is (Build doc §2).
+///
+/// - `provisional`: preview words shown in the pill. Free to change or disappear.
+/// - `committed`: final text for one segment, sent to the destination once, never retracted.
+/// - `final`: the whole utterance is closed; nothing further will arrive for it.
+///
+/// Ordered `provisional < committed < final`: a span may only ever move forward.
+public enum Stability: String, Codable, Sendable, Equatable, Hashable, CaseIterable, Comparable, CustomStringConvertible {
+    case provisional
+    case committed
+    case final
+
+    /// Monotonic rank. Only ever increases over the life of a span.
+    public var rank: Int {
+        switch self {
+        case .provisional: return 0
+        case .committed: return 1
+        case .final: return 2
+        }
+    }
+
+    public static func < (lhs: Stability, rhs: Stability) -> Bool { lhs.rank < rhs.rank }
+
+    /// True when text at this stability may still be rewritten in place.
+    public var isMutable: Bool { self == .provisional }
+
+    public var description: String { rawValue }
+}
+
 /// The core shared type (Build doc §2). Every pipeline stage receives `[TranscriptSpan]`
 /// and returns `[TranscriptSpan]`; confidence, audioRange and provenance must survive.
 public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
@@ -36,6 +65,9 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
     public var provenance: [StageID]
     /// Set by a stage instead of rewriting a low-confidence span (Bet 9).
     public var needsRepair: Bool
+    /// R2.1 — how settled this span is. Defaults to `.final` so every pre-R2.1
+    /// initializer call site and every pre-R2.1 JSON payload keeps working.
+    public var stability: Stability
 
     public init(
         text: String,
@@ -43,7 +75,8 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
         audioRange: ClosedRange<TimeInterval>,
         alternates: [Alternate] = [],
         provenance: [StageID] = [],
-        needsRepair: Bool = false
+        needsRepair: Bool = false,
+        stability: Stability = .final
     ) {
         self.text = text
         self.confidence = min(max(confidence, 0), 1)
@@ -51,6 +84,7 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
         self.alternates = alternates
         self.provenance = provenance
         self.needsRepair = needsRepair
+        self.stability = stability
     }
 
     /// Confidence below which a stage must flag instead of rewrite.
@@ -73,6 +107,18 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
         return copy
     }
 
+    /// Returns a copy at `stability`, provenance untouched. Stability only ever moves
+    /// forward: asking for a lower stability than the span already has is a no-op.
+    public func stabilized(_ stability: Stability) -> TranscriptSpan {
+        guard stability > self.stability else { return self }
+        var copy = self
+        copy.stability = stability
+        return copy
+    }
+
+    /// True while this span is preview text that may still change.
+    public var isProvisional: Bool { stability == .provisional }
+
     /// Returns a copy flagged for repair, provenance appended.
     public func flaggedForRepair(by stage: StageID) -> TranscriptSpan {
         var copy = touched(by: stage)
@@ -81,7 +127,7 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case text, confidence, audioStart, audioEnd, alternates, provenance, needsRepair
+        case text, confidence, audioStart, audioEnd, alternates, provenance, needsRepair, stability
     }
 
     public init(from decoder: Decoder) throws {
@@ -94,7 +140,8 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
             audioRange: min(start, end)...max(start, end),
             alternates: try c.decodeIfPresent([Alternate].self, forKey: .alternates) ?? [],
             provenance: try c.decodeIfPresent([StageID].self, forKey: .provenance) ?? [],
-            needsRepair: try c.decodeIfPresent(Bool.self, forKey: .needsRepair) ?? false
+            needsRepair: try c.decodeIfPresent(Bool.self, forKey: .needsRepair) ?? false,
+            stability: try c.decodeIfPresent(Stability.self, forKey: .stability) ?? .final
         )
     }
 
@@ -107,6 +154,7 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
         try c.encode(alternates, forKey: .alternates)
         try c.encode(provenance, forKey: .provenance)
         try c.encode(needsRepair, forKey: .needsRepair)
+        try c.encode(stability, forKey: .stability)
     }
 }
 
