@@ -1,0 +1,22 @@
+# terminal_in_editor — the decisive R4.2 case: an integrated terminal inside an editor.
+# App class says code (com.microsoft.VSCode); the AX label says the field is a shell prompt.
+# Terminal rules must win: no auto-cap, no trailing period, never submit.
+app: com.microsoft.VSCode
+role: AXTextArea
+hints: Terminal input | xterm-screen
+before: "cd ~/Developer && "
+after: ""
+words: git commit dash m in quotes fix the cold cache end quote
+---
+fieldRole: terminal
+formatter: terminal
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: true
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "git commit -m \"fix the cold cache\""
+text: "git commit -m \"fix the cold cache\""

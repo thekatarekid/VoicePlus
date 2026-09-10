@@ -1,0 +1,20 @@
+# mail_mid_sentence — inserting into the middle of a sentence: a leading space, no capital,
+# a trailing space before the text that follows, and no period (the sentence already has one).
+app: com.apple.mail
+role: AXTextArea
+before: "The number that matters is"
+after: "on the first request."
+words: the cold cache latency
+---
+fieldRole: multilineText
+formatter: mail
+autoCapitalize: true
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: false
+leading: " "
+trailing: " "
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "the cold cache latency"
+text: " the cold cache latency "

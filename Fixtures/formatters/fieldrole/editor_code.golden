@@ -1,0 +1,21 @@
+# editor_code — the source surface of the same editor: code rules, not terminal rules
+# (a newline here is a newline, not a command), and no sentence punctuation.
+app: com.microsoft.VSCode
+role: AXTextArea
+hints: Monaco editor | editor content
+before: "func load() {\n    "
+after: ""
+words: guard let sessionToken else return nil
+---
+fieldRole: codeEditor
+formatter: code
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: true
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "guard let sessionToken else return nil"
+text: "guard let sessionToken else return nil"

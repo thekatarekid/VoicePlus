@@ -1,0 +1,21 @@
+# mail_body_paragraph — mail body after a finished sentence, with a paragraph break asked for:
+# a blank line, a capital, and a full stop at the end.
+app: com.apple.mail
+role: AXTextArea
+paragraph: true
+before: "Thanks for the detailed write-up."
+after: ""
+words: the cache is cold on the first request only
+---
+fieldRole: multilineText
+formatter: mail
+autoCapitalize: true
+trailingPeriod: true
+allowSubmit: false
+preserveIdentifiers: false
+leading: "\n\n"
+trailing: ""
+capitalizeFirstWord: true
+paragraphBreak: true
+words: "The cache is cold on the first request only."
+text: "\n\nThe cache is cold on the first request only."

@@ -1,0 +1,21 @@
+# chat_composer — one-line Slack composer: chat register, no trailing period, and this is the
+# one role where submitting on the user's behalf is allowed at all.
+app: com.tinyspeck.slackmacgap
+role: AXTextField
+multiline: false
+before: ""
+after: ""
+words: hey I pushed the fix can you take a look question mark
+---
+fieldRole: singleLineText
+formatter: chat
+autoCapitalize: true
+trailingPeriod: false
+allowSubmit: true
+preserveIdentifiers: false
+leading: ""
+trailing: ""
+capitalizeFirstWord: true
+paragraphBreak: false
+words: "Hey I pushed the fix can you take a look?"
+text: "Hey I pushed the fix can you take a look?"

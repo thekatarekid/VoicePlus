@@ -1,0 +1,20 @@
+# terminal_identifiers — code identifiers survive the terminal formatter's lowercasing:
+# snake_case, camelCase, a path, and a long flag.
+app: com.apple.Terminal
+role: AXTextArea
+before: ""
+after: ""
+words: rg user_session_token camelCase Fixtures/transcripts --hidden
+---
+fieldRole: terminal
+formatter: terminal
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: true
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "rg user_session_token camelCase Fixtures/transcripts --hidden"
+text: "rg user_session_token camelCase Fixtures/transcripts --hidden"
