@@ -60,9 +60,47 @@ actor UtteranceBuffer {
     private(set) var samples: [Float] = []
     private var previewTask: Task<Void, Never>?
     private var lastText = ""
+    /// R2.2 — first sample of the segment currently taking audio. Everything before it belongs to
+    /// a segment that has already been closed and handed to the final pass.
+    private var segmentStart = 0
+    /// R2.2 ring bound, in samples. The oldest audio is dropped past this so a wedged session
+    /// cannot grow without limit. Set from `SegmentTracker.Bounds.maxBufferedSeconds`, which is
+    /// generous on purpose (`Endpointer.maxUtterance` is 120 s) — it is a backstop, not a trimmer.
+    private(set) var capacity = 180 * 16_000
+    /// How much the bound has thrown away this session. Diagnostics and tests only.
+    private(set) var droppedSamples = 0
 
-    func append(_ block: [Float]) { samples.append(contentsOf: block) }
-    func reset() { samples.removeAll(); lastText = ""; previewTask?.cancel(); previewTask = nil }
+    func setCapacity(samples count: Int) { capacity = max(1, count); trim() }
+
+    func append(_ block: [Float]) { samples.append(contentsOf: block); trim() }
+    func reset() {
+        samples.removeAll(); lastText = ""; previewTask?.cancel(); previewTask = nil
+        segmentStart = 0; droppedSamples = 0
+    }
+
+    private func trim() {
+        let over = samples.count - capacity
+        guard over > 0 else { return }
+        samples.removeFirst(over)
+        segmentStart = max(0, segmentStart - over)
+        droppedSamples += over
+    }
+
+    /// Closes the tracker's open segment and hands back that segment's audio.
+    ///
+    /// The two happen together, inside this actor, on purpose: the segment identity and the
+    /// samples it names must be taken atomically. Two endpoint closures racing (a plausible latch
+    /// session) would otherwise be able to give segment *n*'s ID segment *n+1*'s audio.
+    func closeSegment(tracker: SegmentTracker, openNext: Bool) -> (closed: SegmentID, opened: SegmentID?, samples: [Float])? {
+        guard let closure = tracker.closeOpenSegment(openNext: openNext) else { return nil }
+        let start = min(max(segmentStart, 0), samples.count)
+        let slice = Array(samples[start...])
+        segmentStart = samples.count
+        return (closure.closed, closure.opened, slice)
+    }
+
+    /// Samples accumulated for the segment now taking audio.
+    var openSegmentSampleCount: Int { max(0, samples.count - segmentStart) }
 
     /// Runs preview on `block` after any in-flight preview finishes; calls `onText` only on change.
     func schedulePreview(_ block: [Float], using preview: PreviewRecognizer, onText: @escaping @Sendable (String) -> Void) {
@@ -118,9 +156,34 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     private var previewPending: [Float] = []
     static let sampleRate: Double = 16_000
 
-    public init(audio: AudioSource, provider: RecognizerProvider) {
+    // MARK: R2.2 — segments
+
+    /// Segment identity, ordering and bounds for this engine (V3 §4.5).
+    public let segments: SegmentTracker
+    private let segmentBroadcaster = SegmentEventBroadcaster()
+    /// Per-segment work still running, so `stop()` can wait for earlier segments to land instead
+    /// of ending the session out from under them.
+    private var closeTasks: [SegmentID: Task<Void, Never>] = [:]
+    /// Closes that have been admitted but have not yet registered in `closeTasks`. Counted so
+    /// `stop()` cannot slip into that window and end the session out from under one.
+    private var closesStarting = 0
+    /// How each closed segment was closed, so a segment released *behind* a slow predecessor is
+    /// still reported with its own reason and stability rather than its successor's.
+    private var closureFacts: [SegmentID: (stability: Stability, reason: SegmentCloseReason)] = [:]
+    /// Optional second pass. `nil` today — R5.2 wires `Qwen3RefinementSession` in behind its flag.
+    /// When set, a segment closed mid-session is refined off the critical path, bounded by
+    /// `SegmentTracker.Bounds.maxPendingSegments`; past that bound the pass-1 text commits instead
+    /// of queueing more work behind it (V3 §5.3).
+    public var refiner: RefinementSession?
+    /// Hard deadline for one segment's refinement. On timeout pass-1 is kept.
+    public var refinementDeadline: Duration = .milliseconds(1_200)
+    /// Context text handed to the refiner. Never logged and never persisted here.
+    public var refinementContext = ""
+
+    public init(audio: AudioSource, provider: RecognizerProvider, segmentBounds: SegmentTracker.Bounds = .init()) {
         self.audio = audio
         self.provider = provider
+        self.segments = SegmentTracker(bounds: segmentBounds)
     }
 
     public convenience init(audio: AudioSource, manager: ModelManager) {
@@ -132,6 +195,17 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     /// Input level for the whole utterance — `.listening` *and* `.previewing`.
     public var audioLevels: AnyPublisher<Float, Never> { levelSubject.eraseToAnyPublisher() }
     public func events() -> AsyncStream<EngineEvent> { broadcaster.subscribe() }
+
+    /// R2.2 — the segment stream, alongside `events()`, which is unchanged.
+    ///
+    /// `EngineEvent` lives in `Shared/` and is the frozen *utterance* contract: one `.final` per
+    /// `stop()`, with no room for a `SegmentID`, and `Shared/` is not this item's to change. A
+    /// dictation can close several segments (key release in hold, endpoints in latch), so
+    /// segment-aware consumers — the ordered commit queue, the pill — subscribe here instead.
+    ///
+    /// Each subscriber gets every event emitted after subscribing. Both streams are driven from
+    /// the same code path, so a consumer may use either or both.
+    public func segmentEvents() -> AsyncStream<SegmentEvent> { segmentBroadcaster.subscribe() }
 
     private func setState(_ s: EngineState) {
         stateSubject.send(s)
@@ -195,8 +269,16 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         let ready = lock.withLock { recognizers != nil && (!prewarm || recognizerRevision == revision) }
         guard prewarm || ready else { throw EngineError.modelUnavailable("prewarm() not called") }
         await buffer.reset()
+        await buffer.setCapacity(samples: Int(segments.bounds.maxBufferedSeconds * Self.sampleRate))
         if ready { await lock.withLock { recognizers }?.preview?.reset() }
-        lock.withLock { listening = true; previewPending.removeAll() }
+        lock.withLock {
+            listening = true
+            previewPending.removeAll()
+            closureFacts.removeAll()
+            closesStarting = 0
+        }
+        // R2.2 — a dictation session is a fresh UUID; segment 0 starts taking audio now.
+        segmentBroadcaster.send(.opened(segments.beginSession()))
         // "Warming up…" is only honest while it is *bounded and recording*. The state stays
         // `.prewarming` until the model is in memory, but capture is already open underneath it.
         setState(ready ? .listening(level: 0) : .prewarming)
@@ -214,6 +296,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             audio.sink = nil
             lock.withLock { listening = false; previewPending.removeAll() }
             await buffer.reset()
+            abandonSegmentSession()
             setState(.error(EngineMessage.describe(error)))
             throw error
         }
@@ -241,6 +324,18 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         audio.sink = nil
         lock.withLock { listening = false; previewPending.removeAll() }
         await buffer.reset()
+        abandonSegmentSession()
+    }
+
+    /// R2.2 — tears the segment session down without committing anything. The open segment is
+    /// announced as `.cancelled` (empty spans) so a consumer holding provisional text for it
+    /// knows to drop it rather than wait forever for a commit that is not coming.
+    private func abandonSegmentSession() {
+        if let open = segments.openSegment {
+            segmentBroadcaster.send(.closed(segment: open, spans: [], stability: .final, reason: .cancelled))
+        }
+        segments.endSession()
+        lock.withLock { closureFacts.removeAll() }
     }
 
     /// Hands the preview recognizer everything captured during a cold start, so the words spoken
@@ -263,6 +358,14 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         guard listening else { lock.unlock(); return }
         let preview = recognizers?.preview
         previewPending.append(contentsOf: block)
+        // R2.2 ring bound. Nothing drains this while the model is still loading, so a cold start
+        // that never finishes (or a preview recognizer that never arrives) would otherwise grow it
+        // for the whole session. Drop the oldest audio past the bound rather than the newest: the
+        // words the user is speaking *now* are the ones the pill has to show.
+        let previewCapacity = Int(segments.bounds.maxBufferedSeconds * Self.sampleRate)
+        if previewPending.count > previewCapacity {
+            previewPending.removeFirst(previewPending.count - previewCapacity)
+        }
         var toPreview: [Float]?
         // Only drain the pending buffer when there is something to drain it *into*. During a cold
         // start the preview recognizer is still loading; those samples are kept and flushed by
@@ -298,8 +401,14 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         guard live, !text.isEmpty else { return }
         // Preview has no per-word confidence upstream; mark it neutral (0.5) and time-bound it to
         // the audio captured so far. Final spans replace these at landing.
-        let span = TranscriptSpan(text: text, confidence: 0.5, audioRange: 0...0, provenance: [.asr])
+        //
+        // R2.1/R2.2: preview text is `.provisional`. The pill owns it and may rewrite it freely;
+        // nothing downstream may treat it as deliverable. Only a `SegmentEvent.closed` commits.
+        let span = TranscriptSpan(text: text, confidence: 0.5, audioRange: 0...0, provenance: [.asr], stability: .provisional)
         broadcaster.send(.partial([span]))
+        if let open = segments.openSegment {
+            segmentBroadcaster.send(.preview(segment: open, spans: [span]))
+        }
         setState(.previewing(text: text))
     }
 
@@ -313,8 +422,20 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         audio.sink = nil
         setState(.finalizing)
         await buffer.drain()
-        let samples = await buffer.samples
+        // R2.2 — earlier segments closed by an endpoint may still be in the final or refinement
+        // pass. Wait for them before ending the session: `SegmentTracker` refuses results for a
+        // session that is over, so tearing it down here would throw their text away. No new close
+        // can start behind this, because `listening` is already false.
+        await drainClosedSegments()
+        // Key release closes the session's last segment, and is its endpoint (V3 §4.2). The split
+        // is taken together with the tracker so the ID always names the audio it was given.
+        let closure = await buffer.closeSegment(tracker: segments, openNext: false)
+        // Without a mid-session closure `segmentStart` is still 0, so this is the whole utterance —
+        // byte for byte what the final pass saw before R2.2.
+        let samples: [Float]
+        if let closure { samples = closure.samples } else { samples = await buffer.samples }
         guard let final = recs?.final else {
+            segments.endSession()
             setState(.error(EngineError.modelUnavailable("final").readable))
             throw EngineError.modelUnavailable("final")
         }
@@ -325,29 +446,190 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         let seconds = Double(samples.count) / Self.sampleRate
         if seconds < minimumUtteranceSeconds {
             Log.engine.notice("final pass skipped: \(String(format: "%.2f", seconds)) s captured, minimum is \(String(format: "%.2f", self.minimumUtteranceSeconds)) s")
+            release(closure?.closed, spans: [], stability: .final, reason: .keyRelease)
             broadcaster.send(.final([]))
             setState(.landed)
             setState(.idle)
+            segments.endSession()
             return []
         }
         do {
             let t0 = Date()
             let spans = try await final.recognize(samples)
             Log.engine.info("final pass \(final.name): \(spans.count) spans, \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms for \(String(format: "%.1f", seconds)) s audio")
-            broadcaster.send(.final(spans))
+            // `.final` at the span level too: this segment ended the session, so nothing further
+            // will arrive for it. The recognizers already hand back spans at that default, so this
+            // is a no-op on the hold path and exists for symmetry with the endpoint path.
+            let mine = stamped(spans, .final)
+            // The legacy utterance stream is unchanged: `.final` carries *this* segment's spans,
+            // exactly as it did before R2.2, regardless of where the ordered segment queue is.
+            broadcaster.send(.final(mine))
+            release(closure?.closed, spans: mine, stability: .final, reason: .keyRelease)
             setState(.landed)
             setState(.idle)
-            return spans
+            segments.endSession()
+            return mine
         } catch {
+            segments.endSession()
             setState(.error(EngineMessage.describe(error)))
             throw error
+        }
+    }
+
+    // MARK: R2.2 — endpoint closure (latch)
+
+    /// An endpoint closed a segment while capture continues (V3 §4.3, latch).
+    ///
+    /// Closes the open segment, opens the next one immediately, and takes the closed segment's
+    /// audio through the final pass — and the refiner, when one is set and the backlog has room.
+    /// The microphone is never touched: whatever the user says during this call belongs to the
+    /// newly opened segment, so a latched session does not lose the first words after an endpoint.
+    ///
+    /// Committed text is released in `SegmentID` order. A segment whose passes finish before its
+    /// predecessor's waits rather than jumping the queue, so `.closed` events always arrive in
+    /// spoken order — which is what the ordered commit queue downstream relies on.
+    ///
+    /// Returns the segment that was closed, or `nil` when nothing was open (not listening).
+    @discardableResult
+    public func closeSegmentAtEndpoint() async -> SegmentID? {
+        // Admitted under the lock, before the first `await`: a close that has claimed a segment but
+        // not yet registered its task is still a close `stop()` has to wait for, or the segment's
+        // text is committed into a session that has already been torn down and is simply lost.
+        let admitted = lock.withLock { () -> Bool in
+            guard listening else { return false }
+            closesStarting += 1
+            return true
+        }
+        guard admitted else { return nil }
+        await buffer.drain()
+        guard let closure = await buffer.closeSegment(tracker: segments, openNext: true) else {
+            lock.withLock { closesStarting -= 1 }
+            return nil
+        }
+        // Say the next segment is live *before* the slow part: capture is already filling it.
+        if let opened = closure.opened { segmentBroadcaster.send(.opened(opened)) }
+        // Preview state restarts per segment. A streaming recognizer that carried its state across
+        // a closed segment would keep re-emitting words that have already been committed.
+        if let preview = lock.withLock({ recognizers?.preview }) { await preview.reset() }
+
+        let task = Task<Void, Never> { [weak self] in
+            await self?.finishSegment(closure, reason: .endpoint, stability: .committed)
+        }
+        lock.withLock { closeTasks[closure.closed] = task; closesStarting -= 1 }
+        await task.value
+        return closure.closed
+    }
+
+    /// Runs the passes for one closed segment and commits it.
+    private func finishSegment(
+        _ closure: (closed: SegmentID, opened: SegmentID?, samples: [Float]),
+        reason: SegmentCloseReason,
+        stability: Stability
+    ) async {
+        let id = closure.closed
+        defer { lock.withLock { closeTasks[id] = nil } }
+
+        // Identity gate before any work: a segment from another session, or one already committed,
+        // must not spend a pass, let alone reach a destination (V3 §4.5).
+        if let rejection = segments.rejection(for: id) {
+            segmentBroadcaster.send(.rejected(segment: id, reason: rejection))
+            return
+        }
+        let seconds = Double(closure.samples.count) / Self.sampleRate
+        guard seconds >= minimumUtteranceSeconds, let final = lock.withLock({ recognizers?.final }) else {
+            // An endpoint on a sub-300 ms sliver of audio: nothing to say, but the segment still
+            // closes so the queue behind it can move.
+            release(id, spans: [], stability: stability, reason: reason)
+            return
+        }
+        var spans: [TranscriptSpan]
+        do {
+            spans = try await final.recognize(closure.samples)
+        } catch {
+            Log.engine.warning("final pass failed for segment \(id.description): \(error)")
+            release(id, spans: [], stability: stability, reason: reason)
+            return
+        }
+
+        var closeReason = reason
+        if let refiner {
+            if segments.enqueuePending(id) {
+                defer { segments.dropPending(id) }
+                do {
+                    let refined = try await refiner.refine(
+                        samples: closure.samples, context: refinementContext, deadline: refinementDeadline)
+                    // Empty is not an improvement. A refiner that returns nothing (or throws, or
+                    // runs out its deadline) leaves pass-1 standing — it is never a regression.
+                    if !refined.isEmpty { spans = refined }
+                } catch {
+                    Log.engine.notice("refinement declined for segment \(id.description), keeping pass-1: \(error)")
+                }
+            } else {
+                // The bound (V3 §5.3): two segments may be in flight. Past that, this segment
+                // commits its pass-1 text now instead of adding to a backlog that is already the
+                // reason text is late.
+                closeReason = .backlogBound
+                Log.engine.notice("refinement backlog full (\(self.segments.pendingCount)) — committing pass-1 for segment \(id.description)")
+            }
+        }
+        release(id, spans: spans, stability: stability, reason: closeReason)
+    }
+
+    /// Commits one segment and emits `.closed` for everything the commit put in order.
+    private func release(_ id: SegmentID?, spans: [TranscriptSpan], stability: Stability, reason: SegmentCloseReason) {
+        guard let id else { return }
+        lock.withLock { closureFacts[id] = (stability, reason) }
+        switch segments.commit(id, spans: stamped(spans, stability)) {
+        case .rejected(let why):
+            lock.withLock { closureFacts[id] = nil }
+            segmentBroadcaster.send(.rejected(segment: id, reason: why))
+        case .released(let ready):
+            for item in ready {
+                let facts = lock.withLock { closureFacts.removeValue(forKey: item.segment) }
+                segmentBroadcaster.send(.closed(
+                    segment: item.segment,
+                    spans: item.spans,
+                    stability: facts?.stability ?? stability,
+                    reason: facts?.reason ?? reason))
+            }
+        }
+    }
+
+    /// Waits for every segment still in a pass, including one admitted a moment ago that has not
+    /// registered its task yet. Bounded: `listening` is already false by the time this is called,
+    /// so no further close can be admitted and the count only falls.
+    private func drainClosedSegments() async {
+        for _ in 0..<1_000 {
+            let (starting, tasks) = lock.withLock { (closesStarting, Array(closeTasks.values)) }
+            if starting == 0, tasks.isEmpty { return }
+            for task in tasks { await task.value }
+            if starting > 0 { try? await Task.sleep(nanoseconds: 1_000_000) }
+        }
+        Log.engine.warning("segment drain gave up with work still in flight")
+    }
+
+    /// Stamps a segment's stability onto its spans.
+    ///
+    /// Direct assignment rather than `stabilized(_:)`, deliberately: the recognizers hand back
+    /// spans at `Stability`'s *default* of `.final`, which is a type default (chosen in R2.1 so
+    /// pre-R2.1 call sites kept working), not a claim that the session is over. A segment closed
+    /// mid-session is `.committed` — delivered once, never retracted, but the session continues —
+    /// and `stabilized(_:)` is forward-only, so it cannot express that.
+    private func stamped(_ spans: [TranscriptSpan], _ stability: Stability) -> [TranscriptSpan] {
+        spans.map { span in
+            guard span.stability != stability else { return span }
+            var copy = span
+            copy.stability = stability
+            return copy
         }
     }
 
     public func cancel() async {
         let was = lock.withLock { let w = listening; listening = false; return w }
         if was { audio.stop(); audio.sink = nil }
+        await drainClosedSegments()
         await buffer.reset()
+        abandonSegmentSession()
         setState(.idle)
     }
 }
