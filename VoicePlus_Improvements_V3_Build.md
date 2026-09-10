@@ -379,20 +379,20 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 | R1.5 preview choice | 0 | [x] | fix | `74bd335` scorer + previewBackend flag + preview formatting |
 | R2.1 shared types | 0 | [x] | impl | `c46042d` 51 SharedTests green; wave-1 gate opened |
 | R4.1a provenance no-ops | 0 | [x] | fix | `96d801d` 202 stage runs, 0 contract violations |
-| R5.1 Qwen port | 0 | [x] | impl | `f52255a`; prompt/token-table fix pending commit |
+| R5.1 Qwen port | 0 | [x] | fix | `f52255a` + `c6c8887`: forced decoder ids; WER 1.000 → 0.000, corpus 0.1724 |
 | R6.1 remove tier picker | 0 | [x] | impl | `0646ccd` build-verified; test run was blocked |
 | R2.2 engine segments | 1 | [x] | fix | `d680ec1` 16 new; fixture WER unchanged (before/after build) |
 | R2.3 injection rules | 1 | [x] | fix | `60751e6` 104 InjectionTests green (+38, 10 changed) |
 | R2.4 pill + app surface | 1 | [x] | impl | `727fbd6` AppTests 550/550; no-redesign held |
 | R2.5 repair commands | 1 | [x] | impl | `afd959f` 24 new, 186 ActionsTests green |
-| R3 coordinator/latch/mute | 2 | [ ] | — | |
+| R3 coordinator/latch/mute | 2 | [~] | — | in flight |
 | R4.1b ranked context | 2 | [~] | — | in flight |
 | R4.2 field-role formatting | 2 | [~] | — | in flight |
 | R4.3 dictionary + learning UI | 2 | [ ] | — | |
-| R5.2 refine stage | 2 | [ ] | — | |
+| R5.2 refine stage | 2 | [~] | — | in flight |
 | R5.3 gate policy + settings | 2 | [ ] | — | |
 | R6.2 onboarding flow | 2 | [~] | — | in flight |
-| R5.4 benchmark | 3 | [ ] | — | |
+| R5.4 benchmark | 3 | [ ] | — | early data: Qwen 0.1724 vs Parakeet 0.0990 → gate likely fails, flag stays off |
 | R7 one window, one menu | 3 | [ ] | — | |
 | R8 ambient + Timeline | 4 | [ ] | — | |
 

@@ -1476,3 +1476,22 @@ DMG per wave, version bumped each time, previous DMGs kept.
   22 DMGs now in `Packaging/releases/` — none deleted or overwritten.
 - Wave 2 launched in parallel: R4.1b, R4.2, R6.2 + the Qwen root-cause agent. R3, R4.3, R5.2, R5.3 queued.
 
+### R5.1 gate closed — and the R5.4 decision is now visible in the data
+
+- **Qwen root cause found (`c6c8887`), and it was not the prompt.** Qwen3-ASR picks its output language
+  *in the assistant turn*: unprompted it writes its own header `language ĠHindi <|asr_text|>` and then
+  transcribes in the language it just named — Indian-accented English got named Hindi, hence Devanagari.
+  The port never wired forced decoder ids. Proven with a token-id probe: empty system message, correct
+  English instruction, and the port's hard-coded table all produced **byte-identical** output, so the
+  earlier prompt/token-table fix (`324e635`) was operating on an inert path.
+- Fix: `assistantPrefixTokens` forcing `language English <|asr_text|>` (`[11528, 6364, 151704]`, built
+  from `vocab.json`). Assertion left at `wer <= 0.5`. Before `WER 1.000` → after **`WER 0.000`**.
+  `vocab.json` confirmed as the true tokenizer by embedding geometry (cos 0.42 vs 0.02, random ≈0.12).
+- **Qwen 0.6B loses to Parakeet on this corpus: mean WER 0.1724 vs 0.0990.** R5's gate is "default-on
+  only with useful gain on difficult speech and no clean-speech regression". On the evidence so far that
+  gate **fails**, and `qwenRefinement` stays off. Per V3 §5.4/R5.4 either outcome is a valid completion —
+  R5.4 must still break the number down by segment class before this is final, since a two-pass gain
+  could survive on difficult speech alone even while the corpus mean regresses.
+- Note: 1.8.0's notes describe the Devanagari bug as open, which was true of `727fbd6`. The fix lands
+  in 1.9.0; the shipped 1.8.0 notes are left as an accurate record of that artifact.
+
