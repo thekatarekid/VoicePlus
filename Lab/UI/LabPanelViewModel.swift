@@ -69,6 +69,8 @@ public final class LabPanelViewModel: ObservableObject {
             LabConfigChoice(config: LabConfig(name: "biasing off", transcriber: transcriber, stages: stages, flags: [FeatureFlag.contextBiasing.id: false])),
             LabConfigChoice(config: LabConfig(name: "repair off", transcriber: transcriber, stages: stages, flags: [FeatureFlag.voiceRepair.id: false]), selected: false),
         ]
+        // R1.5 preview candidates, offered but not selected: the default run stays the biasing comparison.
+        + LabConfigChoice.previewBackendChoices(transcriber: transcriber, stages: stages)
     }
 
     public var selectedConfigs: [LabConfig] { choices.filter(\.selected).map(\.config) }

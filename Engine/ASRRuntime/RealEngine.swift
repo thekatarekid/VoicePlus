@@ -24,10 +24,22 @@ public struct StaticRecognizerProvider: RecognizerProvider {
 
 public struct ModelManagerRecognizerProvider: RecognizerProvider {
     public let manager: ModelManager
-    public init(manager: ModelManager) { self.manager = manager }
+    /// Which preview candidate to build (R1.5). Resolved from the `previewBackend` flag when a flag
+    /// service is passed; otherwise the measured default.
+    public let previewBackend: PreviewBackend
+
+    public init(manager: ModelManager, previewBackend: PreviewBackend = .measuredDefault) {
+        self.manager = manager
+        self.previewBackend = previewBackend
+    }
+
+    public init(manager: ModelManager, flags: FeatureFlagService) {
+        self.init(manager: manager, previewBackend: PreviewBackend.resolve(flags))
+    }
+
     public func resolve() async throws -> (final: FinalRecognizer, preview: PreviewRecognizer?) {
         let final = try await RecognizerFactory.makeFinal(manager: manager)
-        return (final, await RecognizerFactory.makePreview(manager: manager, final: final))
+        return (final, await RecognizerFactory.makePreview(manager: manager, final: final, backend: previewBackend))
     }
 
     /// A bitmask of which models are on disk. A download that lands mid-session flips a bit, which

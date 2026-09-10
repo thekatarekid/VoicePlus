@@ -46,5 +46,14 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
         description: "Experimental: hands-free mode answers speech directed at the machine (no hotkey)."
     )
 
-    public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR, .directedSpeech]
+    /// R1.5 — which recognizer draws the streaming preview. `false` (the default) is the measured
+    /// winner, the EOU 120M stream; `true` selects polling the final TDT model, which is much more
+    /// accurate but misses the 300 ms first-word budget (V3 §10.2). Both paths stay in the build;
+    /// see `PreviewBackend` and the R1.5 table in `DECISIONS.md`.
+    public static let previewBackend = FeatureFlag(
+        id: "previewBackend", defaultOn: false,
+        description: "Draw the preview by polling the final model instead of the EOU 120M stream (R1.5 candidate B)."
+    )
+
+    public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR, .directedSpeech, .previewBackend]
 }

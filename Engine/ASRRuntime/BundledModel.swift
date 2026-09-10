@@ -87,11 +87,23 @@ public enum RecognizerFactory {
         }
     }
 
-    /// EOU streaming preview if present; otherwise poll the final recognizer; nil if no preview possible.
-    public static func makePreview(manager: ModelManager, final: FinalRecognizer) async -> PreviewRecognizer? {
-        if await manager.isPresent(.parakeetEOU160), let eou = try? await manager.load(.parakeetEOU160).eouManager {
-            return EOUPreviewRecognizer(manager: eou)
+    /// The preview recognizer for `backend`, wrapped in R1.5's light preview formatting.
+    ///
+    /// `.eouStreaming120m` (the measured default) needs the EOU model on disk and falls back to
+    /// polling the final model when it is missing — a first launch where only the tiny final model
+    /// has landed still gets a preview. Apple Speech has no usable polling preview, so that returns
+    /// `nil` and the pill simply shows no words until the final text arrives.
+    public static func makePreview(manager: ModelManager, final: FinalRecognizer,
+                                   backend: PreviewBackend = .measuredDefault,
+                                   formatted: Bool = true) async -> PreviewRecognizer? {
+        func wrap(_ preview: PreviewRecognizer?) -> PreviewRecognizer? {
+            guard let preview else { return nil }
+            return formatted ? FormattedPreviewRecognizer(preview) : preview
         }
-        return final is AppleSpeechRecognizer ? nil : PollingPreviewRecognizer(recognizer: final)
+        if backend == .eouStreaming120m, await manager.isPresent(.parakeetEOU160),
+           let eou = try? await manager.load(.parakeetEOU160).eouManager {
+            return wrap(EOUPreviewRecognizer(manager: eou))
+        }
+        return wrap(final is AppleSpeechRecognizer ? nil : PollingPreviewRecognizer(recognizer: final))
     }
 }
