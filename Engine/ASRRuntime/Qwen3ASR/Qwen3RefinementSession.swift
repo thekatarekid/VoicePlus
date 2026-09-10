@@ -151,13 +151,27 @@ private actor Backend {
     func transcribe(samples: [Float], context: String) async throws -> String {
         try await prepare(progress: nil)
         try Task.checkCancellation()
+        // The system message is built here and handed over as `contextTokens`, and the port's own
+        // `language:` path is deliberately bypassed (`nil`).
+        //
+        // Why: the ported `Qwen3AsrManager.taskTokens` table hard-codes token ids that do not
+        // match the `vocab.json` shipped with these weights. Its English row is
+        // `[3246, 56541, 279, 7461, 311, 6364, 1467, 13]`, which decodes against this vocabulary
+        // as "agnıs the Oper to English text." — five of the eight ids are right and three are
+        // not. Measured consequence, first real-room utterance, built-in mic: the model got no
+        // usable instruction, auto-detected the language of accented English speech and answered
+        // in Devanagari ("… ब्राउन फॉक्स … डॉग", WER 1.000 against a correct English reference).
+        // Encoding the same sentence against `vocab.json` gives
+        // `[3167, 3114, 279, 7699, 311, 6364, 1467, 13]` = "Transcribe the audio to English
+        // text." — so the instruction is built from the vocabulary that is actually on disk.
+        let prompt = Qwen3RefinementPrompt.systemPrompt(language: language, context: context)
         let contextTokens = tokenizer?.encode(
-            context, limit: Qwen3RefinementBudget.contextTokenBudget(sampleCount: samples.count)
+            prompt, limit: Qwen3RefinementBudget.contextTokenBudget(sampleCount: samples.count)
         ) ?? []
         do {
             return try await manager.transcribe(
                 audioSamples: samples,
-                language: language,
+                language: nil as Qwen3AsrConfig.Language?,
                 contextTokens: contextTokens,
                 maxNewTokens: Qwen3RefinementBudget.maxNewTokens
             )
@@ -206,4 +220,22 @@ enum Qwen3RefinementBudget {
         let used = audioTokenCount(sampleCount: sampleCount) + promptOverheadTokens + reservedOutputTokens
         return max(0, Qwen3AsrConfig.maxCacheSeqLen - used)
     }
+}
+
+// MARK: - Prompt text
+
+/// The system message the refinement pass sends. Its own type so it can be tested without
+/// weights: getting this wrong is invisible until a transcription comes back in the wrong script.
+@available(macOS 15, *)
+enum Qwen3RefinementPrompt {
+    /// Qwen3-ASR's task instruction plus the caller's context, as plain text. Empty context and
+    /// automatic language give an empty system message, which is what "no instruction" means.
+    static func systemPrompt(language: Qwen3AsrConfig.Language?, context: String) -> String {
+        var parts: [String] = []
+        if let language { parts.append("Transcribe the audio to \(language.englishName) text.") }
+        let trimmed = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { parts.append(trimmed) }
+        return parts.joined(separator: "\n")
+    }
+
 }

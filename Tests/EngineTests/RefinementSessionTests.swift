@@ -334,6 +334,21 @@ struct Qwen3RefinementAvailabilityTests {
         #expect(tokenizer.encode("zzz", limit: 16) == [])
     }
 
+    /// The task instruction has to come from `vocab.json`, not from the port's hard-coded table:
+    /// three of its eight English ids do not match these weights (see `Backend.transcribe`).
+    @Test func systemPromptCarriesTheTaskInstruction() {
+        guard #available(macOS 15, *) else {
+            print("SKIPPED systemPromptCarriesTheTaskInstruction: macOS 15+ only.")
+            return
+        }
+        #expect(Qwen3RefinementPrompt.systemPrompt(language: .english, context: "")
+            == "Transcribe the audio to English text.")
+        #expect(Qwen3RefinementPrompt.systemPrompt(language: nil, context: "  ") == "")
+        #expect(Qwen3RefinementPrompt.systemPrompt(language: .german, context: "Priya")
+            == "Transcribe the audio to German text.\nPriya")
+        #expect(Qwen3RefinementPrompt.systemPrompt(language: nil, context: "Priya") == "Priya")
+    }
+
     @Test func contextBudgetShrinksAsAudioGrows() {
         guard #available(macOS 15, *) else {
             print("SKIPPED contextBudgetShrinksAsAudioGrows: macOS 15+ only.")
