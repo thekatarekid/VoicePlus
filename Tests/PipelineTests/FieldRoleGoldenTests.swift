@@ -195,6 +195,6 @@ struct FieldRoleGoldenTests {
         // The contract every stage owes, checked on every golden.
         #expect(ConfidenceContract.verify(input: input, output: result.spans).isEmpty)
         #expect(result.spans.allSatisfy { $0.provenance.last == FieldRoleFormatterStage.stageID })
-        #expect(zip(input, result.spans).allSatisfy { $0.confidence == $1.confidence } || result.spans.count != input.count)
+        #expect(result.spans.allSatisfy { $0.provenance.first == .asr })
     }
 }
