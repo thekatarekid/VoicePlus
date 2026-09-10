@@ -74,7 +74,7 @@ private func fox(_ text: String = "The quick brown fox jumps over the lazy dog."
 
 @MainActor
 private func onboardingAtDictationStep(engine: EngineProtocol,
-                                       models: OnboardingMockModelManager = OnboardingMockModelManager(installed: [.balanced]),
+                                       models: OnboardingMockModelManager = .installed(),
                                        land: (@Sendable ([TranscriptSpan]) async -> GuidedLanding)? = nil)
     -> OnboardingViewModel {
     var deps = OnboardingDependencies.mock()
@@ -83,12 +83,11 @@ private func onboardingAtDictationStep(engine: EngineProtocol,
     deps.landUtterance = land
     let vm = OnboardingViewModel(dependencies: deps)
     // With no microphone grant the mic-check step is blocked rather than skipped silently, so it
-    // takes two skips from the welcome screen to reach the model picker.
+    // takes two skips from the welcome screen to reach the model install step.
     vm.send(.skip)
     vm.send(.skip)
-    vm.send(.choose(.balanced))
     // Continue only opens once the model is really there; a test with nothing installed skips.
-    vm.send(vm.machine.canContinueFromModelChoice ? .next : .skip)
+    vm.send(vm.machine.canContinueFromModelInstall ? .next : .skip)
     return vm
 }
 
@@ -106,7 +105,7 @@ struct GuidedDictationOutcomeTests {
         // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
         // installed model now, so the model step is reached with one already present.
         m.handle(.skip); m.handle(.skip)
-        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast)); m.handle(.next)
+        m.handle(.modelPresenceChanged(true)); m.handle(.next)
         #expect(m.step == .firstDictation)
 
         m.handle(.dictationFinished(.heard(text: "hello", recognizer: "Parakeet TDT 0.6B v3")))
@@ -126,7 +125,7 @@ struct GuidedDictationOutcomeTests {
         // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
         // installed model now, so the model step is reached with one already present.
         m.handle(.skip); m.handle(.skip)
-        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast)); m.handle(.next)
+        m.handle(.modelPresenceChanged(true)); m.handle(.next)
         m.handle(.dictationFinished(.failed(reason: "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")))
         #expect(m.landedText == nil)
         #expect(m.heardText == nil)
@@ -143,7 +142,7 @@ struct GuidedDictationOutcomeTests {
         // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
         // installed model now, so the model step is reached with one already present.
         m.handle(.skip); m.handle(.skip)
-        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast)); m.handle(.next)
+        m.handle(.modelPresenceChanged(true)); m.handle(.next)
         m.handle(.dictationFinished(.failed(reason: "nope")))
         #expect(m.dictationError == "nope")
         #expect(m.handle(.retryDictation) == [.checkRecognizerReadiness])
@@ -343,7 +342,7 @@ struct RecognizerReadinessTests {
 
     @MainActor
     @Test func theButtonDoesNothingWhileNothingCanTranscribe() async throws {
-        let models = OnboardingMockModelManager(installed: [])
+        let models = OnboardingMockModelManager()
         models.fallbackName = nil                       // no Parakeet, no Apple Speech
         let gate = TestGate()
         models.hold = { await gate.wait() }             // the download never lands during the test
@@ -363,7 +362,7 @@ struct RecognizerReadinessTests {
     /// button is drawn rather than after the first failure.
     @MainActor
     @Test func enteringTheStepAsksWhichRecognizerIsReady() async throws {
-        let vm = onboardingAtDictationStep(engine: StubEngine(), models: OnboardingMockModelManager(installed: [.balanced]))
+        let vm = onboardingAtDictationStep(engine: StubEngine(), models: .installed())
         #expect(vm.machine.readiness == .ready(name: "Parakeet TDT 0.6B v3"))
         #expect(vm.dictationGate.banner == "Using Parakeet TDT 0.6B v3.")
         vm.teardown()
@@ -372,51 +371,48 @@ struct RecognizerReadinessTests {
     @Test func enteringTheDictationStepChecksReadinessBeforeAnythingElse() {
         var m = M()
         m.handle(.skip); m.handle(.skip)
-        m.handle(.modelPresenceChanged([.fast])); m.handle(.choose(.fast))
+        m.handle(.modelPresenceChanged(true))
         #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
     }
 
-    /// The second half of P3, restated for the explicit buttons: each option's Download press fetches
-    /// that option, whatever any other option has already done — and a failure is retryable.
-    @Test func eachOptionsDownloadButtonFetchesThatOption() {
+    /// The second half of P3, restated for one stack: a failed install is retryable, and a retry
+    /// really does start a fetch rather than sitting on the failure.
+    @Test func aFailedInstallIsRetryable() {
         var m = M()
         m.handle(.skip); m.handle(.skip)
-        #expect(m.handle(.download(.fast)) == [.selectModel(.fast), .startDownload(.fast)])
-        m.handle(.downloadFinished(.fast))
-        #expect(m.handle(.download(.best)) == [.selectModel(.best), .startDownload(.best)],
-                "a tier downloaded after another one finished must still be fetched")
-        m.handle(.downloadFailed(.best, "no network"))
-        #expect(m.downloadState(for: .fast) == .installed, "one option's failure is not another's")
-        #expect(m.handle(.download(.best)) == [.selectModel(.best), .startDownload(.best)],
-                "Retry after a failure fetches it again")
+        m.handle(.downloadFailed("no network"))
+        #expect(m.download == .failed("no network"))
+        #expect(m.handle(.installModels) == [.startDownload], "Retry after a failure fetches again")
+        m.handle(.downloadFinished)
+        #expect(m.download == .installed)
+        #expect(m.handle(.installModels) == [], "and once it is here, nothing is fetched again")
     }
 
-    /// `ModelManagerTiers.readiness` mirrors `RecognizerFactory.chooseFinal`, so the screen names the
-    /// recogniser the engine will really pick. Driven over a real `ModelManager` on a scratch root.
+    /// `ModelStackInstaller.stackReadiness` mirrors `RecognizerFactory.chooseFinal`, so the screen
+    /// names the recogniser the engine will really pick. Driven over a real `ModelManager` on a
+    /// scratch root.
     @Test func readinessFollowsWhatIsOnDisk() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("vp-readiness-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = ModelManager(root: root, externalCaches: [:])
-        let tiers = ModelManagerTiers(manager: manager, settings: InMemorySettingsStore())
-        tiers.appleSpeechAvailable = { false }
-        await tiers.refresh()
+        let installer = ModelStackInstaller(manager: manager)
+        installer.appleSpeechAvailable = { false }
+        await installer.refresh()
 
         // Empty disk, no Apple Speech: nothing can transcribe, and the screen must say so.
-        var readiness = tiers.readiness(for: .best)
-        #expect(readiness == .unavailable(reason: "No speech model has finished downloading yet, and macOS' own on-device recogniser isn't available on this Mac. There is nothing to transcribe with until the download lands."))
+        #expect(installer.stackReadiness == .unavailable(reason: "No speech model has finished downloading yet, and macOS' own on-device recogniser isn't available on this Mac. There is nothing to transcribe with until the download lands."))
 
-        // The tiny model lands: it stands in for "Best", and the screen names both.
+        // The tiny model — a fallback nobody can choose any more, but plenty of people have — is
+        // still named as what is standing in.
         try stubModel(.parakeetTDTCTC110m, under: root)
-        await tiers.refresh()
-        readiness = tiers.readiness(for: .best)
-        #expect(readiness == .fallback(name: "Parakeet TDT-CTC 110M (tiny)", awaiting: "Parakeet TDT 0.6B v3"))
+        await installer.refresh()
+        #expect(installer.stackReadiness == .fallback(name: "Parakeet TDT-CTC 110M (tiny)", awaiting: "Parakeet TDT 0.6B v3"))
 
-        // Both of "Best"'s models land: it is now genuinely ready and named as itself.
+        // The stack lands: it is now genuinely ready and named as itself.
         try stubModel(.parakeetTDTv3, under: root)
         try stubModel(.parakeetEOU160, under: root)
-        await tiers.refresh()
-        readiness = tiers.readiness(for: .best)
-        #expect(readiness == .ready(name: "Parakeet TDT 0.6B v3"))
+        await installer.refresh()
+        #expect(installer.stackReadiness == .ready(name: "Parakeet TDT 0.6B v3"))
     }
 
     private func stubModel(_ id: ModelID, under root: URL) throws {
@@ -474,53 +470,42 @@ struct DownloadProgressTextTests {
     @MainActor
     @Test func theViewModelPublishesTheLineWhileADownloadIsInFlight() async throws {
         var deps = OnboardingDependencies.mock()
-        let models = OnboardingMockModelManager(installed: [])
+        let models = OnboardingMockModelManager()
         // Held open by the test rather than by a sleep, so a loaded machine cannot let the whole
         // download finish between two polls and leave the assertion looking at `.installed`.
         let gate = TestGate()
         models.hold = { await gate.wait() }
         deps.models = models
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model choice
-        vm.send(.download(.best))
+        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model install
         try await waitUntil { vm.machine.download.isInFlight }
         let line = try #require(vm.downloadLine)
         #expect(line.contains("Parakeet TDT 0.6B v3"))
-        #expect(line.contains("900 MB"), "the denominator is the tier's real total, not a bare percentage")
-        #expect(vm.downloadStartedAt[.best] != nil)
+        #expect(line.contains("900 MB"), "the denominator is the stack's real total, not a bare percentage")
+        #expect(vm.downloadStartedAt != nil)
         gate.open()
         vm.teardown()
     }
 }
 
-// MARK: - P4
+// MARK: - P4 / R6.1
 
-/// "Show the real model name next to each friendly tier, with its size."
-@Suite("P4 — the picker names the real models")
-struct ModelTierNamingTests {
+/// "Show the real model name next to each friendly tier, with its size" — and then R6.1 removed the
+/// friendly tiers, so what is left is the real names and the real sizes, read from `ModelCatalog`.
+@Suite("R6.1 — the install names the real models, at their real size")
+struct ModelStackNamingTests {
     @Test func namesAndSizesComeFromTheCatalog() {
-        #expect(ModelTier.fast.modelNames == ["Parakeet TDT-CTC 110M (tiny)"])
-        #expect(ModelTier.balanced.modelNames == ["Parakeet TDT 0.6B v3"])
-        #expect(ModelTier.best.modelNames == ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)"])
-        #expect(ModelTier.best.modelNameLine == "Parakeet TDT 0.6B v3 + Parakeet Realtime EOU 120M (160 ms)")
-
-        #expect(ModelTier.fast.approximateBytes == 110_000_000)
-        #expect(ModelTier.balanced.approximateBytes == 500_000_000)
-        #expect(ModelTier.best.approximateBytes == 900_000_000)
-        #expect(ModelTier.fast.sizeLabel == "110 MB")
-        #expect(ModelTier.best.sizeLabel == "900 MB")
+        #expect(ModelStack.displayNames == ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)"])
+        #expect(ModelStack.approximateBytes == 900_000_000)
+        #expect(ByteText.short(ModelStack.approximateBytes) == "900 MB")
+        #expect(ModelStack.approximateBytes == ModelStack.descriptors.reduce(0) { $0 + $1.approxBytes },
+                "the size is a sum over the catalog, so it cannot drift")
     }
 
-    /// The three sizes the 1.6.6 picker printed were hardcoded and all three had drifted. Every one
-    /// of them is now a sum over `ModelCatalog`, so drift is a build-time impossibility.
+    /// The 1.6.6 picker printed 120 / 450 / 1200 MB, hardcoded, and all three had drifted — "Best"
+    /// advertised ~1.2 GB for two models totalling 900 MB. There is no number left to drift.
     @Test func theHardcodedSizesAreGone() {
-        let hardcoded: [ModelTier: Int64] = [.fast: 120_000_000, .balanced: 450_000_000, .best: 1_200_000_000]
-        for (tier, wrong) in hardcoded {
-            #expect(tier.approximateBytes != wrong, "\(tier.rawValue) is still using the old hardcoded size")
-        }
-        for tier in ModelTier.allCases {
-            #expect(tier.approximateBytes == tier.descriptors.reduce(0) { $0 + $1.approxBytes })
-            #expect(!tier.modelNames.isEmpty, "every tier must name what it downloads")
-        }
+        #expect(ModelStack.approximateBytes != 1_200_000_000)
+        #expect(!ModelStack.displayNames.isEmpty, "the install must name what it downloads")
     }
 }

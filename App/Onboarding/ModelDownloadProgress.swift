@@ -1,21 +1,21 @@
 import Foundation
 
-/// One progress report for a tier download.
+/// One progress report for the model install.
 ///
 /// The old callback was a bare `Double`, so the only thing the screen could say was "Downloading…
 /// 46%". A percentage with no denominator is exactly what the 1.6.6 user could not act on: they
-/// picked "Best", saw the next screen instantly, and had no way to tell whether a 900 MB download
+/// picked a model, saw the next screen instantly, and had no way to tell whether a 900 MB download
 /// had even started. Bytes and the name of the model currently being fetched come from
 /// `DownloadProgressInfo`, which has carried them all along.
 public struct ModelDownloadProgress: Equatable, Sendable {
-    /// 0…1 across the whole tier, not just the model in flight.
+    /// 0…1 across the whole install, not just the model in flight.
     public var fraction: Double
     public var bytesReceived: Int64
-    /// Total for the whole tier. Zero when the server sent no length.
+    /// Total for the whole install. Zero when the server sent no length.
     public var bytesExpected: Int64
     /// Catalog display name of the model being fetched right now.
     public var modelName: String
-    /// 1-based position of that model in the tier, and how many there are.
+    /// 1-based position of that model in the install, and how many there are.
     public var index: Int
     public var count: Int
 

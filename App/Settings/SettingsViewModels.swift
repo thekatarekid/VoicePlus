@@ -177,29 +177,36 @@ public final class GeneralSettingsViewModel: ObservableObject {
 // MARK: - Models / providers per stage
 
 /// What runs a pipeline stage. `auto` = local first, paid only where enabled and the stage benefits (Part 4.6).
+///
+/// R6.1: `local` carried a `ModelTier`, so this picker listed "Local · Fast", "Local · Balanced" and
+/// "Local · Best" — the tier picker again, in Settings, offering two entries that are fallbacks
+/// (TDT-CTC 110M) or a placeholder (Whisper) rather than choices. There is one local stack now, so
+/// there is one local option.
 public enum ProviderChoice: Hashable, Sendable, Identifiable {
     case auto
-    case local(ModelTier)
+    case local
     case provider(String)   // provider id from P1.10 (e.g. "openrouter", "chatgpt-oauth", "claude-cli")
 
     public var id: String { rawValue }
     public var rawValue: String {
         switch self {
         case .auto: return "auto"
-        case .local(let t): return "local:\(t.rawValue)"
+        case .local: return "local"
         case .provider(let p): return "provider:\(p)"
         }
     }
     public init?(rawValue: String) {
         if rawValue == "auto" { self = .auto; return }
-        if rawValue.hasPrefix("local:"), let t = ModelTier(rawValue: String(rawValue.dropFirst(6))) { self = .local(t); return }
+        // Any `local:*` is a setting written by a build that still had tiers. It is read as "local"
+        // and left at that: nothing on disk is rewritten, and the stored value keeps working.
+        if rawValue == "local" || rawValue.hasPrefix("local:") { self = .local; return }
         if rawValue.hasPrefix("provider:") { self = .provider(String(rawValue.dropFirst(9))); return }
         return nil
     }
     public var title: String {
         switch self {
         case .auto: return "Auto"
-        case .local(let t): return "Local · \(t.title)"
+        case .local: return "Local (on this Mac)"
         case .provider(let p): return p
         }
     }
@@ -211,8 +218,8 @@ public struct RoutableStage: Identifiable, Hashable, Sendable {
     public let title: String
     public let acceptsProviders: Bool
     /// Whether a local model can serve this stage. False for the act planner, which has no local
-    /// implementation at all: offering "Local · balanced" there would be a second way to be told to
-    /// do something that cannot work.
+    /// implementation at all: offering "Local (on this Mac)" there would be a second way to be told
+    /// to do something that cannot work.
     public let acceptsLocal: Bool
 
     public init(id: StageID, title: String, acceptsProviders: Bool, acceptsLocal: Bool = true) {
@@ -247,7 +254,13 @@ public final class ModelsSettingsViewModel: ObservableObject {
     private let store: SettingsStore
     public let models: ModelManaging
 
-    public init(store: SettingsStore, models: ModelManaging, connectedProviders: [String] = []) {
+    /// Whether Qwen refinement is on, which is the only thing that puts a refinement model on this
+    /// screen. Read by flag *id* — see `ModelStack.refinementFlagID`.
+    private let qwenRefinementEnabled: Bool
+
+    public init(store: SettingsStore, models: ModelManaging, connectedProviders: [String] = [],
+                flags: FeatureFlagService? = nil) {
+        self.qwenRefinementEnabled = flags?.isEnabled(id: ModelStack.refinementFlagID) ?? false
         self.store = store
         self.models = models
         self.connectedProviders = connectedProviders
@@ -262,7 +275,7 @@ public final class ModelsSettingsViewModel: ObservableObject {
 
     public func options(for stage: RoutableStage) -> [ProviderChoice] {
         var out: [ProviderChoice] = [.auto]
-        if stage.acceptsLocal { out += ModelTier.allCases.map(ProviderChoice.local) }
+        if stage.acceptsLocal { out.append(.local) }
         if stage.acceptsProviders { out += connectedProviders.map(ProviderChoice.provider) }
         return out
     }
@@ -273,6 +286,21 @@ public final class ModelsSettingsViewModel: ObservableObject {
     }
 
     public func resetToAuto() { for s in RoutableStage.all { set(.auto, for: s.id) } }
+
+    /// The speech models this screen may name. Fallbacks (TDT-CTC 110M, the Whisper placeholder)
+    /// are deliberately absent: they are what the engine walks down to, not something anyone
+    /// chooses, and listing them was the last remnant of the tier picker. A refinement model shows
+    /// up only while refinement is switched on.
+    public var visibleModelIDs: [ModelID] { ModelCatalog.userVisible(qwenRefinementEnabled: qwenRefinementEnabled) }
+
+    public var visibleModelNames: [String] { visibleModelIDs.map { ModelCatalog.descriptor($0).displayName } }
+
+    /// One line for the Models tab: what transcription runs on, and whether it is here yet.
+    public var speechModelSummary: String {
+        let names = visibleModelNames.joined(separator: " + ")
+        if models.isStackInstalled { return "\(names) — installed." }
+        return "\(names) — \(ByteText.short(models.remainingStackBytes)) still to download."
+    }
 }
 
 // MARK: - Personas

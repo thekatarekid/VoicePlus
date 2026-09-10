@@ -107,6 +107,12 @@ public struct SettingsView: View {
                 }
                 Button("Reset all to Auto") { models.resetToAuto() }
             }
+            Section("Speech model") {
+                Text(models.speechModelSummary)
+                    .accessibilityIdentifier("settings.speechModel")
+                Text("One stack, installed on first run. There is no model to choose: this is the only thing that transcribes, and it runs on this Mac.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Providers") {
                 Text("Auto uses local models first and a paid model only where it helps. Transcription is always local — subscriptions don't improve it.")
                     .font(.caption).foregroundStyle(.secondary)

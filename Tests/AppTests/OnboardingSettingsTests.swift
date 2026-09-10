@@ -61,15 +61,18 @@ struct SettingsViewModelTests {
         let store = InMemorySettingsStore()
         let vm = ModelsSettingsViewModel(store: store, models: OnboardingMockModelManager(), connectedProviders: ["openrouter"])
         for s in RoutableStage.all { #expect(vm.choice(for: s.id) == .auto) }
-        #expect(vm.options(for: RoutableStage.all[0]) == [.auto, .local(.fast), .local(.balanced), .local(.best)])  // ASR: no providers
+        // R6.1: one local option, not three tiers. ASR takes no providers.
+        #expect(vm.options(for: RoutableStage.all[0]) == [.auto, .local])
         #expect(vm.options(for: RoutableStage.all[1]).contains(.provider("openrouter")))
         #expect(!RoutableStage.all.contains { $0.id == .gatekeeper })  // gatekeeper is always local
         vm.set(.provider("openrouter"), for: .formatterEmail)
-        vm.set(.local(.best), for: .asr)
+        vm.set(.local, for: .asr)
         #expect(store.string("routing.formatter.email") == "provider:openrouter")
         let reloaded = ModelsSettingsViewModel(store: store, models: OnboardingMockModelManager())
         #expect(reloaded.choice(for: .formatterEmail) == .provider("openrouter"))
-        #expect(reloaded.choice(for: .asr) == .local(.best))
+        #expect(reloaded.choice(for: .asr) == .local)
+        // A value a pre-R6.1 build wrote still reads back, as plain "local".
+        #expect(ProviderChoice(rawValue: "local:best") == .local)
         reloaded.resetToAuto()
         #expect(store.string("routing.asr") == nil)
         #expect(ProviderChoice(rawValue: "garbage") == nil)

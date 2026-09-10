@@ -408,8 +408,8 @@ public final class AppContainer {
 
     /// Onboarding / Settings dependencies over the live services.
     public func onboardingDependencies(permissions: PermissionChecking) -> OnboardingDependencies {
-        let tiers = modelManager.map { manager -> ModelManagerTiers in
-            let tiers = ModelManagerTiers(manager: manager, settings: settings)
+        let installer = modelManager.map { manager -> ModelStackInstaller in
+            let tiers = ModelStackInstaller(manager: manager)
             // The moment a model lands, the engine stops being `UnavailableEngine`. Without this
             // the download finishes, onboarding says "Using Parakeet TDT 0.6B v3." and every
             // dictation still reports "No speech model installed" until the app is relaunched.
@@ -418,7 +418,7 @@ public final class AppContainer {
             }
             return tiers
         }
-        let models: ModelManaging = tiers ?? OnboardingMockModelManager()
+        let models: ModelManaging = installer ?? OnboardingMockModelManager()
         // Always a real capture graph. Reuse the app's pipeline when one exists; otherwise build a
         // standalone one — metering a microphone needs no ASR model, and onboarding is precisely
         // the moment when no model is installed yet. There is deliberately no engine-derived

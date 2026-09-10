@@ -141,12 +141,11 @@ struct EngineSwapTests {
             prepared.append("prepared")
             await box.swap(to: MockEngine(fixture: Self.fixture("It landed."), prewarmMs: 0))
         }
-        deps.models = OnboardingMockModelManager(installed: [.balanced])
+        deps.models = OnboardingMockModelManager.installed()
         let model = OnboardingViewModel(dependencies: deps)
         model.send(.skip)               // welcome
         model.send(.skip)               // mic check (blocked without a grant)
-        model.send(.choose(.balanced))
-        model.send(.next)               // model choice → first dictation
+        model.send(.next)               // model install (already on disk) → first dictation
         model.startGuidedDictation()
         for _ in 0..<200 where prepared.values.isEmpty { try? await Task.sleep(nanoseconds: 10_000_000) }
 
@@ -182,19 +181,19 @@ struct EngineSwapTests {
 
     @Test("a finished download tells the app the models changed; a failed one does not")
     func downloadNotifiesOnlyOnSuccess() async throws {
-        let good = ModelManagerTiers(manager: Self.manager(fetcher: StubFetcher()), settings: InMemorySettingsStore())
+        let good = ModelStackInstaller(manager: Self.manager(fetcher: StubFetcher()))
         let counter = FinalBox()
         good.onModelsChanged = { counter.append("changed") }
-        try await good.download(.fast) { _ in }
+        try await good.downloadStack { _ in }
         #expect(!counter.values.isEmpty, "the engine must be re-resolved when a model lands")
-        #expect(good.isInstalled(.fast))
+        #expect(good.isStackInstalled)
 
-        let bad = ModelManagerTiers(manager: Self.manager(fetcher: StubFetcher(shouldFail: true)), settings: InMemorySettingsStore())
+        let bad = ModelStackInstaller(manager: Self.manager(fetcher: StubFetcher(shouldFail: true)))
         let noCounter = FinalBox()
         bad.onModelsChanged = { noCounter.append("changed") }
-        await #expect(throws: (any Error).self) { try await bad.download(.fast) { _ in } }
+        await #expect(throws: (any Error).self) { try await bad.downloadStack { _ in } }
         #expect(noCounter.values.isEmpty, "a failed download must leave the app honestly unavailable")
-        #expect(!bad.isInstalled(.fast))
+        #expect(!bad.isStackInstalled)
     }
 }
 

@@ -174,70 +174,41 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
 // still turned those levels into a `.good` verdict and the screen only added a footnote. There is
 // no longer any engine-derived path into the mic check; see `PipelineMicLevelPublisher.standalone()`.
 
-/// The real models behind each friendly tier name, read from `ModelCatalog` so the picker can never
-/// drift from what is actually downloaded.
+/// Installs the one speech stack (`Engine.ModelStack`) and reports what is on disk.
 ///
-/// P4: the picker used to show "Fast / Balanced / Best" and a hardcoded size, and all three sizes
-/// were wrong — "Best" advertised "~1.2 GB" for what is really two models totalling 900 MB. The
-/// names were nowhere on screen at all, so there was no way to tell what the 1.2 GB was.
-public extension ModelTier {
-    var models: [ModelID] { ModelManagerTiers.models(for: self) }
-    var descriptors: [ModelDescriptor] { models.map(ModelCatalog.descriptor) }
-    /// Catalog display names, e.g. ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)"].
-    var modelNames: [String] { descriptors.map(\.displayName) }
-    /// What the picker prints next to the friendly word: the real model names, joined.
-    var modelNameLine: String { modelNames.joined(separator: " + ") }
-    var approximateBytes: Int64 { descriptors.reduce(0) { $0 + $1.approxBytes } }
-    var sizeLabel: String { ByteText.short(approximateBytes) }
-}
-
-/// Plain-language tiers → `ModelID`s on disk. Downloads go through `ModelManager`
-/// (HF resume + SHA256); the chosen tier is persisted in settings.
-public final class ModelManagerTiers: ModelManaging {
-    public static let tierKey = "models.selectedTier"
+/// R6.1: this was `ModelManagerTiers`, and it mapped `fast / balanced / best` onto `ModelID`s for a
+/// picker. The picker is gone — there is one stack, it installs on first run, and the two entries
+/// that used to be options of their own (TDT-CTC 110M, Whisper) are `ModelRole.fallback` in the
+/// catalog. Downloads still go through `ModelManager` (HF resume + SHA256 + integrity check), and
+/// still honour the Data Panel kill switch.
+public final class ModelStackInstaller: ModelManaging {
     /// The name `EngineFactory` logs for the silent fallback, so the onboarding screen and the log
     /// call the same thing by the same name.
     public static let appleSpeechName = "Apple Speech (on-device)"
     private let manager: ModelManager
-    private let settings: SettingsStore
-    private var presence: [ModelTier: Bool] = [:]
-    /// Per-model presence, so `readiness` can name the model that will actually stand in for a tier
-    /// that is not on disk yet — a tier-level bool cannot answer that.
+    /// Per-model presence, so `stackReadiness` can name the model that will actually stand in
+    /// while the stack is still arriving.
     private var modelPresence: [ModelID: Bool] = [:]
     /// Injected so the "nothing can transcribe" branch is reachable in a test on a Mac where Apple
     /// Speech happens to be available.
     public var appleSpeechAvailable: () -> Bool = { AppleSpeechRecognizer.isAvailable() }
-    /// Fired after `refresh()` has re-read the models directory — a download landing, or a tier
+    /// Fired after `refresh()` has re-read the models directory — a download landing, or a model
     /// that turned out to be installed already. `AppContainer` uses it to re-resolve the engine.
     public var onModelsChanged: (() -> Void)?
 
-    public init(manager: ModelManager, settings: SettingsStore) {
+    public init(manager: ModelManager) {
         self.manager = manager
-        self.settings = settings
         Task { await refresh() }
-    }
-
-    public static func models(for tier: ModelTier) -> [ModelID] {
-        switch tier {
-        case .fast: return [.parakeetTDTCTC110m]
-        case .balanced: return [.parakeetTDTv3]
-        case .best: return [.parakeetTDTv3, .parakeetEOU160]
-        }
     }
 
     public func refresh() async {
         var models: [ModelID: Bool] = [:]
         for id in ModelID.allCases { models[id] = await manager.isPresent(id) }
-        var byTier: [ModelTier: Bool] = [:]
-        for tier in ModelTier.allCases {
-            byTier[tier] = Self.models(for: tier).allSatisfy { models[$0] == true }
-        }
-        let (tiers, perModel) = (byTier, models)
+        let perModel = models
         await MainActor.run {
             let before = Set(modelPresence.filter(\.value).keys)
             let after = Set(perModel.filter(\.value).keys)
             let changed = before != after
-            presence = tiers
             modelPresence = perModel
             // Only when what is on disk actually moved: the first refresh (from `init`) and every
             // no-op poll must not make the composition root re-resolve the engine.
@@ -245,27 +216,31 @@ public final class ModelManagerTiers: ModelManaging {
         }
     }
 
-    public func isInstalled(_ tier: ModelTier) -> Bool { presence[tier] ?? false }
+    public var isStackInstalled: Bool { missingModels.isEmpty }
 
-    /// Only the models this tier is actually missing. "Best" shares Parakeet TDT v3 with "Balanced",
-    /// so after Balanced has landed this reports the 400 MB EOU model alone — the same subset
-    /// `download(_:progress:)` will fetch.
-    public func remainingBytes(for tier: ModelTier) -> Int64 {
-        Self.models(for: tier)
-            .filter { modelPresence[$0] != true }
-            .reduce(0) { $0 + ModelCatalog.descriptor($1).approxBytes }
+    /// The stack's models that are not on disk, in install order.
+    private var missingModels: [ModelID] { ModelStack.models.filter { modelPresence[$0] != true } }
+
+    /// Only what is actually missing. A user who already has Parakeet TDT v3 from an earlier
+    /// version is quoted the EOU model alone — the same subset `downloadStack` will fetch, and the
+    /// whole of "existing installs are kept, nothing is re-downloaded".
+    public var remainingStackBytes: Int64 {
+        missingModels.reduce(0) { $0 + ModelCatalog.descriptor($1).approxBytes }
     }
 
     /// Model downloads are the one egress path outside the provider table: they honour the
     /// Data Panel kill switch and are logged to `network_log` like any other request (T3/T5).
     ///
-    /// Progress is byte-weighted across the models that are actually missing, so a tier whose big
-    /// model is already on disk does not spend half the bar on a file it never fetches. The
-    /// denominator is the catalog's advertised size, which is what the picker promised and which —
-    /// unlike a per-response `Content-Length` — does not move while the bar is on screen.
-    public func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
+    /// Progress is byte-weighted across the models that are actually missing, so an install whose
+    /// big model is already on disk does not spend half the bar on a file it never fetches. The
+    /// denominator is the catalog's advertised size, which — unlike a per-response
+    /// `Content-Length` — does not move while the bar is on screen.
+    ///
+    /// The presence check is asked of `ModelManager` (not of the cached `modelPresence`) so a model
+    /// that landed since the last `refresh` is still never fetched twice.
+    public func downloadStack(progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
         var pending: [ModelDescriptor] = []
-        for id in Self.models(for: tier) where await !manager.isPresent(id) {
+        for id in ModelStack.models where await !manager.isPresent(id) {
             pending.append(ModelCatalog.descriptor(id))
         }
         guard !pending.isEmpty else { await refresh(); return }
@@ -292,17 +267,15 @@ public final class ModelManagerTiers: ModelManaging {
         await refresh()
     }
 
-    public func select(_ tier: ModelTier) { settings.set(tier.rawValue, for: Self.tierKey) }
-
-    public var selectedTier: ModelTier {
-        settings.string(Self.tierKey).flatMap(ModelTier.init(rawValue:)) ?? .recommended
-    }
-
     /// Mirrors `RecognizerFactory.chooseFinal` — full TDT v3, else the tiny one, else Apple Speech —
     /// so the screen names the recogniser the engine will really pick rather than guessing.
-    public func readiness(for tier: ModelTier) -> RecognizerReadiness {
-        if isInstalled(tier) { return .ready(name: tier.modelNames.first ?? tier.title) }
-        let awaiting = tier.descriptors.filter { modelPresence[$0.id] != true }.map(\.displayName).first
+    ///
+    /// The tiny TDT-CTC model is still consulted here, and deliberately: it is a fallback the user
+    /// can no longer choose but may well already have, and naming it is more honest than falling
+    /// through to Apple Speech.
+    public var stackReadiness: RecognizerReadiness {
+        if isStackInstalled { return .ready(name: ModelCatalog.descriptor(ModelStack.models[0]).displayName) }
+        let awaiting = missingModels.map { ModelCatalog.descriptor($0).displayName }.first
         for id in [ModelID.parakeetTDTv3, .parakeetTDTCTC110m] where modelPresence[id] == true {
             return .fallback(name: ModelCatalog.descriptor(id).displayName, awaiting: awaiting)
         }

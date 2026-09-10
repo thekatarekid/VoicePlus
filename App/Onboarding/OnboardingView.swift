@@ -1,4 +1,5 @@
 import AppKit
+import Engine
 import SwiftUI
 import Shared
 
@@ -9,7 +10,7 @@ public struct OnboardingView: View {
 
     /// Height the current step wants, and the height of the fixed chrome around it. Both are
     /// measured rather than guessed: every step has a different resting height, and three of them
-    /// (permissions, mic check, model choice) grow and shrink while they are on screen.
+    /// (permissions, mic check, model install) grow and shrink while they are on screen.
     @State private var stepHeight: CGFloat = OnboardingWindowSizing.minimumStepHeight
     @State private var progressHeight: CGFloat = 0
     @State private var footerHeight: CGFloat = 0
@@ -31,7 +32,7 @@ public struct OnboardingView: View {
                     case .welcome: welcome
                     case .permissions: permissions
                     case .micCheck: micCheck
-                    case .modelChoice: modelChoice
+                    case .modelInstall: modelInstall
                     case .firstDictation: firstDictation
                     case .done: done
                     }
@@ -296,15 +297,32 @@ public struct OnboardingView: View {
         .font(.caption)
     }
 
-    /// Names the real models, not just the friendly word. The 1.6.6 picker showed "Best · 1200 MB"
-    /// and nothing else — the user could not tell what was being downloaded, and the number was
-    /// wrong anyway (two models, 900 MB). Both now come from `ModelCatalog`.
-    private var modelChoice: some View {
+    /// One stack, installing. There is nothing to choose here since R6.1: the three options were
+    /// `fast` (TDT-CTC 110M), `balanced` (TDT v3) and `best` (TDT v3 + EOU), of which only the last
+    /// was ever the right answer — the other two described *fallbacks* as if they were products,
+    /// and the sizes on the rows were wrong besides. The progress, the estimate and the
+    /// failure/retry reporting are the same ones the picker used, unchanged.
+    private var modelInstall: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Pick a free local model.").font(.title.bold())
+            Text("Installing the speech model.").font(.title.bold())
             Text("It downloads in the background. Until it lands, VoicePlus uses whatever is already on this Mac — the next screen says which.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            ForEach(ModelTier.allCases) { tier in modelRow(tier) }
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model.stackNameLine).bold().fixedSize(horizontal: false, vertical: true)
+                    Text("Free, runs on this Mac, and the only thing that transcribes. \(ByteText.short(ModelStack.approximateBytes)) in total.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if model.isPartialDownload {
+                        // Never claim a re-download of a model that is already here.
+                        Text("Only the \(model.remainingLabel) you don't have yet.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                installControl.frame(width: 210, alignment: .trailing)
+            }
+            .accessibilityIdentifier("onboarding.modelInstall")
             if let reason = model.machine.continueBlockedReason {
                 Label(reason, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -322,91 +340,44 @@ public struct OnboardingView: View {
         }
     }
 
-    /// One option: a selectable description on the left, and its **own** download control on the
-    /// right. Selecting is inert — until 1.7.0 tapping the radio button silently began fetching up
-    /// to 900 MB, which is not something a selection control may do.
-    private func modelRow(_ tier: ModelTier) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Button {
-                model.send(.choose(tier))
-            } label: {
-                HStack(alignment: .top) {
-                    Image(systemName: model.machine.chosenTier == tier ? "largecircle.fill.circle" : "circle")
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack {
-                            Text(tier.title).bold()
-                            Text("· \(tier.sizeLabel)").foregroundStyle(.secondary)
-                            if tier == .recommended { Text("Recommended").font(.caption).padding(3).background(.quaternary, in: Capsule()) }
-                        }
-                        Text(tier.modelNameLine).font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        // Said *before* the download, not discovered after it: "Best" is "Balanced"
-                        // plus one more model, so installing it necessarily installs Balanced too.
-                        if let composition = ModelTierComposition.compositionLine(for: tier) {
-                            Text(composition).font(.caption).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        // Wraps rather than truncating: 1.7.0 cut these mid-sentence ("Fine for chat
-                        // and n…"), which is the half of the row a user actually chooses on.
-                        Text(tier.tradeoff).font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.leading)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(model.machine.chosenTier == tier ? [.isSelected] : [])
-            modelRowControl(tier).frame(width: 210, alignment: .trailing)
-        }
-    }
-
-    /// The per-option state, in the only three shapes it can take: on disk, in flight, or offered.
-    @ViewBuilder private func modelRowControl(_ tier: ModelTier) -> some View {
-        switch model.machine.downloadState(for: tier) {
+    /// The install's state, in the only shapes it can take: on disk, in flight, failed, or about to
+    /// start. Same three controls the picker's rows used.
+    @ViewBuilder private var installControl: some View {
+        switch model.machine.download {
         case .installed:
-            VStack(alignment: .trailing, spacing: 2) {
-                // "Included with Best" rather than a bare "Installed": the shared model arrived
-                // because of the user's own choice, and saying which one closes the only reading
-                // where the app went and fetched 500 MB nobody asked for.
-                Label(model.installedBadge(for: tier), systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.caption)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.trailing)
-                Button("Use this") { model.send(.choose(tier)) }
-                    .font(.caption)
-                    .disabled(model.machine.chosenTier == tier)
-                if model.machine.chosenTier != tier, model.isReadyToUseWithoutDownload(tier) {
-                    Text("Switching downloads nothing.").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
+            Label("Installed", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green).font(.caption)
         case .downloading(let progress):
             VStack(alignment: .trailing, spacing: 2) {
                 ProgressView(value: progress.fraction)
                 // Fixed box: this line re-renders on every progress tick, and a line that changed
                 // its own height would resize the window several times a second.
-                Text(model.downloadLine(for: tier) ?? "Downloading… \(progress.percent)%")
+                Text(model.downloadLine ?? "Downloading… \(progress.percent)%")
                     .font(.caption2).foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing)
                     .lineLimit(3).minimumScaleFactor(0.85)
                     .frame(height: OnboardingWindowSizing.downloadLineHeight, alignment: .topTrailing)
-                Button("Cancel") { model.send(.cancelDownload(tier)) }.font(.caption)
+                Button("Cancel") { model.send(.cancelDownload) }.font(.caption)
             }
         case .failed(let why):
             VStack(alignment: .trailing, spacing: 2) {
                 Label("Download failed: \(why)", systemImage: "exclamationmark.triangle")
                     .font(.caption2).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                Button("Retry") { model.send(.download(tier)) }.font(.caption)
+                Button("Retry") { model.send(.installModels) }.font(.caption)
             }
         case .notStarted:
-            VStack(alignment: .trailing, spacing: 2) {
-                Button(model.downloadButtonTitle(for: tier)) { model.send(.download(tier)) }
-                if model.isPartialDownload(tier) {
-                    // Never claim a re-download of a model that is already here: "Best" is
-                    // "Balanced" plus one small extra model.
-                    Text("Only the part you don't have yet.").font(.caption2).foregroundStyle(.secondary)
+            // Two different situations wear the same state: the install is starting (no byte has
+            // been reported yet) or the user cancelled it. A spinner in the second case would be a
+            // lie, and an Install button in the first would flicker away under the cursor.
+            if model.machine.installRequested {
+                VStack(alignment: .trailing, spacing: 2) {
+                    ProgressView().controlSize(.small)
+                    Text("Starting the \(model.remainingLabel) download…")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
                 }
+            } else {
+                Button("Install \(model.remainingLabel)") { model.send(.installModels) }
             }
         }
     }
@@ -417,9 +388,9 @@ public struct OnboardingView: View {
             Text("Now for real.").font(.title.bold())
             Text("Press Dictate now, say the sentence, then press Stop.")
             Text("“The quick brown fox jumps over the lazy dog.”").font(.title3).italic()
-            if model.machine.skippedModelChoiceWithoutModel {
+            if model.machine.skippedModelInstallWithoutModel {
                 // Said here, once, rather than left for the user to infer from a test that fails.
-                Label("You skipped the model download, so there is no speech model on this Mac yet. Dictation won't work until one is installed — go Back to pick one, or install it later from Settings → Models.",
+                Label("You skipped the model download, so there is no speech model on this Mac yet. Dictation won't work until one is installed — it carries on in the background, and Settings → Models shows where it has got to.",
                       systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
@@ -479,8 +450,8 @@ public struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("That's it.").font(.largeTitle.bold())
             Text("Hold the key and talk, anywhere. Settings live in the menu bar.")
-            if model.machine.skippedModelChoiceWithoutModel {
-                Label("One thing left: no speech model is installed, so dictation won't work yet. Install one from Settings → Models.",
+            if model.machine.skippedModelInstallWithoutModel {
+                Label("One thing left: the speech model hasn't finished installing, so dictation won't work yet. Settings → Models shows where it has got to.",
                       systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
@@ -517,13 +488,13 @@ public struct OnboardingView: View {
                     model.send(.next)
                 }
             case .micCheck: Button("Continue") { model.send(.next) }.keyboardShortcut(.defaultAction)
-            case .modelChoice:
-                // Off until the chosen model is really on this Mac. The reason is printed above the
+            case .modelInstall:
+                // Off until the model is really on this Mac. The reason is printed above the
                 // divider, so a disabled button is never a guessing game.
                 Button("Continue") { model.send(.next) }
-                    .disabled(!model.machine.canContinueFromModelChoice)
+                    .disabled(!model.machine.canContinueFromModelInstall)
                     .help(model.machine.continueBlockedReason ?? "")
-                    .keyboardShortcut(model.machine.canContinueFromModelChoice ? .defaultAction : nil)
+                    .keyboardShortcut(model.machine.canContinueFromModelInstall ? .defaultAction : nil)
             // "Finish" once VoicePlus has actually heard something — not merely once an event with
             // an empty payload arrived, which is what `landedText != nil` used to mean.
             case .firstDictation: Button(model.machine.heardText == nil ? "Continue" : "Finish") { model.send(.next) }

@@ -23,7 +23,8 @@ public enum SettingsWindowController {
         var body: some View {
             SettingsView(
                 general: GeneralSettingsViewModel(store: deps.settingsStore),
-                models: ModelsSettingsViewModel(store: deps.settingsStore, models: deps.models, connectedProviders: connectedProviders),
+                models: ModelsSettingsViewModel(store: deps.settingsStore, models: deps.models,
+                                                connectedProviders: connectedProviders, flags: deps.flags),
                 personas: PersonasViewModel(database: deps.database),
                 dictionary: DictionaryViewModel(database: deps.database),
                 flags: FlagsViewModel(service: deps.flags),

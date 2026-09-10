@@ -89,14 +89,14 @@ public struct GuidedLanding: Equatable, Sendable {
 
 /// What will actually run if the user presses "Dictate now" this second.
 ///
-/// P3: the model-choice screen used to hand straight over to a dictation test with no idea whether
-/// anything could transcribe. Choosing "Best" on a clean Mac starts a 900 MB download and shows the
+/// P3: the model screen used to hand straight over to a dictation test with no idea whether
+/// anything could transcribe. A clean Mac starts a 900 MB download and shows the
 /// test screen immediately; the test then fails in whatever way the missing model happens to fail.
 /// The screen now has to name the recogniser it is about to use before it offers the button.
 public enum RecognizerReadiness: Equatable, Sendable {
-    /// The models for the chosen tier are on disk. `name` is the catalog display name.
+    /// Every model of the stack is on disk. `name` is the catalog display name.
     case ready(name: String)
-    /// The chosen tier is not on disk, but this recogniser will stand in for it.
+    /// The stack is not on disk yet, but this recogniser will stand in for it.
     /// `awaiting` names what is still downloading, when something is.
     case fallback(name: String, awaiting: String?)
     /// Nothing on this Mac can transcribe right now.

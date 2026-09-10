@@ -16,8 +16,8 @@ public final class OnboardingViewModel: ObservableObject {
     /// a second press would otherwise start a second `engine.stop()`, which throws `notListening`
     /// and would overwrite a perfectly good result with a failure the user did not cause.
     @Published public private(set) var isFinalizing = false
-    /// When each tier's download started, so every option's own line can estimate what is left.
-    @Published public private(set) var downloadStartedAt: [ModelTier: Date] = [:]
+    /// When the install started, so the line under the bar can estimate what is left.
+    @Published public private(set) var downloadStartedAt: Date?
     @Published public var contactsOutcome: ContactsImportOffer.Outcome?
     @Published public var showContactsOffer = false
     /// Result of the last "Remove the old entry" press, so the panel can say what happened instead
@@ -29,8 +29,9 @@ public final class OnboardingViewModel: ObservableObject {
     public var onFinished: ((Bool) -> Void)?
 
     private var micCancellable: AnyCancellable?
-    /// One task per option, so cancelling "Best" cannot stop a "Fast" download the user also started.
-    private var downloadTasks: [ModelTier: Task<Void, Never>] = [:]
+    /// The one install task. One stack, one download — the per-option dictionary went with the
+    /// picker in R6.1.
+    private var downloadTask: Task<Void, Never>?
     private var dictationTask: Task<Void, Never>?
     private var dictationEvents: Task<Void, Never>?
     private var dictationWatchdog: Timer?
@@ -178,8 +179,8 @@ public final class OnboardingViewModel: ObservableObject {
         dictationWatchdog?.invalidate(); dictationWatchdog = nil
         micCancellable = nil
         deps.micLevel.stopMonitoring()
-        for task in downloadTasks.values { task.cancel() }
-        downloadTasks.removeAll()
+        downloadTask?.cancel()
+        downloadTask = nil
         dictationTask?.cancel()
         dictationEvents?.cancel(); dictationEvents = nil
         // Closing the window mid-utterance must release the microphone, not leave the engine
@@ -249,39 +250,43 @@ public final class OnboardingViewModel: ObservableObject {
             settleTimer?.invalidate(); settleTimer = nil
             micCancellable = nil
             deps.micLevel.stopMonitoring()
-        case .selectModel(let tier):
-            deps.models.select(tier)
         case .checkModelPresence:
-            send(.modelPresenceChanged(Set(ModelTier.allCases.filter { deps.models.isInstalled($0) })))
-        case .cancelDownload(let tier):
-            downloadTasks[tier]?.cancel()
-            downloadTasks[tier] = nil
-            downloadStartedAt[tier] = nil
-            Log.app.notice("onboarding: \(tier.rawValue) download cancelled by the user")
-        case .startDownload(let tier):
-            guard !deps.models.isInstalled(tier) else { send(.downloadFinished(tier)); return }
-            downloadTasks[tier]?.cancel()
-            downloadStartedAt[tier] = Date()
-            Log.app.notice("onboarding: downloading \(tier.rawValue) — \(tier.modelNames.joined(separator: " + ")) (\(ByteText.short(deps.models.remainingBytes(for: tier))) still to fetch)")
-            downloadTasks[tier] = Task { [weak self] in
+            send(.modelPresenceChanged(deps.models.isStackInstalled))
+        case .cancelDownload:
+            downloadTask?.cancel()
+            downloadTask = nil
+            downloadStartedAt = nil
+            Log.app.notice("onboarding: model install cancelled by the user")
+        case .startDownload:
+            // Nothing missing, or a fetch already running: schedule no second download. This is the
+            // whole of "existing installs are kept" on the app side — the step can be entered as
+            // often as the user likes and it never re-fetches what is on disk.
+            guard !deps.models.isStackInstalled else { send(.downloadFinished); return }
+            guard downloadTask == nil else { return }
+            downloadStartedAt = Date()
+            Log.app.notice("onboarding: installing \(ModelStack.displayNames.joined(separator: " + ")) (\(ByteText.short(deps.models.remainingStackBytes)) still to fetch)")
+            downloadTask = Task { [weak self] in
                 guard let self else { return }
                 do {
-                    try await deps.models.download(tier) { progress in
-                        Task { @MainActor [weak self] in self?.send(.downloadProgress(tier, progress)) }
+                    try await deps.models.downloadStack { progress in
+                        Task { @MainActor [weak self] in self?.send(.downloadProgress(progress)) }
                     }
-                    Log.app.notice("onboarding: \(tier.rawValue) download finished")
-                    send(.downloadFinished(tier))
+                    Log.app.notice("onboarding: model install finished")
+                    downloadTask = nil
+                    send(.downloadFinished)
                 } catch is CancellationError {
-                    // The user pressed Cancel; the state machine already moved this option back to
-                    // "Download". Reporting a failure here would blame them for their own choice.
+                    // The user pressed Cancel; the state machine already moved back to "not
+                    // started". Reporting a failure here would blame them for their own choice.
+                    downloadTask = nil
                     return
                 } catch {
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled else { downloadTask = nil; return }
                     // `localizedDescription` on a bare Swift enum is a generic bridge string; this
                     // is the same reason the pill used to show "invalidAudioData".
                     let reason = EngineMessage.describe(error)
-                    Log.app.error("onboarding: \(tier.rawValue) download failed — \(reason)")
-                    send(.downloadFailed(tier, reason))
+                    Log.app.error("onboarding: model install failed — \(reason)")
+                    downloadTask = nil
+                    send(.downloadFailed(reason))
                 }
             }
         case .checkRecognizerReadiness:
@@ -410,52 +415,33 @@ public final class OnboardingViewModel: ObservableObject {
         GuidedDictationGate.decide(readiness: machine.readiness, download: machine.download)
     }
 
-    /// The line under the chosen option's bar: bytes, percent and an estimate once one means anything.
-    public var downloadLine: String? { machine.chosenTier.flatMap { downloadLine(for: $0) } }
-
-    /// The same line, for one specific option — each row reports its own download, never a
-    /// neighbour's.
-    public func downloadLine(for tier: ModelTier) -> String? {
-        guard case .downloading(let progress) = machine.downloadState(for: tier) else { return nil }
-        let elapsed = downloadStartedAt[tier].map { Date().timeIntervalSince($0) } ?? 0
+    /// The line under the bar: bytes, percent and an estimate once one means anything.
+    public var downloadLine: String? {
+        guard case .downloading(let progress) = machine.download else { return nil }
+        let elapsed = downloadStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         return DownloadProgressText.line(progress, elapsed: elapsed)
     }
 
-    /// What the option's Download button says. Counts only the models this tier is actually
-    /// missing, so "Best" after "Balanced" offers the 400 MB top-up rather than 900 MB again.
-    public func downloadButtonTitle(for tier: ModelTier) -> String {
-        let remaining = deps.models.remainingBytes(for: tier)
-        guard remaining > 0 else { return "Download" }
-        return "Download \(ByteText.short(remaining))"
-    }
+    /// What the stack costs from here. Counts only the models actually missing, so a user who
+    /// already has Parakeet TDT v3 is told about the EOU model alone rather than 900 MB again.
+    public var remainingLabel: String { ByteText.short(deps.models.remainingStackBytes) }
 
-    /// What the option's "Installed" badge reads. "Included with Best" for the option the user's own
-    /// choice brought along, so a shared model never looks like a download the app made by itself.
-    public func installedBadge(for tier: ModelTier) -> String {
-        ModelTierComposition.installedNote(for: tier,
-                                           installed: machine.installedTiers,
-                                           explicitlyDownloaded: machine.explicitlyDownloadedTiers)
-            ?? "Installed"
-    }
+    /// The models being installed, named — the friendly words ("Balanced") are gone, so the screen
+    /// says what is really being fetched.
+    public var stackNameLine: String { ModelStack.displayNames.joined(separator: " + ") }
 
-    /// True when picking this option costs nothing at all — every model it needs is already here.
-    public func isReadyToUseWithoutDownload(_ tier: ModelTier) -> Bool {
-        machine.installedTiers.contains(tier) && deps.models.remainingBytes(for: tier) == 0
-    }
-
-    /// True when this option only needs the part it does not share with one already on disk.
-    public func isPartialDownload(_ tier: ModelTier) -> Bool {
-        let remaining = deps.models.remainingBytes(for: tier)
-        return remaining > 0 && remaining < tier.approximateBytes
+    /// True when only part of the stack is missing: something is already on disk and stays there.
+    public var isPartialDownload: Bool {
+        let remaining = deps.models.remainingStackBytes
+        return remaining > 0 && remaining < ModelStack.approximateBytes
     }
 
     /// Re-reads which recogniser would actually transcribe the next utterance. Cheap (a few
     /// `fileExists` calls), and the answer changes exactly when a download lands.
     private func refreshReadiness() {
-        let tier = machine.chosenTier ?? deps.models.selectedTier
-        let fresh = deps.models.readiness(for: tier)
+        let fresh = deps.models.stackReadiness
         guard fresh != machine.readiness else { return }
-        Log.app.notice("onboarding: recogniser for \(tier.rawValue) is \(String(describing: fresh))")
+        Log.app.notice("onboarding: recogniser is \(String(describing: fresh))")
         send(.readinessChanged(fresh))
     }
 

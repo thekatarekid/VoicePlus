@@ -348,54 +348,27 @@ public protocol MicLevelPublishing: AnyObject {
 
 // MARK: - Models
 
-/// Plain-language local ASR tiers (PRODUCT-SPEC Part 4.6). Mapping to `Engine.ModelID` happens in P1.12.
-public enum ModelTier: String, CaseIterable, Codable, Sendable, Identifiable {
-    case fast, balanced, best
-    public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .fast: return "Fast"
-        case .balanced: return "Balanced"
-        case .best: return "Best"
-        }
-    }
-
-    /// The real models behind the friendly word, and their real size, both read from
-    /// `ModelCatalog` — see `ModelTier.modelNames` / `.approximateBytes` in
-    /// `LiveOnboardingDependencies.swift`.
-    ///
-    /// There used to be a hardcoded `sizeMB` here (120 / 450 / 1200) with no link to the catalog,
-    /// and every one of the three had drifted: Fast is 110 MB, Balanced 500 MB, and "Best" is two
-    /// models totalling 900 MB — not the "~1.2 GB" the 1.6.6 user was shown. A number the code
-    /// cannot recompute is a number that goes stale silently.
-    public var tradeoff: String {
-        switch self {
-        case .fast: return "Instant on any Mac. Fine for chat and notes; misses rarer names."
-        case .balanced: return "The sweet spot. Accurate on names and jargon, still feels instant."
-        case .best: return "Most accurate. Slightly slower first word on older Macs."
-        }
-    }
-
-    /// Suggested default for a fresh install.
-    public static let recommended: ModelTier = .balanced
-}
-
+/// Installs and reports on the one speech stack (`Engine.ModelStack`).
+///
+/// R6.1 deleted `ModelTier` — `fast / balanced / best` — and with it every API shaped around a
+/// choice. There is nothing to select, so there is no `select` and no `selectedTier`: what the
+/// user has is what is on disk, and what installs is `ModelStack.models`. The two entries that
+/// used to be options in their own right (TDT-CTC 110M, Whisper) are `ModelRole.fallback` in the
+/// catalog and are never offered.
 public protocol ModelManaging: AnyObject {
-    func isInstalled(_ tier: ModelTier) -> Bool
-    /// Bytes still to fetch for this tier, counted per *model*. "Best" is "Balanced" plus a 400 MB
-    /// end-of-utterance model ("120M" in its name is parameters, not megabytes), so once Balanced is
-    /// on disk this must report the 400 MB — telling
-    /// the user to re-download 900 MB they already have is simply false.
-    func remainingBytes(for tier: ModelTier) -> Int64
-    /// Background download. Must be cancellable via the returned task being cancelled.
-    func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws
-    func select(_ tier: ModelTier)
-    var selectedTier: ModelTier { get }
-    /// What would actually transcribe right now if the user pressed "Dictate now" — the chosen
-    /// tier's model, a smaller one already on disk, Apple Speech, or nothing at all. The onboarding
-    /// dictation test refuses to run without this, and always names what it is using.
-    func readiness(for tier: ModelTier) -> RecognizerReadiness
+    /// True only when *every* model in the stack is on disk.
+    var isStackInstalled: Bool { get }
+    /// Bytes still to fetch, counted per *model*: anything already on disk is never counted again,
+    /// so a user who has TDT v3 from an earlier version is offered the EOU model alone rather than
+    /// being told to re-download 900 MB they already have.
+    var remainingStackBytes: Int64 { get }
+    /// Background install of whatever is missing. Must be cancellable by cancelling the calling
+    /// task, and must not re-fetch a model that is already present.
+    func downloadStack(progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws
+    /// What would actually transcribe right now if the user pressed "Dictate now" — the stack, a
+    /// fallback model already on disk, Apple Speech, or nothing at all. The onboarding dictation
+    /// test refuses to run without this, and always names what it is using.
+    var stackReadiness: RecognizerReadiness { get }
 }
 
 // MARK: - Dependencies
@@ -518,64 +491,63 @@ public final class OnboardingMockMicLevelPublisher: MicLevelPublishing {
 }
 
 public final class OnboardingMockModelManager: ModelManaging {
-    /// Per-model, not per-tier, so the overlap between "Balanced" and "Best" behaves in tests
-    /// exactly as it does on disk.
-    public private(set) var installedModels: Set<ModelID> = []
-    /// The tier-shaped view tests are written against: reading it asks which tiers are *complete*,
-    /// writing it declares those tiers' models present.
-    public var installed: Set<ModelTier> {
-        get { Set(ModelTier.allCases.filter { tier in ModelManagerTiers.models(for: tier).allSatisfy(installedModels.contains) }) }
-        set { installedModels = Set(newValue.flatMap(ModelManagerTiers.models(for:))) }
-    }
-    public var selectedTier: ModelTier
+    /// Per-model, exactly as on disk: an install is "what is present", never "which option was
+    /// chosen". A test that wants a half-installed stack passes one of the two models.
+    public private(set) var installedModels: Set<ModelID>
     public var failDownload = false
-    /// What `readiness(for:)` reports when the tier is not installed. Nil = nothing can transcribe,
+    /// What `stackReadiness` reports while the stack is missing. Nil = nothing can transcribe,
     /// which is how a clean Mac with no Apple Speech behaves.
     public var fallbackName: String? = "Apple Speech (on-device)"
-    public private(set) var downloads: [ModelTier] = []
+    /// The models each `downloadStack` call actually fetched, in order — so a test can prove that a
+    /// second install schedules nothing.
+    public private(set) var fetched: [[ModelID]] = []
+    /// How many times `downloadStack` was entered, including the calls that had nothing to do.
+    public var downloadCalls: Int { fetched.count }
     /// Set by the test to stall a download mid-flight; the task resumes when it is fulfilled.
     public var hold: (@Sendable () async -> Void)?
 
-    public init(installed: Set<ModelTier> = [.fast], selected: ModelTier = .fast) {
-        self.selectedTier = selected
-        self.installed = installed
+    public init(installed: Set<ModelID> = []) { installedModels = installed }
+
+    /// Convenience for the common "everything is already here" fixture.
+    public static func installed() -> OnboardingMockModelManager {
+        OnboardingMockModelManager(installed: Set(ModelStack.models))
     }
 
-    public func isInstalled(_ tier: ModelTier) -> Bool {
-        ModelManagerTiers.models(for: tier).allSatisfy(installedModels.contains)
+    private var missing: [ModelID] { ModelStack.models.filter { !installedModels.contains($0) } }
+
+    public var isStackInstalled: Bool { missing.isEmpty }
+
+    public var remainingStackBytes: Int64 {
+        missing.reduce(0) { $0 + ModelCatalog.descriptor($1).approxBytes }
     }
 
-    public func remainingBytes(for tier: ModelTier) -> Int64 {
-        ModelManagerTiers.models(for: tier)
-            .filter { !installedModels.contains($0) }
-            .reduce(0) { $0 + ModelCatalog.descriptor($1).approxBytes }
-    }
-
-    public func download(_ tier: ModelTier, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
-        downloads.append(tier)
+    public func downloadStack(progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
+        let pending = missing
+        fetched.append(pending)
+        guard !pending.isEmpty else { return }
         if failDownload { throw URLError(.notConnectedToInternet) }
-        let total = max(remainingBytes(for: tier), 1)
+        let total = max(remainingStackBytes, 1)
+        let name = ModelCatalog.descriptor(pending[0]).displayName
         for step in 1...4 {
-            // Cancellation is part of the contract — the picker's per-option Cancel button is
-            // nothing but a cancelled task — so the mock has to honour it too.
+            // Cancellation is part of the contract — the Cancel button is nothing but a cancelled
+            // task — so the mock has to honour it too.
             try Task.checkCancellation()
             let fraction = Double(step) / 4
             progress(ModelDownloadProgress(fraction: fraction,
                                            bytesReceived: Int64(Double(total) * fraction),
                                            bytesExpected: total,
-                                           modelName: tier.modelNames.first ?? tier.title))
+                                           modelName: name, index: 1, count: pending.count))
             if step == 1, let hold { await hold() }
         }
-        for id in ModelManagerTiers.models(for: tier) { installedModels.insert(id) }
+        installedModels.formUnion(pending)
     }
 
-    public func select(_ tier: ModelTier) { selectedTier = tier }
-
-    public func readiness(for tier: ModelTier) -> RecognizerReadiness {
-        if isInstalled(tier) { return .ready(name: tier.modelNames.first ?? tier.title) }
+    public var stackReadiness: RecognizerReadiness {
+        if isStackInstalled { return .ready(name: ModelStack.displayNames.first ?? "the speech model") }
+        let awaiting = missing.first.map { ModelCatalog.descriptor($0).displayName }
         guard let fallbackName else {
             return .unavailable(reason: "No speech model is on this Mac yet, and macOS' own speech recogniser isn't available either.")
         }
-        return .fallback(name: fallbackName, awaiting: tier.modelNames.first)
+        return .fallback(name: fallbackName, awaiting: awaiting)
     }
 }

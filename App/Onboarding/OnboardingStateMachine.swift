@@ -4,7 +4,9 @@ import Foundation
 /// events; it never touches permissions, audio or models itself, so every branch is unit-testable.
 public struct OnboardingStateMachine: Equatable, Sendable {
     public enum Step: Equatable, Sendable, CaseIterable {
-        case welcome, permissions, micCheck, modelChoice, firstDictation, done
+        /// `modelInstall` was `modelChoice` until R6.1. Nothing is chosen there any more: the one
+        /// stack installs, and the step reports its progress.
+        case welcome, permissions, micCheck, modelInstall, firstDictation, done
     }
 
     /// Sub-state of the permissions step for the permission currently in focus.
@@ -111,20 +113,16 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case micSettled
         /// Capture failed to start, with the underlying reason.
         case micFailed(String)
-        /// Selection only. Deliberately starts nothing: until 1.7.0 this event *also* kicked off a
-        /// several-hundred-megabyte download, so a radio button — the one control on a screen that
-        /// promises to be inert — spent the user's bandwidth without being asked.
-        case choose(ModelTier)
-        /// The explicit "Download" press for one option. The only way a fetch ever starts.
-        case download(ModelTier)
-        case cancelDownload(ModelTier)
-        case downloadProgress(ModelTier, ModelDownloadProgress)
-        case downloadFinished(ModelTier)
-        case downloadFailed(ModelTier, String)
-        /// What is actually on disk right now, re-read from the model manager. Presence is per
-        /// *model*, so "Best" counts as installed the moment its second model lands beside the one
-        /// "Balanced" already fetched.
-        case modelPresenceChanged(Set<ModelTier>)
+        /// Install the one stack — whatever part of it is missing. Sent on entering the step, and
+        /// again by Retry. Idempotent: with the stack already on disk it fetches nothing.
+        case installModels
+        case cancelDownload
+        case downloadProgress(ModelDownloadProgress)
+        case downloadFinished
+        case downloadFailed(String)
+        /// Whether the whole stack is on disk right now, re-read from the model manager. Never
+        /// inferred from "a download was started".
+        case modelPresenceChanged(Bool)
         /// What the guided dictation actually achieved — success *and* failure travel through the
         /// same event, but as different cases. Until 1.6.6 failure was reported as
         /// `.dictationLanded("")`, which the view read as success because it only checked for nil.
@@ -146,11 +144,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case forgetRequested(OnboardingPermission)
         case startMicMonitoring
         case stopMicMonitoring
-        case startDownload(ModelTier)
-        case cancelDownload(ModelTier)
-        case selectModel(ModelTier)
-        /// Ask the model manager which tiers are fully present on disk, and feed it back as
-        /// `.modelPresenceChanged`.
+        case startDownload
+        case cancelDownload
+        /// Ask the model manager whether the stack is fully present on disk, and feed the answer
+        /// back as `.modelPresenceChanged`.
         case checkModelPresence
         case beginGuidedDictation
         /// Ask the model manager which recogniser would run, and feed it back as `.readinessChanged`.
@@ -176,68 +173,48 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// Permissions that have been requested at least once (persisted across launches): macOS will not
     /// notify again for them, so the "Allow" button would be a lie on a second run.
     public private(set) var requestedPermissions: Set<OnboardingPermission> = []
-    public private(set) var chosenTier: ModelTier?
-    /// One state per option, so each row can say what *it* is doing. A single shared `download`
-    /// could only ever describe one of the three, which is why the old screen showed one progress
-    /// bar under all of them.
-    public private(set) var downloadStates: [ModelTier: DownloadState] = [:]
-    /// Tiers whose every model is present on disk. Fed from the model manager, never inferred from
-    /// "we started a download for it".
-    public private(set) var installedTiers: Set<ModelTier> = []
+    /// Where the one install has got to. One state, because there is one stack — the three
+    /// per-option states existed only to describe three choices.
+    public private(set) var downloadState: DownloadState = .notStarted
+    /// Whether every model in the stack is present on disk. Fed from the model manager, never
+    /// inferred from "we started a download for it".
+    public private(set) var stackInstalled = false
+    /// True from the moment an install is asked for until it finishes, fails or is cancelled.
+    ///
+    /// Not derivable from `downloadState`: a fetch that has been started but has not yet reported a
+    /// byte is still `.notStarted`, and without this the same install could be asked for twice —
+    /// once by entering the step, once by a Retry press — and be fetched twice. It is also what
+    /// tells the screen apart "starting…" from "the user cancelled it", which wear the same state.
+    public private(set) var installRequested = false
     /// True when the user left this screen with nothing installed — the one case where dictation
     /// genuinely cannot work, and therefore the one case the later screens must say so out loud.
-    public private(set) var skippedModelChoiceWithoutModel = false
-    /// Tiers the user actually pressed Download for. Distinct from `installedTiers`, because
-    /// installing "Best" also completes "Balanced" — they share Parakeet TDT 0.6B v3. Without this
-    /// distinction the picker showed a bare "Installed" beside an option nobody asked for, which
-    /// reads as a 500 MB download the app decided to make on its own.
-    public private(set) var explicitlyDownloadedTiers: Set<ModelTier> = []
+    public private(set) var skippedModelInstallWithoutModel = false
 
-    /// What the given option's own button should show.
-    public func downloadState(for tier: ModelTier) -> DownloadState {
-        if installedTiers.contains(tier) { return .installed }
-        return downloadStates[tier] ?? .notStarted
-    }
+    /// The install's state — what the dictation gate and the footer ask about.
+    public var download: DownloadState { stackInstalled ? .installed : downloadState }
 
-    /// The chosen option's state — what the dictation gate and the older call sites ask about.
-    public var download: DownloadState {
-        guard let chosenTier else { return .notStarted }
-        return downloadState(for: chosenTier)
-    }
-
-    /// The tier a fetch is running for right now, if any.
-    public var downloadingTier: ModelTier? {
-        ModelTier.allCases.first { downloadState(for: $0).isInFlight }
-    }
-
-    /// Continue is allowed only when the model the user picked is actually on this Mac. Anything
-    /// less walks them onto the dictation screen with nothing to transcribe with.
-    public var canContinueFromModelChoice: Bool {
-        guard let chosenTier else { return false }
-        return installedTiers.contains(chosenTier)
-    }
+    /// Continue is allowed only when the stack is actually on this Mac. Anything less walks the
+    /// user onto the dictation screen with nothing to transcribe with.
+    public var canContinueFromModelInstall: Bool { stackInstalled }
 
     /// Why Continue is off, in the user's words. A disabled button with no explanation is its own
     /// dead end — the user cannot tell a bug from a precondition.
     public var continueBlockedReason: String? {
-        guard !canContinueFromModelChoice else { return nil }
-        guard let tier = chosenTier else {
-            return "Pick a model and press its Download button. Continue turns on once it's on this Mac."
-        }
-        switch downloadState(for: tier) {
+        guard !canContinueFromModelInstall else { return nil }
+        switch downloadState {
         case .downloading(let p):
-            return "\(tier.title) is still downloading (\(p.percent)%). Continue turns on the moment it lands."
+            return "The speech model is still downloading (\(p.percent)%). Continue turns on the moment it lands."
         case .failed(let why):
-            return "\(tier.title) didn't download: \(why). Retry it, pick another, or Skip — but with no model on this Mac, dictation won't work."
+            return "The speech model didn't download: \(why). Retry it, or Skip — but with no model on this Mac, dictation won't work."
         case .notStarted, .installed:
-            return "Press Download next to \(tier.title). Continue turns on once it's on this Mac."
+            return "The speech model is still installing. Continue turns on once it's on this Mac."
         }
     }
 
-    /// What Skip costs right now. Nil when a model is present, so the warning cannot cry wolf.
+    /// What Skip costs right now. Nil when the stack is present, so the warning cannot cry wolf.
     public var skipConsequence: String? {
-        guard installedTiers.isEmpty else { return nil }
-        return "Skipping is fine, but with no model on this Mac dictation won't work until you install one — from Settings → Models, or by coming back here."
+        guard !stackInstalled else { return nil }
+        return "Skipping is fine, but with no model on this Mac dictation won't work until one is installed — it carries on in the background, or you can come back here."
     }
     /// What the last guided-dictation attempt achieved. Nil = not attempted.
     public private(set) var dictation: GuidedDictationOutcome?
@@ -390,13 +367,13 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             micCaptureIsReal = false
             return [.stopMicMonitoring, .startMicMonitoring]
         case (.micCheck, .next):
-            return enter(.modelChoice)
+            return enter(.modelInstall)
 
-        // Model choice
-        case (.modelChoice, .next):
+        // Model install
+        case (.modelInstall, .next):
             // The gate, not merely a disabled button: a `.next` that arrives anyway (a keyboard
             // shortcut, a stale view) must not walk the user onto the dictation screen with no model.
-            guard canContinueFromModelChoice else { return [] }
+            guard canContinueFromModelInstall else { return [] }
             return enter(.firstDictation)
 
         // First dictation
@@ -408,40 +385,33 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case (.firstDictation, .next):
             return enter(.done)
 
-        // Selection and download events can arrive on any step (a background download finishing, the
-        // dictation step opening); keep the state coherent wherever the user is.
-        case (_, .choose(let tier)):
-            // Selection, and nothing else. No side effect but persisting the preference.
-            chosenTier = tier
-            return [.selectModel(tier)]
-        case (_, .download(let tier)):
-            // Downloading an option is also choosing it — nobody fetches 500 MB they did not want.
-            chosenTier = tier
-            explicitlyDownloadedTiers.insert(tier)
-            guard !installedTiers.contains(tier), !downloadState(for: tier).isInFlight else {
-                return [.selectModel(tier)]
-            }
-            downloadStates[tier] = .notStarted
-            return [.selectModel(tier), .startDownload(tier)]
-        case (_, .cancelDownload(let tier)):
-            guard downloadState(for: tier).isInFlight else { return [] }
-            downloadStates[tier] = .notStarted
-            return [.cancelDownload(tier)]
+        // Install events can arrive on any step (a background download finishing, the dictation step
+        // opening); keep the state coherent wherever the user is.
+        case (_, .installModels):
+            return startInstall()
+        case (_, .cancelDownload):
+            guard installRequested else { return [] }
+            installRequested = false
+            downloadState = .notStarted
+            return [.cancelDownload]
         case (_, .readinessChanged(let r)): readiness = r; return []
-        case (_, .downloadProgress(let tier, let p)):
-            guard !installedTiers.contains(tier) else { return [] }
-            downloadStates[tier] = .downloading(p); return []
-        case (_, .downloadFinished(let tier)):
-            downloadStates[tier] = .installed
-            installedTiers.insert(tier)
+        case (_, .downloadProgress(let p)):
+            guard !stackInstalled else { return [] }
+            downloadState = .downloading(p); return []
+        case (_, .downloadFinished):
+            downloadState = .installed
+            stackInstalled = true
+            installRequested = false
             return [.checkModelPresence, .checkRecognizerReadiness]
-        case (_, .downloadFailed(let tier, let r)):
-            downloadStates[tier] = .failed(r)
+        case (_, .downloadFailed(let r)):
+            downloadState = .failed(r)
+            installRequested = false
             return [.checkModelPresence, .checkRecognizerReadiness]
         case (_, .modelPresenceChanged(let present)):
-            installedTiers = present
-            // A tier that turned out to be present keeps no stale progress or failure beside it.
-            for tier in present { downloadStates[tier] = nil }
+            stackInstalled = present
+            // A stack that turned out to be present keeps no stale progress or failure beside it,
+            // and nothing left to ask for.
+            if present { downloadState = .installed; installRequested = false }
             return []
         default:
             return []
@@ -463,7 +433,7 @@ public struct OnboardingStateMachine: Equatable, Sendable {
                                                 status: statuses[p] ?? .notDetermined)
         case .micCheck:
             peakLevel = 0; micLevelEvents = 0; micSettled = false; micCaptureIsReal = false
-            // No grant → no capture → no possible pass. This used to fall through to `.modelChoice`
+            // No grant → no capture → no possible pass. This used to fall through to `.modelInstall`
             // without a word, which meant a user who denied (or skipped) the microphone was never
             // told the one thing standing between them and a working app.
             guard statuses[.microphone] == .granted else {
@@ -472,10 +442,13 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             }
             micVerdict = .waiting
             effects.append(.startMicMonitoring)
-        case .modelChoice:
+        case .modelInstall:
             // What is on disk decides every button on this screen — including whether Continue is
-            // allowed — so the screen must never draw before it has asked.
+            // allowed — so the screen must never draw before it has asked. `checkModelPresence`
+            // runs first for exactly that reason: the install right behind it then finds the stack
+            // already there and fetches nothing.
             effects.append(.checkModelPresence)
+            effects += startInstall()
             effects.append(.checkRecognizerReadiness)
         case .firstDictation:
             // Readiness first: the screen must know which recogniser it is about to offer before it
@@ -488,6 +461,15 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         default: break
         }
         return effects
+    }
+
+    /// Ask for the one install, at most once at a time. Entering the step and pressing Retry are
+    /// the same thing, and neither may schedule a second fetch of the same model.
+    private mutating func startInstall() -> [SideEffect] {
+        guard !stackInstalled, !installRequested else { return [] }
+        installRequested = true
+        downloadState = .notStarted
+        return [.startDownload]
     }
 
     private mutating func advancePermission() -> [SideEffect] {
@@ -525,12 +507,13 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         // the third permission (Accessibility) is unreachable whenever the second one stalls.
         case .permissions: return advancePermission()
         case .welcome: skippedSteps.insert(step); return enter(.micCheck)
-        case .micCheck: skippedSteps.insert(step); return enter(.modelChoice)
-        case .modelChoice:
+        case .micCheck: skippedSteps.insert(step); return enter(.modelInstall)
+        case .modelInstall:
             skippedSteps.insert(step)
-            // Skipping stays allowed — it is a legitimate choice — but it is recorded honestly, so
-            // the screens after this one can say that dictation has nothing to run on.
-            skippedModelChoiceWithoutModel = installedTiers.isEmpty
+            // Skipping stays allowed — the install carries on in the background — but it is
+            // recorded honestly, so the screens after this one can say that dictation has nothing
+            // to run on yet.
+            skippedModelInstallWithoutModel = !stackInstalled
             return enter(.firstDictation)
         case .firstDictation, .done: skippedSteps.insert(step); return enter(.done)
         }
@@ -541,8 +524,8 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .welcome, .done: return []
         case .permissions: return enter(.welcome)
         case .micCheck: return enter(.permissions)
-        case .modelChoice: return statuses[.microphone] == .granted ? enter(.micCheck) : enter(.permissions)
-        case .firstDictation: return enter(.modelChoice)
+        case .modelInstall: return statuses[.microphone] == .granted ? enter(.micCheck) : enter(.permissions)
+        case .firstDictation: return enter(.modelInstall)
         }
     }
 

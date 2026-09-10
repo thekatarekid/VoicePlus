@@ -130,28 +130,21 @@ struct OnboardingStateMachineTests {
         m.handle(.micLevel(0.02)); #expect(m.micVerdict == .waiting)
         m.handle(.micLevel(0.4)); #expect(m.micVerdict == .good)
         m.handle(.micLevel(0.99)); #expect(m.micVerdict == .clipping)
-        #expect(m.handle(.next) == [.stopMicMonitoring, .checkModelPresence, .checkRecognizerReadiness])
-        #expect(m.step == .modelChoice)
+        #expect(m.handle(.next) == [.stopMicMonitoring, .checkModelPresence, .startDownload,
+                                    .checkRecognizerReadiness])
+        #expect(m.step == .modelInstall)
 
-        // Selecting is inert: no fetch until the option's own Download button is pressed.
-        #expect(m.handle(.choose(.balanced)) == [.selectModel(.balanced)])
-        #expect(m.handle(.download(.balanced)) == [.selectModel(.balanced), .startDownload(.balanced)])
+        // The install starts itself on entering the step; asking again while it runs starts nothing.
         let half = ModelDownloadProgress(fraction: 0.5, bytesReceived: 250_000_000,
                                          bytesExpected: 500_000_000, modelName: "Parakeet TDT 0.6B v3")
-        m.handle(.downloadProgress(.balanced, half)); #expect(m.download == .downloading(half))
-        // Continue is not offered while the chosen model is only half-downloaded.
-        #expect(!m.canContinueFromModelChoice)
+        m.handle(.downloadProgress(half)); #expect(m.download == .downloading(half))
+        #expect(m.handle(.installModels) == [], "no second fetch while one is in flight")
+        // Continue is not offered while the model is only half-downloaded.
+        #expect(!m.canContinueFromModelInstall)
         #expect(m.handle(.next) == [])
-        #expect(m.step == .modelChoice)
-        // Downloading another option starts that option's own fetch, and selects it.
-        #expect(m.handle(.download(.best)) == [.selectModel(.best), .startDownload(.best)])
-        // Pressing it again while it is in flight does not start a second fetch.
-        m.handle(.downloadProgress(.best, half))
-        #expect(m.handle(.download(.best)) == [.selectModel(.best)])
-        // The first option's progress is untouched by the second's — one state per option.
-        #expect(m.downloadState(for: .balanced) == .downloading(half))
-        m.handle(.downloadFinished(.best))
-        #expect(m.canContinueFromModelChoice)
+        #expect(m.step == .modelInstall)
+        m.handle(.downloadFinished)
+        #expect(m.canContinueFromModelInstall)
         #expect(m.continueBlockedReason == nil)
         #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
@@ -261,7 +254,7 @@ struct OnboardingStateMachineTests {
         #expect(m.micVerdict == .permissionRequired)
         #expect(m.currentPermission == nil)
         m.handle(.skip)
-        #expect(m.step == .modelChoice)
+        #expect(m.step == .modelInstall)
     }
 
     /// A *non-promptable* permission macOS has already been asked for on an earlier launch skips the
@@ -303,34 +296,34 @@ struct OnboardingStateMachineTests {
         #expect(m.handle(.skip) == [])  // welcome skip → micCheck, blocked (no mic grant)
         #expect(m.step == .micCheck)
         #expect(m.micVerdict == .permissionRequired)
-        #expect(m.handle(.skip) == [.stopMicMonitoring, .checkModelPresence, .checkRecognizerReadiness])
-        #expect(m.step == .modelChoice)
+        #expect(m.handle(.skip) == [.stopMicMonitoring, .checkModelPresence, .startDownload,
+                                    .checkRecognizerReadiness])
+        #expect(m.step == .modelInstall)
         // Entering the dictation step now asks which recogniser is available first, so the screen
         // can name it instead of presenting a test that may not be able to work.
         #expect(m.handle(.skip) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.handle(.skip) == [.finish(skipped: true)])
         #expect(m.step == .done)
-        #expect(m.chosenTier == nil)  // bundled model stays active
+        #expect(!m.stackInstalled)  // nothing landed, and the machine says so rather than guessing
     }
 
     /// A failed download blocks Continue rather than waving the user through to a dictation screen
     /// with nothing to transcribe with — but Skip is still there, and now says what it costs.
-    @Test func modelChoiceContinueStaysShutAfterAFailedDownloadAndSkipSaysWhy() {
+    @Test func modelInstallContinueStaysShutAfterAFailedDownloadAndSkipSaysWhy() {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
         #expect(m.handle(.next) == [.startMicMonitoring])  // all granted → permissions step auto-skips
         #expect(m.step == .micCheck)
         m.handle(.next)
-        m.handle(.download(.best))
-        #expect(m.handle(.downloadFailed(.best, "offline")) == [.checkModelPresence, .checkRecognizerReadiness])
+        #expect(m.handle(.downloadFailed("offline")) == [.checkModelPresence, .checkRecognizerReadiness])
         #expect(m.download == .failed("offline"))
-        #expect(!m.canContinueFromModelChoice)
+        #expect(!m.canContinueFromModelInstall)
         #expect(m.continueBlockedReason?.contains("offline") == true)
         #expect(m.handle(.next) == [])
-        #expect(m.step == .modelChoice, "Continue must not walk the user past a model that never arrived")
+        #expect(m.step == .modelInstall, "Continue must not walk the user past a model that never arrived")
         #expect(m.skipConsequence?.contains("dictation won't work") == true)
         #expect(m.handle(.skip) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
-        #expect(m.skippedModelChoiceWithoutModel)
+        #expect(m.skippedModelInstallWithoutModel)
     }
 
     @Test func pregrantedPermissionsAreSkippedInOrder() {
@@ -355,7 +348,7 @@ struct OnboardingStateMachineTests {
     @Test func backNavigation() {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
         m.handle(.next); m.handle(.next)
-        #expect(m.step == .modelChoice)
+        #expect(m.step == .modelInstall)
         #expect(m.handle(.back) == [.startMicMonitoring])
         #expect(m.step == .micCheck)
         #expect(m.handle(.back) == [.stopMicMonitoring, .startMicMonitoring])  // permissions all granted → bounces to mic check
@@ -363,7 +356,7 @@ struct OnboardingStateMachineTests {
         denied.handle(.skip)
         #expect(denied.step == .micCheck)
         denied.handle(.skip)
-        #expect(denied.step == .modelChoice)
+        #expect(denied.step == .modelInstall)
         denied.handle(.back)
         #expect(denied.step == .permissions)
         var fresh = M()
@@ -640,10 +633,10 @@ struct OnboardingViewModelTests {
         #expect(vm.micLevel == 0.5)
         vm.send(.next)
         #expect(!mic.monitoring)
-        vm.send(.download(.balanced))
+        // The install runs itself; nothing is chosen and nothing is pressed.
         try await waitUntil { vm.machine.download == .installed }
-        #expect(vm.machine.canContinueFromModelChoice)
-        #expect(deps.models.selectedTier == .balanced)
+        #expect(vm.machine.canContinueFromModelInstall)
+        #expect(deps.models.isStackInstalled)
         vm.send(.next)
         // Two presses, because one press cannot contain an utterance (see `startGuidedDictation`).
         vm.startGuidedDictation()
@@ -807,12 +800,11 @@ struct OnboardingViewModelTests {
         let deps = OnboardingDependencies.mock()
         (deps.models as? OnboardingMockModelManager)?.failDownload = true
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model choice
-        vm.send(.download(.best))
+        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model install
         try await waitUntil { if case .failed = vm.machine.download { return true }; return false }
         // Continue is shut — the model never arrived — but Skip still gets the user off the screen.
         vm.send(.next)
-        #expect(vm.step == .modelChoice)
+        #expect(vm.step == .modelInstall)
         vm.send(.skip)
         #expect(vm.step == .firstDictation)
     }

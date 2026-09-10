@@ -152,34 +152,36 @@ struct ChaosTests {
         }
     }
 
-    @Test func modelDownloadInterruptionThenResumeViaTiers() async throws {
+    @Test func modelDownloadInterruptionThenResumeViaTheStackInstaller() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("vp-chaos-\(UUID().uuidString)")
         let fetcher = FlakyFetcher(failures: 1)
         let manager = ModelManager(root: root, fetchers: [.finalTDT: fetcher, .streamingEOU: fetcher], externalCaches: [:])
-        let tiers = ModelManagerTiers(manager: manager, settings: InMemorySettingsStore())
-        await tiers.refresh()
-        #expect(!tiers.isInstalled(.fast))
+        let installer = ModelStackInstaller(manager: manager)
+        await installer.refresh()
+        #expect(!installer.isStackInstalled)
 
         var progress: [Double] = []
         let sink = ProgressBox()
         await #expect(throws: (any Error).self) {
-            try await tiers.download(.fast) { sink.append($0) }
+            try await installer.downloadStack { sink.append($0) }
         }
-        await tiers.refresh()
-        #expect(!tiers.isInstalled(.fast), "a torn download must not count as installed")
-        #expect(await manager.status(.parakeetTDTCTC110m) == .missing)
+        await installer.refresh()
+        #expect(!installer.isStackInstalled, "a torn download must not count as installed")
+        #expect(await manager.status(.parakeetTDTv3) == .missing)
 
-        try await tiers.download(.fast) { sink.append($0) }
+        try await installer.downloadStack { sink.append($0) }
         progress = sink.values
-        #expect(tiers.isInstalled(.fast))
-        #expect(await manager.isPresent(.parakeetTDTCTC110m))
-        #expect(fetcher.calls == 2)
+        #expect(installer.isStackInstalled)
+        #expect(await manager.isPresent(.parakeetTDTv3))
+        #expect(await manager.isPresent(.parakeetEOU160))
+        // One retry of the torn model, plus the second model of the stack.
+        #expect(fetcher.calls == 3)
         #expect(progress.last == 1)
         // P3: progress now carries bytes and the model's real name, not a bare fraction — that is
         // what lets the screen say "412 MB of 900 MB" instead of an unanchored percentage.
         let last = try #require(sink.reports.last)
-        #expect(last.modelName == "Parakeet TDT-CTC 110M (tiny)")
-        #expect(last.bytesExpected == 110_000_000)
+        #expect(last.modelName == "Parakeet Realtime EOU 120M (160 ms)", "the last model of the stack")
+        #expect(last.bytesExpected == ModelStack.approximateBytes, "the whole stack is the denominator")
         #expect(last.bytesReceived == last.bytesExpected)
         try? FileManager.default.removeItem(at: root)
     }
