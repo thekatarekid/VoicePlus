@@ -3,7 +3,7 @@ import Testing
 import Shared
 @testable import Injection
 
-// MARK: - Layered fallback (T1)
+// MARK: - Layered fallback (T1) as narrowed by the R2.3 readback rule
 
 @Suite struct LayeredInjectorTests {
     @Test func axInsertsAtCaretAndVerifies() {
@@ -15,6 +15,7 @@ import Shared
         #expect(mock.journal == ["ax.setSelectedText"])
         #expect(store.records.map(\.method) == ["ax"])
         #expect(store.records.first?.succeeded == true)
+        #expect(store.records.first?.detail == "verified")
     }
 
     @Test func axReplacesSelection() {
@@ -33,16 +34,24 @@ import Shared
         #expect(store.records.map(\.method) == ["keystroke"])  // AX skipped (not settable), not recorded as failure
     }
 
-    @Test func fallsBackToPasteWhenKeystrokesSwallowed() {
-        let (injector, mock, store) = makeStack(value: "") { $0.axWriteWorks = false; $0.keystrokesWork = false }
+    /// The only fall-through the readback rule allows. `throwsBeforePosting` is what a real
+    /// `CGEvent` / AX failure looks like: nothing reached the OS, so nothing can have landed.
+    @Test func fallsBackToPasteOnlyWhenKeystrokesThrowBeforePosting() {
+        let (injector, mock, store) = makeStack(value: "") {
+            $0.axWriteWorks = false
+            $0.throwsBeforePosting = [.keystrokes]
+        }
         let outcome = injector.inject(InjectionRequest(text: "hi"))
         #expect(outcome == .injected(method: .paste, verified: true))
         #expect(mock.field.value == "hi")
         #expect(store.records.map { ($0.method, $0.succeeded) }.elementsEqual([("keystroke", false), ("paste", true)], by: ==))
+        #expect(store.records.first?.detail?.hasPrefix("threw before posting") == true)
     }
 
-    @Test func readbackDetectsAXWriteThatSilentlyNoops() {
-        // AX claims settable but the app ignores the write (Electron-style), readback catches it.
+    /// Was `readbackDetectsAXWriteThatSilentlyNoops`, which then fell through to keystrokes. R2.3
+    /// forbids exactly that: an AX write that returned without throwing may have landed, and
+    /// readback cannot prove otherwise (V3 §14.4).
+    @Test func axWriteThatReadbackCannotConfirmEndsTheAttemptUnverified() {
         final class LyingMock: MockSystemAccess {
             override func setFocusedValue(_ value: String) throws {}
             override func setFocusedSelectedText(_ text: String) throws {}
@@ -51,24 +60,39 @@ import Shared
         let store = InMemoryOutcomeStore()
         let injector = TextInjector(system: mock, store: store)
         let outcome = injector.inject(InjectionRequest(text: "x"))
-        #expect(outcome == .injected(method: .keystroke, verified: true))
-        #expect(store.records.first?.method == "ax")
-        #expect(store.records.first?.succeeded == false)
-        #expect(store.records.first?.detail == "readback unchanged")
+        #expect(outcome == .injected(method: .ax, verified: false))
+        #expect(store.records.map(\.method) == ["ax"])
+        #expect(store.records.first?.detail == "unverified: readback unchanged")
+        #expect(!mock.journal.contains { $0.hasPrefix("key.") })   // no second method
     }
 
-    @Test func allMethodsFailingReportsFailure() {
-        let (injector, mock, _) = makeStack { $0.axWriteWorks = false; $0.keystrokesWork = false; $0.pasteWorks = false }
+    @Test func everyMethodThrowingBeforePostingReportsFailure() {
+        let (injector, mock, _) = makeStack { $0.throwsBeforePosting = Set(MockSystemAccess.PostSite.allCases) }
         let outcome = injector.inject(InjectionRequest(text: "zzz"))
-        #expect(outcome == .failed(attempts: [.keystroke, .paste]))
+        #expect(outcome == .failed(attempts: [.ax, .keystroke, .paste]))
         #expect(mock.field.value == "")
+        #expect(mock.postCount == 0)
+        #expect(outcome.delivery == .failed(reason: DeliveryReason.everyMethodThrew))
+    }
+
+    /// A swallowed keystroke is *not* a failure. This is the Brave case: the OS took the event and
+    /// the app's AX value did not move. The safe answer is delivered-unverified, and nothing else runs.
+    @Test func swallowedKeystrokesEndTheAttemptUnverified() {
+        let (injector, mock, store) = makeStack { $0.axWriteWorks = false; $0.keystrokesWork = false; $0.pasteWorks = false }
+        let outcome = injector.inject(InjectionRequest(text: "zzz"))
+        #expect(outcome == .injected(method: .keystroke, verified: false))
+        #expect(store.records.map(\.method) == ["keystroke"])
+        #expect(!mock.journal.contains { $0.hasPrefix("key.combo") })
+        #expect(mock.postCount == 1)
     }
 
     @Test func unreadableElementCountsAsUnverifiedSuccess() {
         let (injector, _, store) = makeStack { $0.axReadable = false; $0.axWriteWorks = false }
         let outcome = injector.inject(InjectionRequest(text: "hey"))
         #expect(outcome == .injected(method: .keystroke, verified: false))
-        #expect(store.records.first?.detail == "unverified")
+        #expect(store.records.first?.detail == "unverified: readback unavailable")
+        // Nothing to read back is not evidence against the method, so the router keeps trusting it.
+        #expect(store.records.first?.succeeded == true)
     }
 
     @Test func withoutAccessibilityTrustOnlyPasteRuns() {
@@ -83,6 +107,7 @@ import Shared
         let (injector, mock, _) = makeStack { $0.frontmost = nil }
         #expect(injector.inject(InjectionRequest(text: "x")) == .failed(attempts: []))
         #expect(mock.journal.isEmpty)
+        #expect(injector.inject(InjectionRequest(text: "x")).delivery == .failed(reason: DeliveryReason.noDestination))
     }
 
     @Test func unicodeAndEmojiRoundTripThroughAX() {

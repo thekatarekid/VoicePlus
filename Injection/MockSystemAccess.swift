@@ -6,12 +6,22 @@ import Foundation
 open class MockSystemAccess: SystemAccess {
     public struct Field: Equatable {
         public var role: String = "AXTextArea"
+        /// `AXSubroleAttribute`. Set it to `FocusedElementInfo.secureRole` to model a web password
+        /// field, which keeps `AXTextField` as its role.
+        public var subrole: String?
         public var value: String = ""
         public var selection: Range<Int> = 0..<0
-        public init(role: String = "AXTextArea", value: String = "", selection: Range<Int>? = nil) {
+        public init(role: String = "AXTextArea", value: String = "", selection: Range<Int>? = nil, subrole: String? = nil) {
             self.role = role
+            self.subrole = subrole
             self.value = value
             self.selection = selection ?? value.utf16.count..<value.utf16.count
+        }
+
+        /// A password field, by role (native) or by subrole (web).
+        public static func secure(webStyle: Bool = false) -> Field {
+            webStyle ? Field(role: "AXTextField", subrole: FocusedElementInfo.secureRole)
+                     : Field(role: FocusedElementInfo.secureRole)
         }
     }
 
@@ -22,9 +32,34 @@ open class MockSystemAccess: SystemAccess {
 
     /// Whether AX exposes the field's value for reading (false models Electron/Figma canvases).
     public var axReadable = true
+    /// Whether AX exposes the caret (`AXSelectedTextRange`) and `AXSelectedText` for reading.
+    /// Defaults to `axReadable`; set it explicitly to model a Chromium field whose value is
+    /// unreadable but whose caret is not (or the other way round).
+    public var axCaretReadable: Bool?
+    /// Every keystroke, key combo and AX text write that "reached the OS" — including the ones a
+    /// hostile app then ignored. See `SystemAccess.postCount`.
+    public private(set) var postCount = 0
     public var axWriteWorks = true
     public var keystrokesWork = true
     public var pasteWorks = true
+
+    /// One OS touch-point that can fail. Distinguishing *how* it fails is the whole point of the
+    /// readback rule (R2.3): `keystrokesWork = false` means the event was posted and the app
+    /// swallowed it, which is *possibly landed*; `throwsBeforePosting` means the call failed with
+    /// nothing on the wire, which is the only case the injector may fall through to another method.
+    public enum PostSite: String, Sendable, CaseIterable {
+        case axValue, axSelectedText, keystrokes, keyCombo
+    }
+
+    /// Sites that throw *before* incrementing `postCount`.
+    public var throwsBeforePosting: Set<PostSite> = []
+
+    private func failBeforePosting(_ site: PostSite) throws {
+        guard throwsBeforePosting.contains(site) else { return }
+        journal.append("throwBeforePosting.\(site.rawValue)")
+        throw SystemAccessError.eventPostFailed
+    }
+
     /// Simulates a user or clipboard manager touching the pasteboard between our write and our restore.
     public var externalPasteboardWriteAfterOurWrite: String?
 
@@ -45,18 +80,23 @@ open class MockSystemAccess: SystemAccess {
     public func focusedElement() throws -> FocusedElementInfo {
         guard isAccessibilityTrusted else { throw SystemAccessError.accessibilityNotTrusted }
         guard hasFocusedElement else { throw SystemAccessError.noFocusedElement }
+        let caretReadable = axCaretReadable ?? axReadable
         return FocusedElementInfo(role: field.role,
                                   value: axReadable ? field.value : nil,
-                                  selectedRange: axReadable ? field.selection : nil,
+                                  selectedRange: caretReadable ? field.selection : nil,
                                   isValueSettable: axWriteWorks,
-                                  isSelectedTextSettable: axWriteWorks)
+                                  isSelectedTextSettable: axWriteWorks,
+                                  subrole: field.subrole,
+                                  selectedText: caretReadable ? selectedTextSlice : nil)
     }
 
     // MARK: AX writes
 
     open func setFocusedValue(_ value: String) throws {
+        try failBeforePosting(.axValue)
         beforeSideEffect?()
         journal.append("ax.setValue")
+        postCount += 1
         guard axWriteWorks else { throw SystemAccessError.attributeNotSettable("AXValue") }
         field.value = value
         let end = value.utf16.count
@@ -70,8 +110,10 @@ open class MockSystemAccess: SystemAccess {
     }
 
     open func setFocusedSelectedText(_ text: String) throws {
+        try failBeforePosting(.axSelectedText)
         beforeSideEffect?()
         journal.append("ax.setSelectedText")
+        postCount += 1
         guard axWriteWorks else { throw SystemAccessError.attributeNotSettable("AXSelectedText") }
         insertAtSelection(text)
     }
@@ -79,14 +121,18 @@ open class MockSystemAccess: SystemAccess {
     // MARK: CGEvent
 
     open func postUnicodeKeystrokes(_ text: String, toPID pid: Int32) throws {
+        try failBeforePosting(.keystrokes)
         beforeSideEffect?()
         journal.append("key.unicode(\(pid)):\(text)")
+        postCount += 1
         guard keystrokesWork, pid == frontmost?.pid else { return }   // events go nowhere useful
         insertAtSelection(text)
     }
 
     open func postKeyCombo(_ combo: KeyCombo, toPID pid: Int32) throws {
+        try failBeforePosting(.keyCombo)
         journal.append("key.combo(\(pid)):\(combo.keyCode)\(combo.command ? "+cmd" : "")\(combo.option ? "+opt" : "")")
+        postCount += 1
         guard pid == frontmost?.pid else { return }
         if combo == .paste {
             guard pasteWorks, let string = pasteboardString else { return }
@@ -128,6 +174,14 @@ open class MockSystemAccess: SystemAccess {
     public func setPasteboard(_ items: [PasteboardItemSnapshot]) {
         pasteboardItems = items
         changeCount += 1
+    }
+
+    /// `AXSelectedText`: the slice the selection covers — "" for a bare caret.
+    public var selectedTextSlice: String {
+        let utf16 = Array(field.value.utf16)
+        let lower = max(0, min(field.selection.lowerBound, utf16.count))
+        let upper = max(lower, min(field.selection.upperBound, utf16.count))
+        return String(decoding: utf16[lower..<upper], as: UTF16.self)
     }
 
     public var pasteboardString: String? {

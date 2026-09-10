@@ -23,18 +23,68 @@ public struct InjectionRequest: Equatable, Sendable {
     }
 }
 
+/// Why the stack refused to post anything at all (R2.3). Distinct from `.failed`: no method ran,
+/// so nothing can have landed anywhere.
+public enum InjectionRefusal: String, Codable, Sendable, Equatable, CaseIterable {
+    /// The focused element is a password field (`AXSecureTextField`, or that subrole).
+    case secureField = "secure field"
+    /// The destination app is on the never-inject list in settings.
+    case neverInject = "never-inject list"
+
+    /// Whether the committed text survives the refusal as *held* text the user can still
+    /// insert elsewhere or copy. A password field is a hard no — dictation into a password
+    /// field is never what the user wanted, and keeping it around keeps a secret in memory.
+    /// A never-inject app is a routing choice, so the text is kept for Copy / Insert here.
+    public var holdsText: Bool { self == .neverInject }
+}
+
 public enum InjectionOutcome: Equatable, Sendable {
-    /// Landed; `verified` is true when AX readback confirmed the text.
+    /// Landed (or possibly landed); `verified` is true only when readback confirmed the text.
+    ///
+    /// **Readback rule (V3 §6, §14.4).** A method that posted anything without throwing has
+    /// *possibly landed*. When readback cannot confirm it the outcome is
+    /// `.injected(method:, verified: false)` — never a retry with another method.
     case injected(method: InjectionMethod, verified: Bool)
-    /// Focus changed between key-release and injection — nothing was typed; request was queued.
+    /// Focus changed before anything was posted — nothing was typed; the text is now *held*
+    /// (`FocusGuard.held`) and waits for Insert here / Copy / Discard. Returning focus alone
+    /// does not insert it.
     case abortedFocusChanged(expected: FocusSnapshot?, actual: FocusSnapshot?)
-    /// Every method was tried (or refused) and none landed.
+    /// Every method threw before posting anything (or there was no destination at all).
     case failed(attempts: [InjectionMethod])
+    /// The stack declined to post: a secure field, or an app on the never-inject list.
+    case refused(InjectionRefusal)
 
     public var succeeded: Bool {
         if case .injected = self { return true }
         return false
     }
+}
+
+public extension InjectionOutcome {
+    /// The R2.1 `DeliveryOutcome` this maps to — what the pill and the log store show.
+    /// `held` is not terminal: it is waiting for the user.
+    var delivery: DeliveryOutcome {
+        switch self {
+        case let .injected(method, verified):
+            return .delivered(verified: verified, method: method.rawValue)
+        case .abortedFocusChanged:
+            return .held(reason: DeliveryReason.destinationChanged)
+        case let .failed(attempts):
+            return .failed(reason: attempts.isEmpty ? DeliveryReason.noDestination : DeliveryReason.everyMethodThrew)
+        case let .refused(refusal):
+            return refusal.holdsText ? .held(reason: refusal.rawValue) : .failed(reason: refusal.rawValue)
+        }
+    }
+}
+
+/// The exact reason strings that travel in `DeliveryOutcome` and into held rows, in one place so
+/// the pill copy (R2.4) and the tests agree on them.
+public enum DeliveryReason {
+    public static let destinationChanged = "destination changed"
+    public static let noDestination = "no destination"
+    public static let everyMethodThrew = "every method threw"
+    public static let secureField = InjectionRefusal.secureField.rawValue
+    public static let neverInject = InjectionRefusal.neverInject.rawValue
 }
 
 /// Minimal interface the rest of the app depends on.

@@ -13,7 +13,9 @@ import Shared
         Row(bundleID: "com.apple.Notes", adapter: "default", method: .ax, readable: true, ax: true, keys: true),
         Row(bundleID: "com.apple.mail", adapter: "default", method: .ax, readable: true, ax: true, keys: true),
         Row(bundleID: "com.apple.Safari", adapter: "default", method: .keystroke, readable: true, ax: false, keys: true),
-        Row(bundleID: "com.google.Chrome", adapter: "default", method: .keystroke, readable: true, ax: false, keys: true),
+        Row(bundleID: "com.google.Chrome", adapter: "chromium", method: .keystroke, readable: true, ax: false, keys: true),
+        Row(bundleID: "com.brave.Browser", adapter: "chromium", method: .keystroke, readable: true, ax: false, keys: true),
+        Row(bundleID: "company.thebrowser.Browser", adapter: "chromium", method: .keystroke, readable: true, ax: false, keys: true),
         Row(bundleID: "com.apple.Terminal", adapter: "terminal", method: .adapter, readable: false, ax: false, keys: true),
         Row(bundleID: "com.googlecode.iterm2", adapter: "terminal", method: .adapter, readable: false, ax: false, keys: true),
         Row(bundleID: "com.mitchellh.ghostty", adapter: "terminal", method: .adapter, readable: false, ax: false, keys: true),
@@ -77,9 +79,10 @@ import Shared
         #expect(mock.journal.contains("key.combo(100):36+opt"))
     }
 
-    @Test func figmaFallsToPasteWhenKeystrokesIgnored() {
-        // Readable AX (text layer in edit mode) lets readback notice the swallowed keystrokes.
-        let (injector, mock, _) = makeStack("com.figma.Desktop") { $0.keystrokesWork = false }
+    /// R2.3: paste is reached only because the keystroke call itself failed with nothing on the
+    /// wire. Keystrokes that were *posted* and then swallowed end the attempt unverified instead.
+    @Test func figmaFallsToPasteWhenKeystrokesThrowBeforePosting() {
+        let (injector, mock, _) = makeStack("com.figma.Desktop") { $0.throwsBeforePosting = [.keystrokes] }
         #expect(injector.inject(InjectionRequest(text: "Label")) == .injected(method: .paste, verified: true))
         #expect(mock.field.value == "Label")
     }

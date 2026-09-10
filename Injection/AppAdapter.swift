@@ -1,7 +1,65 @@
 import Foundation
 
+/// What readback could prove about a method that already posted (R2.3).
+///
+/// Note what is *missing*: a verdict that means "did not land". Readback cannot tell "did not
+/// land" from "landed but the AX value is stale" — the Brave session proved the second case is
+/// common (V3 §2.2, §14.4) — so `unconfirmed` and `unavailable` both mean
+/// *delivered, unverified*. They differ only in what the log says.
+public enum ReadbackVerdict: String, Sendable, Equatable, CaseIterable {
+    /// Readback showed the text in the field: `delivered(verified: true)`.
+    case confirmed
+    /// Readback ran and did not show it. Possibly stale AX, possibly nothing landed.
+    case unconfirmed
+    /// There was nothing to read back — verification skipped, not failed.
+    case unavailable
+
+    public var isConfirmed: Bool { self == .confirmed }
+
+    /// What goes in `injection_outcomes.detail`.
+    public var detail: String {
+        switch self {
+        case .confirmed: return "verified"
+        case .unconfirmed: return "unverified: readback unchanged"
+        case .unavailable: return "unverified: readback unavailable"
+        }
+    }
+}
+
+/// The readback comparisons adapters share.
+public enum Readback {
+    /// Compare `AXValue` before and after: the strongest proof we can get.
+    public static func byValue(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        guard let before, let value = before.value, let after = after?.value else { return .unavailable }
+        if let sel = before.selectedRange {
+            var units = Array(value.utf16)
+            let clamped = max(0, min(sel.lowerBound, units.count))..<max(0, min(sel.upperBound, units.count))
+            units.replaceSubrange(clamped, with: Array(text.utf16))
+            if String(decoding: units, as: UTF16.self) == after { return .confirmed }
+        }
+        // Adapters may wrap the text (bracketed paste) or the app may normalise whitespace.
+        if after != value && after.contains(text) { return .confirmed }
+        return .unconfirmed
+    }
+
+    /// Compare the caret and `AXSelectedText`: for fields (Chromium's web content among them)
+    /// whose `AXValue` is absent or stale but whose selection is live.
+    public static func byCaretOrSelection(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        guard let before, let after else { return .unavailable }
+        // A field that leaves the insertion selected reads it straight back.
+        if let selected = after.selectedText, !text.isEmpty, selected == text { return .confirmed }
+        guard let start = before.selectedRange, let end = after.selectedRange else { return .unavailable }
+        if text.isEmpty { return .unavailable }
+        // The caret sitting exactly `text` further on is the insertion, and any forward move at
+        // all means *something* went in — enough for "possibly landed", which is all we claim.
+        if end.lowerBound == start.lowerBound + text.utf16.count { return .confirmed }
+        return end.lowerBound > start.lowerBound ? .confirmed : .unconfirmed
+    }
+}
+
 /// Per-app knowledge for the hostile set (P1.8 T2). An adapter can (a) reorder/forbid methods,
-/// (b) rewrite the text before it is sent, and (c) provide its own `.adapter` method.
+/// (b) rewrite the text before it is sent, (c) provide its own `.adapter` method, and
+/// (d) decide how readback is judged for this app.
 public protocol AppAdapter: AnyObject {
     var id: String { get }
     func matches(bundleID: String) -> Bool
@@ -11,11 +69,17 @@ public protocol AppAdapter: AnyObject {
     func prepare(_ text: String, focused: FocusedElementInfo?) -> String
     /// Custom `.adapter` injection. Return `false` if not applicable so the stack moves on.
     func injectViaAdapter(_ text: String, focus: FocusSnapshot, focused: FocusedElementInfo?, system: SystemAccess) throws -> Bool
+    /// How to judge a method that already posted. Never decides *whether* to try another method —
+    /// the readback rule does that, and the answer is always no.
+    func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict
 }
 
 public extension AppAdapter {
     func prepare(_ text: String, focused: FocusedElementInfo?) -> String { text }
     func injectViaAdapter(_ text: String, focus: FocusSnapshot, focused: FocusedElementInfo?, system: SystemAccess) throws -> Bool { false }
+    func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        Readback.byValue(text: text, before: before, after: after)
+    }
 }
 
 /// Generic app: the full stack in canonical order.
@@ -75,6 +139,47 @@ public final class CursorAdapter: AppAdapter {
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
 }
 
+/// Chromium-based browsers (Brave, Chrome, Edge, Arc) — R2.3.
+///
+/// Why this exists: on the owner's Mac seven of twenty dictations into Brave logged
+/// `keystroke failed … readback unchanged` and then `paste failed … readback unchanged`
+/// (V3 §2.2). Both methods had posted. Chromium's `AXValue` for web content simply did not
+/// reflect the change, so a good delivery was recorded as a failure — and the text landed twice.
+///
+/// The fix is two-part. The injector never runs a second method after one has posted (the readback
+/// rule, `TextInjector.inject`), and this adapter judges readback the way Chromium can actually
+/// answer: the caret and `AXSelectedText`, with verification *skipped* — unverified, never failed —
+/// when neither is exposed. `AXValue` is still consulted first for the cases where it is honest
+/// (the omnibox, `<textarea>` in some builds).
+///
+/// Order is `[.keystroke, .paste]`: AX value writes desync Blink's own model exactly as they do in
+/// Electron, and paste only ever runs when keystrokes threw before posting anything.
+public final class ChromiumAdapter: AppAdapter {
+    public static let bundleIDs: Set<String> = ["com.brave.Browser", "com.google.Chrome",
+                                                "com.microsoft.edgemac", "company.thebrowser.Browser"]
+    public let id = "chromium"
+    public init() {}
+
+    /// Exact ids, plus the release-channel siblings that suffix them
+    /// (`com.google.Chrome.canary`, `com.brave.Browser.beta`, `com.microsoft.edgemac.Dev`).
+    public func matches(bundleID: String) -> Bool {
+        Self.bundleIDs.contains(bundleID) || Self.bundleIDs.contains { bundleID.hasPrefix($0 + ".") }
+    }
+
+    public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
+
+    public func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        let byValue = Readback.byValue(text: text, before: before, after: after)
+        if byValue == .confirmed { return .confirmed }
+        let bySelection = Readback.byCaretOrSelection(text: text, before: before, after: after)
+        if bySelection == .confirmed { return .confirmed }
+        // Neither the value nor the caret was available: skip verification rather than claim a
+        // failure. If one of them *was* available and showed nothing, say so — but still unverified.
+        if byValue == .unavailable && bySelection == .unavailable { return .unavailable }
+        return .unconfirmed
+    }
+}
+
 /// Excel / Numbers / Google Sheets (in a browser): when a cell (not an in-cell editor) is focused, typing
 /// enters edit mode automatically; newlines must become ⌥↩ or the cell commits. Paste of multi-line
 /// text would spill across rows, so paste is only allowed in single-line form.
@@ -120,7 +225,8 @@ public final class AdapterRegistry {
     public init(adapters: [AppAdapter]) { self.adapters = adapters }
 
     public static func standard() -> AdapterRegistry {
-        AdapterRegistry(adapters: [TerminalAdapter(), FigmaAdapter(), CursorAdapter(), SpreadsheetAdapter(), ElectronAdapter(), DefaultAdapter()])
+        AdapterRegistry(adapters: [TerminalAdapter(), FigmaAdapter(), CursorAdapter(), SpreadsheetAdapter(),
+                                   ElectronAdapter(), ChromiumAdapter(), DefaultAdapter()])
     }
 
     public func register(_ adapter: AppAdapter, first: Bool = true) {

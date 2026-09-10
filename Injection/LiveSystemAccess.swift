@@ -9,6 +9,10 @@ public final class LiveSystemAccess: SystemAccess {
 
     public var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
+    /// Every AX text write / keystroke / key combo that reached `postToPid`. See the protocol doc:
+    /// the injector uses this to know whether a method posted before it threw.
+    public private(set) var postCount = 0
+
     // MARK: Focus
 
     public func frontmostApp() -> FocusSnapshot? {
@@ -24,7 +28,9 @@ public final class LiveSystemAccess: SystemAccess {
     public func focusedElement() throws -> FocusedElementInfo {
         let element = try focusedAXElement()
         let role = (copyAttribute(element, kAXRoleAttribute) as? String) ?? "unknown"
+        let subrole = copyAttribute(element, kAXSubroleAttribute) as? String
         let value = copyAttribute(element, kAXValueAttribute) as? String
+        let selectedText = copyAttribute(element, kAXSelectedTextAttribute) as? String
         var range: Range<Int>?
         if let rangeValue = copyAttribute(element, kAXSelectedTextRangeAttribute) {
             var cfRange = CFRange()
@@ -35,31 +41,35 @@ public final class LiveSystemAccess: SystemAccess {
         }
         return FocusedElementInfo(role: role, value: value, selectedRange: range,
                                   isValueSettable: isSettable(element, kAXValueAttribute),
-                                  isSelectedTextSettable: isSettable(element, kAXSelectedTextAttribute))
+                                  isSelectedTextSettable: isSettable(element, kAXSelectedTextAttribute),
+                                  subrole: subrole, selectedText: selectedText)
     }
 
     // MARK: AX writes
 
     public func setFocusedValue(_ value: String) throws {
-        try set(kAXValueAttribute, value as CFString)
+        try set(kAXValueAttribute, value as CFString, counts: true)
     }
 
     public func setFocusedSelectedRange(_ range: Range<Int>) throws {
         var cfRange = CFRange(location: range.lowerBound, length: range.count)
         guard let axValue = AXValueCreate(.cfRange, &cfRange) else { throw SystemAccessError.axError(-1) }
-        try set(kAXSelectedTextRangeAttribute, axValue)
+        try set(kAXSelectedTextRangeAttribute, axValue)   // caret only: never counts as a post
     }
 
     public func setFocusedSelectedText(_ text: String) throws {
-        try set(kAXSelectedTextAttribute, text as CFString)
+        try set(kAXSelectedTextAttribute, text as CFString, counts: true)
     }
 
     // MARK: CGEvent
 
+    /// Every event is built *before* the first one is posted, so a failure here throws with
+    /// nothing posted — which is the only case the injector may fall through on (R2.3).
     public func postUnicodeKeystrokes(_ text: String, toPID pid: Int32) throws {
         guard let source = CGEventSource(stateID: .combinedSessionState) else { throw SystemAccessError.eventPostFailed }
         // CGEventKeyboardSetUnicodeString handles up to 20 UTF-16 units per event reliably.
         let units = Array(text.utf16)
+        var events: [CGEvent] = []
         var index = 0
         while index < units.count {
             let chunk = Array(units[index..<min(index + 20, units.count)])
@@ -72,9 +82,12 @@ public final class LiveSystemAccess: SystemAccess {
                 down.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
                 up.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
             }
-            down.postToPid(pid)
-            up.postToPid(pid)
+            events.append(down)
+            events.append(up)
         }
+        guard !events.isEmpty else { return }
+        postCount += 1
+        for event in events { event.postToPid(pid) }
     }
 
     public func postKeyCombo(_ combo: KeyCombo, toPID pid: Int32) throws {
@@ -90,6 +103,7 @@ public final class LiveSystemAccess: SystemAccess {
         if combo.control { flags.insert(.maskControl) }
         down.flags = flags
         up.flags = flags
+        postCount += 1
         down.postToPid(pid)
         up.postToPid(pid)
     }
@@ -155,9 +169,12 @@ public final class LiveSystemAccess: SystemAccess {
         return AXUIElementIsAttributeSettable(element, name as CFString, &settable) == .success && settable.boolValue
     }
 
-    private func set(_ name: String, _ value: CFTypeRef) throws {
+    /// `counts: true` for the two attributes that can put text in the user's field. The count is
+    /// bumped *before* the write, so a write that fails halfway still reads as "possibly posted".
+    private func set(_ name: String, _ value: CFTypeRef, counts: Bool = false) throws {
         let element = try focusedAXElement()
         guard isSettable(element, name) else { throw SystemAccessError.attributeNotSettable(name) }
+        if counts { postCount += 1 }
         let err = AXUIElementSetAttributeValue(element, name as CFString, value)
         guard err == .success else { throw SystemAccessError.axError(err.rawValue) }
     }

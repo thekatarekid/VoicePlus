@@ -20,23 +20,38 @@ public struct FocusSnapshot: Equatable, Sendable, Codable {
 /// What we can learn about the focused AX element in one round-trip.
 public struct FocusedElementInfo: Equatable, Sendable {
     public var role: String
+    /// `kAXSubroleAttribute`. `nil` when the element does not expose one. A password field in a
+    /// web view often reports `AXTextField` with the `AXSecureTextField` *subrole*.
+    public var subrole: String?
     /// `nil` when the element does not expose `kAXValueAttribute` as a string.
     public var value: String?
     /// Location/length in UTF-16 units (AX convention). `nil` when unavailable.
     public var selectedRange: Range<Int>?
+    /// `kAXSelectedTextAttribute` as read back. Empty string for a bare caret, `nil` when the
+    /// element does not expose it. Chromium readback uses this and the caret (R2.3).
+    public var selectedText: String?
     /// Whether `kAXValueAttribute` / `kAXSelectedTextAttribute` are settable.
     public var isValueSettable: Bool
     public var isSelectedTextSettable: Bool
 
-    public init(role: String, value: String?, selectedRange: Range<Int>?, isValueSettable: Bool, isSelectedTextSettable: Bool) {
+    public init(role: String, value: String?, selectedRange: Range<Int>?, isValueSettable: Bool,
+                isSelectedTextSettable: Bool, subrole: String? = nil, selectedText: String? = nil) {
         self.role = role
+        self.subrole = subrole
         self.value = value
         self.selectedRange = selectedRange
+        self.selectedText = selectedText
         self.isValueSettable = isValueSettable
         self.isSelectedTextSettable = isSelectedTextSettable
     }
 
     public var isReadable: Bool { value != nil }
+
+    /// AX role/subrole for a password field. Dictation must never be posted into one (R2.3).
+    public static let secureRole = "AXSecureTextField"
+
+    /// True when this element is a password field by role *or* subrole.
+    public var isSecure: Bool { role == Self.secureRole || subrole == Self.secureRole }
 }
 
 /// One pasteboard item: every type it carries, as raw bytes (so images round-trip losslessly).
@@ -87,6 +102,15 @@ public enum SystemAccessError: Error, Equatable, Sendable {
 /// (AX + CGEvent + NSPasteboard). Tests and the App's mock engine use `MockSystemAccess`.
 public protocol SystemAccess: AnyObject {
     var isAccessibilityTrusted: Bool { get }
+
+    /// How many side effects have been posted into another app so far: AX text writes,
+    /// synthesised keystrokes and key combos. Monotonic, never reset.
+    ///
+    /// This is what makes the readback rule airtight (R2.3, V3 §14.4): the injector compares the
+    /// count either side of a method, so a method that posted *and then* threw is still treated as
+    /// "possibly landed" and no second method runs. Do not count pasteboard writes or caret moves —
+    /// neither can put text in the user's field.
+    var postCount: Int { get }
 
     // Focus
     func frontmostApp() -> FocusSnapshot?
