@@ -108,6 +108,14 @@ public final class AdaptationService: @unchecked Sendable {
 
 /// P6.1 — `RegressionGuard` as a pipeline stage over the *live* lexicon (re-read per utterance,
 /// so a retrain takes effect on the next dictation).
+///
+/// R4.1a: `RegressionGuard.apply` appends provenance only to the spans it actually rewrote, which
+/// is correct for the standalone guard but breaks the `PipelineStage` contract — a span the stage
+/// looked at and left alone came back with no record that `adapt.lexicon` ran, `ConfidenceContract`
+/// reported "did not append provenance", and `ContractEnforcingStage` threw the whole stage's
+/// output away. The stage face fixes it up here so the guard's own semantics (and its `EngineTests`)
+/// stay untouched, and marks a rewrite of a low-confidence span as `needsRepair` (Bet 9) instead of
+/// silently smoothing it — that too was a violation that discarded the correction.
 public struct RegressionGuardStage: PipelineStage {
     public let id: StageID = RegressionGuard.stageID
     private let lexicon: @Sendable () -> PersonalLexicon
@@ -115,7 +123,12 @@ public struct RegressionGuardStage: PipelineStage {
     public init(lexicon: @escaping @Sendable () -> PersonalLexicon) { self.lexicon = lexicon }
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
-        RegressionGuard(lexicon: lexicon()).apply(spans)
+        // `apply` is a 1:1 map over the input, so input and output line up span for span.
+        zip(spans, RegressionGuard(lexicon: lexicon()).apply(spans)).map { input, corrected in
+            var out = corrected
+            if input.confidence < TranscriptSpan.lowConfidenceThreshold, out.text != input.text { out.needsRepair = true }
+            return out.provenance.last == id ? out : out.touched(by: id)
+        }
     }
 }
 

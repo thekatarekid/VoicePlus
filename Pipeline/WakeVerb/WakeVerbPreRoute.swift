@@ -43,6 +43,12 @@ public final class WakeVerbPreRoute: GatekeeperPreRouting, @unchecked Sendable {
 
 /// Strips the wake phrase from the spans (text → "", audioRange/confidence kept) so downstream
 /// formatters see only the payload. Only acts when the pre-route recorded a parse for the utterance.
+///
+/// R4.1a: every returned span records that the stage ran, including the (overwhelmingly common)
+/// pass-through where the utterance is not hands-free or carries no wake verb. Returning the input
+/// array unchanged looked harmless but broke the `PipelineStage` contract — `ConfidenceContract`
+/// read the missing provenance as "this stage invented spans", so `ContractEnforcingStage` logged a
+/// violation on every dictation and fell back to the input, i.e. the stage could never ship a strip.
 public struct WakeVerbStage: PipelineStage {
     public let id: StageID = .wakeVerb
     public let preRoute: WakeVerbPreRoute
@@ -50,7 +56,7 @@ public struct WakeVerbStage: PipelineStage {
     public init(preRoute: WakeVerbPreRoute) { self.preRoute = preRoute }
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
-        guard WakeVerbPreRoute.isHandsFree(context), let p = preRoute.takeParse(for: spans.joinedText) ?? preRoute.grammar.parse(spans.joinedText) else { return spans }
+        guard WakeVerbPreRoute.isHandsFree(context), let p = preRoute.takeParse(for: spans.joinedText) ?? preRoute.grammar.parse(spans.joinedText) else { return spans.map { $0.touched(by: id) } }
         var remaining = p.verbTokenCount
         return spans.map { span in
             let words = WakeVerbGrammar.tokens(span.text).count
