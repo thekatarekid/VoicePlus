@@ -1,0 +1,17 @@
+{
+  "aec" : "appleVoiceProcessing",
+  "captureGraph" : "device=MacBook Pro Microphone#89 pin=skipped(already the system default input) node.inputFormat=44100Hz\/1ch node.outputFormat=44100Hz\/1ch hal.hw=44100Hz\/1ch hal.client=44100Hz\/1ch tap=44100Hz\/1ch vp=false",
+  "deviceName" : "MacBook Pro Microphone",
+  "deviceSampleRate" : 48000,
+  "deviceUID" : "BuiltInMicrophoneDevice",
+  "inputChannels" : 1,
+  "noiseSuppression" : true,
+  "noiseSuppressionStrength" : 0.6,
+  "processedPeakdBFS" : -23.66379379032988,
+  "processedRMSdBFS" : -36.56435797014727,
+  "rawPeakdBFS" : -23.3945361708603,
+  "rawRMSdBFS" : -36.36085844478595,
+  "recordedAt" : "2026-09-10T18:30:42Z",
+  "seconds" : 7.928375,
+  "transport" : "builtIn"
+}

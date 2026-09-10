@@ -4,3 +4,6 @@
 .swiftpm/
 Packaging/build/
 Models/
+
+# Real-room recordings: audio stays local, transcripts and manifests are committed
+Fixtures/real-room/**/*.wav
