@@ -334,19 +334,40 @@ struct Qwen3RefinementAvailabilityTests {
         #expect(tokenizer.encode("zzz", limit: 16) == [])
     }
 
-    /// The task instruction has to come from `vocab.json`, not from the port's hard-coded table:
-    /// three of its eight English ids do not match these weights (see `Backend.transcribe`).
-    @Test func systemPromptCarriesTheTaskInstruction() {
+    /// The output language is decided in the *assistant* turn, not the system message: the model
+    /// writes `language <Name>` there before it transcribes, and whatever it names is the script it
+    /// answers in. Prefilling that header is the only lever (`Backend.transcribe` records the
+    /// measurement). Wrong header text = a transcription in the wrong language, which no
+    /// weights-free test would otherwise catch.
+    @Test func assistantHeaderNamesTheOutputLanguage() {
         guard #available(macOS 15, *) else {
-            print("SKIPPED systemPromptCarriesTheTaskInstruction: macOS 15+ only.")
+            print("SKIPPED assistantHeaderNamesTheOutputLanguage: macOS 15+ only.")
             return
         }
-        #expect(Qwen3RefinementPrompt.systemPrompt(language: .english, context: "")
-            == "Transcribe the audio to English text.")
-        #expect(Qwen3RefinementPrompt.systemPrompt(language: nil, context: "  ") == "")
-        #expect(Qwen3RefinementPrompt.systemPrompt(language: .german, context: "Priya")
-            == "Transcribe the audio to German text.\nPriya")
-        #expect(Qwen3RefinementPrompt.systemPrompt(language: nil, context: "Priya") == "Priya")
+        #expect(Qwen3RefinementPrompt.assistantHeader(language: .english) == "language English")
+        #expect(Qwen3RefinementPrompt.assistantHeader(language: .german) == "language German")
+        // Automatic means "no header": the model detects the language, which is the port's default.
+        #expect(Qwen3RefinementPrompt.assistantHeader(language: nil) == nil)
+    }
+
+    /// The header is encoded against the vocabulary and terminated by `<|asr_text|>`. The ids below
+    /// are the ones the real `vocab.json` gives (`language` = 11528, `ĠEnglish` = 6364); the mock
+    /// vocabulary here only has to prove the shape.
+    @Test func assistantHeaderTokensEndWithTheAsrTextToken() {
+        guard #available(macOS 15, *) else {
+            print("SKIPPED assistantHeaderTokensEndWithTheAsrTextToken: macOS 15+ only.")
+            return
+        }
+        let asrText = Int32(Qwen3AsrConfig.asrTextTokenId)
+        let tokenizer = Qwen3ContextTokenizer(vocabulary: [11_528: "language", 6_364: "\u{0120}English"])
+        #expect(Qwen3RefinementPrompt.assistantHeaderTokens(language: .english, tokenizer: tokenizer)
+            == [11_528, 6_364, asrText])
+        // No language, no tokenizer, or nothing encodable: no forced header at all, never a lone
+        // terminator (which would be a header claiming an empty language).
+        #expect(Qwen3RefinementPrompt.assistantHeaderTokens(language: nil, tokenizer: tokenizer) == [])
+        #expect(Qwen3RefinementPrompt.assistantHeaderTokens(language: .english, tokenizer: nil) == [])
+        let empty = Qwen3ContextTokenizer(vocabulary: [:])
+        #expect(Qwen3RefinementPrompt.assistantHeaderTokens(language: .english, tokenizer: empty) == [])
     }
 
     @Test func contextBudgetShrinksAsAudioGrows() {

@@ -151,28 +151,34 @@ private actor Backend {
     func transcribe(samples: [Float], context: String) async throws -> String {
         try await prepare(progress: nil)
         try Task.checkCancellation()
-        // The system message is built here and handed over as `contextTokens`, and the port's own
-        // `language:` path is deliberately bypassed (`nil`).
+        // Two things go to the model, and the split matters — it was measured, not guessed
+        // (`Qwen3PromptProbe`, 2026-09-11, qwen3-asr-0.6b int8, first real-room utterance):
         //
-        // Why: the ported `Qwen3AsrManager.taskTokens` table hard-codes token ids that do not
-        // match the `vocab.json` shipped with these weights. Its English row is
-        // `[3246, 56541, 279, 7461, 311, 6364, 1467, 13]`, which decodes against this vocabulary
-        // as "agnıs the Oper to English text." — five of the eight ids are right and three are
-        // not. Measured consequence, first real-room utterance, built-in mic: the model got no
-        // usable instruction, auto-detected the language of accented English speech and answered
-        // in Devanagari ("… ब्राउन फॉक्स … डॉग", WER 1.000 against a correct English reference).
-        // Encoding the same sentence against `vocab.json` gives
-        // `[3167, 3114, 279, 7699, 311, 6364, 1467, 13]` = "Transcribe the audio to English
-        // text." — so the instruction is built from the vocabulary that is actually on disk.
-        let prompt = Qwen3RefinementPrompt.systemPrompt(language: language, context: context)
+        //  * The **system message** carries the biasing context and nothing else. A task
+        //    instruction there changes nothing: "Transcribe the audio to English text." in the
+        //    system message, the port's hard-coded task table, and an empty system message all
+        //    produced byte-identical Devanagari for clean English speech.
+        //  * The **assistant turn** is where the output language is decided. Left to itself the
+        //    model writes its own header first — `language ĠHindi <|asr_text|>` on that utterance,
+        //    hence Devanagari, WER 1.000 — and then transcribes in the language it just named.
+        //    Writing that header ourselves (forced decoder ids) is the only lever: with
+        //    `language English<|asr_text|>` prefilled, the same audio came back as "The quick
+        //    brown fox jumps over the lazy dog.", WER 0.000.
+        //
+        // So `language:` is passed to the port as nil — its task table is inert either way — and
+        // the language arrives as `assistantPrefixTokens`.
         let contextTokens = tokenizer?.encode(
-            prompt, limit: Qwen3RefinementBudget.contextTokenBudget(sampleCount: samples.count)
+            context, limit: Qwen3RefinementBudget.contextTokenBudget(sampleCount: samples.count)
         ) ?? []
+        let prefix = Qwen3RefinementPrompt.assistantHeaderTokens(
+            language: language, tokenizer: tokenizer
+        )
         do {
             return try await manager.transcribe(
                 audioSamples: samples,
                 language: nil as Qwen3AsrConfig.Language?,
                 contextTokens: contextTokens,
+                assistantPrefixTokens: prefix,
                 maxNewTokens: Qwen3RefinementBudget.maxNewTokens
             )
         } catch is CancellationError {
@@ -196,7 +202,7 @@ private actor Backend {
 @available(macOS 15, *)
 enum Qwen3RefinementBudget {
     static let maxNewTokens = 256
-    /// Chat-template scaffolding plus the task sentence, in tokens.
+    /// Chat-template scaffolding plus the forced assistant header, in tokens.
     static let promptOverheadTokens = 24
     /// Output tokens kept free no matter how much context is offered.
     static let reservedOutputTokens = 64
@@ -224,18 +230,32 @@ enum Qwen3RefinementBudget {
 
 // MARK: - Prompt text
 
-/// The system message the refinement pass sends. Its own type so it can be tested without
-/// weights: getting this wrong is invisible until a transcription comes back in the wrong script.
+/// The two prompt pieces Qwen3-ASR actually reads. Its own type so both can be tested without
+/// weights: getting the assistant header wrong is invisible until a transcription comes back in
+/// the wrong script, which is exactly how this was found.
 @available(macOS 15, *)
 enum Qwen3RefinementPrompt {
-    /// Qwen3-ASR's task instruction plus the caller's context, as plain text. Empty context and
-    /// automatic language give an empty system message, which is what "no instruction" means.
-    static func systemPrompt(language: Qwen3AsrConfig.Language?, context: String) -> String {
-        var parts: [String] = []
-        if let language { parts.append("Transcribe the audio to \(language.englishName) text.") }
-        let trimmed = context.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { parts.append(trimmed) }
-        return parts.joined(separator: "\n")
+    /// The header the model writes for itself at the start of the assistant turn, as plain text:
+    /// the literal word `language`, then the language's English name. Prefilling it is what forces
+    /// the output language; `nil` means "let the model detect the language", which is the port's
+    /// own behaviour.
+    static func assistantHeader(language: Qwen3AsrConfig.Language?) -> String? {
+        guard let language else { return nil }
+        return "language \(language.englishName)"
     }
 
+    /// `assistantHeader` encoded, terminated by `<|asr_text|>` — the special token the model emits
+    /// between its header and the transcription. Forcing the terminator too leaves the model
+    /// nothing to decide before the first word of text.
+    static func assistantHeaderTokens(
+        language: Qwen3AsrConfig.Language?, tokenizer: Qwen3ContextTokenizer?
+    ) -> [Int32] {
+        guard let tokenizer, let header = assistantHeader(language: language) else { return [] }
+        let tokens = tokenizer.encode(header, limit: headerTokenBudget)
+        guard !tokens.isEmpty else { return [] }
+        return tokens + [Int32(Qwen3AsrConfig.asrTextTokenId)]
+    }
+
+    /// Room for `language ` plus the longest language name in the vocabulary.
+    static let headerTokenBudget = 6
 }

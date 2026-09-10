@@ -169,3 +169,50 @@ struct Qwen3RefinementWERTests {
         #expect(mean <= 0.5, "the whole corpus came back unrelated to the script")
     }
 }
+
+/// R5.1 — *why* the real-weights test above passes: the language lives in the assistant turn.
+///
+/// Same skip rules as the WER suite. Two inferences on one utterance, ~10 s, so it is not opt-in:
+/// this is the assertion that stops someone deleting the forced header and shipping Devanagari.
+@Suite("Qwen3 assistant header (real weights)", .serialized)
+struct Qwen3AssistantHeaderTests {
+
+    @Test(.timeLimit(.minutes(30)))
+    func theModelNamesItsOwnLanguageUnlessTheHeaderIsForced() async throws {
+        let store = Qwen3WeightsStore()
+        if let reason = try Qwen3RefinementWERTests.skipReason(store: store) { print(reason); return }
+        guard #available(macOS 15, *) else { print("SKIPPED: macOS 15+ only."); return }
+
+        let folder = try #require(store.locate())
+        let (dir, names) = try Qwen3RefinementWERTests.corpusFiles()
+        let samples = try SampleAudioSource.load16k(url: dir.appendingPathComponent(names[0]))
+        let probe = try await Qwen3PromptProbe.load(folder: folder)
+        let asrText = Int32(Qwen3AsrConfig.asrTextTokenId)
+
+        // Left alone, the model opens the assistant turn with a header of its own making: the
+        // literal word "language", the language it decided on, then <|asr_text|>. That decision —
+        // not the system message — is what picks the script of everything after it.
+        let free = try await probe.run(samples: samples)
+        print("[qwen3-header] free:   \(probe.describe(Array(free.generated.prefix(6))))")
+        print("[qwen3-header]   text: \(free.text)")
+        let header = Array(free.generated.prefix(3))
+        #expect(probe.vocabulary[header.first ?? -1] == "language",
+                "the assistant turn no longer opens with a language header, which is the format the forced header in Qwen3RefinementPrompt is built on")
+        #expect(header.contains(Int(asrText)),
+                "no <|asr_text|> terminator in \(probe.describe(header))")
+
+        // Forced, the header is ours and the transcription follows the language we named.
+        let forced = try await probe.run(
+            samples: samples,
+            assistantPrefix: probe.encode("language English") + [asrText]
+        )
+        print("[qwen3-header] forced: \(probe.describe(Array(forced.prompt.suffix(3))))")
+        print("[qwen3-header]   text: \(forced.text)")
+        #expect(Array(forced.prompt.suffix(3)) == [11_528, 6_364, asrText])
+        // Latin script is the observable difference; asserting the exact words is the WER suite's job.
+        let letters = forced.text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        #expect(!letters.isEmpty)
+        #expect(letters.allSatisfy { $0.isASCII },
+                "forced English still came back in a non-Latin script: \(forced.text)")
+    }
+}

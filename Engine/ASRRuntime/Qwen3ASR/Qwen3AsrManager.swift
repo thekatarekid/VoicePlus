@@ -5,7 +5,9 @@
 // Licence texts: LICENSE-Apache-2.0 and LICENSE-MIT in this directory.
 // Port changes only: `MuesliQwen3*` types renamed `Qwen3*`, every type gated
 // `@available(macOS 15, *)`, VoicePlus log subsystem, Muesli's managed-download
-// entry points removed (see Qwen3Weights.swift). Algorithms are unchanged.
+// entry points removed (see Qwen3Weights.swift). Algorithms are unchanged, with two additive
+// prompt hooks: `contextTokens` (biasing context in the system message) and
+// `assistantPrefixTokens` (forced decoder ids in the assistant turn).
 import Accelerate
 @preconcurrency import CoreML
 import Foundation
@@ -30,6 +32,13 @@ public actor Qwen3AsrManager {
     private var models: Qwen3AsrModels?
     private let rope: Qwen3RoPE
     private let melExtractor: Qwen3WhisperMelSpectrogram
+
+    /// VoicePlus addition: the last prompt and the last *raw* generated ids, kept for diagnosis.
+    /// `decodeTokens` throws the assistant's header away, so without this the only way to see what
+    /// the model actually chose (including its language tag) is a debugger.
+    public private(set) var lastPromptTokenIds: [Int32] = []
+    public private(set) var lastGeneratedTokenIds: [Int] = []
+    public var vocabularyTable: [Int: String] { models?.vocabulary ?? [:] }
 
     public init() {
         self.rope = Qwen3RoPE()
@@ -57,6 +66,7 @@ public actor Qwen3AsrManager {
         audioSamples: [Float],
         language: String? = nil,
         contextTokens: [Int32] = [],
+        assistantPrefixTokens: [Int32] = [],
         maxNewTokens: Int = 512
     ) async throws -> String {
         let maxSamples = Int(Qwen3AsrConfig.maxAudioSeconds * 16_000)
@@ -70,7 +80,8 @@ public actor Qwen3AsrManager {
             throw Qwen3AsrError.generationFailed("Audio too short to extract mel spectrogram")
         }
         return try await transcribe(
-            melSpectrogram: mel, language: language, contextTokens: contextTokens, maxNewTokens: maxNewTokens
+            melSpectrogram: mel, language: language, contextTokens: contextTokens,
+            assistantPrefixTokens: assistantPrefixTokens, maxNewTokens: maxNewTokens
         )
     }
 
@@ -79,12 +90,14 @@ public actor Qwen3AsrManager {
         audioSamples: [Float],
         language: Qwen3AsrConfig.Language?,
         contextTokens: [Int32] = [],
+        assistantPrefixTokens: [Int32] = [],
         maxNewTokens: Int = 512
     ) async throws -> String {
         try await transcribe(
             audioSamples: audioSamples,
             language: language?.englishName,
             contextTokens: contextTokens,
+            assistantPrefixTokens: assistantPrefixTokens,
             maxNewTokens: maxNewTokens
         )
     }
@@ -94,6 +107,7 @@ public actor Qwen3AsrManager {
         melSpectrogram: [[Float]],
         language: String? = nil,
         contextTokens: [Int32] = [],
+        assistantPrefixTokens: [Int32] = [],
         maxNewTokens: Int = 512
     ) async throws -> String {
         guard let models = models else {
@@ -121,7 +135,8 @@ public actor Qwen3AsrManager {
 
         // Step 2: Build chat template with audio tokens
         let promptTokens = buildPromptTokens(
-            numAudioFrames: numAudioFrames, language: resolvedLanguage, contextTokens: contextTokens
+            numAudioFrames: numAudioFrames, language: resolvedLanguage, contextTokens: contextTokens,
+            assistantPrefixTokens: assistantPrefixTokens
         )
 
         // Step 3: Swift-side embedding + audio merge
@@ -142,6 +157,9 @@ public actor Qwen3AsrManager {
             models: models
         )
         let generateTime = CFAbsoluteTimeGetCurrent() - t4
+
+        lastPromptTokenIds = promptTokens
+        lastGeneratedTokenIds = generatedTokenIds
 
         // Step 5: Decode tokens to text
         let text = decodeTokens(generatedTokenIds, vocabulary: models.vocabulary)
@@ -238,6 +256,17 @@ public actor Qwen3AsrManager {
 
     /// Task description token IDs for language-specific transcription.
     /// These are tokenized versions of "Transcribe the audio to {Language} text."
+    ///
+    /// VoicePlus note (measured, `Qwen3PromptProbe`, qwen3-asr-0.6b int8, 2026-09-11): this table
+    /// is inert and, against the `vocab.json` shipped with these weights, wrong. Inert because the
+    /// system message does not steer the output language at all — an empty system message, the
+    /// correctly-encoded English instruction, and this table all produced byte-identical output on
+    /// the same audio. Wrong because the shared prefix `3246, 56541, ... 7461` decodes against this
+    /// vocabulary as "agn" "ıs" … "ĠOper", not "Trans" "cribe" … "Ġaudio" (which is
+    /// `3167, 3114, 279, 7699`), and 29 of the 30 language words are likewise off.
+    /// Left as ported rather than rewritten: correcting 30 rows of a table that provably changes
+    /// no output would be unverifiable churn. The language is forced in the *assistant* turn
+    /// instead — see `Qwen3RefinementPrompt.assistantHeaderTokens`.
     private static let taskTokens: [Qwen3AsrConfig.Language: [Int32]] = [
         .english: [3246, 56541, 279, 7461, 311, 6364, 1467, 13],
         .chinese: [3246, 56541, 279, 7461, 311, 8449, 1467, 13],
@@ -274,7 +303,8 @@ public actor Qwen3AsrManager {
     private func buildPromptTokens(
         numAudioFrames: Int,
         language: Qwen3AsrConfig.Language?,
-        contextTokens: [Int32] = []
+        contextTokens: [Int32] = [],
+        assistantPrefixTokens: [Int32] = []
     ) -> [Int32] {
         var tokens: [Int32] = []
 
@@ -285,10 +315,13 @@ public actor Qwen3AsrManager {
         if let lang = language, let taskToks = Self.taskTokens[lang] {
             tokens.append(contentsOf: taskToks)
         }
-        // VoicePlus addition: the context prompt rides in the system message, after the task
-        // description, which is where Qwen3-ASR's own context feature puts it.
+        // VoicePlus addition: the context prompt rides in the system message, which is where
+        // Qwen3-ASR's own context feature puts it. The separating newline is only written when a
+        // task description precedes it — otherwise the system message would open with a blank line.
         if !contextTokens.isEmpty {
-            tokens.append(Int32(Qwen3AsrConfig.newlineTokenId))
+            if let language, Self.taskTokens[language] != nil {
+                tokens.append(Int32(Qwen3AsrConfig.newlineTokenId))
+            }
             tokens.append(contentsOf: contextTokens)
         }
         tokens.append(Int32(Qwen3AsrConfig.imEndTokenId))
@@ -310,6 +343,10 @@ public actor Qwen3AsrManager {
         tokens.append(Int32(Qwen3AsrConfig.imStartTokenId))
         tokens.append(Int32(Qwen3AsrConfig.assistantTokenId))
         tokens.append(Int32(Qwen3AsrConfig.newlineTokenId))
+        // VoicePlus addition: forced decoder ids. Qwen3-ASR answers with a header of its own
+        // before the transcription, and that header is where the output language is decided;
+        // writing it ourselves is the only way to overrule the model's own language guess.
+        tokens.append(contentsOf: assistantPrefixTokens)
 
         return tokens
     }
