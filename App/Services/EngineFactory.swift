@@ -98,6 +98,14 @@ public enum EngineFactory {
         }
 
         let vad = await VADFactory.make()
+        // R1.4 — the shipping capture graph, chosen by measurement. `CoreAudioCaptureSource` is a
+        // plain tap (its graph line reads `vp=false`) and `.default` is now the profile that matches
+        // it: no spectral gate, no echo cancellation, pre-roll only. Profile and graph therefore
+        // agree, and `AcousticCaptureSource.effectiveAEC` reports the graph's fact into the recorder
+        // manifest — ending the `aec=appleVoiceProcessing` beside `vp=false` contradiction that the
+        // twenty real-room manifests were filed with. To run Apple's AEC instead, both halves must
+        // move together: `VoiceProcessingCaptureSource` + `.voiceProcessing` (see --mic-selftest-vp).
+        // Evidence: Engine/Audio/Robustness/SUITES.md, "Measured: which capture chain should ship?".
         let capture = AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)
         let pipeline = AudioPipeline(source: capture, vad: vad)
         let audio = PipelineAudioSource(pipeline: pipeline)

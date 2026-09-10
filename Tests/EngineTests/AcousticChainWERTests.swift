@@ -8,11 +8,19 @@ import Shared
 /// suite runs the same clean fixtures through `AcousticChain` in 100 ms blocks — exactly how
 /// `AcousticCaptureSource` feeds it live — before recognition. Keep both: the contrast is the point.
 ///
-/// Measured 2026-09-08 (Parakeet TDT 0.6B v3, M2 Pro), and the reason `RobustnessProfile.default`
-/// still enables `SpectralGateNoiseSuppressor`:
+/// Measured 2026-09-08 (Parakeet TDT 0.6B v3, M2 Pro), on the synthetic `say`-generated fixtures:
 ///
 ///   raw (no DSP)                          mean WER 0.0291
-///   default (spectral gate, strength 0.6) mean WER 0.0140
+///   gate (spectral gate, strength 0.6)    mean WER 0.0140
+///
+/// **This was the reason `RobustnessProfile.default` enabled `SpectralGateNoiseSuppressor`, and
+/// R1.4 reversed it (2026-09-11).** On the real-room corpus — the owner's voice on a real
+/// microphone, twenty utterances — the gate lost on the quiet pass and at every point of a
+/// 30→0 dB room-floor sweep, so `.default` is now the plain tap and the gate lives in
+/// `RobustnessProfile.gate`. See `Engine/Audio/Robustness/SUITES.md`. This suite is unchanged in
+/// substance: it still measures the gate, and every `.default` below became `.gate` so that it goes
+/// on measuring the gate rather than silently comparing the plain tap to itself. If a larger corpus
+/// swings the numbers back, this file is the evidence for the other side.
 ///
 /// The gate *does* distort clean speech badly — `defaultChainDistortionOnCleanSpeech` measures a
 /// mean SDR of 10.9 dB against the untouched input (range 4.0–28.7), and the `.raw` control
@@ -80,7 +88,7 @@ struct AcousticChainWERTests {
         }
         let (dir, entries) = try Self.loadFixtures()
         let final = try await RecognizerFactory.makeFinal(manager: manager)
-        let dflt = try await Self.measure(.default, label: "default", entries: entries, dir: dir, final: final)
+        let dflt = try await Self.measure(.gate, label: "gate", entries: entries, dir: dir, final: final)
         #expect(dflt.mean <= 0.10, "the default acoustic chain degrades clean speech")
         #expect(dflt.worst <= 0.25, "worst-case fixture through the default chain: \(dflt.worstFile)")
     }
@@ -97,7 +105,7 @@ struct AcousticChainWERTests {
         let (dir, entries) = try Self.loadFixtures()
         let final = try await RecognizerFactory.makeFinal(manager: manager)
         let raw = try await Self.measure(.raw, label: "raw", entries: entries, dir: dir, final: final)
-        let dflt = try await Self.measure(.default, label: "default", entries: entries, dir: dir, final: final)
+        let dflt = try await Self.measure(.gate, label: "gate", entries: entries, dir: dir, final: final)
         print(String(format: "A/B: raw MEAN %.4f | default MEAN %.4f", raw.mean, dflt.mean))
     }
 }
@@ -150,7 +158,7 @@ extension AcousticChainWERTests {
         var passSDRs: [Float] = []
         for e in entries {
             let raw = try SampleAudioSource.load16k(url: dir.appendingPathComponent(e.file))
-            let gated = Self.throughChain(raw, profile: .default)
+            let gated = Self.throughChain(raw, profile: .gate)
             let pass = Self.throughChain(raw, profile: .raw)
             sdrs.append(SNREstimate.referenceSNR(Array(gated.prefix(raw.count)), reference: raw))
             passSDRs.append(SNREstimate.referenceSNR(Array(pass.prefix(raw.count)), reference: raw))
@@ -179,7 +187,7 @@ extension AcousticChainWERTests {
                 let clean = try SampleAudioSource.load16k(url: dir.appendingPathComponent(e.file))
                 let mixed = Self.mix(clean, snrDB: snr, seed: UInt64(n &+ 1) &* 0x9E3779B9)
                 let rawHyp = try await final.recognize(Self.throughChain(mixed, profile: .raw)).joinedText
-                let gatedHyp = try await final.recognize(Self.throughChain(mixed, profile: .default)).joinedText
+                let gatedHyp = try await final.recognize(Self.throughChain(mixed, profile: .gate)).joinedText
                 let rw = wordErrorRate(reference: e.transcript, hypothesis: rawHyp)
                 let gw = wordErrorRate(reference: e.transcript, hypothesis: gatedHyp)
                 rawTotal += rw; gatedTotal += gw

@@ -19,6 +19,17 @@ public protocol AudioCaptureSource: AnyObject, Sendable {
     func switchDevice(to device: AudioDeviceInfo?) throws
 }
 
+/// A capture source that can describe the graph it actually resolved to. Implemented by the two
+/// HAL sources (`CoreAudioCaptureSource`, `VoiceProcessingCaptureSource`); wrappers forward it.
+///
+/// R1.4 added this for one reason: the recorder's manifest used to name the *profile's* intent
+/// (`aec=appleVoiceProcessing`) while the graph line in the same manifest said `vp=false`. Twenty
+/// real-room recordings were filed with that contradiction. A source that can be asked what it
+/// resolved to lets the manifest state the truth instead of the intent, whichever source is wrapped.
+public protocol CaptureGraphDescribing: AnyObject {
+    var diagnostics: AudioCaptureDiagnostics { get }
+}
+
 public enum AudioCaptureError: Error, Equatable {
     case noInputDevice
     case engineStartFailed(String)
@@ -108,7 +119,7 @@ public struct AudioCaptureDiagnostics: Sendable, Equatable {
 /// default* — see `pin(deviceID:)` for why pinning the default is what silenced 1.6.3.
 /// Clean-room; FluidVoice is a design reference only.
 /// Untestable without a microphone + TCC permission — exercised by `VoicePlusApp --mic-selftest`.
-public final class CoreAudioCaptureSource: AudioCaptureSource, @unchecked Sendable {
+public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescribing, @unchecked Sendable {
     public var sink: ((UnsafeBufferPointer<Float>) -> Void)?
     public var onDeviceChanged: ((AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
     private(set) public var device: AudioDeviceInfo?

@@ -14,7 +14,7 @@ import Shared
 ///   * if voice processing accepts the mode but then delivers nothing, the graph is rebuilt as a
 ///     plain tap after `fallbackTimeout`. Producing silence forever is never an option.
 /// Untestable without a mic + TCC permission — exercised by `VoicePlusApp --mic-selftest`.
-public final class VoiceProcessingCaptureSource: AudioCaptureSource, @unchecked Sendable {
+public final class VoiceProcessingCaptureSource: AudioCaptureSource, CaptureGraphDescribing, @unchecked Sendable {
     public var sink: ((UnsafeBufferPointer<Float>) -> Void)?
     public var onDeviceChanged: ((AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
     private(set) public var device: AudioDeviceInfo?

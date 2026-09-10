@@ -8,11 +8,32 @@ import Shared
 /// flushes the last `profile.prerollSeconds` of that buffer to the sink first.
 ///
 /// Drop-in: `AudioPipeline(source: AcousticCaptureSource(wrapping: inner, profile: p), ...)`.
-public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendable {
+public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescribing, @unchecked Sendable {
     public var sink: ((UnsafeBufferPointer<Float>) -> Void)?
     public var onDeviceChanged: ((AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
     public var device: AudioDeviceInfo? { inner.device }
     public let inner: any AudioCaptureSource
+    /// The wrapped source's own view of the graph it resolved to, when it has one. Forwarded so a
+    /// caller (and the recorder's manifest) never has to guess which concrete source is inside.
+    public var diagnostics: AudioCaptureDiagnostics {
+        (inner as? any CaptureGraphDescribing)?.diagnostics ?? AudioCaptureDiagnostics()
+    }
+    /// What echo cancellation is **actually** running, as opposed to what the profile asks for.
+    ///
+    /// The graph is the authority: Apple voice processing lives in the capture unit
+    /// (`VoiceProcessingCaptureSource`), so a profile that names it while a plain tap is wrapped is
+    /// simply wrong — and that contradiction is exactly what the twenty real-room manifests
+    /// recorded (`aec=appleVoiceProcessing` beside `vp=false`). Reported into the manifest, so a
+    /// replay reads the truth. Falls back to the profile when the source cannot describe itself.
+    public var effectiveAEC: RobustnessProfile.AECMode {
+        guard let describing = inner as? any CaptureGraphDescribing else { return profile.aec }
+        if describing.diagnostics.voiceProcessing { return .appleVoiceProcessing }
+        // A neural slot only counts when a backend is actually plugged in and processing.
+        if profile.aec == .neural, chain.stages.contains(where: { $0.isAvailable && $0.name.hasSuffix("-aec") }) {
+            return .neural
+        }
+        return .off
+    }
     public private(set) var profile: RobustnessProfile
     public let chain: AcousticChain
     /// Assessment of the current device (transport / SCO rate), computed at prewarm.
@@ -56,6 +77,11 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
             guard let self else { return }
             self.bluetooth = BluetoothInputDetector.assess(new)
             self.chain.reset()
+            // The pre-roll holds audio from the microphone that just went away. Flushing it into
+            // the utterance that starts on the *new* device would splice one room onto another —
+            // and after an unplug it is the old device's last, often clipped, buffers. Drop it: a
+            // route change is a clean slate for everything the wrapper is holding.
+            self.lock.lock(); self.preroll.removeAll(keepingCapacity: true); self.lock.unlock()
             self.onDeviceChanged?(old, new)
         }
     }
@@ -66,7 +92,20 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
         try inner.prewarm()
         bluetooth = BluetoothInputDetector.assess(inner.device)
         lock.lock(); let needStart = prerollCapacity > 0 && !prerolling && !live; if needStart { prerolling = true }; lock.unlock()
-        if needStart { try inner.start() }
+        guard needStart else { return }
+        do {
+            try inner.start()
+        } catch {
+            // The wedge this guard exists for. `prerolling` is set *before* the inner source is
+            // started, and it used to stay set when that start threw — a device unplugged between
+            // hotkey-down and hotkey-up is the ordinary way in. The next `start()` then saw
+            // `wasPrerolling == true`, concluded the inner source was already streaming, and never
+            // called `inner.start()`: capture announced itself, delivered zero blocks, and the
+            // no-audio watchdog reported "no sound is reaching VoicePlus" for the rest of the
+            // session. Unwinding the flag keeps a failed prewarm retryable.
+            lock.lock(); prerolling = false; preroll.removeAll(keepingCapacity: true); lock.unlock()
+            throw error
+        }
     }
 
     public func start() throws {
@@ -82,8 +121,14 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
         // recognizer gets. A recording that starts a syllable late is worse than none. Disarmed
         // means `begin()` is never called, so `finish()` returns nil and nothing touches the disk.
         if isRecordingEnabled() {
-            recorder?.begin(device: inner.device, profile: profile,
-                            captureGraph: (inner as? CoreAudioCaptureSource)?.diagnostics.summary)
+            // Manifest and graph must agree: the profile supplies the gate settings, the graph
+            // supplies the echo-cancellation fact. `(inner as? CoreAudioCaptureSource)` used to be
+            // the only cast here, so a voice-processing run recorded no graph line at all.
+            var recorded = profile
+            recorded.aec = effectiveAEC
+            let describing = inner as? any CaptureGraphDescribing
+            recorder?.begin(device: inner.device, profile: recorded,
+                            captureGraph: describing?.diagnostics.summary)
         }
         if !held.isEmpty {
             held.withUnsafeBufferPointer { recorder?.appendRaw($0) }
@@ -97,7 +142,9 @@ public final class AcousticCaptureSource: AudioCaptureSource, @unchecked Sendabl
 
     public func stop() {
         inner.stop()
-        lock.lock(); live = false; prerolling = false; preroll.removeAll(); lock.unlock()
+        // Everything the wrapper holds between utterances is cleared here, so a sleep/wake (which
+        // arrives as stop-then-start) cannot leak the pre-sleep tail into the next dictation.
+        lock.lock(); live = false; prerolling = false; preroll.removeAll(); prerollFlushed = 0; lock.unlock()
         let tail = chain.flush()
         if !tail.isEmpty { deliver(tail) }
         chain.reset()

@@ -48,3 +48,98 @@ Conclusion: a low SDR through this chain is not by itself evidence of a dictatio
 `SpectralGateNoiseSuppressor` and should be fixed on their own merits, not as an accuracy fix:
 `framesSeen <= 6` seeds the noise floor from whatever the first ~112 ms contains (speech, if the user
 starts talking immediately), and `noiseRise` lets the floor creep 2 %/frame on speech-active bins.
+
+## Measured: which capture chain should ship? (2026-09-11, R1.4)
+
+The 2026-09-08 section above measured the gate on **synthetic** `say`-generated fixtures. R1.4 asked
+the same question on real audio: `Fixtures/real-room/builtin`, twenty dictations of
+`Fixtures/real-room/script.md` in the owner's voice on the built-in microphone, scored per file
+against the script (timestamp order, lowercase, punctuation stripped) through Parakeet TDT 0.6B v3.
+Every chain is fed in 100 ms blocks, exactly as `AcousticCaptureSource` feeds it live.
+Measurement: `Tests/EngineTests/CaptureDefaultsWERTests.swift`.
+
+### Quiet pass, as recorded (20 utterances, 220 reference words)
+
+| Chain | profile | corpus WER | subs / dels / ins | mean of files | worst file |
+|---|---|---|---|---|---|
+| **a. raw tap** | `.raw` | **0.1000** | 12 / 4 / 6 | 0.1179 | #05 1.000 |
+| b. tap + spectral gate | `.gate` | 0.1182 | 12 / 4 / 10 | 0.1296 | #05 1.000 |
+| c. voice processing + gate | `.voiceProcessing` | *hardware-verified pending* | — | — | — |
+
+Substitutions and deletions are **identical** across (a) and (b). The entire quiet-pass margin is
+four extra *insertions* on two sentences, where the gate flips Parakeet's number formatting:
+
+| # | reference | raw tap | tap + gate |
+|---|---|---|---|
+| 04 | `…lands at 11:45, so…` | `11:45` ✓ | `eleven forty-five` (2s 1i) |
+| 11 | `…Mumbai 400050.` | `44050` (3s) | `four zero five zero` (2s 3i) |
+| 03 | `…at Kothari's on…` | `Qattais` (1s) | `Kothari's` ✓ **gate wins** |
+| 13 | `…when you are done.` | `you're` (1s 1d) | `you are` ✓ **gate wins** |
+| 19 | `…and the window is open.` | `and window is open` (1d) | `and windows open` (1s 2d) |
+
+### Room-floor sweep — the measurement that actually decided it
+
+A quiet room on one microphone cannot settle a 4-word margin, so the same twenty files were re-scored
+under deterministic seeded pink noise mixed at a measured SNR over the speech-active frames. The gate
+was given every chance to earn its place, down to 0 dB where speech and floor have equal power:
+
+| added room floor | a raw tap | b tap + gate | winner |
+|---|---|---|---|
+| 30 dB SNR | **0.0909** | 0.1182 | raw |
+| 25 dB SNR | **0.0909** | 0.1182 | raw |
+| 20 dB SNR | **0.0909** | 0.1182 | raw |
+| 15 dB SNR | **0.1000** | 0.1227 | raw |
+| 10 dB SNR | **0.1000** | 0.1273 | raw |
+| 5 dB SNR | **0.1000** | 0.1273 | raw |
+| 0 dB SNR | **0.1091** | 0.1273 | raw |
+
+**Raw ahead at 7 of 7 points.** Note what the sweep also shows: the gate's curve is *flatter*
+(0.1182 → 0.1273, +0.009) than the plain tap's (0.0909 → 0.1091, +0.018), so the suppressor really is
+buying noise robustness — it just starts far enough behind on real-room audio that the curves never
+cross above 0 dB, and below 0 dB dictation is not usable anyway.
+
+### Decision
+
+`RobustnessProfile.default` is now **the plain tap: no spectral gate, no echo cancellation, pre-roll
+only.** All three production sites take it (`EngineFactory`, `LiveOnboardingDependencies`,
+`MicSelfTest`), so there is exactly one shipping capture profile. The gate moved to
+`RobustnessProfile.gate`, which is what the 2026-09-08 suites above measure and what `.default`
+becomes again if this table reverses. `CaptureDefaultsWERTests` asserts
+`RobustnessProfile.default.noiseSuppression == (best measured chain is the gate)`, derived from the
+table rather than hard-coded, so the default cannot drift away from the evidence in silence.
+
+**This reverses the 2026-09-08 conclusion, and the honest caveats are:** n = 20 utterances, one room,
+one microphone, one speaker; two sentences carry most of the quiet-pass margin; and the scorer counts
+`eleven forty-five` against `11:45` as three errors, which is arguably a formatting question rather
+than a recognition one. Real voice through a real microphone is still the corpus that should decide a
+*capture* default, which is why it wins over the synthetic fixtures — but re-run both suites before
+trusting this against a larger or differently-recorded corpus.
+
+### Why column (c) is `hardware-verified pending` and not a number
+
+Apple voice processing is not a filter that can be applied to a file. It is a mode of the input
+AudioUnit (`AVAudioInputNode.setVoiceProcessingEnabled`), so it exists only while a live microphone is
+streaming through a real HAL device; an `AVAudioEngine` in manual-rendering mode has no input node to
+enable it on. The corpus cannot stand in either — all twenty manifests record `vp=false`, asserted by
+`realRoomCorpusWasRecordedWithoutVoiceProcessing`. Emulating it with some other suppressor would
+measure the emulation, so nothing is emulated and nothing is claimed. The owner's check is
+
+```sh
+open -n -a /Applications/VoicePlus.app --args --mic-selftest-vp 10
+```
+
+which builds `VoiceProcessingCaptureSource` instead of `CoreAudioCaptureSource` and prints
+`voiceProcessingActive`, `didFallBackToPlainTap` and the resolved graph. To fill the column in,
+re-record `script.md` with that source armed and re-run this suite with `VOICEPLUS_CORPUS_PASS` set to
+the new pass.
+
+### Manifest and graph now agree
+
+Every one of the twenty real-room manifests was filed claiming `aec=appleVoiceProcessing` beside a
+graph line reading `vp=false`, because the manifest recorded the *profile's intent* while echo
+cancellation is a property of the *capture unit*. `AcousticCaptureSource.effectiveAEC` now reports
+what the graph resolved to, and `CaptureGraphDescribing` lets the wrapper forward the inner source's
+graph whichever source that is (previously only `CoreAudioCaptureSource` was cast, so a
+voice-processing run recorded no graph line at all). Held by
+`CaptureHotSwapTests.manifestAECMatchesTheCaptureGraph`; the historical contradiction is kept as a
+documented fact by `historicalManifestsDisagreedWithTheirOwnGraph`.

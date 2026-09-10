@@ -43,8 +43,12 @@ struct UtteranceRecorderTests {
         let raw = (0..<16_000).map { Float(sin(Double($0) * 0.05)) * 0.5 }
         let processed = raw.map { $0 * 0.5 }
 
+        // `.gate`, not `.default`: this asserts the manifest faithfully echoes the profile's
+        // noise-suppression flag, so it needs a profile whose flag is *on*. R1.4 moved `.default`
+        // to the plain tap (`noiseSuppression == false`), which would have made the assertion below
+        // vacuous rather than wrong.
         recorder.begin(device: Self.dev("MacBook Pro Microphone", .builtIn, rate: 48_000),
-                       profile: .default, captureGraph: "tap=44100Hz/1ch")
+                       profile: .gate, captureGraph: "tap=44100Hz/1ch")
         raw.withUnsafeBufferPointer { recorder.appendRaw($0) }
         recorder.appendProcessed(processed)
         let url = try #require(try recorder.finish())
