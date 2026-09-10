@@ -1416,3 +1416,63 @@ Every phase of the build plan has shipped through `Packaging/release.sh`; checks
 - iOS keyboard build via Xcode (xcodegen + archive + TestFlight) — source-only in v1.6.0; Mac→iPhone sync round-trip untested end-to-end.
 - Notarization + Developer ID signing + hardened runtime (all builds are ad-hoc signed) — pending an identity.
 - Real-world recorded fixture suites (`Lab/FIXTURES.md` backlog) — all kill-criteria/gate numbers to date are on synthetic TTS audio.
+
+---
+
+# V3 improvements — build log
+
+Executing `VoicePlus_Improvements_V3_Build.md` (contract: `VoicePlus_Improvements_V3.md`).
+Baseline: 1.7.15, whole-package `swift build` clean, 1430 tests green.
+DMG per wave, version bumped each time, previous DMGs kept.
+
+| Wave | Items | Status | DMG |
+|---|---|---|---|
+| 0 | R0 · R1.4 · R1.5 · R2.1 · R4.1a · R5.1 · R6.1 | in progress | 1.8.0 pending |
+| 1 | R2.2 · R2.3 · R2.4 · R2.5 | blocked on R2.1 | 1.9.0 pending |
+| 2 | R3 · R4.1b · R4.2 · R4.3 · R5.2 · R5.3 · R6.2 | blocked on R2 | 1.10.0 pending |
+| 3 | R5.4 · R7 | blocked on R5.2–R5.3, R0+R6 | 1.11.0 pending |
+| 4 | R8 | blocked on R3+R7 | 1.12.0 pending |
+
+## Wave 0 (2026-09-11)
+
+- Launched seven parallel subagents, one per item, isolated scratch paths, scoped commits.
+
+- Committed, wave 0: R0.1 `be0d1ca` (DESIGN.md, 769 lines) · R2.1 `c46042d` (stability/SegmentID/DeliveryOutcome,
+  51 SharedTests green) · R5.1 `f52255a` (Qwen3ASR port + RefinementSession) · R4.1a `96d801d` (wakeVerb and
+  adapt.lexicon append provenance; 20 real corpus files through the real `AppContainer` stage list, **202 stage
+  runs, 0 contract violations**) · R1.5 `74bd335` (preview candidates, corpus scorer, light preview formatting).
+- **Interrupted:** the session hit its usage limit with eight agents in flight; all eight were killed mid-edit.
+  Work was left uncommitted but intact in the tree, which had exactly one compile error
+  (`TextInjector.swift` calling `FocusGuard.dequeueDeliverable`, removed by the half-finished R2.3 edit).
+  Relaunched agents were pointed at their predecessors' partial work rather than starting over.
+- Open at that point: R1.4, R6.1 (wave 0) and R2.2, R2.3, R2.4, R2.5 (wave 1).
+- Noted for the release gate: `GatekeeperLatencyTests.classifyStaysUnderBudget` failed at 144 ms against a
+  15 ms budget while nine agents shared the machine. Pre-existing and load-induced, not caused by V3 work —
+  re-check on an idle machine before cutting the DMG.
+
+### Wave 0 complete · wave 1 complete · 1.8.0 candidate cut
+
+- Wave 0 (7/7): R0.1 `be0d1ca` · R1.4 `1baf516` · R1.5 `74bd335` · R2.1 `c46042d` · R4.1a `96d801d` ·
+  R5.1 `f52255a` (+ `324e635`) · R6.1 `0646ccd`.
+- Wave 1 (4/4): R2.2 `d680ec1` · R2.3 `60751e6` · R2.4 `727fbd6` · R2.5 `afd959f`.
+- **R1.4 reversed a prior finding.** On twenty real-room dictations the plain tap beat the spectral gate
+  (WER 0.1000 vs 0.1182) and won all 7 points of a 30→0 dB sweep. `.default` is now the plain tap and the
+  recorder manifest stops claiming `aec=appleVoiceProcessing` while the graph ran `vp=false`. Caveat kept
+  on the record: n=20, one room, one mic, and two sentences carry most of the quiet-pass margin (the
+  scorer counts "eleven forty-five" vs "11:45" as three errors). `.gate` is one line away.
+- **R2.3 makes the Brave double-fire structurally impossible.** Only a method that threw *before posting*
+  falls through; unconfirmable readback is now `delivered(unverified)`. 104 InjectionTests (+38); 10
+  existing tests changed because the delivery rule itself inverted.
+- **R2.4 deleted the 1.5 s auto-flush on focus return** that V3 §6 reverses, and fixed a `ChaosTests`
+  case that had been asserting the old auto-redelivery.
+- **Open gate, honestly labelled:** the Qwen port transcribes English speech into Devanagari (WER 1.000).
+  The prompt/token-table fix in `324e635` was necessary but not sufficient; a dedicated agent is on the
+  root cause. `qwenRefinement` stays **default off**, so dictation is unaffected.
+- Tests at `727fbd6`: **1626 total, 1624 green**; both failures in the flagged Qwen path. The earlier
+  `GatekeeperLatencyTests` failure was pure machine load — it passes on a quiet tree.
+- **1.8.0 DMG built** from a clean worktree at `727fbd6` (not the working tree, so no in-flight wave-2
+  code leaked in): `VoicePlus_V3-w01_1.8.0.dmg`, 15 MB, sha256 `caa3009d…`, `verify_install.sh` OK
+  (launches, self-contained, 9/9 TCC descriptions, left the user's running instance alone).
+  22 DMGs now in `Packaging/releases/` — none deleted or overwritten.
+- Wave 2 launched in parallel: R4.1b, R4.2, R6.2 + the Qwen root-cause agent. R3, R4.3, R5.2, R5.3 queued.
+

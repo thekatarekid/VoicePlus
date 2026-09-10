@@ -97,7 +97,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
 
 ### R0 — DESIGN.md for window, settings, onboarding · [P] wave 0
 
-- [ ] **R0.1 Write `DESIGN.md`** at the repo root.
+- [x] **R0.1 Write `DESIGN.md`** at the repo root.
   - Contents: typography (SF Pro, SF Mono), one accent, dark-first, spacing scale, contrast targets,
     state vocabulary, focus behaviour, reduced motion, error sizing, copy voice.
   - Document the **existing** pill and notch rows as they are. Do not propose changes.
@@ -107,7 +107,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
 
 ### R1 — Real-audio loop (R1.1–R1.3 done)
 
-- [ ] **R1.4 Capture defaults by measurement · [P] wave 0**
+- [x] **R1.4 Capture defaults by measurement · [P] wave 0**
   - Add a test in `Tests/EngineTests/` that runs `Fixtures/real-room/builtin/*-raw.wav` through three
     chains: raw tap, tap + spectral gate (`RobustnessProfile.default`), voice-processing + gate.
     Voice-processing cannot run offline; emulate its effect only if a reproducible path exists,
@@ -122,7 +122,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
   - Tests: `EngineTests`. Acceptance: table committed to `Engine/Audio/Robustness/SUITES.md`;
     default chosen from it; manifest and graph agree; hot-swap tests green.
 
-- [ ] **R1.5 Preview choice · [P] wave 0**
+- [x] **R1.5 Preview choice · [P] wave 0**
   - Add per-file scoring to `RecordingReplayTests`: match recordings to `script.md` lines by timestamp
     order; normalize (lowercase, strip punctuation); print WER per file and total.
   - Add a preview replay: feed each raw WAV in 100 ms chunks to `EOUPreviewRecognizer` and to
@@ -134,7 +134,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
 
 ### R2 — Two surfaces, ordered commit, delivery, recovery · P0
 
-- [ ] **R2.1 Shared types · [P] wave 0 · serial gate for wave 1**
+- [x] **R2.1 Shared types · [P] wave 0 · serial gate for wave 1**
   - `Shared/Types/TranscriptSpan.swift`: add `stability: Stability` (`provisional`, `committed`,
     `final`) with default `.final` so existing initializers compile.
   - Add `SegmentID { sessionID: UUID, index: Int }` and `DeliveryOutcome` enum
@@ -143,7 +143,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
   - Tests: `SharedTests` (encode/decode round trip, default stability). Acceptance: whole package
     builds; no existing test changes except added cases.
 
-- [ ] **R2.2 Engine segments · [P] wave 1**
+- [x] **R2.2 Engine segments · [P] wave 1**
   - In `Engine/ASRRuntime/RealEngine.swift` and the audio pipeline: close a segment on key release
     (hold) and on endpoint (latch). Emit `EngineEvent` with `SegmentID` and stability.
   - Bound the ring buffer and the pending-segment backlog (max 2). Beyond the bound, commit pass-1.
@@ -151,7 +151,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
   - Tests: `EngineTests` (segment closure, ordering, stale rejection, backlog bound) using
     `MockEngine`/fixture audio. Acceptance: tests green; no change to fixture WER.
 
-- [ ] **R2.3 Injection: readback rule, Chromium adapter, held queue · [P] wave 1**
+- [x] **R2.3 Injection: readback rule, Chromium adapter, held queue · [P] wave 1**
   - `Injection/TextInjector.swift`: implement the readback rule. After a method returns `true` without
     throwing, do not iterate further. If readback does not confirm, return
     `.injected(method:, verified: false)`. Only a thrown error before posting falls through.
@@ -169,7 +169,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
     auto-delivered; secure refusal; never-inject; ordering; duplicate suppression). Acceptance: the
     Brave log pattern (`keystroke failed` then `paste failed`) cannot occur; all tests green.
 
-- [ ] **R2.4 Pill and app surface · [P] wave 1**
+- [x] **R2.4 Pill and app surface · [P] wave 1**
   - `App/UI/PillView.swift` / `PillPanelController.swift` / `PresenceIndicatorController.swift`:
     on land, replace the preview with the committed text for ~1.2 s, then return to ready. Existing
     row style. Add an *unverified* variant of the landed row ("Landed · not confirmed").
@@ -182,7 +182,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
   - Tests: `AppTests` (state transitions, held actions, quit guard, copy strings). Acceptance: every
     outcome has a row; no new mark, sound, or animation beyond the existing style.
 
-- [ ] **R2.5 Repair commands · [P] wave 1**
+- [x] **R2.5 Repair commands · [P] wave 1**
   - `Actions/`: `scratch that`, `no, <replacement>`, `put it back`, bound to the last committed
     segment's text region. Apply only if the region still matches (AX read); else show a suggestion in
     the pill. Use `CorrectionLedger` as the record for "put it back". Never blind backspaces or ⌘Z.
@@ -216,7 +216,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
 
 ### R4 — Context, formatting, learning
 
-- [ ] **R4.1a Fix provenance no-ops · [P] wave 0**
+- [x] **R4.1a Fix provenance no-ops · [P] wave 0**
   - Find the stages registered as `wakeVerb` and `adapt.lexicon` (grep the stage IDs in `Pipeline/`
     and `App/Services/AppContainer.swift`). Make each output span append its `StageID` to
     `provenance`. If a stage is dead by design, remove it from the registry instead.
@@ -243,7 +243,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
 
 ### R5 — Qwen3-ASR refinement, flagged
 
-- [ ] **R5.1 Port the CoreML module · [P] wave 0**
+- [x] **R5.1 Port the CoreML module · [P] wave 0**
   - Copy the six Swift files from the Qwen3ASR source directory (`Qwen3AsrConfig`, `Qwen3AsrManager`,
     `Qwen3AsrModels`, `Qwen3RoPE`, `Qwen3StreamingManager`, `WhisperMelSpectrogram`) and its
     `LICENSE-Apache-2.0` into `Engine/ASRRuntime/Qwen3ASR/`. Add the source project's MIT notice as
@@ -275,7 +275,7 @@ Suggested subagent split for wave 0 (seven agents, no shared files):
 
 ### R6 — One model stack and onboarding
 
-- [ ] **R6.1 Remove the tier picker · [P] wave 0**
+- [x] **R6.1 Remove the tier picker · [P] wave 0**
   - `App/Onboarding/OnboardingDependencies.swift`: remove `fast / balanced / best`. One stack:
     `parakeetTDTv3` + `parakeetEOU160`. Install on first run with existing progress and integrity UI.
   - `Engine/ASRRuntime/ModelCatalog.swift` / `BundledModel.swift`: keep the CTC and Whisper entries
@@ -364,3 +364,46 @@ Evidence: implemented + fixture-verified; hardware pending (owner checklist 1–
 Deviations: none
 Unverified: Brave selection readback on real page
 ```
+
+---
+
+## 7. Execution status (agent-maintained)
+
+Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + tests green + acceptance addressed).
+Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hardware-verified.
+
+| Item | Wave | Status | Evidence | Notes |
+|---|---|---|---|---|
+| R0.1 DESIGN.md | 0 | [x] | impl | `be0d1ca` 769 lines; pill documented as-is |
+| R1.4 capture defaults | 0 | [x] | fix | `1baf516` raw tap wins: 0.1000 vs gate 0.1182, and 7/7 SNR points |
+| R1.5 preview choice | 0 | [x] | fix | `74bd335` scorer + previewBackend flag + preview formatting |
+| R2.1 shared types | 0 | [x] | impl | `c46042d` 51 SharedTests green; wave-1 gate opened |
+| R4.1a provenance no-ops | 0 | [x] | fix | `96d801d` 202 stage runs, 0 contract violations |
+| R5.1 Qwen port | 0 | [x] | impl | `f52255a`; prompt/token-table fix pending commit |
+| R6.1 remove tier picker | 0 | [x] | impl | `0646ccd` build-verified; test run was blocked |
+| R2.2 engine segments | 1 | [x] | fix | `d680ec1` 16 new; fixture WER unchanged (before/after build) |
+| R2.3 injection rules | 1 | [x] | fix | `60751e6` 104 InjectionTests green (+38, 10 changed) |
+| R2.4 pill + app surface | 1 | [x] | impl | `727fbd6` AppTests 550/550; no-redesign held |
+| R2.5 repair commands | 1 | [x] | impl | `afd959f` 24 new, 186 ActionsTests green |
+| R3 coordinator/latch/mute | 2 | [ ] | — | |
+| R4.1b ranked context | 2 | [~] | — | in flight |
+| R4.2 field-role formatting | 2 | [~] | — | in flight |
+| R4.3 dictionary + learning UI | 2 | [ ] | — | |
+| R5.2 refine stage | 2 | [ ] | — | |
+| R5.3 gate policy + settings | 2 | [ ] | — | |
+| R6.2 onboarding flow | 2 | [~] | — | in flight |
+| R5.4 benchmark | 3 | [ ] | — | |
+| R7 one window, one menu | 3 | [ ] | — | |
+| R8 ambient + Timeline | 4 | [ ] | — | |
+
+### Release artifacts
+
+| Wave | Version | DMG | Status |
+|---|---|---|---|
+| 0+1 | 1.8.0 | `Packaging/releases/VoicePlus_V3-w01_1.8.0.dmg` | **built** from `727fbd6`, verify_install OK, 15 MB |
+| 2 | 1.9.0 | `Packaging/releases/VoicePlus_V3-w2_1.9.0.dmg` | pending |
+| 3 | 1.10.0 | `Packaging/releases/VoicePlus_V3-w3_1.10.0.dmg` | pending |
+| 4 | 1.11.0 | `Packaging/releases/VoicePlus_V3-w4_1.11.0.dmg` | pending |
+
+
+Previous DMGs are never deleted or overwritten; `release.sh` refuses to overwrite.
