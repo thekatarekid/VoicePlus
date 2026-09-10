@@ -67,7 +67,7 @@ struct ChaosTests {
 
     // MARK: Focus churn → abort + queue + redeliver
 
-    @Test func focusChurnAbortsInjectionAndRedeliversWhenFocusReturns() async throws {
+    @Test func focusChurnAbortsInjectionAndHoldsTheTextForRecovery() async throws {
         let system = MockSystemAccess()
         let textEdit = try #require(system.frontmost)
         let injector = TextInjector(system: system)
@@ -84,15 +84,24 @@ struct ChaosTests {
         }
         #expect(system.field.value.isEmpty, "nothing may be typed into the wrong app")
         #expect(system.journal.isEmpty)
-        #expect(injector.focusGuard.queue.count == 1)
+        #expect(injector.focusGuard.held.count == 1)
+        #expect(result.delivery?.isHeld == true)
+        #expect(result.delivery?.isTerminal == false)
 
-        // Still in Slack: flush delivers nothing.
-        #expect(injector.flushQueue().isEmpty)
-        // Back to TextEdit: the queued utterance lands there.
+        // R2.3 / R2.4 (V3 §6) — **returning focus alone does not insert it.** This assertion used
+        // to be the opposite: the queue was flushed on a 1.5 s timer once the app came back, which
+        // typed a finished dictation into wherever the caret happened to be by then. The text now
+        // waits for the user: Insert here / Copy / Discard, on the pill row and in the menu.
         system.frontmost = textEdit
-        let delivered = injector.flushQueue()
-        #expect(delivered.count == 1 && delivered[0].succeeded)
+        #expect(injector.flushQueue().isEmpty)
+        #expect(system.field.value.isEmpty, "nothing lands without the user asking")
+        #expect(injector.focusGuard.held.count == 1)
+
+        // Insert here is the one path from held to delivered, and it only runs because it was asked.
+        let inserted = try #require(injector.focusGuard.insertHere())
+        #expect(inserted.succeeded)
         #expect(system.field.value.lowercased().contains("meet at noon"))
+        #expect(injector.focusGuard.held.isEmpty)
     }
 
     @Test("chaos: random focus flips across 30 landings never leak text", arguments: [1, 7, 13])
@@ -115,7 +124,7 @@ struct ChaosTests {
         }
         let typedIntoOther = system.journal.filter { $0.contains("(300)") }
         #expect(typedIntoOther.isEmpty, "text reached Safari: \(typedIntoOther)")
-        #expect(landed + injector.focusGuard.queue.count == 30)
+        #expect(landed + injector.focusGuard.held.count == 30)
     }
 
     struct SplitMix {

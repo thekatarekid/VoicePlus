@@ -14,6 +14,8 @@ public final class PillViewModel: ObservableObject {
     @Published public var scriptBadge: String = ""
 
     public var onGhostAction: ((TransformGhost.Action) -> Void)?
+    /// R2.4 — Insert here / Copy / Discard from the held row.
+    public var onHeldAction: ((HeldPillInfo, HeldAction) -> Void)?
     /// P5 — the persistent presence indicator listens to the same engine feed the pill reduces,
     /// so the composition root does not have to fan the engine out twice.
     public var onEngineState: ((EngineState) -> Void)?
@@ -22,6 +24,8 @@ public final class PillViewModel: ObservableObject {
     /// Every write to `state` in this class goes through `route(_:)`; nothing sets it directly.
     private var presenter = PillPresenter()
     private var holdTimer: Timer?
+    /// R2.4 — retracts a landed/held/failed delivery row after its dwell.
+    private var deliveryTimer: Timer?
     /// Injectable clock so `PillPresenterTests` can drive dwell without sleeping.
     public var now: () -> Date = Date.init
     private var cancellables: Set<AnyCancellable> = []
@@ -71,6 +75,51 @@ public final class PillViewModel: ObservableObject {
     /// Show a state the engine reducer does not produce (transform pill). Engine updates resume
     /// overriding it on the next engine event.
     public func present(_ state: PillState) { route(state) }
+
+    /// R2.4 — one `DeliveryOutcome`, one row, then back to ready. The retraction is scheduled here
+    /// rather than left to the engine because `.idle` normally arrives *before* the landing result
+    /// (the pipeline is async), so nothing else would ever ask the pill to come down again.
+    @discardableResult
+    public func present(delivery: DeliveryOutcome, text: String, destination: String = "",
+                        heldID: UUID = UUID()) -> PillState {
+        let next = PillDeliveryRouter.state(for: delivery, text: text, destination: destination, heldID: heldID)
+        route(next)
+        scheduleDeliveryRetraction(after: PillDwell.minimum(for: next))
+        return next
+    }
+
+    /// A notice row nothing else will take down, retracted after its own dwell — the same timer the
+    /// delivery rows use. Needed because a row raised outside the engine's own state stream (R2.5's
+    /// repair suggestions) has no `.idle` behind it to retract it.
+    public func presentNotice(_ state: PillState) {
+        route(state)
+        scheduleDeliveryRetraction(after: PillDwell.minimum(for: state))
+    }
+
+    /// Test seam and timer callback: take the delivery row down. No-op for any other state, so a
+    /// new utterance that started in the meantime is never yanked off screen.
+    public func retractDelivery(immediately: Bool = false) {
+        deliveryTimer?.invalidate()
+        deliveryTimer = nil
+        switch state {
+        case .landed, .held, .error:
+            reducer.hide()
+            ghost = nil
+            morph = nil
+            if immediately { apply(decision: presenter.dismiss(now: now())) } else { route(.hidden) }
+        default: break
+        }
+    }
+
+    private func scheduleDeliveryRetraction(after dwell: TimeInterval) {
+        deliveryTimer?.invalidate()
+        let timer = Timer(timeInterval: max(0.05, dwell + 0.05), repeats: false) { [weak self] _ in
+            guard let self else { return }
+            if Thread.isMainThread { self.retractDelivery() } else { DispatchQueue.main.async { self.retractDelivery() } }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        deliveryTimer = timer
+    }
 
     /// The single write path to `state`. A visible state lands immediately; a retraction waits out
     /// the current state's `PillDwell` minimum so an error or a "Landing…" can never flash past.
@@ -150,6 +199,13 @@ public struct PillView: View {
         case .unavailable: Image(systemName: "mic.slash.fill").foregroundStyle(.yellow)
         case .error: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
         case .landing: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        // R2.4 — no new mark: verified landing keeps `landing`'s filled green check; an
+        // unconfirmed one uses the *unfilled* check in the existing attention yellow, so the two
+        // differ in shape as well as colour. Held reuses the warning triangle.
+        case .landed(let info):
+            if info.verified { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+            else { Image(systemName: "checkmark.circle").foregroundStyle(.yellow) }
+        case .held: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
         case .idle: Image(systemName: "mic").foregroundStyle(.secondary)
         default: Image(systemName: model.handsFree ? "mic.badge.plus" : "mic.fill").foregroundStyle(.red)
         }
@@ -163,6 +219,13 @@ public struct PillView: View {
         case .preview(let text):
             Text(text).font(.callout).lineLimit(2).truncationMode(.head)
         case .landing: Text("Landing…").font(.callout)
+        // R2.4 — the committed text, in `preview`'s row: same font, same two lines, same head
+        // truncation. This is what closes the gap between the streaming preview the owner watched
+        // and the text that actually landed (V3 §14.1).
+        case .landed(let info):
+            if let subtitle = info.subtitle { Notice(headline: info.headline, subtitle: subtitle) }
+            else { Text(info.text).font(.callout).lineLimit(2).truncationMode(.head) }
+        case .held(let info): HeldPillContent(info: info, onAction: model.onHeldAction)
         case .transform(let info): TransformPillContent(info: info, ghost: model.ghost, morph: model.morph, onAction: model.onGhostAction)
         // The panel is widened to fit these exact strings (`NotchGeometry.size(for:on:measure:)`) up
         // to `NotchGeometry.absoluteMaximumSize`; past that the headline wraps to a second line and
@@ -187,6 +250,28 @@ struct Notice: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(headline).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.tail)
             Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+        }
+    }
+}
+
+/// R2.4 — the held row: the destination in the headline, the first words of the held text under it,
+/// and the three recovery actions in the transform ghost row's existing style and position. No new
+/// mark, colour or motion (DESIGN §8.4 (3)).
+struct HeldPillContent: View {
+    let info: HeldPillInfo
+    let onAction: ((HeldPillInfo, HeldAction) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(info.headline).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.tail)
+            Text(info.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            HStack(spacing: 10) {
+                ForEach(HeldAction.allCases, id: \.rawValue) { action in
+                    Button(action.label) { onAction?(info, action) }
+                        .accessibilityIdentifier(action.identifier)
+                }
+            }
+            .buttonStyle(.plain).font(.caption).foregroundStyle(.white)
         }
     }
 }

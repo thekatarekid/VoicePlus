@@ -12,6 +12,10 @@ public struct LandingResult: Sendable {
     public var register: Utterance.Register
     public var text: String
     public var injection: InjectionOutcome?
+    /// R2.4 — the human name of where this text was headed ("Notes"), for the held row and the
+    /// Recover text menu. Taken from the focus snapshot, so it names the *intended* destination
+    /// even after focus moved.
+    public var focusDestination: String?
     public var repair: RepairResult?
     /// P2.3 — set when the utterance was a transform / question on a selection.
     public var transform: TransformLanding.Outcome?
@@ -21,6 +25,25 @@ public struct LandingResult: Sendable {
     public var totalMs: Double
 
     public var landed: Bool { injection?.succeeded ?? false }
+
+    /// R2.4 — what actually happened to this text, in the vocabulary the pill and the menu speak
+    /// (`DeliveryOutcome`, R2.1). `nil` only when nothing was ever offered to the injector: a
+    /// repair command, an act-domain claim, a transform, or empty spans.
+    public var delivery: DeliveryOutcome? { injection.map(DeliveryOutcome.init(injection:)) }
+
+    /// The destination name to put in a held row ("Held for Notes"), when focus was snapshotted.
+    public var destinationName: String { focusDestination ?? "" }
+}
+
+extension DeliveryOutcome {
+    /// Injection's outcome → the delivery outcome the surfaces render.
+    ///
+    /// The mapping itself belongs to `Injection` (R2.3 owns the readback rule and the refusal
+    /// policy: an unconfirmed post stays *delivered but unconfirmed*, a never-inject app holds its
+    /// text, a secure field does not). This is deliberately a one-line forward to
+    /// `InjectionOutcome.delivery` rather than a second copy of that policy in `App` — a duplicate
+    /// would silently disagree the first time the rule changed.
+    public init(injection: InjectionOutcome) { self = injection.delivery }
 }
 
 /// P1.12 T1 — final spans → pipeline (gatekeeper → formatter by register → style) →
@@ -89,6 +112,7 @@ public final class UtteranceLander: @unchecked Sendable {
         var ctx = context(bundleID: bundleID)
         if let contextAugmenter { ctx = contextAugmenter(spans, ctx) }
         var result = LandingResult(utteranceID: id, route: .none, register: .unknown, text: "", injection: nil,
+                                   focusDestination: Self.destinationName(focus: focus, bundleID: bundleID),
                                    repair: nil, pipelineMs: 0, totalMs: 0)
         guard !spans.isEmpty, !spans.joinedText.trimmingCharacters(in: .whitespaces).isEmpty else { return result }
 
@@ -191,6 +215,16 @@ public final class UtteranceLander: @unchecked Sendable {
     }
 
     private func ms(since t0: Date) -> Double { clock().timeIntervalSince(t0) * 1000 }
+
+    /// R2.4 — a name a person recognises, never a bundle ID (DESIGN §7.1). Empty when we know
+    /// neither, in which case the held row falls back to "Destination changed — Copy text".
+    static func destinationName(focus: FocusSnapshot?, bundleID: String?) -> String? {
+        if let name = focus?.appName, !name.isEmpty { return name }
+        guard let bundleID, !bundleID.isEmpty else { return nil }
+        // "com.apple.Notes" → "Notes". Better than nothing and never an identifier-looking string.
+        let tail = bundleID.split(separator: ".").last.map(String.init) ?? bundleID
+        return tail.isEmpty ? nil : tail.capitalized
+    }
 
     /// One line per utterance that answers "did post-processing change the words?" — the raw text
     /// out of `engine.stop()` against what is about to be typed, plus the stages that touched the

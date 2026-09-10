@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var capabilityWatcher: CapabilityWatcher?
     private var container: AppContainer?
     private var transformPill: TransformPillDriver?
+    /// R2.4 — delivery rows on the pill plus the held-text queue the menu recovers from.
+    private var deliveryPill: DeliveryPillDriver?
     private var correctionOverlay: CorrectionOverlayController?
     private var inkOverlay: InkOverlayController?
     private var actSession: ActSessionController?
@@ -52,11 +54,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.lander = container.lander
         coordinator.onPrepare = { [weak container] in container?.prepareForUtterance() }
         coordinator.focusSnapshot = { [weak container] in container?.injector.focusGuard.snapshot() }
-        coordinator.onLanded = { [weak container] result in
-            // Focus moved mid-utterance: the request is queued; retry when the app comes back.
-            if case .abortedFocusChanged? = result.injection {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { container?.injector.flushQueue() }
-            }
+        // R2.4 — every `DeliveryOutcome` becomes a pill row: the committed text on land, the
+        // "Landed · not confirmed" variant when readback could not confirm it, and a held row with
+        // Insert here / Copy / Discard when the text has nowhere safe to go.
+        //
+        // This replaces the 1.5 s "flush the queue when focus comes back" retry that used to live
+        // here. V3 §6 reverses it deliberately: returning focus alone does not insert held text,
+        // because by then the caret is somewhere the user did not dictate into. The three actions
+        // are the recovery path now — on the row and in the menu.
+        //
+        // `FocusGuard.held` (R2.3) is the queue that owns the words; the driver's queue is what the
+        // pill row and the menu *draw*. They share `HeldText.id`, so all three actions act on the
+        // same item and no copy of a discarded dictation is left alive behind the surface.
+        let delivery = DeliveryPillDriver(pill: pill.model)
+        delivery.held.insertSink = { [weak container] item in
+            guard let container else { return false }
+            // `insertHere` re-runs the whole stack against whatever has focus *now*.
+            if let outcome = container.injector.focusGuard.insertHere(item.id) { return outcome.succeeded }
+            // Not in Injection's list (no id was carried through): insert it directly instead of
+            // telling the user it could not be done. Spelled `.init` to avoid an `import Injection`.
+            return container.injector.inject(.init(text: item.text)).succeeded
+        }
+        delivery.held.copySink = { [weak container] item in
+            guard container?.injector.focusGuard.copy(item.id) != true else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.text, forType: .string)
+        }
+        delivery.held.discardSink = { [weak container] item in
+            _ = container?.injector.focusGuard.discard(item.id)
+        }
+        self.deliveryPill = delivery
+        coordinator.onLanded = { [weak delivery, weak container] result in
+            // The injector has already held this text if it is held at all; adopt its id.
+            let heldID = container?.injector.focusGuard.held.last { $0.text == result.text }?.id
+            delivery?.handle(result, destination: result.destinationName, heldID: heldID)
         }
         container.audio?.onMicQuality = { [weak coordinator] q in
             DispatchQueue.main.async { coordinator?.noteMicQuality(q) }
@@ -277,6 +308,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
                                           connectedProviders: container.connectedProviderNames)
         }
+        // R2.4 — "Recover text" carries the same three actions as the held pill row, off the same
+        // queue, and Quit warns while anything is still held (V3 §6). Both are invisible until
+        // something is actually held.
+        status.heldItems = { [weak delivery] in delivery?.held.items ?? [] }
+        status.onHeldAction = { [weak delivery] item, action in delivery?.perform(action, on: item.id) }
+        delivery.onHeldChanged = { [weak status] _ in MainActor.assumeIsolated { status?.rebuild() } }
         status.presenceIndicatorEnabled = { [weak container] in PresenceSettings.isEnabled(container?.settings) }
         status.onTogglePresenceIndicator = { [weak container] in
             PresenceSettings.setEnabled(!PresenceSettings.isEnabled(container?.settings), store: container?.settings)

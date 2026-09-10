@@ -118,8 +118,13 @@ public final class PillPanelController {
         if let host = panel.contentView as? NSHostingView<PillView> {
             host.rootView = PillView(model: model, cornerRadius: layout.cornerRadius)
         }
-        // The ghost row ("↩ / try again") is the one clickable thing on the pill.
-        if case .transform(let info) = state { panel.ignoresMouseEvents = !info.showsGhost } else { panel.ignoresMouseEvents = true }
+        // The transform ghost row ("↩ / try again") and — R2.4 — the held row's three recovery
+        // actions are the only clickable things on the pill; it ignores the mouse everywhere else.
+        switch state {
+        case .transform(let info): panel.ignoresMouseEvents = !info.showsGhost
+        case .held: panel.ignoresMouseEvents = false
+        default: panel.ignoresMouseEvents = true
+        }
         switch (lastState.isVisible, state.isVisible) {
         case (false, true):
             panel.setFrame(layout.retracted, display: false)

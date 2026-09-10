@@ -8,6 +8,13 @@ public enum PillState: Equatable, Sendable {
     case listening(level: Float)
     case preview(text: String)
     case landing
+    /// R2.4 — the delivery actually happened: the pill drops the preview and shows the *committed*
+    /// text for a beat (V3 §4.1, §14.1). `verified: false` draws the "Landed · not confirmed"
+    /// variant instead of claiming a success readback could not confirm (V3 §6).
+    case landed(LandedPillInfo)
+    /// R2.4 — committed text with no safe destination: the destination is named and the row offers
+    /// Insert here / Copy / Discard. The only other state in which the pill accepts clicks.
+    case held(HeldPillInfo)
     case warning(MicQuality)
     /// Nothing on this machine can recognise speech. Its own case so the honest "no recognizer"
     /// notice can never be confused with — or substituted for — transcript text in `.preview`.
@@ -28,6 +35,8 @@ public enum PillState: Equatable, Sendable {
         case .listening: return "listening"
         case .preview: return "preview"
         case .landing: return "landing"
+        case .landed(let info): return info.verified ? "landed" : "landedUnverified"
+        case .held: return "held"
         case .warning: return "warning"
         case .unavailable: return "unavailable"
         case .error: return "error"
@@ -44,6 +53,11 @@ public enum PillState: Equatable, Sendable {
         case .hidden, .listening, .preview, .transform: return []
         case .idle: return ["Warming up…"]
         case .landing: return ["Landing…"]
+        // The committed text is deliberately absent for the same reason `.preview` is: it is
+        // variable-length and head-truncated at two lines, so sizing the panel to it buys nothing.
+        // The fixed strings a landed/held row can draw *are* listed, so neither can be clipped.
+        case .landed(let info): return info.verified ? [] : [DeliveryCopy.landedUnverified]
+        case .held(let info): return [info.headline, info.subtitle, HeldPillInfo.actionsLine]
         case .unavailable(let reason): return [reason, PillState.unavailableSubtitle]
         case .error(let message): return [message, PillState.errorSubtitle]
         case .warning(let quality): return [PillState.warningHeadline(quality), PillState.warningSubtitle]

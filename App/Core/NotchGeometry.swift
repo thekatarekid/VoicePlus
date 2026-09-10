@@ -62,7 +62,10 @@ public enum NotchGeometry {
 
     public static func size(for state: PillState) -> CGSize {
         switch state {
-        case .preview, .warning, .unavailable, .error, .transform: return expandedSize
+        // R2.4: `.held` draws a headline, an excerpt and the three actions, and an unverified
+        // `.landed` draws a headline plus the committed text — both are notice-shaped, so both take
+        // the same reserved size every other two-line row already uses.
+        case .preview, .warning, .unavailable, .error, .transform, .landed, .held: return expandedSize
         default: return defaultSize
         }
     }

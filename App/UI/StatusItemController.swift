@@ -42,6 +42,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public var actHotkey: HotkeyService?
     public var actKeyStore: SettingsStore?
     public var frontmostBundleID: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+    /// R2.4 — committed text with no safe destination (V3 §6). The menu carries the same three
+    /// actions as the held pill row, and Quit warns while anything is held. Left nil (the default)
+    /// the menu is exactly what it was before, which is what every existing shell test asserts.
+    public var heldItems: (() -> [HeldItem])?
+    public var onHeldAction: ((HeldItem, HeldAction) -> Void)?
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
 
     public init(flags: FeatureFlagService, database: AppDatabase?, coordinator: DictationCoordinator,
@@ -112,6 +117,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(start)
         }
         menu.addItem(.separator())
+        if let recover = recoverTextItem() { menu.addItem(recover) }
         // The submenu is grouped by *style*, because style is what decides the mechanism and the
         // mechanism is what used to decide the permission bill. Both groups are free now; the
         // footer says so rather than leaving the user to wonder which one costs something.
@@ -204,8 +210,59 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         update.isEnabled = updater.canCheckForUpdates
         menu.addItem(update)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit VoicePlus", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        // R2.4 — Quit goes through the held-text guard rather than straight to `terminate`.
+        let quit = NSMenuItem(title: "Quit VoicePlus", action: #selector(quitVoicePlus), keyEquivalent: "q")
+        quit.target = self
         menu.addItem(quit)
+    }
+
+    /// R2.4 / DESIGN §10 — "Recover text": one section per held item, each with Insert here / Copy
+    /// / Discard, hidden entirely when nothing is held and counted in the title when it is.
+    func recoverTextItem() -> NSMenuItem? {
+        guard let heldItems else { return nil }
+        let items = heldItems()
+        guard HeldMenu.isVisible(count: items.count) else { return nil }
+        let submenu = NSMenu()
+        for item in items {
+            let header = NSMenuItem(title: HeldMenu.header(for: item), action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            submenu.addItem(header)
+            for action in HeldMenu.actions {
+                let entry = NSMenuItem(title: action.menuTitle, action: #selector(performHeldAction(_:)), keyEquivalent: "")
+                entry.target = self
+                entry.indentationLevel = 1
+                entry.representedObject = "\(item.id.uuidString)|\(action.rawValue)"
+                submenu.addItem(entry)
+            }
+            if item.id != items.last?.id { submenu.addItem(.separator()) }
+        }
+        let root = NSMenuItem(title: HeldMenu.title(count: items.count), action: nil, keyEquivalent: "")
+        root.submenu = submenu
+        return root
+    }
+
+    @objc private func performHeldAction(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String else { return }
+        let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let id = UUID(uuidString: parts[0]), let action = HeldAction(rawValue: parts[1]),
+              let item = heldItems?().first(where: { $0.id == id }) else { return }
+        onHeldAction?(item, action)
+        rebuild()
+    }
+
+    @objc private func quitVoicePlus() {
+        switch QuitGuard.decision(heldCount: heldItems?().count ?? 0) {
+        case .quit:
+            NSApp.terminate(nil)
+        case .warn(let title, let message):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = title
+            alert.informativeText = message
+            alert.addButton(withTitle: QuitGuard.quitAnyway)
+            alert.addButton(withTitle: QuitGuard.keepRunning)
+            if alert.runModal() == .alertFirstButtonReturn { NSApp.terminate(nil) }
+        }
     }
 
     private func info(_ title: String) -> NSMenuItem {

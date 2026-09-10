@@ -18,13 +18,20 @@ public enum PillDwell {
     public static let notice: TimeInterval = 4.0
     /// A tick of acknowledgement — enough for the slide-in to complete and register.
     public static let acknowledgement: TimeInterval = 0.6
+    /// R2.4 — long enough to *read* the committed text the field received (V3 §4.1: "for a beat").
+    /// An acknowledgement-class minimum raised to the 1.2 s the item specifies; it is a legibility
+    /// minimum, so reduced motion does not shorten it (DESIGN §8.4 (1)).
+    public static let landedText: TimeInterval = 1.2
 
     /// Minimum time `state` must remain visible once shown.
     public static func minimum(for state: PillState) -> TimeInterval {
         switch state {
         case .hidden, .idle, .listening, .preview, .transform: return 0
         case .landing: return acknowledgement
-        case .error, .warning, .unavailable: return notice
+        case .landed: return landedText
+        // A held row is a notice the user has to act on; it gets the notice minimum, and the same
+        // three actions stay reachable in the menu after it retracts.
+        case .error, .warning, .unavailable, .held: return notice
         }
     }
 
@@ -74,6 +81,14 @@ public struct PillPresenter: Equatable, Sendable {
             return .hold(until: release)
         }
         return commit(next, now: now)
+    }
+
+    /// R2.4 — take the current row down *now*, ignoring its dwell. The dwell exists so a notice
+    /// cannot flash past before it is read; it is not there to hold a row in front of the user who
+    /// has just acted on it (clicked Insert here / Copy / Discard).
+    public mutating func dismiss(now: Date) -> Decision {
+        pending = nil
+        return commit(.hidden, now: now)
     }
 
     /// Apply a held retraction once its deadline has passed. Safe to call early or spuriously.
