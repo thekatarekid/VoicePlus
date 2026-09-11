@@ -14,6 +14,10 @@ public final class ContextHarvester: @unchecked Sendable {
     public func removeAll(ofKind kind: ContextSourceKind) { lock.withLock { sources.removeAll { $0.kind == kind } } }
     public var kinds: [ContextSourceKind] { lock.withLock { sources.map(\.kind) } }
 
+    /// Drop the cached harvest (R4.1b: `ContextSession.discard()` at the end of a session — screen
+    /// text must not outlive the session that read it, even in memory).
+    public func forgetLastHarvest() { lock.withLock { lastEntries = [] } }
+
     public func harvest(now: Date = Date()) -> [ContextEntry] {
         let srcs = lock.withLock { sources }
         var best: [String: ContextEntry] = [:]
