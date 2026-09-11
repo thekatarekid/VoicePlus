@@ -385,11 +385,11 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 | R2.3 injection rules | 1 | [x] | fix | `60751e6` 104 InjectionTests green (+38, 10 changed) |
 | R2.4 pill + app surface | 1 | [x] | impl | `727fbd6` AppTests 550/550; no-redesign held |
 | R2.5 repair commands | 1 | [x] | impl | `afd959f` 24 new, 186 ActionsTests green |
-| R3 coordinator/latch/mute | 2 | [~] | — | in flight |
-| R4.1b ranked context | 2 | [~] | — | in flight |
-| R4.2 field-role formatting | 2 | [~] | — | in flight |
+| R3 coordinator/latch/mute | 2 | [x] | impl | `2785f28` 24 new; every V3 §8 row; 3 carried gaps (§8 below) |
+| R4.1b ranked context | 2 | [x] | fix | `914ce7b` recall 0.600→0.800, false ins. 2→6 |
+| R4.2 field-role formatting | 2 | [x] | fix | `baad052`+`97e55d7` 6 goldens; AX-hints wiring in flight |
 | R4.3 dictionary + learning UI | 2 | [ ] | — | |
-| R5.2 refine stage | 2 | [~] | — | in flight |
+| R5.2 refine stage | 2 | [x] | impl | `4075723` 31 new; withdraws confidence on rewrite |
 | R5.3 gate policy + settings | 2 | [ ] | — | |
 | R6.2 onboarding flow | 2 | [~] | — | in flight |
 | R5.4 benchmark | 3 | [ ] | — | early data: Qwen 0.1724 vs Parakeet 0.0990 → gate likely fails, flag stays off |
@@ -407,3 +407,19 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 
 
 Previous DMGs are never deleted or overwritten; `release.sh` refuses to overwrite.
+
+---
+
+## 8. Carried gaps (found during implementation, not yet closed)
+
+Recorded so they are not lost between waves. None is a regression; each is work the item surfaced.
+
+| # | Gap | From | Why it is open |
+|---|---|---|---|
+| G1 | **Escape is not bound to a key.** `SessionCoordinator.escape()` exists and is tested, but nothing invokes it. | R3.2 | A global `keyDown` monitor needs Input Monitoring, which V3 §2.1 keeps behind an escape hatch; a bare-Escape Carbon hot key would steal Escape from every app. Needs a design decision, not just wiring. |
+| G2 | **`handsFree` → `latched` rename is incomplete.** Still present in `App/UI/PillView.swift`, `StatusItemController.swift`, `App/Core/MenuModel.swift`, `App/Services/AppContainer.swift`, `App/AppDelegate.swift`, `Pipeline/WakeVerb/WakeVerbPreRoute.swift`, `Engine/Audio/AudioPipeline.swift` (+ their tests). | R3.1 | R3 stopped at files other agents owned; deprecated aliases keep everything building. Finish when `App/Settings` and `App/Onboarding` are free. |
+| G3 | **Speaker filtering has no Settings toggle.** `SpeakerFilter` is explicit opt-in but nothing in the UI can opt in. | R3.3 | Settings UI belongs to R4.3 / R8. |
+| G4 | **`PromptBuilder` char cap saturates.** 1000-char cap filled at 189 of 400 terms, so the cap, not the ranker, decides what the model sees. | R4.1b | R5.3 to decide by measurement whether to raise it. |
+| G5 | **`GatekeeperLatencyTests.classifyStaysUnderBudget` is a cold-start flake.** Passes in isolation, fails under parallel load. | observed by 3 agents | Confirm at the release gate on an idle machine; do not treat as a regression. |
+| G6 | **Qwen is measurably worse overall** (corpus mean WER 0.1724 vs Parakeet 0.0990) while now being correct (WER 0.000 on the probe line). | R5.1 / R5.4 | R5.4 must split by segment class before the flag decision is final. Flag stays off. |
+
