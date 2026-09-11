@@ -55,5 +55,18 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
         description: "Draw the preview by polling the final model instead of the EOU 120M stream (R1.5 candidate B)."
     )
 
-    public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR, .directedSpeech, .previewBackend]
+    /// R5 — the Qwen3-ASR 0.6B second pass. **Default off, set by measurement, not caution.**
+    /// On the twenty real-room dictations (11 Sep 2026, real int8 weights) the second pass was
+    /// *worse overall*: pass-1 mean WER 0.0991 against pass-2's 0.1784. It improved 1 segment of 20
+    /// and made 7 worse, and it ran 1.9–4.2 s against the 1500 ms deadline in V3 §10.2. R5's gate
+    /// asks for useful gain, no clean-speech regression, and the deadline met; it failed all three.
+    /// The path stays in the build per §0 rule 5 — the port itself is correct since the forced
+    /// decoder ids landed (WER 1.000 → 0.000 on the probe line). Flip this on only if R5.4's
+    /// segment-class breakdown finds a class where it wins. See the R5 rows in `DECISIONS.md`.
+    public static let qwenRefinement = FeatureFlag(
+        id: "qwenRefinement", defaultOn: false,
+        description: "Refine finalized segments with a second Qwen3-ASR pass (R5; measured worse overall)."
+    )
+
+    public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR, .directedSpeech, .previewBackend, .qwenRefinement]
 }
