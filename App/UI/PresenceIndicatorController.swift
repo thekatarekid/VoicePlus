@@ -30,9 +30,14 @@ public final class PresenceIndicatorController {
     public var hotkeyHint: () -> String = { "" }
     /// Read on every refresh so a Settings toggle takes effect without re-wiring anything.
     public var settings: SettingsStore? { didSet { refresh() } }
-    /// Polled rather than pushed: `paused` is flipped from the status menu, the mute latch and the
+    /// Polled rather than pushed: `paused` is flipped from the status menu, the hard mute and the
     /// coordinator itself, and none of those owners has an observer to hang off.
     public var pausedProvider: (() -> Bool)?
+    /// R8.4 — who actually holds the microphone (`MicrophoneOwnership`). Polled on every refresh, for
+    /// the same reason as `pausedProvider`: the capture graph, meeting capture and ambient capture all
+    /// own their own state and none of them publishes it. Absent (nil) reads as "nothing is capturing",
+    /// which is only ever right for a headless run or a test that is not about ownership.
+    public var microphoneOwnership: (() -> MicrophoneOwnership)?
 
     private let panel: NSPanel
     private let container = PresenceContainerView()
@@ -47,6 +52,8 @@ public final class PresenceIndicatorController {
     private var rowWidth: CGFloat?
     /// Pre-suppression state, so an announcement-worthy transition is not lost behind the pill.
     private var lastSubstance: PresenceState?
+    /// Last logged microphone ownership, so the 5 Hz refresh logs changes and not a stream.
+    private var lastOwnership: MicrophoneOwnership?
     private var observers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
@@ -133,7 +140,7 @@ public final class PresenceIndicatorController {
     public func setDownloadProgress(_ progress: Double?) { onMain { self.update { $0.downloadProgress = progress } } }
 
     /// One-call wiring for the composition root: pill visibility + the engine feed the pill already
-    /// receives, plus the hard-mute latch. Keeps `AppDelegate`'s footprint to a couple of lines.
+    /// receives, plus the hard mute. Keeps `AppDelegate`'s footprint to a couple of lines.
     public func bind(pill: PillViewModel, mute: MuteController?) {
         pill.$state.receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.update { $0.pillVisible = state.isVisible } }
@@ -171,11 +178,17 @@ public final class PresenceIndicatorController {
         guard let metrics = Self.hostMetrics() else { return }
         inputs.menuBarPresent = menuBarPresent(on: metrics)
 
-        let next = PresenceStateReducer.reduce(inputs)
+        // R8.4 — every rendering below is a function of who *actually* holds the microphone, not of
+        // the dictation engine alone: a meeting or ambient capture opens the mic without the engine
+        // ever reporting `listening`, and a failed start leaves the engine claiming it when nothing is.
+        let microphone = microphoneOwnership?() ?? .closed
+        logOwnershipChange(microphone)
+
+        let next = PresenceStateReducer.reduce(inputs, microphone: microphone)
         // Announce on the transitions that carry news (launch, and recovery out of a blocked state —
         // e.g. a speech model finishing its download and the engine being swapped in). `substance`
         // rather than the reduced state so a pill or a full-screen Space cannot eat the transition.
-        let substance = PresenceStateReducer.substance(inputs)
+        let substance = PresenceStateReducer.substance(inputs, microphone: microphone)
         if PresenceIntroduction.announces(from: lastSubstance, to: substance) { introducedAt = Date() }
         lastSubstance = substance
         let introducing = next == .ready && PresenceIntroduction.isShowing(since: introducedAt)
@@ -226,6 +239,18 @@ public final class PresenceIndicatorController {
                 screen=\(self.panel.screen?.localizedName ?? "none")
                 """)
             logSettled()
+        }
+    }
+
+    /// One line per change of microphone ownership — the refresh runs at 5 Hz, so an unconditional log
+    /// here would be noise. This is the line that makes "the indicator matched the microphone" provable
+    /// from `log show` on the owner's Mac, where a unit test cannot reach.
+    private func logOwnershipChange(_ microphone: MicrophoneOwnership) {
+        guard microphone != lastOwnership else { return }
+        lastOwnership = microphone
+        Log.app.notice("presence microphone: open=\(microphone.isOpen) holders=\(microphone.description)")
+        if microphone.claimedWithoutCapture {
+            Log.app.notice("presence microphone: \(microphone.claim?.rawValue ?? "?") still claims the microphone but nothing is capturing; the indicator stays off")
         }
     }
 

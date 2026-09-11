@@ -160,7 +160,7 @@ struct MainWindowShellTests {
         #expect(model.timelineRows.count == 1)
         // A delete that fails keeps the row and puts the failure in a banner, not in a blank pane.
         stub.deleteFailure = StubTimeline.Boom()
-        model.delete(rowID: model.timelineRows[0].id)
+        await model.delete(rowID: model.timelineRows[0].id)
         #expect(model.timelineRows.count == 1)
         #expect(model.banner != nil)
         #expect(model.timeline.isContent)

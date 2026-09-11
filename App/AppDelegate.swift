@@ -415,6 +415,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the owner's request.) Popping a menu takes no focus from the app being typed into.
         presence.onClick = { [weak self] in self?.statusItem?.popUpMenu(from: .notch) }
         presence.pausedProvider = { [weak coordinator] in coordinator?.paused ?? false }
+        // R8.4 — the indicator reflects *actual* microphone ownership, never the dictation engine's
+        // state alone: the shared capture graph's ranked owner (dictation, the onboarding meter,
+        // diagnostics) plus meeting capture, which opens its own device. R3's arbitration claim comes
+        // along to name the holder — `MicrophoneOwnership` never lets a claim alone light the chin.
+        presence.microphoneOwnership = { [weak container, weak sessionCoordinator] in
+            MicrophoneOwnership(graphOwner: container?.audio?.currentOwner,
+                                meetingCapturing: container?.meeting.session != nil,
+                                // Ambient capture rides the shared graph, so `graphOwner` already
+                                // reports it; the flag stays for a future path that opens its own
+                                // device, the way meeting capture does.
+                                ambientCapturing: false,
+                                claim: sessionCoordinator?.activeRequester)
+        }
         presence.bind(pill: pill.model, mute: container.handsFree.mute)
         presence.start()
 

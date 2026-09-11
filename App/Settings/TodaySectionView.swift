@@ -82,32 +82,100 @@ struct TodaySectionView: View {
         }
     }
 
+    /// The Timeline (`AmbientTimeline`). The search field and the filter row stay on screen in every
+    /// rendering: an empty caused by a search or a filter can only be undone from the control that
+    /// caused it, so hiding the control with the rows would trap the user in the empty.
     @ViewBuilder private var timeline: some View {
         GroupBox("Timeline") {
             VStack(alignment: .leading, spacing: 8) {
                 if let banner = model.banner { SectionBannerView(banner: banner) }
+                searchField
+                sourceFilters
                 if model.timeline.isContent {
-                    TextField("Search", text: $model.search)
-                        .accessibilityIdentifier("today.timeline.search")
-                        .onSubmit { Task { await model.reloadTimeline() } }
-                    ForEach(model.timelineRows) { row in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(row.time, style: .time).font(.caption.monospacedDigit()).frame(width: 70, alignment: .leading)
-                            Text(row.source).font(.caption).foregroundStyle(.secondary).frame(width: 90, alignment: .leading)
-                            Text(row.text).font(.caption.monospaced())
-                            Spacer()
-                            Button(role: .destructive) { model.delete(rowID: row.id) } label: { Image(systemName: "trash") }
-                                .buttonStyle(.borderless)
-                        }
-                        .accessibilityIdentifier("today.timeline.row")
+                    ForEach(model.timelineDays) { day in
+                        Text(day.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("today.timeline.day")
+                        ForEach(day.rows) { row in timelineRow(row) }
                     }
-                    Button("Delete all", role: .destructive) { model.deleteAllTimeline() }
-                        .accessibilityIdentifier("today.timeline.deleteAll")
+                    HStack {
+                        Spacer()
+                        Button(SectionCopy.deleteAllTimeline, role: .destructive) { model.askToDeleteEverything() }
+                            .accessibilityIdentifier("today.timeline.deleteAll")
+                    }
                 } else {
-                    SectionStateView(state: model.timeline) { open(.privacy) }
+                    SectionStateView(state: model.timeline) { timelineAction() }
                 }
+                Text(model.timelinePrivacyNote).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("today.timeline.privacy")
             }
             .padding(4)
+        }
+        // §5.3: a sheet only for a genuine either/or. Delete-all and a row delete are both one.
+        .confirmationDialog(model.confirmation?.headline ?? SectionCopy.confirmDelete,
+                            isPresented: Binding(get: { model.confirmation != nil },
+                                                 set: { if !$0 { model.cancelConfirmation() } }),
+                            titleVisibility: .visible,
+                            presenting: model.confirmation) { pending in
+            Button(pending.confirmTitle, role: .destructive) { Task { await model.confirm() } }
+                .accessibilityIdentifier("today.timeline.confirmDelete")
+            Button(pending.cancelTitle, role: .cancel) { model.cancelConfirmation() }
+        } message: { pending in
+            Text(pending.detail)
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            TextField("Search", text: $model.search)
+                .accessibilityIdentifier("today.timeline.search")
+                .onSubmit { Task { await model.reloadTimeline() } }
+            if !model.search.isEmpty {
+                Button(SectionCopy.clearSearch) { Task { await model.clearSearch() } }
+                    .accessibilityIdentifier("today.timeline.clearSearch")
+            }
+        }
+    }
+
+    @ViewBuilder private var sourceFilters: some View {
+        if !model.availableSources.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(model.availableSources) { source in
+                    Toggle(source.label, isOn: Binding(get: { model.isSelected(source: source.id) },
+                                                       set: { _ in Task { await model.toggle(source: source.id) } }))
+                        .toggleStyle(.checkbox)
+                        .accessibilityIdentifier("today.timeline.source.\(source.id)")
+                }
+            }
+        }
+    }
+
+    private func timelineRow(_ row: TimelineRow) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(row.time, style: .time).font(.caption.monospacedDigit()).frame(width: 70, alignment: .leading)
+            Text(TimelineSource.named(row.source).label).font(.caption).foregroundStyle(.secondary)
+                .frame(width: 90, alignment: .leading)
+            Text(row.text).font(.caption.monospaced())
+            Spacer()
+            if model.deletingRows.contains(row.id) {
+                Text(SectionCopy.timelineDeleting).font(.caption).foregroundStyle(.secondary)
+            } else {
+                Button(role: .destructive) { model.askToDelete(rowID: row.id) } label: { Image(systemName: "trash") }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(SectionCopy.confirmDelete)
+            }
+        }
+        .accessibilityIdentifier("today.timeline.row")
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The one action each Timeline state offers. Search and filter empties undo themselves; the rest
+    /// point at Privacy, where ambient capture and the store live.
+    private func timelineAction() {
+        switch model.timeline.actionTitle {
+        case SectionCopy.clearSearch: Task { await model.clearSearch() }
+        case SectionCopy.showEverySource: Task { await model.showEverySource() }
+        case SectionCopy.tryAgain: Task { await model.reloadTimeline() }
+        default: open(.privacy)
         }
     }
 }
