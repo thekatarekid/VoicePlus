@@ -390,7 +390,7 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 | R4.2 field-role formatting | 2 | [x] | fix | `baad052`+`97e55d7` 6 goldens; AX-hints wiring in flight |
 | R4.3 dictionary + learning UI | 2 | [x] | fix | `9f8190c` removal proven to survive retrain(); 577/577 AppTests |
 | R5.2 refine stage | 2 | [x] | impl | `4075723` 31 new; withdraws confidence on rewrite |
-| R5.3 gate policy + settings | 2 | [ ] | — | |
+| R5.3 gate policy + settings | 2 | [x] | fix | `45f4ec2`+`c903352` real two-pass: gate recall 1.000, precision 0.167 |
 | R6.2 onboarding flow | 2 | [x] | impl | `cd053f2` 5 steps; practice field wired to the real lander (was never wired) |
 | R5.4 benchmark | 3 | [ ] | — | early data: Qwen 0.1724 vs Parakeet 0.0990 → gate likely fails, flag stays off |
 | R7 one window, one menu | 3 | [ ] | — | |
@@ -401,7 +401,7 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 | Wave | Version | DMG | Status |
 |---|---|---|---|
 | 0+1 | 1.8.0 | `Packaging/releases/VoicePlus_V3-w01_1.8.0.dmg` | **built** from `727fbd6`, verify_install OK, 15 MB |
-| 2 | 1.9.0 | `Packaging/releases/VoicePlus_V3-w2_1.9.0.dmg` | pending |
+| 2 | 1.9.0 | `Packaging/releases/VoicePlus_V3-w2_1.9.0.dmg` | **built** from `c903352`, 1821/1821 tests, verify_install OK |
 | 3 | 1.10.0 | `Packaging/releases/VoicePlus_V3-w3_1.10.0.dmg` | pending |
 | 4 | 1.11.0 | `Packaging/releases/VoicePlus_V3-w4_1.11.0.dmg` | pending |
 
@@ -419,8 +419,8 @@ Recorded so they are not lost between waves. None is a regression; each is work 
 | G1 | **Escape is not bound to a key.** `SessionCoordinator.escape()` exists and is tested, but nothing invokes it. | R3.2 | A global `keyDown` monitor needs Input Monitoring, which V3 §2.1 keeps behind an escape hatch; a bare-Escape Carbon hot key would steal Escape from every app. Needs a design decision, not just wiring. |
 | G2 | **`handsFree` → `latched` rename is incomplete.** Still present in `App/UI/PillView.swift`, `StatusItemController.swift`, `App/Core/MenuModel.swift`, `App/Services/AppContainer.swift`, `App/AppDelegate.swift`, `Pipeline/WakeVerb/WakeVerbPreRoute.swift`, `Engine/Audio/AudioPipeline.swift` (+ their tests). | R3.1 | R3 stopped at files other agents owned; deprecated aliases keep everything building. Finish when `App/Settings` and `App/Onboarding` are free. |
 | G3 | **Speaker filtering has no Settings toggle.** `SpeakerFilter` is explicit opt-in but nothing in the UI can opt in. | R3.3 | Settings UI belongs to R4.3 / R8. |
-| G4 | **`PromptBuilder` char cap saturates.** 1000-char cap filled at 189 of 400 terms, so the cap, not the ranker, decides what the model sees. | R4.1b | R5.3 to decide by measurement whether to raise it. |
-| G5 | **`GatekeeperLatencyTests.classifyStaysUnderBudget` is a cold-start flake.** Passes in isolation, fails under parallel load. | observed by 3 agents | Confirm at the release gate on an idle machine; do not treat as a regression. |
+| G4 | ~~`PromptBuilder` char cap~~ **CLOSED.** | R4.1b → R5.3 | Measured: 1000 vs 2400 chars gave identical pass-2 WER (0.1784) and identical near-miss counts despite 58 more terms. Cap left at 1000. |
+| G5 | ~~`GatekeeperLatencyTests` flake~~ → **generalised: ~14 timing assertions fail under `swift test`'s default parallelism.** `swift test --no-parallel` gives **1821/1821 green**; the parallel run fails ~14 (deadline overruns of 5→16 s, and async-cancellation races in `LatchBehaviourTests` that pass 19/19 in isolation). | observed by 4 agents; confirmed at the 1.9.0 gate | Not a product defect. Appeared once real-model tests (R5.3's 20-utterance two-pass, ~2-4 s each) began competing with timing assertions. **Release verification must use `--no-parallel`.** Fix properly by making the assertions deadline-relative or serialising the heavy suites. |
 | G7 | **`DESIGN.md` §11 and the onboarding implementation disagree.** DESIGN says disable the practice field while the model installs; R6.2 kept the existing fallback-recognizer path with an honest banner instead. | R6.2 | The implemented behaviour is defensible and tested, but the spec doc now describes something else. Reconcile in R7 — one of the two must change. |
-| G6 | **Qwen is measurably worse overall** (corpus mean WER 0.1724 vs Parakeet 0.0990) while now being correct (WER 0.000 on the probe line). | R5.1 / R5.4 | R5.4 must split by segment class before the flag decision is final. Flag stays off. |
+| G6 | **Qwen fails R5's gate on all three conditions.** pass-1 0.0991 vs pass-2 0.1784; 1 of 20 improved, 7 worsened; 1.9-4.2 s against a 1500 ms deadline. | R5.1 / R5.3 | Flag registered and **off by measurement** (`c903352`). R5.4 owes only the segment-class breakdown; the decision itself is made. V3 §5.4 calls this a valid completion. |
 

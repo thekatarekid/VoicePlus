@@ -6,6 +6,17 @@
     <description>VoicePlus releases (appcast is UNSIGNED — Sparkle EdDSA key not available)</description>
     <language>en</language>
     <item>
+      <title>VoicePlus 1.9.0 (phase V3-w2)</title>
+      <pubDate>Fri, 11 Sep 2026 00:51:45 +0000</pubDate>
+      <sparkle:version>202609110045</sparkle:version>
+      <sparkle:shortVersionString>1.9.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:channel>release</sparkle:channel>
+      <sparkle:releaseNotesLink>https://github.com/thekatarekid/VoicePlus/releases/tag/release/phase-V3-w2/v1.9.0</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/thekatarekid/VoicePlus/releases/download/release%2Fphase-V3-w2%2Fv1.9.0/VoicePlus_V3-w2_1.9.0.dmg" length="16334230" type="application/octet-stream" />
+      <!-- unsigned: no sparkle:edSignature (no EdDSA key on this machine) -->
+    </item>
+    <item>
       <title>VoicePlus 1.8.0 (phase V3-w01)</title>
       <pubDate>Thu, 10 Sep 2026 23:41:40 +0000</pubDate>
       <sparkle:version>202609102334</sparkle:version>

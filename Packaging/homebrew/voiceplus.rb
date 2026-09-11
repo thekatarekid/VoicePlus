@@ -1,8 +1,8 @@
 cask "voiceplus" do
-  version "1.8.0"
-  sha256 "caa3009dcd628d740ee9c667b16970c5f300aaa47b9396b79051006ef3b85185"
+  version "1.9.0"
+  sha256 "91caf4a95181be3dccf9c143398a8de8fda3126c5bc87c74ae312dafb0c557e2"
 
-  url "https://github.com/thekatarekid/VoicePlus/releases/download/release%2Fphase-V3-w01%2Fv1.8.0/VoicePlus_V3-w01_1.8.0.dmg"
+  url "https://github.com/thekatarekid/VoicePlus/releases/download/release%2Fphase-V3-w2%2Fv1.9.0/VoicePlus_V3-w2_1.9.0.dmg"
   name "VoicePlus"
   desc "Local-first voice dictation for macOS"
   homepage "https://github.com/thekatarekid/VoicePlus"

@@ -1495,3 +1495,26 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Note: 1.8.0's notes describe the Devanagari bug as open, which was true of `727fbd6`. The fix lands
   in 1.9.0; the shipped 1.8.0 notes are left as an accurate record of that artifact.
 
+### Wave 2 complete · 1.9.0 candidate cut
+
+- Wave 2 (7/7): R3 `2785f28` · R4.1b `914ce7b` · R4.2 `baad052`+`97e55d7` · R4.3 `9f8190c` ·
+  R5.2 `4075723` · R5.3 `45f4ec2`+`c903352` · R6.2 `cd053f2`. Plus AX-hints integration `51b3058`.
+- **Latch actually works now.** `finalize()` had cleared the mode on every utterance, so hands-free
+  ended after one sentence. 24 tests cover every row of V3 §8.
+- **Two bugs found that unit tests alone would have missed.** (1) The onboarding practice field was
+  never wired to the lander — it could say "heard", never "landed", so the step meant to prove
+  dictation works could not. (2) `StyleStage` runs last and re-applied the exact two edits field rules
+  had just decided, silently undoing R4.2 mid-sentence in the real pipeline while its own tests stayed
+  green.
+- **R5 decided by measurement, not caution.** Real two-pass on the corpus: pass-1 WER 0.0991 vs
+  pass-2 0.1784; 1 of 20 segments improved, 7 worsened; 1.9-4.2 s against a 1500 ms deadline. Fails all
+  three gate conditions → `qwenRefinement` registered and **off**. The port itself is correct (forced
+  decoder ids, WER 1.000 → 0.000). Gate built and measured: recall 1.000, precision 0.167.
+- **Test-suite finding (G5, generalised):** `swift test` in parallel fails ~14 timing assertions;
+  `--no-parallel` is **1821/1821 green**. Caused by R5.3's real-model corpus tests competing with
+  deadline assertions, not by any product change. Release verification now uses `--no-parallel`.
+- G4 closed by measurement (prompt cap 1000 vs 2400: identical WER). G1/G2/G3/G7 still open.
+- **1.9.0 DMG** from a clean worktree at `c903352`: `VoicePlus_V3-w2_1.9.0.dmg`, 15 MB,
+  sha256 `91caf4a9…`, `verify_install.sh` OK. **23 DMGs** retained, none overwritten.
+- Next: wave 3 = R5.4 (segment-class breakdown only; decision already made) + R7 (one window).
+
