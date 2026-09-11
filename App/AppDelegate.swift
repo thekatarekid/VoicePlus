@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var session: SessionCoordinator?
     /// R3.2 — endpoint-driven segment delivery while latched.
     private var latchRuntime: LatchRuntime?
+    /// R8.1 — held so the ambient store outlives `applicationDidFinishLaunching`.
+    private var ambientStore: AmbientTranscriptStore?
     private var orchestrator: PermissionOrchestrator?
     private var permissionPoller: PermissionPoller?
     /// Owns the tap lifecycle for the whole life of the process — see `CapabilityWatcher`.
@@ -136,6 +138,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.latchRuntime = latch
         self.session = sessionCoordinator
+
+        // R8.1/R8.2 — ambient capture hangs off the latch runtime's transcript seam, which is the
+        // only place ambient text exists. It is read through `gate` on every segment rather than
+        // captured once, so turning the switch off stops capture on the next utterance instead of
+        // the next relaunch, and the enrolled-speaker verdict is re-read for the same reason.
+        //
+        // Ambient text never reaches `delivery` — that is the property `AmbientNeverInjectsTests`
+        // and `AmbientInjectionAudit` exist to defend (V3 §8: never type or act from ambient speech).
+        let ambientStore = AmbientWiring.store(database: container.database, settings: container.settings)
+        self.ambientStore = ambientStore
+        AmbientWiring.attach(to: latch,
+                             sink: ambientStore,
+                             gate: { [weak container] in
+                                 AmbientWiring.gate(settings: container?.settings,
+                                                    filter: container?.latchController.speakerFilter)
+                             })
+        // The verdict stays at its default `.unknown`: the transcript seam carries text and a
+        // SegmentID, not audio, and `SpeakerGate.verdict(for:embedder:)` needs samples. With the
+        // enrolled-only path that means every segment is discarded — `.modelUnavailable` on a
+        // machine without WeSpeaker weights suppresses, which is the honest answer rather than a
+        // claim that a check ran. Ambient therefore keeps nothing until the seam carries audio.
+        // Recorded as gap G11 in the build document.
 
         // P2.3 — transform pill (tint, "editing N words", ghost, 8 s warm window).
         let transformPill = TransformPillDriver(pill: pill.model, warmWindow: container.transform.session.warmWindow)

@@ -43,6 +43,18 @@ public enum AmbientWiring {
                            filter: filter)
     }
 
+    /// The gate when the filter's owner may already be gone (a weakly-captured container at
+    /// shutdown). A missing filter cannot mean "capture freely": it yields a gate that is off, so
+    /// the failure mode is keeping nothing rather than keeping everything.
+    public static func gate(settings: (any SettingsStore)?, filter: SpeakerFilter?) -> AmbientCaptureGate {
+        guard let filter else {
+            return AmbientCaptureGate(isEnabled: false, capturesEverySpeaker: false,
+                                      filter: SpeakerFilter(isOn: false, gate: SpeakerGate(profile: nil),
+                                                            canIdentify: false))
+        }
+        return gate(settings: settings, filter: filter)
+    }
+
     /// Connects a latch runtime's ambient transcript seam to the gate and the store.
     ///
     /// `gate` and `verdict` are closures, not values: both depend on state that changes while the app
