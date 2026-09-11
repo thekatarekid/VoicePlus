@@ -392,10 +392,12 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 | R5.2 refine stage | 2 | [x] | impl | `4075723` 31 new; withdraws confidence on rewrite |
 | R5.3 gate policy + settings | 2 | [x] | fix | `45f4ec2`+`c903352` real two-pass: gate recall 1.000, precision 0.167 |
 | R6.2 onboarding flow | 2 | [x] | impl | `cd053f2` 5 steps; practice field wired to the real lander (was never wired) |
-| R5.4 benchmark | 3 | [ ] | — | early data: Qwen 0.1724 vs Parakeet 0.0990 → gate likely fails, flag stays off |
+| R5.4 benchmark | 3 | [x] | fix | `1b1e9d5` per-class table; **no class wins**; flag off, R5 closed |
 | R7.3 one menu | 3 | [x] | impl | `1248626` 16 new; 1837/1837 `--no-parallel`; G2 closed in its files |
-| R7.1+R7.2 window shell | 3 | [~] | — | in flight |
-| R8 ambient + Timeline | 4 | [ ] | — | |
+| R7.1+R7.2 window shell | 3 | [x] | impl | `16987a7`+`f5cdca8` 11 tabs placed, 46 settings proven reachable |
+| R8.1+R8.2 ambient capture, retention | 4 | [x] | impl | `9fa61ca`+`fadc4ca` 4-layer never-inject proof; see G11 |
+| R8.3+R8.4 Timeline, indicator | 4 | [x] | impl | `6dd032b` indicator driven by real graph ownership |
+| G2 rename sweep | — | [x] | impl | `debf88a` guard test prevents regrowth |
 
 ### Release artifacts
 
@@ -403,8 +405,8 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 |---|---|---|---|
 | 0+1 | 1.8.0 | `Packaging/releases/VoicePlus_V3-w01_1.8.0.dmg` | **built** from `727fbd6`, verify_install OK, 15 MB |
 | 2 | 1.9.0 | `Packaging/releases/VoicePlus_V3-w2_1.9.0.dmg` | **built** from `c903352`, 1821/1821 tests, verify_install OK |
-| 3 | 1.10.0 | `Packaging/releases/VoicePlus_V3-w3_1.10.0.dmg` | pending |
-| 4 | 1.11.0 | `Packaging/releases/VoicePlus_V3-w4_1.11.0.dmg` | pending |
+| 3+4 | 1.10.0 | `Packaging/releases/VoicePlus_V3-w34_1.10.0.dmg` | pending |
+
 
 
 Previous DMGs are never deleted or overwritten; `release.sh` refuses to overwrite.
@@ -422,9 +424,10 @@ Recorded so they are not lost between waves. None is a regression; each is work 
 | G3 | **Speaker filtering has no Settings toggle.** `SpeakerFilter` is explicit opt-in but nothing in the UI can opt in. | R3.3 | Settings UI belongs to R4.3 / R8. |
 | G4 | ~~`PromptBuilder` char cap~~ **CLOSED.** | R4.1b → R5.3 | Measured: 1000 vs 2400 chars gave identical pass-2 WER (0.1784) and identical near-miss counts despite 58 more terms. Cap left at 1000. |
 | G5 | ~~`GatekeeperLatencyTests` flake~~ → **generalised: ~14 timing assertions fail under `swift test`'s default parallelism.** `swift test --no-parallel` gives **1821/1821 green**; the parallel run fails ~14 (deadline overruns of 5→16 s, and async-cancellation races in `LatchBehaviourTests` that pass 19/19 in isolation). | observed by 4 agents; confirmed at the 1.9.0 gate | Not a product defect. Appeared once real-model tests (R5.3's 20-utterance two-pass, ~2-4 s each) began competing with timing assertions. **Release verification must use `--no-parallel`.** Fix properly by making the assertions deadline-relative or serialising the heavy suites. |
-| G8 | **Nine menu items were removed and must reappear in the window**, or they become unreachable: Lab, Data Panel, Feature flags, both key submenus, Enroll voice, presence switch, Launch at login, Check for updates, Check permissions — plus Pause. | R7.3 | Removed per `DESIGN.md` §10, which is correct for the menu. R7.1/R7.2 must place them. **Verify before the wave-3 DMG** — this is exactly what R7.2's "every setting reachable" criterion exists to catch. |
+| G8 | ~~Nine menu items removed~~ **CLOSED** — R7.1 placed all 11 old tabs, 46 settings proven reachable, and surfaced the never-inject list and ambient switch that had been `defaults write`-only. Original note: **must reappear in the window**, or they become unreachable: Lab, Data Panel, Feature flags, both key submenus, Enroll voice, presence switch, Launch at login, Check for updates, Check permissions — plus Pause. | R7.3 | Removed per `DESIGN.md` §10, which is correct for the menu. R7.1/R7.2 must place them. **Verify before the wave-3 DMG** — this is exactly what R7.2's "every setting reachable" criterion exists to catch. |
 | G9 | **"Start meeting" is in the menu but disabled.** `MeetingCoordinator` has no manual-start path, so it reads "Start meeting (starts when a meeting is detected)". | R7.3 | V3 §9.2 lists it as a menu action. Either give `MeetingCoordinator` a manual start or amend the spec. |
-| G10 | **"Open VoicePlus" falls back to Settings** until the window agent sets `status.onOpenWindow`. One line. | R7.3 | Closes when R7.1/R7.2 lands. |
-| G7 | **`DESIGN.md` §11 and the onboarding implementation disagree.** DESIGN says disable the practice field while the model installs; R6.2 kept the existing fallback-recognizer path with an honest banner instead. | R6.2 | The implemented behaviour is defensible and tested, but the spec doc now describes something else. Reconcile in R7 — one of the two must change. |
+| G10 | ~~"Open VoicePlus" falls back to Settings~~ **CLOSED** (`f5cdca8`). | R7.3 | It was never assigned, so the menu had no route to Today at all. Both entries now open the one window at different sections. |
+| G7 | ~~`DESIGN.md` §11 vs onboarding~~ **CLOSED.** | R6.2 → R7.1 | `DESIGN.md` §11.4 amended to the implemented behaviour: the practice field stays live whenever anything can transcribe, with the honest banner, disabled only on `unavailable`. Disabling it through a 900 MB download is the soft dead end §11's own rule forbids. |
+| G11 | **Ambient keeps nothing yet.** The enrolled-speaker verdict is `.unknown` because the transcript seam carries text + `SegmentID`, not audio, and `SpeakerGate.verdict(for:embedder:)` needs samples. Every segment is discarded. | R8.1 | Deliberate and honest — on this machine WeSpeaker weights are absent, so the verdict would be `.modelUnavailable` (suppress) regardless. To finish: carry the utterance samples on the seam, or compute the verdict in `LatchRuntime` where the audio already is. Ambient is off by default, so nothing is broken for the user. |
 | G6 | **Qwen fails R5's gate on all three conditions.** pass-1 0.0991 vs pass-2 0.1784; 1 of 20 improved, 7 worsened; 1.9-4.2 s against a 1500 ms deadline. | R5.1 / R5.3 | Flag registered and **off by measurement** (`c903352`). R5.4 owes only the segment-class breakdown; the decision itself is made. V3 §5.4 calls this a valid completion. |
 
