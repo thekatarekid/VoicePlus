@@ -180,7 +180,7 @@ public final class ActSessionController: @unchecked Sendable {
             }
         case .finalize:
             Task { await self.finalizeCapture() }
-        // R3.1: `.enterLatch` (was `.enterHandsFree`). The act key never latches — a second tap on
+        // R3.1: `.enterLatch`. The act key never latches — a second tap on
         // it tears the capture down, exactly as a cancel does.
         case .cancelCapture, .enterLatch:
             Task {

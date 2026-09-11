@@ -125,13 +125,13 @@ private final class EventBox: @unchecked Sendable {
         #expect(pipeline.lastMicQuality?.verdict == .good)
     }
 
-    @Test func handsFreeEndpointsOnTrailingSilence() async throws {
+    @Test func latchedEndpointsOnTrailingSilence() async throws {
         let url = try #require(AudioFixtures.url("clean", "clean_02_daniel.wav"))
         var wav = try WAVFile.read(url: url)
         wav.samples.append(contentsOf: [Float](repeating: 0, count: 16_000 * 2))  // 2 s trailing silence
         let source = FixtureCaptureSource(wav: wav)
         var options = AudioPipeline.Options()
-        options.handsFree = true
+        options.latched = true
         options.endpointer = Endpointer(trailingSilence: 1.0, noSpeechTimeout: 8, maxUtterance: 60)
         let pipeline = AudioPipeline(source: source, vad: EnergyVAD(), options: options)
         let events = try await collect(pipeline) { try await pipeline.start(); await pipeline.stop() }
@@ -143,7 +143,7 @@ private final class EventBox: @unchecked Sendable {
     @Test func noSpeechTimesOut() async throws {
         let wav = WAVFile(sampleRate: 16_000, samples: [Float](repeating: 0, count: 16_000 * 4))
         var options = AudioPipeline.Options()
-        options.handsFree = true
+        options.latched = true
         options.endpointer = Endpointer(trailingSilence: 1.0, noSpeechTimeout: 3, maxUtterance: 60)
         let pipeline = AudioPipeline(source: FixtureCaptureSource(wav: wav), vad: EnergyVAD(), options: options)
         let events = try await collect(pipeline) { try await pipeline.start(); await pipeline.stop() }

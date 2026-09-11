@@ -257,7 +257,7 @@ struct LatchBehaviourTests {
         #expect(rig.session.mode == .latched)
         #expect(machine.phase == .latched)
 
-        // The line `finalize()` used to open with — `handsFree = false` — is what made latch
+        // The line `finalize()` used to open with — the one clearing `latched` — is what made latch
         // impossible: one finalize anywhere dropped the mode. Prove it cannot happen again.
         rig.dictation.finalize()
         await rig.settle()

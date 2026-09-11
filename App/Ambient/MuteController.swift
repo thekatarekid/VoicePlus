@@ -1,6 +1,7 @@
 import Foundation
 
-/// Persists the mute latch so a muted VoicePlus relaunches muted (unmute is never automatic).
+/// Persists the mute state so a muted VoicePlus relaunches muted (unmute is never automatic).
+/// "Latch" is the double-tap capture mode (V3 §4.7) and never this — the mute is a *hard mute*.
 public protocol MuteStore: AnyObject, Sendable {
     func loadMuted() -> Bool
     func saveMuted(_ muted: Bool)
@@ -21,7 +22,7 @@ public final class InMemoryMuteStore: MuteStore, @unchecked Sendable {
     public func saveMuted(_ muted: Bool) { self.muted = muted }
 }
 
-/// Owns the `AmbientStateModel`, persists the latch, and fans state changes out to the glyph views.
+/// Owns the `AmbientStateModel`, persists the mute, and fans state changes out to the glyph views.
 /// Thread-safe; observers are called synchronously on the mutating thread.
 public final class MuteController: @unchecked Sendable {
     public private(set) var model: AmbientStateModel

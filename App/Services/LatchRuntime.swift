@@ -67,7 +67,7 @@ public protocol LatchDelivering: AnyObject {
 /// The runtime owns three things and nothing else:
 ///
 /// * **When to close a segment.** It runs its own `Endpointer` over VAD events (the audio pipeline
-///   only emits `.endpoint` when its `handsFree` option is set, and that option is decided at
+///   only emits `.endpoint` when its `latched` option is set, and that option is decided at
 ///   capture-graph construction), and calls R2.2's `closeSegmentAtEndpoint()`. It never segments
 ///   audio itself.
 /// * **What happens to a closed segment.** Exactly one `LatchSegmentOutcome`, in `SegmentID` order,
@@ -192,7 +192,7 @@ public final class LatchRuntime: @unchecked Sendable {
         }
     }
 
-    /// The capture pipeline already decided (its `handsFree` option is on).
+    /// The capture pipeline already decided (its `latched` option is on).
     public func noteEndpoint(_ decision: Endpointer.Decision, at position: TimeInterval) {
         guard isLatched() else { return }
         switch decision {

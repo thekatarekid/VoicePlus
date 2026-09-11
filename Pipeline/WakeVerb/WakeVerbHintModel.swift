@@ -1,7 +1,7 @@
 import Foundation
 
 /// P5.2 — "printed inside pill first 10 uses, then fades". Counts successful wake-verb uses; the
-/// pill asks `hint(for:)` each time it enters hands-free listening.
+/// pill asks `hint(for:)` each time it enters latched listening.
 public final class WakeVerbHintModel: @unchecked Sendable {
     public static let fullHintUses = 10
     public static let fadeUses = 5

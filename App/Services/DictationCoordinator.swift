@@ -22,7 +22,7 @@ public final class DictationCoordinator {
     public var onLanded: ((LandingResult) -> Void)?
     public private(set) var lastMicQuality: MicQuality?
     /// R3.1 — **latched** (V3 §4.3/§4.7): the double-tap mode where capture continues across
-    /// endpoints. Was `handsFree`.
+    /// endpoints.
     ///
     /// Nothing in the session-teardown path clears this any more. `finalize()` used to, which is
     /// exactly why latch never worked (V3 §2.3): the first finalize of a latched session — and in a
@@ -31,9 +31,6 @@ public final class DictationCoordinator {
     /// (`handle(.enterLatch)`, `handle(.finalize)`, `endLatch()`) or on an event that must end
     /// capture outright (hard mute, lock/sleep).
     public private(set) var latched = false
-    /// R3.1 compatibility alias for callers not yet renamed (`AppDelegate`, `StatusItemController`).
-    @available(*, deprecated, renamed: "latched")
-    public var handsFree: Bool { latched }
     public private(set) var paused = false
     /// Reported when `engine.start()` could not open a session. The app uses it to reset the hotkey
     /// gesture, so a key that is still physically down does not leave the recogniser "capturing".
@@ -174,7 +171,7 @@ public final class DictationCoordinator {
         case .cancelCapture: cancel()
         case .enterLatch:
             latched = true
-            pill.model.handsFree = true
+            pill.model.latched = true
             onLatchChanged?(true)
         }
     }
@@ -188,7 +185,7 @@ public final class DictationCoordinator {
     public func endLatch() {
         guard latched else { return }
         latched = false
-        pill.model.handsFree = false
+        pill.model.latched = false
         onLatchChanged?(false)
     }
 
@@ -279,8 +276,8 @@ public final class DictationCoordinator {
     public var engineIsUnavailable: Bool { (engine as? EngineAvailabilityReporting)?.isUnavailable ?? false }
 
     public func finalize() {
-        // R3.1: the line that used to sit here — `handsFree = false` — is *the* reason latch did not
-        // exist (V3 §2.3). Ending one session must not end the mode; see `latched` and `endLatch()`.
+        // R3.1: the line that used to sit here — the one clearing `latched` — is *the* reason latch
+        // did not exist (V3 §2.3). Ending one session must not end the mode; see `endLatch()`.
         //
         // Taken here, on the key-release turn, not inside the queued work: the point of the snapshot
         // is what was focused when the user let go.

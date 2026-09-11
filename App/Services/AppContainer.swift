@@ -56,8 +56,8 @@ public final class AppContainer {
     public let agentBackend: NativeAgentBackend
     public let connectorHub: ConnectorHub
     public let connectors: ConnectorRegistry
-    /// P5 — hands-free gate (directed speech + speaker + mute), wake-verb pre-route, meetings.
-    public let handsFree: HandsFreeController
+    /// P5 — the latch gate (directed speech + speaker + mute), wake-verb pre-route, meetings.
+    public let latchController: LatchController
     public let wakeVerb: WakeVerbPreRoute
     public let meeting: MeetingCoordinator
     /// P6 — personal adaptation loop, code-switching, encrypted sync.
@@ -147,11 +147,11 @@ public final class AppContainer {
         adaptation = adaptationService
         // P4.2 — the act hook runs first: while the second key holds the domain open (or a card
         // is pending) the utterance is a command, not text.
-        // P5 — then "not you" (hands-free only) and the wake-verb grammar, then snippets.
+        // P5 — then "not you" (only while latched) and the wake-verb grammar, then snippets.
         let actHook = ActPreRouteHook()
         self.actHook = actHook
-        let handsFreeController = HandsFreeController(flags: flags)
-        self.handsFree = handsFreeController
+        let latchController = LatchController(flags: flags)
+        self.latchController = latchController
         let wakeVerbPre = WakeVerbPreRoute()
         self.wakeVerb = wakeVerbPre
         let guardStage = RegressionGuardStage(lexicon: { [weak adaptationService] in adaptationService?.loop.lexicon ?? PersonalLexicon() })
@@ -163,7 +163,7 @@ public final class AppContainer {
         }
         let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore), guardStage]
             + FieldRolePipeline.replacingFormatters(in: builtIn)
-        let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, handsFreeController, wakeVerbPre, SnippetPreRoute(store: snippetStore)]))
+        let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, latchController, wakeVerbPre, SnippetPreRoute(store: snippetStore)]))
         pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
 
         // P2.5 personas: the same rows Settings edits, auto-drafted from style learnings.
@@ -246,9 +246,9 @@ public final class AppContainer {
         codeSwitch = codeSwitchService
         sync = SyncService(database: database, snippets: snippetStore, settings: settings)
         lander.textFinalizer = { [weak codeSwitchService] spans in codeSwitchService?.finalize(spans) }
-        lander.actClaimConsumer = { [weak actHook, weak handsFreeController] in
+        lander.actClaimConsumer = { [weak actHook, weak latchController] in
             let act = actHook?.consumeClaim() ?? false
-            let notYou = handsFreeController?.consumeClaim() ?? false
+            let notYou = latchController?.consumeClaim() ?? false
             return act || notYou
         }
 

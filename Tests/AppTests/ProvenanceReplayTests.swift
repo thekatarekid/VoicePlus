@@ -169,11 +169,11 @@ struct ProvenanceReplayTests {
             utterances = lines.enumerated().map { (String(format: "%02d script", $0 + 1), Self.spans($1)) }
         }
 
-        let handsFree = StageContext(extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.handsFreeValue])
+        let latched = StageContext(extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.latchedValue])
         var violations: [String] = []
         var stageRuns = 0
         for (label, spans) in utterances {
-            for context in [StageContext(), handsFree] {
+            for context in [StageContext(), latched] {
                 let result = try await runner.run(spans, context: context)
                 stageRuns += result.metrics.count
                 for m in result.metrics where !m.contractViolations.isEmpty {
@@ -184,7 +184,7 @@ struct ProvenanceReplayTests {
         print("""
             R4.1a corpus replay through AppContainer's pipeline
               evidence:   \(evidence)
-              utterances: \(utterances.count) x 2 contexts (as-detected + hands-free)
+              utterances: \(utterances.count) x 2 contexts (as-detected + latched)
               stage runs: \(stageRuns)
               contract violations: \(violations.count)
             """)

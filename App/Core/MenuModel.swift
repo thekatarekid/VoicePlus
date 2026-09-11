@@ -11,7 +11,7 @@ public struct MenuModel: Equatable, Sendable {
     public var micName: String
     public var micStatus: MicQuality.Verdict?
     public var paused: Bool
-    /// R3.1 / V3 §4.7 vocabulary: the mode formerly called `handsFree`.
+    /// R3.1 / V3 §4.7 vocabulary: **latched** is the double-tap mode; **muted** is the hard mute.
     public var latched: Bool
     public var hotkeyName: String
     public var launchAtLogin: Bool

@@ -7,7 +7,7 @@ import Shared
 @Suite struct WakeVerbTests {
     static let g = WakeVerbGrammar()
     static func hf(_ register: Utterance.Register = .unknown) -> StageContext {
-        StageContext(register: register, extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.handsFreeValue])
+        StageContext(register: register, extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.latchedValue])
     }
     static func spans(_ text: String) -> [TranscriptSpan] {
         text.split(separator: " ").enumerated().map { i, w in
@@ -54,7 +54,7 @@ import Shared
     }
 
     // MARK: Pre-route hook
-    @Test func hookFiresOnlyInHandsFree() {
+    @Test func hookFiresOnlyWhenLatched() {
         let h = WakeVerbPreRoute()
         #expect(h.preRoute("type hello", context: StageContext()) == nil)
         let d = h.preRoute("type hello", context: Self.hf())
@@ -108,7 +108,7 @@ import Shared
         let out = try await WakeVerbStage(preRoute: WakeVerbPreRoute()).process(input, context: Self.hf())
         #expect(out.map(\.text) == ["hello world"])
     }
-    @Test func stageNoOpOutsideHandsFree() async throws {
+    @Test func stageNoOpOutsideLatch() async throws {
         let input = Self.spans("type hello")
         let out = try await WakeVerbStage(preRoute: WakeVerbPreRoute()).process(input, context: StageContext())
         #expect(out.map(\.text) == ["type", "hello"])

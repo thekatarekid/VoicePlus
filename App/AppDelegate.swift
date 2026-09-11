@@ -128,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         latch.onOutcome = { outcome, segment in
             Log.app.info("latch segment \(segment.description): \(String(describing: outcome))")
         }
-        let sessionCoordinator = SessionCoordinator(dictation: coordinator, mute: container.handsFree.mute, latch: latch)
+        let sessionCoordinator = SessionCoordinator(dictation: coordinator, mute: container.latchController.mute, latch: latch)
         sessionCoordinator.observeSystemEvents()
         sessionCoordinator.onStopped = { [weak self] _, reason in
             guard reason == .locked || reason == .slept else { return }
@@ -280,23 +280,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { self?.pill.model.scriptBadge = label }
         }
 
-        // P5 — hands-free: wake-verb context flag rides the lander's augmenter chain; the
+        // P5 — latch: the wake-verb context flag rides the lander's augmenter chain; the
         // directed-speech gate opens the mic on addressed speech; hard mute pauses everything.
         let baseAugmenter = container.lander.contextAugmenter
         container.lander.contextAugmenter = { [weak coordinator] spans, ctx in
             var ctx = baseAugmenter?(spans, ctx) ?? ctx
             if coordinator?.latched == true {
-                ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.handsFreeValue
+                ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.latchedValue
             }
             return ctx
         }
-        container.handsFree.isLatched = { [weak coordinator] in coordinator?.latched ?? false }
-        container.handsFree.onShouldCapture = { [weak coordinator] _ in
+        container.latchController.isLatched = { [weak coordinator] in coordinator?.latched ?? false }
+        container.latchController.onShouldCapture = { [weak coordinator] _ in
             // Addressed speech opens the mic for the follow-on utterance (RAM-only ring;
             // nothing is stored). The engine's normal finalize path lands it.
             DispatchQueue.main.async { coordinator?.start() }
         }
-        container.handsFree.mute.observe { [weak self, weak sessionCoordinator] model in
+        container.latchController.mute.observe { [weak self, weak sessionCoordinator] model in
             DispatchQueue.main.async {
                 // R3.3 — hard mute goes through the session owner: capture stops on every path,
                 // pending insertion is cancelled, and the latch ends. Unmuting never resumes.
@@ -340,10 +340,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // P5.4 — ambient glyph + one-gesture hard mute; P5.3 — enrollment window.
         status.ambientSymbol = { [weak container] in
             guard let container, container.flags.isEnabled(.directedSpeech) else { return nil }
-            return container.handsFree.ambientModel.menuBarSymbol
+            return container.latchController.ambientModel.menuBarSymbol
         }
-        status.ambientMuted = { [weak container] in container?.handsFree.mute.isMuted ?? false }
-        status.onToggleMute = { [weak container] in container?.handsFree.mute.toggleMute() }
+        status.ambientMuted = { [weak container] in container?.latchController.mute.isMuted ?? false }
+        status.onToggleMute = { [weak container] in container?.latchController.mute.toggleMute() }
         status.onEnrollVoice = { [weak self, weak container] in
             guard let self, let container else { return }
             self.showSpeakerEnrollment(container: container)
@@ -428,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 ambientCapturing: false,
                                 claim: sessionCoordinator?.activeRequester)
         }
-        presence.bind(pill: pill.model, mute: container.handsFree.mute)
+        presence.bind(pill: pill.model, mute: container.latchController.mute)
         presence.start()
 
         // Arm the hotkey from the permission *matrix*, continuously, before anything else — not from
@@ -488,7 +488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// P5.3 — onboarding-2: enroll the user's voice through the engine's audio tap (~3 s per
-    /// prompted phrase); the finished profile arms the hands-free speaker gate.
+    /// prompted phrase); the finished profile arms the latch's speaker gate.
     @MainActor
     private func showSpeakerEnrollment(container: AppContainer) {
         SpeakerEnrollmentWindowController.show(model: makeSpeakerEnrollment(container: container))
@@ -498,7 +498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// window's Voice section, which builds it on demand through `MainWindowEnvironment`.
     @MainActor
     private func makeSpeakerEnrollment(container: AppContainer) -> SpeakerEnrollmentViewModel {
-        let model = SpeakerEnrollmentViewModel(embedder: container.handsFree.embedder) { [weak container] in
+        let model = SpeakerEnrollmentViewModel(embedder: container.latchController.embedder) { [weak container] in
             guard let container else { return [] }
             container.audioTap.reset()
             try? await container.engine.start(prewarm: true)
@@ -506,7 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try? await container.engine.stop()
             return container.audioTap.samples
         }
-        model.onComplete = { [weak container] profile in container?.handsFree.install(profile: profile) }
+        model.onComplete = { [weak container] profile in container?.latchController.install(profile: profile) }
         return model
     }
 

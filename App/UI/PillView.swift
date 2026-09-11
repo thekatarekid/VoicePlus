@@ -6,7 +6,8 @@ import SwiftUI
 public final class PillViewModel: ObservableObject {
     @Published public private(set) var state: PillState = .hidden
     @Published public private(set) var waveform = WaveformModel()
-    @Published public var handsFree = false
+    /// Latched (V3 §4.7): the mic mark gains its badge while the double-tap mode is on.
+    @Published public var latched = false
     /// P2.3 — transform ghost ("↩ / try again") + morph preview; nil outside a transform turn.
     @Published public var ghost: TransformGhost?
     @Published public var morph: MorphAnimationModel?
@@ -207,7 +208,7 @@ public struct PillView: View {
             else { Image(systemName: "checkmark.circle").foregroundStyle(.yellow) }
         case .held: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
         case .idle: Image(systemName: "mic").foregroundStyle(.secondary)
-        default: Image(systemName: model.handsFree ? "mic.badge.plus" : "mic.fill").foregroundStyle(.red)
+        default: Image(systemName: model.latched ? "mic.badge.plus" : "mic.fill").foregroundStyle(.red)
         }
     }
 

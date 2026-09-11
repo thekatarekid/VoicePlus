@@ -10,9 +10,6 @@ import Shared
 /// Audio flows in through `appendAudio` + `handle(_:)` (VAD events); when a speech segment ends
 /// and every gate passes, `onShouldCapture` fires — that is what starts the engine while latched.
 /// Nothing here persists audio.
-///
-/// Renamed from `HandsFreeController` (V3 §4.7: the mode is "latched"). The old name is a
-/// `typealias` below so callers that have not been renamed yet keep compiling.
 public final class LatchController: @unchecked Sendable {
     public let detector: DirectedSpeechDetector
     public let embedder: any SpeakerEmbedder
@@ -24,12 +21,6 @@ public final class LatchController: @unchecked Sendable {
 
     /// The app answers "is the latch on right now?" (double-tap state).
     public var isLatched: () -> Bool = { false }
-    /// R3.1 compatibility alias. Assigning either one sets the same closure.
-    @available(*, deprecated, renamed: "isLatched")
-    public var isHandsFree: () -> Bool {
-        get { isLatched }
-        set { isLatched = newValue }
-    }
     /// Fires when a directed, user-voiced segment ends → start capture.
     public var onShouldCapture: ((DirectedSpeechDecision) -> Void)?
     /// Last reason a segment was dropped ("muted" / "not directed" / a
@@ -198,7 +189,7 @@ extension LatchController: GatekeeperPreRouting {
     static let notYouPhrases: Set<String> = ["not you", "not me", "that wasn't me", "that was not me", "wasn't talking to you"]
 
     public func preRoute(_ text: String, context: StageContext) -> GatekeeperDecision? {
-        guard WakeVerbPreRoute.isHandsFree(context) else { return nil }
+        guard WakeVerbPreRoute.isLatched(context) else { return nil }
         let norm = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: .punctuationCharacters)
         guard Self.notYouPhrases.contains(norm) else { return nil }
@@ -215,9 +206,3 @@ extension LatchController: GatekeeperPreRouting {
         return was
     }
 }
-
-/// R3.1 — the old name. `HandsFreeController` is what `AppContainer`, `AppDelegate` and the P5
-/// acceptance tests still say; keeping the alias is what lets the rename land without reaching into
-/// files this item does not own.
-@available(*, deprecated, renamed: "LatchController")
-public typealias HandsFreeController = LatchController

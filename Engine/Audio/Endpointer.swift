@@ -1,6 +1,6 @@
 import Foundation
 
-/// Hands-free end-of-utterance detection driven by VAD events.
+/// Latched-mode end-of-utterance detection driven by VAD events.
 /// Fires `.endpoint` once speech has been heard and `trailingSilence` has elapsed since it ended,
 /// `.noSpeech` if nothing was heard within `noSpeechTimeout`, and `.maxDuration` as a hard stop.
 public struct Endpointer: Sendable {

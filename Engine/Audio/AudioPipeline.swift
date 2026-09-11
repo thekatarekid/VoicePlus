@@ -12,7 +12,7 @@ public enum AudioPipelineEvent: Equatable, Sendable {
     case vad(VADEvent)
     /// 3–5 s chunk ready for ASR.
     case chunk(AudioChunk)
-    /// Hands-free endpoint decision (only when `AudioPipeline.Options.handsFree`).
+    /// Latched-mode endpoint decision (only when `AudioPipeline.Options.latched`).
     case endpoint(Endpointer.Decision)
     case deviceChanged(from: AudioDeviceInfo?, to: AudioDeviceInfo?)
     /// Ring-buffer overrun: `dropped` samples lost since last report.
@@ -29,7 +29,9 @@ public final class AudioPipeline: @unchecked Sendable {
     public struct Options: Sendable {
         public var chunkMin: TimeInterval = 3.0
         public var chunkMax: TimeInterval = 5.0
-        public var handsFree = false
+        /// Latch mode (V3 §4.7): drive `Endpointer` so a session can close a segment and keep
+        /// listening. Off for a plain hold, where the key release ends the utterance.
+        public var latched = false
         public var endpointer = Endpointer()
         /// Ring capacity in seconds of 16 kHz audio.
         public var ringSeconds: Double = 30
@@ -288,7 +290,7 @@ public final class AudioPipeline: @unchecked Sendable {
             await runVAD(frame)
         }
         let now = Double(position) / 16_000
-        if options.handsFree, let d = endpointer.tick(now: now) { broadcaster.send(.endpoint(d)) }
+        if options.latched, let d = endpointer.tick(now: now) { broadcaster.send(.endpoint(d)) }
     }
 
     private func runVAD(_ frame: [Float]) async {

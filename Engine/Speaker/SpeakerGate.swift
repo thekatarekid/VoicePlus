@@ -1,6 +1,6 @@
 import Foundation
 
-/// Decides whether an utterance was spoken by the enrolled user. In hands-free mode anything
+/// Decides whether an utterance was spoken by the enrolled user. While latched anything
 /// that is not the user (TV, podcast, colleague) is dropped before it reaches the pipeline.
 public struct SpeakerGate: Sendable {
     public enum Verdict: Equatable, Sendable {
@@ -49,9 +49,4 @@ public struct SpeakerGate: Sendable {
         guard latched else { return true }
         switch v { case .user, .unknown: return true; case .other: return false }
     }
-
-    /// R3.1 vocabulary (V3 §4.7): `handsFree` is now `latched`. Kept so callers outside this
-    /// module keep compiling while the rename lands.
-    @available(*, deprecated, renamed: "shouldAccept(_:latched:)")
-    public func shouldAccept(_ v: Verdict, handsFree: Bool) -> Bool { shouldAccept(v, latched: handsFree) }
 }

@@ -30,7 +30,7 @@ public enum AmbientState: String, Codable, CaseIterable, Sendable {
     public var accessibilityDescription: String { "VoicePlus is \(label.lowercased())" }
 }
 
-/// Pure state model for the ambient glyph. Mute is a hard latch: it wins over everything and is
+/// Pure state model for the ambient glyph. Mute is hard: it wins over everything and is
 /// only ever released by an explicit `unmute()` gesture — never by a timer, a dictation ending,
 /// relaunch, or a new session.
 public struct AmbientStateModel: Equatable, Codable, Sendable {
@@ -68,7 +68,7 @@ public struct AmbientStateModel: Equatable, Codable, Sendable {
     @discardableResult
     public mutating func unmute() -> AmbientState { muted = false; return state }
 
-    // MARK: engine signals (never affect the mute latch)
+    // MARK: engine signals (never affect the mute)
 
     public mutating func setProcessing(_ on: Bool) { processing = on }
 

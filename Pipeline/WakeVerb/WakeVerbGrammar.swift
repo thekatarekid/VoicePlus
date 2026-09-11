@@ -1,7 +1,7 @@
 import Foundation
 import Shared
 
-/// P5.2 — leading-verb grammar for hands-free mode (Infina pattern): `"type …"`, `"send"`,
+/// P5.2 — leading-verb grammar for latched mode (Infina pattern): `"type …"`, `"send"`,
 /// `"<appname> …"`. Deterministic; parsed before rules/Bayes via `WakeVerbPreRoute`.
 public struct WakeVerbParse: Equatable, Sendable {
     public enum Kind: String, Codable, Sendable { case type, send, app }

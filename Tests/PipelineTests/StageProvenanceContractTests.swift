@@ -7,7 +7,7 @@ import Testing
 ///
 /// A `PipelineStage` must append its `id` to the provenance of *every* span it returns, including
 /// the spans it decided not to change. `WakeVerbStage` returned its input array untouched whenever
-/// the utterance was not hands-free or carried no wake verb — which is nearly every dictation — so
+/// the session was not latched or the utterance carried no wake verb — which is nearly every dictation — so
 /// `ConfidenceContract.verify` reported "did not append provenance" and `ContractEnforcingStage`
 /// discarded the stage's output under the production policy. The same bug in the `adapt.lexicon`
 /// stage is covered in `Tests/AppTests/ProvenanceReplayTests.swift`, because that stage type
@@ -15,7 +15,7 @@ import Testing
 @Suite struct StageProvenanceContractTests {
 
     static func hf(_ register: Utterance.Register = .unknown) -> StageContext {
-        StageContext(register: register, extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.handsFreeValue])
+        StageContext(register: register, extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.latchedValue])
     }
 
     /// One span per word, `[.asr]` provenance, contiguous non-zero audio ranges.
@@ -39,11 +39,11 @@ import Testing
 
     // MARK: wakeVerb
 
-    @Test func wakeVerbAppendsProvenanceOnPassThroughOutsideHandsFree() async throws {
+    @Test func wakeVerbAppendsProvenanceOnPassThroughOutsideLatch() async throws {
         let input = Self.spans("send the deck to Priya before the standup")
         let out = try await WakeVerbStage(preRoute: WakeVerbPreRoute()).process(input, context: StageContext())
         Self.assertContract(input, out, .wakeVerb)
-        #expect(out.map(\.text) == input.map(\.text), "no wake verb is stripped outside hands-free")
+        #expect(out.map(\.text) == input.map(\.text), "no wake verb is stripped outside latch")
     }
 
     @Test func wakeVerbAppendsProvenanceOnPassThroughWithNoWakeVerb() async throws {

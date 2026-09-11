@@ -239,10 +239,19 @@ struct OneMenuTests {
         #expect(model.statusSymbol == "mic")
         model.paused = true
         #expect(model.statusSymbol == "mic.slash")
-        // The words in the two files this task owns, checked as text so the rename cannot regress.
+        // G2: every file the rename swept, checked as text so it cannot regress. Not
+        // `WakeVerbPreRoute.swift` — `latchedValue` deliberately still *carries* the string
+        // "handsFree" as an in-process context value (renaming the payload would be a data change).
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        for path in ["App/Core/MenuModel.swift", "App/UI/StatusItemController.swift", "App/Core/PresenceClick.swift"] {
+        let swept = [
+            "App/Core/MenuModel.swift", "App/UI/StatusItemController.swift", "App/Core/PresenceClick.swift",
+            "App/AppDelegate.swift", "App/UI/PillView.swift", "App/Core/HotkeyStateMachine.swift",
+            "App/Services/LatchController.swift", "App/Services/LatchRuntime.swift",
+            "App/Services/DictationCoordinator.swift", "App/Services/AppContainer.swift",
+            "Engine/Audio/AudioPipeline.swift", "Engine/Speaker/SpeakerGate.swift",
+        ]
+        for path in swept {
             let source = (try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)) ?? ""
             #expect(!source.isEmpty, "could not read \(path)")
             let code = source.split(separator: "\n").filter {

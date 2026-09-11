@@ -30,14 +30,14 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         /// Key released too early: abort without text.
         case cancelCapture
         /// Second quick tap detected — latch: keep capturing until the next key-down. R3.1 renamed
-        /// this from `enterHandsFree` (V3 §4.7: the mode is "latched", never "hands-free").
+        /// V3 §4.7 names this mode "latched" — the user-facing word is Latch.
         case enterLatch
     }
 
     public enum Phase: Equatable, Sendable {
         case idle
         case keyDown(since: TimeInterval)
-        /// Latched: capture continues with no key held (R3.1; was `handsFree`).
+        /// Latched: capture continues with no key held (R3.1).
         case latched
     }
 

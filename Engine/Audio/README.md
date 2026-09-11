@@ -10,14 +10,14 @@ AudioCaptureSource ──▶ RingBuffer (16 kHz mono) ──▶ pump thread ─�
                                                                      ├─ MicQualityAnalyzer ─▶ .micQuality
                                                                      ├─ VADProtocol ──────▶ .vad(.speechStart/.speechEnd)
                                                                      ├─ Chunker 3.0–5.0 s ─▶ .chunk(AudioChunk)
-                                                                     └─ Endpointer ───────▶ .endpoint (hands-free only)
+                                                                     └─ Endpointer ───────▶ .endpoint (latched only)  
 ```
 
 ## Usage
 ```swift
 let vad = await VADFactory.make()                       // Silero if model on disk, else EnergyVAD; never downloads
 let source = CoreAudioCaptureSource()                    // or FixtureCaptureSource(url:) for WAV replay
-var options = AudioPipeline.Options(); options.handsFree = true
+var options = AudioPipeline.Options(); options.latched = true
 let pipeline = AudioPipeline(source: source, vad: vad, options: options)
 
 let events = pipeline.events()                           // AsyncStream<AudioPipelineEvent>, one per subscriber
@@ -47,7 +47,7 @@ pipeline.audioBuffers()          // AsyncStream<[Float]> of just the 16 kHz audi
 | `AudioConverter16k.swift` | `AVAudioConverter` any-format → 16 kHz mono Float32 (streaming or one-shot flush). |
 | `InputSelectionPolicy.swift` | Device choice: per-device prefs in `UserDefaults` (`audio.input.preferredUID`, `audio.input.pref.<uid>`) → keep current → system default unless display/virtual → built-in. |
 | `MicQualityAnalyzer.swift` | SNR (p90/p10 frame RMS), clipping fraction, low level over 300 ms of signal (leading pause skipped; 1.5 s deadline). |
-| `Chunker.swift` / `Endpointer.swift` | 3.0 / 5.0 s chunking at speech boundaries; hands-free endpoint after trailing silence (1.2 s default), no-speech timeout, max duration. |
+| `Chunker.swift` / `Endpointer.swift` | 3.0 / 5.0 s chunking at speech boundaries; latched-mode endpoint after trailing silence (1.2 s default), no-speech timeout, max duration. |
 | `WAVFile.swift` / `FixtureCaptureSource.swift` | Dependency-free WAV reader/writer; deterministic replay through the same sink as the HAL source. `AudioFixtures.url(suite, file)`. |
 | `VAD/VADProtocol.swift` | `VADProtocol` (frame-synchronous, 16 kHz), `VADEvent`, offline `segments(in:)`. |
 | `VAD/EnergyVAD.swift` | Fallback: min-statistics noise floor + hysteresis, 20 ms frames. F1 0.98 on `Fixtures/audio/vad`. |

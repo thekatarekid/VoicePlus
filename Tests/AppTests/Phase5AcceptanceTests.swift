@@ -5,9 +5,9 @@ import Shared
 import Testing
 @testable import VoicePlusApp
 
-/// Phase 5 acceptance — hands-free gate (directed speech × speaker × mute), wake-verb pre-route,
+/// Phase 5 acceptance — the latch gate (directed speech × speaker × mute), wake-verb pre-route,
 /// "not you" correction, and the meeting detector → session → notes flow, all against mocks.
-@Suite("Phase 5 acceptance — hands-free + meetings")
+@Suite("Phase 5 acceptance — latch + meetings")
 struct Phase5AcceptanceTests {
     // MARK: Directed speech
 
@@ -62,7 +62,7 @@ struct Phase5AcceptanceTests {
         let (off, _) = Self.controller(flagOn: false)
         var captures = 0
         off.onShouldCapture = { _ in captures += 1 }
-        #expect(!Self.speak(off), "flag off → hands-free never triggers")
+        #expect(!Self.speak(off), "flag off → directed speech never triggers")
         #expect(captures == 0)
 
         let (muted, store) = Self.controller()
@@ -118,23 +118,23 @@ struct Phase5AcceptanceTests {
         let before = controller.detector.classifier.correctionCount
 
         var ctx = StageContext()
-        ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.handsFreeValue
+        ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.latchedValue
         let decision = controller.preRoute("not you", context: ctx)
         #expect(decision?.route == Utterance.Route.none)
         #expect(controller.detector.classifier.correctionCount == before + 1)
         #expect(controller.consumeClaim(), "claimed → the lander must not type it")
         #expect(!controller.consumeClaim(), "claim is consumed once")
 
-        // Outside hands-free the phrase is ordinary text.
+        // Outside latch the phrase is ordinary text.
         #expect(controller.preRoute("not you", context: StageContext()) == nil)
     }
 
     // MARK: Wake verb (P5.2)
 
-    @Test func wakeVerbRoutesAndStripsInHandsFreeOnly() async throws {
+    @Test func wakeVerbRoutesAndStripsWhenLatchedOnly() async throws {
         let wake = WakeVerbPreRoute()
         var ctx = StageContext()
-        ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.handsFreeValue
+        ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.latchedValue
 
         let decision = try #require(wake.preRoute("type hello world", context: ctx))
         #expect(decision.route == .dictate)
@@ -147,7 +147,7 @@ struct Phase5AcceptanceTests {
         let out = try await stage.process(spans, context: ctx)
         #expect(out.joinedText.trimmingCharacters(in: .whitespaces) == "hello world", "wake verb is stripped from the landed text")
 
-        // Not in hands-free → the grammar stays out of the way.
+        // Not latched → the grammar stays out of the way.
         #expect(wake.preRoute("type hello world", context: StageContext()) == nil)
     }
 

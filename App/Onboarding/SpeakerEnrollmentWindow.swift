@@ -3,7 +3,7 @@ import Engine
 import SwiftUI
 
 /// P5.3 — onboarding-2: speaker enrollment. Three prompted utterances → embedding centroid →
-/// `SpeakerProfile` handed back to the composition root (HandsFreeController installs + persists).
+/// `SpeakerProfile` handed back to the composition root (`LatchController` installs + persists).
 /// The recorder closure is injected: the app records ~3 s through the engine's audio tap; tests
 /// feed synthetic samples.
 @MainActor
