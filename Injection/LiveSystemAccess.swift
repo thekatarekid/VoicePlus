@@ -42,7 +42,24 @@ public final class LiveSystemAccess: SystemAccess {
         return FocusedElementInfo(role: role, value: value, selectedRange: range,
                                   isValueSettable: isSettable(element, kAXValueAttribute),
                                   isSelectedTextSettable: isSettable(element, kAXSelectedTextAttribute),
-                                  subrole: subrole, selectedText: selectedText)
+                                  subrole: subrole, selectedText: selectedText,
+                                  hints: hints(of: element))
+    }
+
+    /// R4.2 — the four descriptive attributes, fetched in **one** batched request on the element
+    /// this call already resolved. No second `kAXFocusedUIElement` traversal and no extra
+    /// per-attribute round-trip: `focusedElement()` runs once per utterance and AX is slow.
+    ///
+    /// `AXUIElementCopyMultipleAttributeValues` puts an `AXValue` of type `.axError` in the slot of
+    /// any attribute the element does not expose, which is the common case — most elements have
+    /// only one or two of these. Those slots (and a wholesale failure of the batched call) come
+    /// back as `nil` and are dropped, so hints degrade to `[]` rather than throwing.
+    private func hints(of element: AXUIElement) -> [String] {
+        let names = FocusedElementInfo.hintAttributes
+        var values: CFArray?
+        let err = AXUIElementCopyMultipleAttributeValues(element, names as CFArray, AXCopyMultipleAttributeOptions(), &values)
+        guard err == .success, let raw = values as? [CFTypeRef], raw.count == names.count else { return [] }
+        return FocusedElementInfo.hints(from: raw.map { $0 as? String })
     }
 
     // MARK: AX writes

@@ -33,9 +33,18 @@ public struct FocusedElementInfo: Equatable, Sendable {
     /// Whether `kAXValueAttribute` / `kAXSelectedTextAttribute` are settable.
     public var isValueSettable: Bool
     public var isSelectedTextSettable: Bool
+    /// R4.2 — every descriptive string the element exposes, in this order: `AXIdentifier`,
+    /// `AXDescription`, `AXTitle`, `AXRoleDescription` (the last also carries a web view's ARIA
+    /// label). Empty and duplicate values are dropped, so an element that exposes none yields `[]`.
+    ///
+    /// This is what tells a VS Code integrated terminal ("Terminal input") from its editor
+    /// ("Monaco editor"): both are `AXTextArea` in the same bundle ID, so role and app class
+    /// cannot separate them. `Pipeline`'s `FieldRole.classify` reads these as `FieldContext.hints`.
+    public var hints: [String]
 
     public init(role: String, value: String?, selectedRange: Range<Int>?, isValueSettable: Bool,
-                isSelectedTextSettable: Bool, subrole: String? = nil, selectedText: String? = nil) {
+                isSelectedTextSettable: Bool, subrole: String? = nil, selectedText: String? = nil,
+                hints: [String] = []) {
         self.role = role
         self.subrole = subrole
         self.value = value
@@ -43,12 +52,31 @@ public struct FocusedElementInfo: Equatable, Sendable {
         self.selectedText = selectedText
         self.isValueSettable = isValueSettable
         self.isSelectedTextSettable = isSelectedTextSettable
+        self.hints = hints
     }
 
     public var isReadable: Bool { value != nil }
 
     /// AX role/subrole for a password field. Dictation must never be posted into one (R2.3).
     public static let secureRole = "AXSecureTextField"
+
+    /// The AX attributes `hints` is read from, in the order they are reported. These are exactly
+    /// `kAXIdentifierAttribute`, `kAXDescriptionAttribute`, `kAXTitleAttribute` and
+    /// `kAXRoleDescriptionAttribute`; spelled as literals so this file stays Foundation-only.
+    public static let hintAttributes = ["AXIdentifier", "AXDescription", "AXTitle", "AXRoleDescription"]
+
+    /// Raw attribute reads → `hints`: trimmed, blanks and nils dropped, duplicates dropped
+    /// (an element whose title and role description are both "Terminal" contributes one hint).
+    /// An element that exposes none of them degrades to `[]` — never an error, never a `nil` hole.
+    public static func hints(from raw: [String?]) -> [String] {
+        var out: [String] = []
+        for value in raw {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty, !out.contains(trimmed) else { continue }
+            out.append(trimmed)
+        }
+        return out
+    }
 
     /// True when this element is a password field by role *or* subrole.
     public var isSecure: Bool { role == Self.secureRole || subrole == Self.secureRole }

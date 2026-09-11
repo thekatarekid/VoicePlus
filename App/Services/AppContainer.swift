@@ -155,9 +155,14 @@ public final class AppContainer {
         let wakeVerbPre = WakeVerbPreRoute()
         self.wakeVerb = wakeVerbPre
         let guardStage = RegressionGuardStage(lexicon: { [weak adaptationService] in adaptationService?.loop.lexicon ?? PersonalLexicon() })
-        let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore), guardStage] + StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
+        // R4.2 — `FieldRolePipeline` puts `FieldRoleFormatterStage` *in place of* the five
+        // register-routed formatters (it runs one of them itself, chosen by the field role, so
+        // keeping both would format the same spans twice). Everything else keeps its position.
+        let builtIn = StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
             stage.id == .style ? StyleStage(store: styleStore) : stage
         }
+        let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore), guardStage]
+            + FieldRolePipeline.replacingFormatters(in: builtIn)
         let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, handsFreeController, wakeVerbPre, SnippetPreRoute(store: snippetStore)]))
         pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
 
@@ -233,6 +238,9 @@ public final class AppContainer {
         lander.transform = transform
         lander.correction = correction
         lander.contextAugmenter = { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }
+        // R4.2 — the AX hints the field-role formatter classifies on, read once per utterance.
+        let fieldContextReader = FieldContextReader(system: system)
+        lander.fieldContextProvider = { [fieldContextReader] bundleID in fieldContextReader.fieldContext(bundleID: bundleID) }
         // P6.3 — script-aware final text + pill indicator; P6.4 — sync service.
         let codeSwitchService = CodeSwitchService(router: built.codeSwitch)
         codeSwitch = codeSwitchService

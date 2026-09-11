@@ -11,11 +11,17 @@ open class MockSystemAccess: SystemAccess {
         public var subrole: String?
         public var value: String = ""
         public var selection: Range<Int> = 0..<0
-        public init(role: String = "AXTextArea", value: String = "", selection: Range<Int>? = nil, subrole: String? = nil) {
+        /// R4.2 — `AXIdentifier` / `AXDescription` / `AXTitle` / `AXRoleDescription` as the live
+        /// tree would report them. Set it to `["Terminal input"]` to model VS Code's integrated
+        /// terminal, or `["Monaco editor"]` for its editor pane: same role, same bundle ID.
+        public var hints: [String] = []
+        public init(role: String = "AXTextArea", value: String = "", selection: Range<Int>? = nil,
+                    subrole: String? = nil, hints: [String] = []) {
             self.role = role
             self.subrole = subrole
             self.value = value
             self.selection = selection ?? value.utf16.count..<value.utf16.count
+            self.hints = hints
         }
 
         /// A password field, by role (native) or by subrole (web).
@@ -87,7 +93,8 @@ open class MockSystemAccess: SystemAccess {
                                   isValueSettable: axWriteWorks,
                                   isSelectedTextSettable: axWriteWorks,
                                   subrole: field.subrole,
-                                  selectedText: caretReadable ? selectedTextSlice : nil)
+                                  selectedText: caretReadable ? selectedTextSlice : nil,
+                                  hints: FocusedElementInfo.hints(from: field.hints.map { $0 }))
     }
 
     // MARK: AX writes

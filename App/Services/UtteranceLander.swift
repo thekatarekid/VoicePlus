@@ -23,6 +23,12 @@ public struct LandingResult: Sendable {
     public var revertedCorrection: CorrectionEntry?
     public var pipelineMs: Double
     public var totalMs: Double
+    /// R4.2 — what the insertion point turned out to *be*, once the AX hints were read. `nil` when
+    /// no field context was available (no accessibility permission, or nothing focused).
+    public var fieldRole: FieldRole?
+    /// R4.2 — `FieldRules.allowSubmit`: whether anything downstream may press Return after this
+    /// text. Always false for a terminal role, whatever the field claims about Return.
+    public var allowSubmit = false
 
     public var landed: Bool { injection?.succeeded ?? false }
 
@@ -68,6 +74,12 @@ public final class UtteranceLander: @unchecked Sendable {
     public var correction: CorrectionService?
     /// P3 — deixis/referent resolution injects `contextLine` (+ window text) before the pipeline runs.
     public var contextAugmenter: (([TranscriptSpan], StageContext) -> StageContext)?
+    /// R4.2 — the focused field as a value (AX role/subrole/hints + the text around the caret).
+    /// Written into the stage context before the pipeline runs, so `FieldRoleFormatterStage`
+    /// classifies the insertion point; read again after it, for the continuation whitespace, the
+    /// submit rule and the secure-field refusal. `nil` result = classify by role + app as before.
+    /// `AppContainer` sets this to a `FieldContextReader` over the live `SystemAccess`.
+    public var fieldContextProvider: ((String?) -> FieldContext?)?
     /// P4.2 — returns true (and consumes the claim) when the act pre-route hook took this utterance.
     public var actClaimConsumer: (() -> Bool)?
     /// P6.3 — script-aware text assembly (code-switch merger); nil result keeps the joined text.
@@ -111,6 +123,9 @@ public final class UtteranceLander: @unchecked Sendable {
         let bundleID = focus?.bundleID ?? system.frontmostApp()?.bundleID
         var ctx = context(bundleID: bundleID)
         if let contextAugmenter { ctx = contextAugmenter(spans, ctx) }
+        // R4.2 — the field context goes in last so nothing else can overwrite its keys.
+        let field = fieldContextProvider?(bundleID)
+        if let field { FieldRolePipeline.write(field, into: &ctx) }
         var result = LandingResult(utteranceID: id, route: .none, register: .unknown, text: "", injection: nil,
                                    focusDestination: Self.destinationName(focus: focus, bundleID: bundleID),
                                    repair: nil, pipelineMs: 0, totalMs: 0)
@@ -183,7 +198,28 @@ public final class UtteranceLander: @unchecked Sendable {
         // Everything else types. (Transform / question routes arrive in Phase 2; until then the
         // gatekeeper's decision is logged and the text lands verbatim — never silently dropped.)
         let finalSpans = outSpans
-        let text = textFinalizer?(finalSpans) ?? finalSpans.joinedText
+        var text = textFinalizer?(finalSpans) ?? finalSpans.joinedText
+
+        // R4.2 — the field-role decision, made once. `plan` runs no formatter (the pipeline's
+        // `FieldRoleFormatterStage` already did that, exactly once), so this cannot format twice:
+        // it only yields the rules and the continuation whitespace, which is field state, not audio.
+        if let field {
+            let plan = FieldRoleFormatter().plan(for: field)
+            result.fieldRole = plan.role
+            result.allowSubmit = plan.rules.allowSubmit
+            if plan.rules.refusesDictation {
+                // A password field. Nothing is formatted, nothing is typed, nothing is written to
+                // history, and the words are not kept as held text — the same verdict, for the same
+                // reason, that `TextInjector` reaches on its own (R2.3: `.refused(.secureField)`,
+                // `holdsText == false`). Deciding it here means no method is even offered the text.
+                result.text = ""
+                result.injection = .refused(.secureField)
+                result.totalMs = ms(since: t0)
+                Log.app.notice("refused to dictate into a secure field (role \(plan.role.rawValue))")
+                return result
+            }
+            if !text.isEmpty { text = plan.continuation.leading + text + plan.continuation.trailing }
+        }
         result.text = text
         logTransform(raw: spans, landed: text, finalSpans: finalSpans)
         let caret = (try? system.focusedElement())?.selectedRange?.lowerBound ?? 0
