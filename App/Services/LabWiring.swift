@@ -47,47 +47,21 @@ public struct PipelineStageChain: PipelineStage {
     }
 }
 
-/// Lab + Data Panel windows off the status menu (SwiftUI panels from P1.11 in plain NSWindows).
+/// R7.2 — the Lab and the Data Panel are sections of the one window now (`DESIGN.md` §9.4, §9.5):
+/// Lab → Voice › Benchmark, Data Panel → Privacy. This enum is the shim the composition root still
+/// calls; it forwards what it was handed to `MainWindowController.environment` and selects the
+/// section. Neither function creates an `NSWindow` any more.
 @MainActor
 public enum LabWindowController {
-    private static var labWindow: NSWindow?
-    private static var dataWindow: NSWindow?
-    private static var labModel: LabPanelViewModel?
-    private static var dataModel: Lab.DataPanelViewModel?
-
     public static func showLab(registry: LabRegistry, database: AppDatabase?, personalWER: PersonalWERTracker? = nil) {
-        if let labWindow { front(labWindow); return }
-        let model = LabPanelViewModel(registry: registry, database: database)
-        labModel = model
-        // P6.1 — "you" tab: personal WER trend next to the fixture runs.
-        let view = TabView {
-            LabPanelView(model: model).tabItem { Label("Runs", systemImage: "chart.bar") }
-            PersonalWERView(tracker: personalWER).tabItem { Label("You", systemImage: "person.crop.circle") }
-        }
-        labWindow = makeWindow(title: "VoicePlus Lab", view: view, size: NSSize(width: 720, height: 560))
+        MainWindowController.environment.labRegistry = registry
+        MainWindowController.environment.personalWER = personalWER
+        MainWindowController.show(section: .voice)
     }
 
     public static func showDataPanel(database: AppDatabase?, gate: EgressGate) {
-        if let dataWindow { front(dataWindow); return }
-        let model = Lab.DataPanelViewModel(database: database, gate: gate)
-        dataModel = model
-        dataWindow = makeWindow(title: "Data Panel", view: DataPanelView(model: model), size: NSSize(width: 560, height: 480))
-    }
-
-    private static func makeWindow<V: View>(title: String, view: V, size: NSSize) -> NSWindow {
-        let host = NSHostingController(rootView: view.frame(minWidth: size.width, minHeight: size.height))
-        let w = NSWindow(contentViewController: host)
-        w.title = title
-        w.styleMask = [.titled, .closable, .resizable]
-        w.isReleasedWhenClosed = false
-        w.center()
-        front(w)
-        return w
-    }
-
-    private static func front(_ w: NSWindow) {
-        w.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        MainWindowController.environment.egressGate = gate
+        MainWindowController.show(section: .privacy)
     }
 }
 

@@ -171,6 +171,14 @@ public final class SpeakerProfileStore: SpeakerProfileUpdating, @unchecked Senda
         do { try profile.save(to: url) } catch { Log.app.error("speaker profile save failed: \(error)") }
     }
 
+    /// R7.2 — Voice › Enrollment offers Delete (`DESIGN.md` §9.4). Removing the file is the whole
+    /// of it: the next `profile` read misses the cache and finds nothing.
+    public func delete() {
+        lock.lock(); defer { lock.unlock() }
+        cached = .some(nil)
+        try? FileManager.default.removeItem(at: url)
+    }
+
     public func addNegative(_ e: SpeakerEmbedding) {
         guard var p = profile else { return }
         p.addNegative(e)

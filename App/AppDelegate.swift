@@ -239,6 +239,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         SettingsWindowController.connectorHub = container.connectorHub
         SettingsWindowController.syncService = container.sync
+        // R7.1 / R7.2 — the one window. Everything that used to open a window of its own (Settings,
+        // the Lab, the Data Panel, enrollment) now selects a section of it, so it needs the same
+        // dependencies and the same live pieces the menu has.
+        MainWindowController.dependencies = container.onboardingDependencies(permissions: permissionChecker)
+        MainWindowController.updater = updater
+        MainWindowController.environment.connectedProviders = container.connectedProviderNames
+        MainWindowController.environment.labRegistry = container.labRegistry
+        MainWindowController.environment.egressGate = container.egressGate
+        MainWindowController.environment.personalWER = container.adaptation?.personalWER
+        MainWindowController.environment.heldItems = { [weak delivery] in delivery?.held.items ?? [] }
+        MainWindowController.environment.heldAction = { [weak delivery] item, action in
+            delivery?.perform(action, on: item.id) ?? .unavailable
+        }
+        MainWindowController.environment.makeEnrollment = { [weak self, weak container] in
+            guard let self, let container else { return nil }
+            return self.makeSpeakerEnrollment(container: container)
+        }
+        MainWindowController.environment.setMeetingCapture = { [weak container] on in
+            guard let meeting = container?.meeting else { return }
+            Task { await meeting.setMeetingCaptureEnabled(on) }
+        }
         // R4.3 — Dictionary tab's "learned automatically" list + Forget action read and mutate
         // the same adaptation loop the pipeline uses, so a forget takes effect on the next utterance.
         SettingsWindowController.adaptationLoop = container.adaptation?.loop
@@ -448,6 +469,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// prompted phrase); the finished profile arms the hands-free speaker gate.
     @MainActor
     private func showSpeakerEnrollment(container: AppContainer) {
+        SpeakerEnrollmentWindowController.show(model: makeSpeakerEnrollment(container: container))
+    }
+
+    /// The enrollment view model, separated from showing it: R7.2 runs enrollment inside the one
+    /// window's Voice section, which builds it on demand through `MainWindowEnvironment`.
+    @MainActor
+    private func makeSpeakerEnrollment(container: AppContainer) -> SpeakerEnrollmentViewModel {
         let model = SpeakerEnrollmentViewModel(embedder: container.handsFree.embedder) { [weak container] in
             guard let container else { return [] }
             container.audioTap.reset()
@@ -457,7 +485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return container.audioTap.samples
         }
         model.onComplete = { [weak container] profile in container?.handsFree.install(profile: profile) }
-        SpeakerEnrollmentWindowController.show(model: model)
+        return model
     }
 
     /// P4 — act feedback: pill text per dispatch; the agent cursor animates the action

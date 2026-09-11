@@ -58,7 +58,14 @@ public final class SpeakerEnrollmentViewModel: ObservableObject {
 
 public struct SpeakerEnrollmentView: View {
     @ObservedObject var model: SpeakerEnrollmentViewModel
-    public init(model: SpeakerEnrollmentViewModel) { self.model = model }
+    /// R7.2 — the view runs inside Voice › Enrollment now, so "Done" hands control back to that pane
+    /// instead of closing a window of its own.
+    private let onDone: (() -> Void)?
+
+    public init(model: SpeakerEnrollmentViewModel, onDone: (() -> Void)? = nil) {
+        self.model = model
+        self.onDone = onDone
+    }
 
     public var body: some View {
         VStack(spacing: 14) {
@@ -72,7 +79,8 @@ public struct SpeakerEnrollmentView: View {
                 Button("Start over") { model.reset() }.disabled(model.isRecording)
                 Spacer()
                 if model.isDone {
-                    Button("Done") { SpeakerEnrollmentWindowController.close() }.buttonStyle(.borderedProminent)
+                    Button("Done") { onDone?() }.buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("enrollment.done")
                 } else {
                     Button(model.isRecording ? "Listening…" : "Record") { model.recordUtterance() }
                         .buttonStyle(.borderedProminent)
@@ -82,30 +90,22 @@ public struct SpeakerEnrollmentView: View {
             }
         }
         .padding(20)
-        .frame(width: 380)
+        .frame(maxWidth: 420, alignment: .leading)
     }
 }
 
+/// R7.2 — there is no enrollment window any more (`DESIGN.md` §5.1, §12.5). This is the shim the
+/// composition root still calls: it opens the one window at **Voice** and hands the enrollment view
+/// model to that pane, which runs it inline. Nothing here creates an `NSWindow`.
 @MainActor
 public enum SpeakerEnrollmentWindowController {
-    private static var window: NSWindow?
-
     public static func show(model: SpeakerEnrollmentViewModel) {
-        if let window {
-            WindowPlacement.place(window, label: "enrollment (reshow)")
-            return
-        }
-        let host = NSHostingController(rootView: SpeakerEnrollmentView(model: model))
-        let w = NSWindow(contentViewController: host)
-        w.title = "Voice enrollment"
-        w.styleMask = [.titled, .closable]
-        w.isReleasedWhenClosed = false
-        WindowPlacement.place(w, label: "enrollment")
-        window = w
+        MainWindowController.showEnrollment(model: model)
     }
 
+    /// Ends the inline enrollment. It deliberately does *not* close the one window — the window is
+    /// not enrollment's to close.
     public static func close() {
-        window?.close()
-        window = nil
+        MainWindowController.cancelEnrollment()
     }
 }

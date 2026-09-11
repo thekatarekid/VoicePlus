@@ -705,10 +705,20 @@ Microphone and Accessibility so each denial has its own honest screen.
   note), a **practice text field** with focus, and the instruction "Hold <key> and say something."
   The landing uses the **R2 commit path** — the same ordered commit queue, destination check,
   readback rule and `DeliveryOutcome` as the rest of the app. Nothing is simulated.
-- **Model still installing.** The step says so plainly and does not pretend: "Still installing the
-  speech model — N%. You can pick your key now and try it as soon as it's ready." The key picker is
-  live; the practice field is disabled with that sentence beside it, and enables itself the moment
-  the stack is installed. There is no fake success and no indefinite spinner.
+- **Model still installing.** The step says so plainly and does not pretend, and — this is the part
+  amended in R7 (gap **G7**) — it *still lets the user try*. What decides the practice field is not
+  "is the stack installed" but "can anything on this Mac transcribe right now", which is
+  `RecognizerReadiness` and the pure decision in `GuidedDictationGate.decide`:
+  - `ready(name)` — the field is live; the line reads "Using <name>."
+  - `fallback(name, awaiting)` — the field is **live**, and the line names both halves: "Using
+    <name> for now — <awaiting> is still downloading (N%)." A finished-but-failed download reads
+    "Using <name>. The download didn't finish (<why>) — retry it from Settings › Models."
+  - `unavailable(reason)` — the field is **disabled**, with the reason, because nothing could
+    transcribe what was said into it.
+  There is no fake success and no indefinite spinner, and a 900 MB download is never a wall in front
+  of the step: disabling the field while a stand-in recogniser is sitting right there would be the
+  soft dead end the rule at the top of §11 forbids, and the honest banner is what keeps "Landed"
+  truthful. The key picker is live throughout.
 - **Permission-denied (carried from 11.2 / 11.3).** If microphone is denied, the practice field is
   disabled with "Microphone access is off — Open System Settings". If Accessibility is denied, the
   practice attempt still runs and its result is a **held** row inside the step, with Copy — proving
