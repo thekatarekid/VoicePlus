@@ -215,3 +215,174 @@ pairing derives one shared key on both ends (key in Keychain, payload audited: n
 Indic RNNT weights are not shipped: `CodeSwitchRouter` is wired with the
 `UnavailableIndicBackend` (routing reports why) until a backend lands — the merger/
 indicator/injection path works with the primary recognizer today.
+
+---
+
+## 2026-09-11 — R5.4, the Qwen refinement benchmark (V3 §5.4, §10.1, §10.2)
+
+Hardware: Apple M2 Pro, 16 GB, macOS 26.6.2 (build 25G83). **Debug** builds (`swift build`, no `-O`),
+so every latency below is an upper bound for the release binary. Corpus:
+`Fixtures/real-room/builtin` — 20 real dictations, references in `Fixtures/real-room/script.md`
+(V3 Appendix A). Real weights: Parakeet TDT 0.6B v3 via `ModelManager`, Qwen3-ASR 0.6B int8 from
+`~/Library/Application Support/FluidAudio/Models/qwen3-asr-0.6b/int8`. Nothing here is simulated or
+estimated; the harness is `Tests/AppTests/RefinementBenchmarkCorpusTests.swift`
+(`VOICEPLUS_REFINE_BENCH=1`), scored by `Lab/Harness/RefinementBenchmark.swift` and classified by
+`Lab/Harness/SegmentClass.swift`.
+
+### Flag defaults after this review
+
+| Flag | Default | Change |
+|---|---|---|
+| `qwenRefinement` | **off** | unchanged — confirmed by the breakdown below; R5 is closed |
+
+R5.3 (`45f4ec2`, `c903352`) switched the flag off on the corpus **means**. R5.4 owed the part of V3
+§10.1 that a mean cannot answer: *is there a segment class on which the second pass wins?* If there
+were, the honest outcome would be a narrowed gate, not a dead flag. There is not one, and the
+paragraphs after the table say why the one cell that looks like a win is not one.
+
+### WER by segment class — real-room corpus, 20 utterances
+
+Arms: **parakeet only** (the shipping recognizer, and the baseline every better/worse count is
+measured against) · **qwen only** (the second model as the *sole* recognizer, with the R4.1b context
+prompt — not a shipping configuration, it answers "is this model better at recognition at all") ·
+**two-pass (gated)** (the shipping arrangement: Parakeet, then the real `RefineStage` on the segments
+`RefinementGate(mode: .auto)` selects, under the real 1500 ms deadline) · **two-pass (deadline
+waived)** (identical with the deadline lifted — a diagnostic arm, so that "the pass has nothing to
+offer" can be told apart from "the pass never finished in time").
+
+| Segment class | n | parakeet | qwen | two-pass (gated) | two-pass (waived) | qwen better/worse | gated better/worse | waived better/worse |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **all** | 20 | **0.099** | 0.178 | 0.112 | 0.108 | 1/7 | 0/2 | 1/2 |
+| < 5 s | 1 | 0.000 | 0.000 | 0.000 | 0.000 | 0/0 | 0/0 | 0/0 |
+| 5–7 s | 11 | 0.048 | 0.081 | 0.059 | 0.051 | 1/3 | 0/1 | 1/1 |
+| ≥ 7 s | 8 | 0.182 | 0.335 | 0.200 | 0.200 | 0/4 | 0/1 | 0/1 |
+| entities | 7 | 0.081 | 0.197 | 0.102 | 0.089 | 1/4 | 0/1 | 1/1 |
+| no entities | 13 | 0.109 | 0.168 | 0.118 | 0.118 | 0/3 | 0/1 | 0/1 |
+| digits | 3 | 0.405 | 0.738 | 0.405 | 0.405 | 0/2 | 0/0 | 0/0 |
+| number words | 4 | 0.045 | 0.044 | 0.045 | **0.023** | 1/1 | 0/0 | 1/0 |
+| disfluency | 1 | 0.000 | 0.000 | 0.000 | 0.000 | 0/0 | 0/0 | 0/0 |
+| explicit pause | 1 | 0.167 | 0.167 | 0.167 | 0.167 | 0/0 | 0/0 | 0/0 |
+| technical | 2 | 0.038 | 0.077 | 0.038 | 0.038 | 0/1 | 0/0 | 0/0 |
+
+WER is the mean of per-utterance WERs (R5.3's statistic, so the numbers compare directly). Pooled WER
+(errors ÷ reference words) over the whole corpus: parakeet 0.099, qwen 0.171, gated 0.113, waived
+0.108. Classes **overlap**: an eight-second sentence with a name and a digit is counted in three rows.
+Per-utterance detail is in the harness output; the classification itself is pinned by
+`Tests/LabTests/RefinementBenchmarkTests.swift`.
+
+**How the classes are defined** (from the reference transcript and the audio duration only — never
+from any arm's output, so no arm can influence which class it is judged in):
+- **Duration** `< 5 s` / `5–7 s` / `≥ 7 s`. Corpus-fitted boundaries that cut 3.7–9.4 s into three
+  non-empty parts. They are not product thresholds: the gate's own `longSegmentSeconds` is 12 s and
+  **no utterance in this corpus reaches it**, so "≥ 7 s" here means "the long end of one dictated
+  sentence", not long-form speech.
+- **entities / no entities** — `EntityScorer.detectEntities` on the reference. Seven of twenty:
+  02 Priya · 03 Kothari's, Thursday · 11 Carter, Road, Bandra, Mumbai · 12 Monday · 14 Sundays ·
+  15 Friday · 17 swift. The heuristic counts day names and misses "Menon" in line 12 (because `Dr.`
+  ends in a full stop, so the next token reads as sentence-initial). So this axis is
+  "capitalised-token-bearing speech", not a curated name list, and is reported as such.
+- **digits** — a decimal digit in the reference (04 11:45 · 05 2,340/2,430 · 11 400050): recognition
+  *and* number formatting. **number words** — a spelled quantity (03 six · 02 four · 08 two/one ·
+  18 three). Kept apart on purpose: the reference is verbatim, so a model that helpfully digitises
+  "two" is scored wrong.
+- **disfluency** — a hesitation token (only line 07, "um"). **explicit pause** — a marked mid-sentence
+  pause (only line 16). **technical** — code/terminal vocabulary from a hand-written list in
+  `SegmentClassRules` (lines 06 and 17); the list is in the source, but it is a human's list and not a
+  property of the audio.
+
+### There is no winning class. The one cell that looks like one
+
+`number words` with the deadline waived (0.023 vs 0.045, n=4, 1 better / 0 worse) is the only cell in
+the table where a second pass beats Parakeet. It is not a class win:
+1. **It is one utterance** — line 02, where pass 1 heard "stand-up" and the prompt-primed second pass
+   got "standup" (0.182 → 0.091). That is the *same single improvable segment* R5.3 already found, and
+   its mechanism is a context near-miss, not number handling. It lands in this class only because
+   "four" happens to be in the same sentence.
+2. **It does not survive the deadline.** Under the real 1500 ms budget the same class is 0.045 —
+   identical to Parakeet — because the pass that produces the gain does not finish in time.
+3. **The class that actually tests number formatting is the worst one for the second pass**: `digits`,
+   0.738 vs 0.405 (line 05 WER 1.200, line 11 0.800).
+
+Everywhere else the second pass is equal or worse, and it is worse in exactly the classes R5 hoped it
+would rescue: `entities` 0.197 vs 0.081, `≥ 7 s` 0.335 vs 0.182, `technical` 0.077 vs 0.038. `disfluency`
+and `explicit pause` are ties at n=1 each and carry no information either way.
+
+**Under the shipping deadline the two-pass configuration is strictly harmful on this corpus: 0 segments
+improved, 2 made worse.** The gate fired on 6 of 20; of those six, 4 timed out at 1500 ms (pass-1 text
+stood, as designed) and 2 completed — and both completions were regressions (line 15 0.000 → 0.143,
+line 20 0.000 → 0.125). With the deadline waived the same six become 5 refined + 1 unchanged: 1 better,
+2 worse. `RefineStage`'s fallbacks all behaved: every timeout kept pass-1 text and no committed span
+was rewritten.
+
+### Latency and peak memory (V3 §10.2)
+
+| Arm | latency p50 | latency p95 | §10.2 budget | verdict | peak footprint |
+|---|---:|---:|---|---|---:|
+| parakeet only | 121 ms | 130 ms | final p50 ≤ 700 · p95 ≤ 1200 ms | **pass** | 90 MB (own process) |
+| qwen only | 2249 ms | 3792 ms | (not a shipping path) | — | 1866 MB (own process) |
+| two-pass (gated) | 128 ms | 1816 ms | refined p95 ≤ 1500 ms | **fail** | 1883 MB (both resident) |
+| two-pass (deadline waived) | 128 ms | 1420 ms | refined p95 ≤ 1500 ms | n/a (diagnostic) | 2003 MB (both resident) |
+
+Latency is per utterance, end to end for that arm (the two-pass arms include pass 1 plus the stage).
+The two-pass p50 is Parakeet's number because the gate declines 14 of 20 segments; the p95 is what a
+gated segment costs, and at 1816 ms it misses the 1500 ms budget even though the stage's own watchdog
+fires at 1500 — the deadline bounds the second pass, not the total. In a separate isolated process the
+Qwen arm measured p50 2387 ms / p95 4029 ms, i.e. 1.9–4.2 s per utterance, matching R5.3.
+
+**Peak memory was measured, not estimated**: sampled `phys_footprint` (`PeakFootprint`, one sample per
+utterance), with each arm's figure taken in a process where the models named beside it were resident;
+the baseline before any model loaded was 25–26 MB. Two caveats, both real: `phys_footprint` does not
+count memory-mapped `.mlmodelc` weights or ANE-resident buffers, so 90 MB is not "Parakeet costs
+90 MB" (its weights are 461 MB on disk) — it is the footprint the process reports; and V3 §10.2 sets
+**no numeric memory budget**, so these figures are recorded as §10.1 evidence rather than judged
+against a target. The number that matters for the decision is the shape: enabling refinement takes the
+resident footprint from ~90 MB to ~1.9–2.0 GB on a 16 GB machine, for the accuracy result above.
+
+### Synthetic fixture suites (`Fixtures/audio`, 61 files) — and why they do not change the decision
+
+| Suite | n | parakeet | qwen |
+|---|---:|---:|---:|
+| clean | 12 | 0.029 | **0.015** |
+| commands | 10 | 0.000 | 0.067 |
+| entity | 10 | 0.110 | **0.088** |
+| noisy | 19 | 0.022 | 0.229 |
+| technical | 10 | 0.179 | 0.325 |
+
+Qwen is ahead on two of the five suites (overall it is still behind: 0.153 vs 0.060 mean, 0.161 vs
+0.064 pooled, 8 files better / 21 worse). Those two are the *least* real conditions in the set — TTS
+speech with no room, no noise and no disfluency — and `Lab/FIXTURES.md` says in writing that
+kill-criteria decisions must not be taken on synthetic data. The real corpus contradicts the `entity`
+result directly (entities class 0.197 vs 0.081), and the suite that simulates a real room at all,
+`noisy`, is where Qwen collapses (0.229 vs 0.022) — the same direction as the real recordings. Recorded
+as a signal to re-test if a future model changes, not as evidence for enabling anything.
+
+### Decision
+
+`qwenRefinement` **stays default-off, and R5 is closed.** All three of R5's gate conditions fail, now
+with the breakdown behind each: no useful gain on difficult speech (no segment class wins; the classes
+meant to be rescued lose), a clean-speech regression (`no entities` 0.118 vs 0.109, and both completed
+refinements in the shipping configuration damaged previously perfect text), and the deadline unmet
+(p95 1816 ms against 1500 ms; 4 of 6 gated segments timed out). The latch-only fallback V3 §10.2 offers
+is **not** adopted either: it would only move a pass that is less accurate off the critical path, and
+accuracy, not latency, is what fails here. No narrowed gate is proposed, so there is nothing for the
+owner's 30-minute thermal check to decide — it is not required to close this item and was not run.
+
+The code stays, per the rule of the house: `RefineStage`, `RefinementGate`, the Voice-tab Auto /
+Always / Never picker and the Lab arms are all live and re-runnable (`VOICEPLUS_REFINE_BENCH=1`, one
+arm per process via `VOICEPLUS_REFINE_BENCH_ARMS`). What would reopen the flag is a *measurement*, not
+an opinion: a second pass that wins a segment class on real recordings by more than one utterance,
+without a clean-speech regression, inside 1500 ms. V3 §5.3's MLX 1.7B route is the candidate that
+would have to clear that bar on this same corpus.
+
+### Caveats, stated plainly
+
+- **n = 20, one speaker, one room, one microphone, one session, all English, one dictated sentence
+  each (3.7–9.4 s).** Per class n is 1–13. No row in the class table carries statistical weight on its
+  own; the decision rests on the direction being consistent across every class rather than on any cell.
+- The corpus contains **no long-form speech** (nothing reaches the gate's 12 s threshold), **no
+  non-English speech**, and **no second speaker**, so two of the gate's four conditions could not fire
+  and the classes that would exercise them do not exist here.
+- Debug build; all latencies are upper bounds. The accuracy figures are unaffected by that.
+- Verified on one Mac (M2 Pro, 16 GB). The thermal behaviour of a 30-minute latched session with both
+  models resident is **not measured** — it was not needed to close R5, and it must be measured before
+  anyone reconsiders enabling refinement.
