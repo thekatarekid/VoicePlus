@@ -9,8 +9,9 @@ public struct OnboardingView: View {
     @State private var confirmingRowReset: OnboardingPermission?
 
     /// Height the current step wants, and the height of the fixed chrome around it. Both are
-    /// measured rather than guessed: every step has a different resting height, and three of them
-    /// (permissions, mic check, model install) grow and shrink while they are on screen.
+    /// measured rather than guessed: every step has a different resting height, and Microphone and
+    /// Accessibility in particular grow and shrink while they are on screen (a permission's recovery
+    /// copy, or the level meter's own states).
     @State private var stepHeight: CGFloat = OnboardingWindowSizing.minimumStepHeight
     @State private var progressHeight: CGFloat = 0
     @State private var footerHeight: CGFloat = 0
@@ -30,9 +31,8 @@ public struct OnboardingView: View {
                 Group {
                     switch model.step {
                     case .welcome: welcome
-                    case .permissions: permissions
-                    case .micCheck: micCheck
-                    case .modelInstall: modelInstall
+                    case .microphone: microphone
+                    case .accessibility: accessibility
                     case .firstDictation: firstDictation
                     case .done: done
                     }
@@ -71,31 +71,53 @@ public struct OnboardingView: View {
             Text("Hold a key. Talk. Let go.").font(.largeTitle.bold())
             Text("VoicePlus types what you say into whatever app you're in — on this Mac, never in the cloud unless you ask. This takes about a minute.")
             Text("Everything here can be skipped and changed later in Settings.").foregroundStyle(.secondary).font(.callout)
+            // DESIGN §11.1 — a single quiet line, never a blocking progress screen. The install
+            // started the instant this window opened; Welcome just says so.
+            if let line = model.machine.modelInstallStatusLine {
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
+    /// The permission-ask half of a step: "why", then whichever phase is current. Shared by
+    /// `.microphone` (while the mic grant is outstanding) and `.accessibility` (for whatever is left
+    /// once the microphone is settled — Accessibility itself, and, on the `hotkeyForceEventTap`
+    /// escape hatch, Input Monitoring first).
+    ///
     /// No longer carries its own `ScrollView`: since 1.7.1 the whole step area scrolls and the
     /// window sizes itself to the step, so a nested scroller would only report a collapsed height
     /// and defeat that.
-    private var permissions: some View {
-        Group {
-            VStack(alignment: .leading, spacing: 12) {
-                if let p = model.machine.currentPermission {
-                    Text(p.title).font(.title.bold())
-                    Text(p.why).font(.callout)
-                    switch model.machine.permissionPhase {
-                    case .explain:
-                        Button("Allow \(p.title)") { model.send(.allow(p)) }.keyboardShortcut(.defaultAction)
-                    case .requesting:
-                        ProgressView("Asking macOS…")
-                    case .needsSystemSettings(let attempts):
-                        needsSettings(p, attempts: attempts)
-                    }
-                }
-                permissionChecklist
+    @ViewBuilder private func permissionAsk(for p: OnboardingPermission) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(p.title).font(.title.bold())
+            Text(p.why).font(.callout)
+            switch model.machine.permissionPhase {
+            case .explain:
+                Button("Allow \(p.title)") { model.send(.allow(p)) }.keyboardShortcut(.defaultAction)
+            case .requesting:
+                ProgressView("Asking macOS…")
+            case .needsSystemSettings(let attempts):
+                needsSettings(p, attempts: attempts)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Step 3 of 5 — whatever permission walk is left once the microphone is settled. On a default
+    /// install that is Accessibility alone; on the escape hatch it is Input Monitoring, then
+    /// Accessibility, on the same screen (DESIGN §11 — "today's flow… `permissions` splits into
+    /// Microphone and Accessibility so each denial has its own honest screen").
+    private var accessibility: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let p = model.machine.currentPermission {
+                permissionAsk(for: p)
+            }
+            permissionChecklist
+            if let line = model.machine.modelInstallStatusLine {
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The one phase that can follow a request. It always offers a way forward, so the step can never
@@ -235,7 +257,23 @@ public struct OnboardingView: View {
         }
     }
 
-    private var micCheck: some View {
+    /// Step 2 of 5 — the microphone permission ask and the real level meter, merged onto one screen
+    /// per DESIGN §11.2: the ask shows while the grant is outstanding, the meter (or its blocked
+    /// state) shows once it isn't.
+    private var microphone: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let p = model.machine.currentPermission, p == .microphone {
+                permissionAsk(for: p)
+            } else {
+                microphoneMeter
+            }
+            if let line = model.machine.modelInstallStatusLine {
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var microphoneMeter: some View {
         VStack(alignment: .leading, spacing: 12) {
             let blocked = model.machine.micVerdict == .permissionRequired
             Text(blocked ? "The microphone is blocked." : "Say something.").font(.title.bold())
@@ -297,103 +335,20 @@ public struct OnboardingView: View {
         .font(.caption)
     }
 
-    /// One stack, installing. There is nothing to choose here since R6.1: the three options were
-    /// `fast` (TDT-CTC 110M), `balanced` (TDT v3) and `best` (TDT v3 + EOU), of which only the last
-    /// was ever the right answer — the other two described *fallbacks* as if they were products,
-    /// and the sizes on the rows were wrong besides. The progress, the estimate and the
-    /// failure/retry reporting are the same ones the picker used, unchanged.
-    private var modelInstall: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Installing the speech model.").font(.title.bold())
-            Text("It downloads in the background. Until it lands, VoicePlus uses whatever is already on this Mac — the next screen says which.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(model.stackNameLine).bold().fixedSize(horizontal: false, vertical: true)
-                    Text("Free, runs on this Mac, and the only thing that transcribes. \(ByteText.short(ModelStack.approximateBytes)) in total.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if model.isPartialDownload {
-                        // Never claim a re-download of a model that is already here.
-                        Text("Only the \(model.remainingLabel) you don't have yet.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 0)
-                installControl.frame(width: 210, alignment: .trailing)
-            }
-            .accessibilityIdentifier("onboarding.modelInstall")
-            if let reason = model.machine.continueBlockedReason {
-                Label(reason, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let consequence = model.machine.skipConsequence {
-                Label(consequence, systemImage: "exclamationmark.triangle").font(.caption)
-                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-            Divider()
-            HStack {
-                Text("Already pay for ChatGPT, Claude, or an API key? That improves rewrites — not transcription.").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Connect what you pay for…") { model.deps.openProvidersSettings() }
-            }
-        }
-    }
+    /// R6.2 — there is no model-install *screen* any more (DESIGN §11.1: "never a blocking progress
+    /// screen"). The one stack starts downloading the moment onboarding opens and keeps going in the
+    /// background; every other step's `modelInstallStatusLine` says the truth about it in one line,
+    /// and Settings › Models is where anyone who wants the bar, the estimate or a Retry button goes
+    /// looking for it.
 
-    /// The install's state, in the only shapes it can take: on disk, in flight, failed, or about to
-    /// start. Same three controls the picker's rows used.
-    @ViewBuilder private var installControl: some View {
-        switch model.machine.download {
-        case .installed:
-            Label("Installed", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green).font(.caption)
-        case .downloading(let progress):
-            VStack(alignment: .trailing, spacing: 2) {
-                ProgressView(value: progress.fraction)
-                // Fixed box: this line re-renders on every progress tick, and a line that changed
-                // its own height would resize the window several times a second.
-                Text(model.downloadLine ?? "Downloading… \(progress.percent)%")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing)
-                    .lineLimit(3).minimumScaleFactor(0.85)
-                    .frame(height: OnboardingWindowSizing.downloadLineHeight, alignment: .topTrailing)
-                Button("Cancel") { model.send(.cancelDownload) }.font(.caption)
-            }
-        case .failed(let why):
-            VStack(alignment: .trailing, spacing: 2) {
-                Label("Download failed: \(why)", systemImage: "exclamationmark.triangle")
-                    .font(.caption2).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                Button("Retry") { model.send(.installModels) }.font(.caption)
-            }
-        case .notStarted:
-            // Two different situations wear the same state: the install is starting (no byte has
-            // been reported yet) or the user cancelled it. A spinner in the second case would be a
-            // lie, and an Install button in the first would flicker away under the cursor.
-            if model.machine.installRequested {
-                VStack(alignment: .trailing, spacing: 2) {
-                    ProgressView().controlSize(.small)
-                    Text("Starting the \(model.remainingLabel) download…")
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                }
-            } else {
-                Button("Install \(model.remainingLabel)") { model.send(.installModels) }
-            }
-        }
-    }
-
-    /// The last step. Two presses, and it never claims more than happened.
+    /// Step 4 of 5 — "Try the key". Two presses, and it never claims more than happened. When the
+    /// model is still installing, `GuidedDictationGate` already says so plainly in `gate.banner`
+    /// ("Using X for now — Y is still downloading — N%") rather than pretending nothing is missing.
     private var firstDictation: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Now for real.").font(.title.bold())
             Text("Press Dictate now, say the sentence, then press Stop.")
             Text("“The quick brown fox jumps over the lazy dog.”").font(.title3).italic()
-            if model.machine.skippedModelInstallWithoutModel {
-                // Said here, once, rather than left for the user to infer from a test that fails.
-                Label("You skipped the model download, so there is no speech model on this Mac yet. Dictation won't work until one is installed — it carries on in the background, and Settings → Models shows where it has got to.",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
             let gate = model.dictationGate
             Label(gate.banner, systemImage: gate.isWarning ? "exclamationmark.triangle" : "cpu")
                 .font(.caption).foregroundStyle(gate.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
@@ -446,19 +401,36 @@ public struct OnboardingView: View {
         }
     }
 
+    /// Step 5 of 5. DESIGN §11.5 — "a short list of what is not ready… each with the one action
+    /// that fixes it, phrased as a consequence, not a scolding." Close is always enabled regardless
+    /// of how much of this list is non-empty.
     private var done: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("That's it.").font(.largeTitle.bold())
             Text("Hold the key and talk, anywhere. Settings live in the menu bar.")
-            if model.machine.skippedModelInstallWithoutModel {
-                Label("One thing left: the speech model hasn't finished installing, so dictation won't work yet. Settings → Models shows where it has got to.",
-                      systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            ForEach(Array(stillMissing.enumerated()), id: \.offset) { _, line in
+                Label(line, systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if let outcome = model.contactsOutcome, case .imported(let n) = outcome {
                 Text("Added \(n) names from Contacts to your dictionary.").foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var stillMissing: [String] {
+        var lines: [String] = []
+        if model.machine.statuses[.microphone] != .granted {
+            lines.append("Microphone access is off, so nothing can be transcribed yet — turn it on in \(OnboardingPermission.microphone.settingsListName).")
+        }
+        if model.machine.statuses[.accessibility] != .granted {
+            lines.append("Accessibility access is off, so typed text is held for you to paste instead of landing — turn it on in \(OnboardingPermission.accessibility.settingsListName).")
+        }
+        if let line = model.machine.modelInstallStatusLine { lines.append(line) }
+        if model.machine.landedText == nil, model.machine.heardText == nil {
+            lines.append("Dictation hasn't landed anything yet — try it any time by holding your key.")
+        }
+        return lines
     }
 
     private var contactsOffer: some View {
@@ -478,23 +450,24 @@ public struct OnboardingView: View {
         HStack {
             if model.step != .welcome && model.step != .done { Button("Back") { model.send(.back) } }
             Spacer()
-            // The permissions step has its own per-permission advance below; a global "Skip" there
-            // used to jump past every remaining permission, which is why Accessibility was unreachable.
-            if model.step != .done && model.step != .permissions { Button("Skip") { model.send(.skip) } }
+            // DESIGN §11.1 — Welcome has no "Skip everything": the next two steps are what make the
+            // app work. A permission screen has its own per-permission advance below; a global
+            // "Skip" there used to jump past every remaining permission, which is why Accessibility
+            // was once unreachable. Once the permission side of the screen has nothing left to ask,
+            // the global Skip is back (it is what used to skip the separate meter-only step).
+            if model.step != .welcome && model.step != .done && model.machine.currentPermission == nil {
+                Button("Skip") { model.send(.skip) }
+            }
             switch model.step {
             case .welcome: Button("Get started") { model.send(.next) }.keyboardShortcut(.defaultAction)
-            case .permissions:
-                Button(model.machine.permissionPhase == .explain ? "Skip this one" : "Continue anyway") {
-                    model.send(.next)
+            case .microphone, .accessibility:
+                if model.machine.currentPermission != nil {
+                    Button(model.machine.permissionPhase == .explain ? "Skip this one" : "Continue anyway") {
+                        model.send(.next)
+                    }
+                } else {
+                    Button("Continue") { model.send(.next) }.keyboardShortcut(.defaultAction)
                 }
-            case .micCheck: Button("Continue") { model.send(.next) }.keyboardShortcut(.defaultAction)
-            case .modelInstall:
-                // Off until the model is really on this Mac. The reason is printed above the
-                // divider, so a disabled button is never a guessing game.
-                Button("Continue") { model.send(.next) }
-                    .disabled(!model.machine.canContinueFromModelInstall)
-                    .help(model.machine.continueBlockedReason ?? "")
-                    .keyboardShortcut(model.machine.canContinueFromModelInstall ? .defaultAction : nil)
             // "Finish" once VoicePlus has actually heard something — not merely once an event with
             // an empty payload arrived, which is what `landedText != nil` used to mean.
             case .firstDictation: Button(model.machine.heardText == nil ? "Continue" : "Finish") { model.send(.next) }

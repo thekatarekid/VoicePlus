@@ -16,6 +16,16 @@ private func fullWalkM(initialStatuses: [OnboardingPermission: OnboardingPermiss
                            permissionOrder: OnboardingPermission.order(hotkeyRequires: .inputMonitoring))
 }
 
+/// From `.welcome`, reaches whichever permission is first not yet granted — passing straight
+/// through the Microphone screen's meter (R6.2) without lingering when the microphone is already
+/// granted, exactly as a user pressing Continue would. Most of the tests below construct their
+/// machine with the microphone pre-granted purely to exercise the *rest* of the permission walk
+/// (Input Monitoring, Accessibility), so this is the one extra `.next` that used to be implicit.
+private func advanceToFirstOpenPermission(_ m: inout OnboardingStateMachine) {
+    m.handle(.next)
+    if m.currentPermission == nil, m.step == .microphone { m.handle(.next) }
+}
+
 /// FIX B — the phase a permission step opens on is now recorded. The 1.6.2 microphone regression
 /// was a *phase* choice: `initialPhase` sent a notDetermined microphone to the settings-recovery
 /// screen, whose panel has no Allow button and therefore no route to
@@ -68,17 +78,19 @@ struct OnboardingTransitionLogTests {
         #expect(backing.string(SettingsKeys.hotkey) == "fn")
     }
 
-    /// Focus is nil off the permissions step, which is what stops the view model logging elsewhere.
-    @Test func focusIsOnlyEverSetOnThePermissionsStep() {
+    /// Focus is nil off a permission screen, which is what stops the view model logging elsewhere.
+    @Test func focusIsOnlyEverSetOnAPermissionScreen() {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
         #expect(m.permissionFocus == nil, "welcome has no permission in focus")
         m.handle(.next)
-        #expect(m.step == .micCheck, "all granted skips straight past permissions")
+        #expect(m.step == .microphone, "all granted skips straight to the meter")
         #expect(m.permissionFocus == nil)
     }
 
     /// One line per transition: entering, requesting, and each advance are all distinct pairs, and
     /// a repeated status refresh that changes nothing produces the same pair (so nothing is logged).
+    /// Granting the microphone drops focus to nil (the meter is what's left to show on this same
+    /// screen — DESIGN §11.2); focus picks back up on Input Monitoring once Accessibility opens.
     @Test func everyAdvanceIsADistinctPairAndASteadyPollIsNot() {
         var m = fullWalkM()
         m.handle(.next)
@@ -95,6 +107,8 @@ struct OnboardingTransitionLogTests {
         m.handle(.statusRefreshed(.microphone, .notDetermined)); note()
         m.handle(.statusRefreshed(.microphone, .notDetermined)); note()
         m.handle(.permissionResult(.microphone, .granted)); note()
+        #expect(m.permissionFocus == nil, "the meter is on screen now, not a permission")
+        m.handle(.next); note()   // Continue past the meter onto Accessibility
 
         // Three transitions, not five: the two steady polls in the middle add nothing.
         #expect(seen == ["onboarding: microphone status=notDetermined phase=explain",
@@ -107,51 +121,51 @@ struct OnboardingTransitionLogTests {
 struct OnboardingStateMachineTests {
     typealias M = OnboardingStateMachine
 
+    /// The five steps, in order, with every permission granted and a model install running the
+    /// whole time in the background (never gating anything — DESIGN §11.1).
     @Test func happyPathAllGranted() {
         var m = fullWalkM()
         #expect(m.step == .welcome)
+        // The install starts the moment onboarding opens (the view model sends this from `init`);
+        // it never blocks a single step below.
+        #expect(m.handle(.installModels) == [.checkModelPresence, .startDownload, .checkRecognizerReadiness])
         #expect(m.handle(.next) == [])
-        #expect(m.step == .permissions)
+        #expect(m.step == .microphone, "step 2 of 5")
         #expect(m.currentPermission == .microphone)
 
         #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
         #expect(m.permissionPhase == .requesting)
-        m.handle(.permissionResult(.microphone, .granted))
-        #expect(m.currentPermission == .inputMonitoring)
-        m.handle(.allow(.inputMonitoring)); m.handle(.permissionResult(.inputMonitoring, .granted))
-        m.handle(.allow(.accessibility))
-        let effects = m.handle(.permissionResult(.accessibility, .granted))
-        #expect(effects == [.startMicMonitoring])
-        #expect(m.step == .micCheck)
-        #expect(m.allPermissionsGranted)
+        #expect(m.handle(.permissionResult(.microphone, .granted)) == [.startMicMonitoring])
+        #expect(m.currentPermission == nil, "the meter is what's left on this screen, not a permission")
+        #expect(m.step == .microphone)
 
         // A quiet first block is not yet a verdict — see `quietVerdictWaitsForEnoughRealAudio`.
         m.handle(.micCaptureBegan(real: true))
         m.handle(.micLevel(0.02)); #expect(m.micVerdict == .waiting)
         m.handle(.micLevel(0.4)); #expect(m.micVerdict == .good)
         m.handle(.micLevel(0.99)); #expect(m.micVerdict == .clipping)
-        #expect(m.handle(.next) == [.stopMicMonitoring, .checkModelPresence, .startDownload,
-                                    .checkRecognizerReadiness])
-        #expect(m.step == .modelInstall)
-
-        // The install starts itself on entering the step; asking again while it runs starts nothing.
+        // A half-finished install never blocks Continue off the meter.
         let half = ModelDownloadProgress(fraction: 0.5, bytesReceived: 250_000_000,
                                          bytesExpected: 500_000_000, modelName: "Parakeet TDT 0.6B v3")
         m.handle(.downloadProgress(half)); #expect(m.download == .downloading(half))
-        #expect(m.handle(.installModels) == [], "no second fetch while one is in flight")
-        // Continue is not offered while the model is only half-downloaded.
-        #expect(!m.canContinueFromModelInstall)
-        #expect(m.handle(.next) == [])
-        #expect(m.step == .modelInstall)
-        m.handle(.downloadFinished)
-        #expect(m.canContinueFromModelInstall)
-        #expect(m.continueBlockedReason == nil)
-        #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(m.handle(.next) == [.stopMicMonitoring], "step 3 of 5")
+        #expect(m.step == .accessibility)
+        #expect(m.currentPermission == .inputMonitoring)
+
+        m.handle(.allow(.inputMonitoring)); m.handle(.permissionResult(.inputMonitoring, .granted))
+        #expect(m.currentPermission == .accessibility)
+        m.handle(.allow(.accessibility))
+        let effects = m.handle(.permissionResult(.accessibility, .granted))
+        #expect(effects == [.checkRecognizerReadiness, .beginGuidedDictation], "step 4 of 5, still installing")
         #expect(m.step == .firstDictation)
+        #expect(m.allPermissionsGranted)
+        #expect(m.download.isInFlight)
+
+        m.handle(.downloadFinished)
         #expect(m.download == .installed)
         m.handle(.dictationFinished(.landed(text: "hello", app: "Notes")))
         #expect(m.landedText == "hello")
-        #expect(m.handle(.next) == [.finish(skipped: false)])
+        #expect(m.handle(.next) == [.finish(skipped: false)], "step 5 of 5")
         #expect(m.step == .done)
         #expect(m.handle(.next) == [])
     }
@@ -164,8 +178,13 @@ struct OnboardingStateMachineTests {
         #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
         #expect(m.currentPermission == .microphone)
         #expect(m.handle(.verify(.microphone)) == [.checkPermission(.microphone)])
-        // Verify comes back granted after the user flipped it in System Settings.
+        // Verify comes back granted after the user flipped it in System Settings — the meter is
+        // what's left on this same screen now, not the next permission.
         m.handle(.permissionResult(.microphone, .granted))
+        #expect(m.currentPermission == nil)
+        #expect(m.step == .microphone)
+        // Continuing past the meter is what reaches Input Monitoring.
+        m.handle(.next)
         #expect(m.currentPermission == .inputMonitoring)
         #expect(m.permissionPhase == .explain)
     }
@@ -175,7 +194,7 @@ struct OnboardingStateMachineTests {
     /// hatches, not bounce back to a lone "Allow" button.
     @Test func awaitingUserActionNeverReturnsToExplain() {
         var m = fullWalkM(initialStatuses: [.microphone: .granted])
-        m.handle(.next)
+        advanceToFirstOpenPermission(&m)
         #expect(m.currentPermission == .inputMonitoring)
         #expect(m.permissionPhase == .explain)
         m.handle(.allow(.inputMonitoring))
@@ -189,7 +208,7 @@ struct OnboardingStateMachineTests {
     /// repeating the same advice forever.
     @Test func repeatedRecheckEscalatesToRecoveryCopy() {
         var m = fullWalkM(initialStatuses: [.microphone: .granted])
-        m.handle(.next)
+        advanceToFirstOpenPermission(&m)
         m.handle(.allow(.inputMonitoring))
         m.handle(.permissionResult(.inputMonitoring, .awaitingUserAction))
         #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
@@ -207,7 +226,7 @@ struct OnboardingStateMachineTests {
     /// The background poll flips the checkmark without any click, and never disturbs the phase.
     @Test func pollingAdvancesOnGrantAndIsOtherwiseInert() {
         var m = fullWalkM(initialStatuses: [.microphone: .granted])
-        m.handle(.next)
+        advanceToFirstOpenPermission(&m)
         m.handle(.allow(.inputMonitoring))
         m.handle(.permissionResult(.inputMonitoring, .awaitingUserAction))
         // Poll ticks while the user is still in System Settings: no phase churn.
@@ -224,20 +243,23 @@ struct OnboardingStateMachineTests {
     /// step so Accessibility was never shown. Skip must advance exactly one permission.
     @Test func skipOnPermissionsAdvancesOneAndStillReachesAccessibility() {
         var m = fullWalkM(initialStatuses: [.microphone: .granted])
-        m.handle(.next)
+        advanceToFirstOpenPermission(&m)
         #expect(m.currentPermission == .inputMonitoring)
         m.handle(.allow(.inputMonitoring))
         m.handle(.permissionResult(.inputMonitoring, .awaitingUserAction))
         m.handle(.skip)
-        #expect(m.step == .permissions)
+        #expect(m.step == .accessibility)
         #expect(m.currentPermission == .accessibility)   // was unreachable before the fix
         m.handle(.allow(.accessibility))
         m.handle(.permissionResult(.accessibility, .granted))
-        #expect(m.step == .micCheck)
+        #expect(m.step == .firstDictation)
         #expect(m.statuses[.accessibility] == .granted)
     }
 
-    /// Every permission refused still terminates: the skips walk off the step, never loop.
+    /// Every permission refused still terminates: continuing past each one never loops. With the
+    /// microphone itself refused, "Continue anyway" leaves the meter screen for good (R6.2 — the
+    /// ask and its denial share one screen, so once denied-and-continued there is nothing left of
+    /// it to revisit) rather than looping back through it later.
     @Test func allThreeRefusedStillTerminates() {
         var m = fullWalkM()
         m.handle(.next)
@@ -248,13 +270,13 @@ struct OnboardingStateMachineTests {
             #expect(m.permissionPhase.isNeedsSystemSettings)
             m.handle(.next)
         }
-        // No microphone → nothing to meter. The walk lands on the mic check, which says exactly
-        // that, and one more skip leaves it. It must not loop, and it must not pretend to pass.
-        #expect(m.step == .micCheck)
-        #expect(m.micVerdict == .permissionRequired)
+        // Every permission refused, and the walk still reached the end rather than looping.
+        #expect(m.step == .firstDictation)
+        #expect(m.micVerdict != .good, "nothing may pretend the refused microphone passed")
+        #expect(m.statuses[.microphone] == .awaitingUserAction)
         #expect(m.currentPermission == nil)
         m.handle(.skip)
-        #expect(m.step == .modelInstall)
+        #expect(m.step == .done)
     }
 
     /// A *non-promptable* permission macOS has already been asked for on an earlier launch skips the
@@ -262,7 +284,7 @@ struct OnboardingStateMachineTests {
     /// one would be the lie. This must NOT generalise to promptable services — see the suite below.
     @Test func alreadyRequestedPermissionStartsInSettingsPhase() {
         var m = fullWalkM(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
-        m.handle(.next)
+        advanceToFirstOpenPermission(&m)
         #expect(m.currentPermission == .inputMonitoring)
         #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
         m.handle(.statusRefreshed(.inputMonitoring, .granted))
@@ -271,64 +293,68 @@ struct OnboardingStateMachineTests {
         #expect(m.permissionPhase == .explain)
     }
 
-    @Test func deniedMicrophoneSkippedSkipsMicCheck() {
+    /// A denied microphone, continued past, never gets a second look — the ask and its denial share
+    /// one screen (R6.2 / DESIGN §11.2), so "Continue anyway" there leaves the meter behind for
+    /// good rather than looping back to a blocked version of it once the other permissions resolve.
+    @Test func deniedMicrophoneSkippedNeverRevisitsTheMeter() {
         var m = fullWalkM()
         m.handle(.next)
         m.handle(.allow(.microphone)); m.handle(.permissionResult(.microphone, .denied))
-        m.handle(.next)  // "Skip this one"
+        m.handle(.next)  // "Continue anyway"
+        #expect(m.step == .accessibility)
         #expect(m.currentPermission == .inputMonitoring)
         m.handle(.allow(.inputMonitoring)); m.handle(.permissionResult(.inputMonitoring, .granted))
         m.handle(.allow(.accessibility))
         let effects = m.handle(.permissionResult(.accessibility, .denied))
         #expect(effects == [])
         #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
-        // Skipping the last denied permission still opens the mic check — but as the blocked
-        // screen, with no capture started and no way to reach a passing verdict.
+        // Skipping the last denied permission reaches "Try the key" directly — no capture was ever
+        // started, and there is no way to reach a passing verdict.
         let skipEffects = m.handle(.next)
-        #expect(m.step == .micCheck)
-        #expect(m.micVerdict == .permissionRequired)
+        #expect(m.step == .firstDictation)
+        #expect(m.micVerdict != .good)
         #expect(!skipEffects.contains(.startMicMonitoring))
         #expect(m.statuses[.microphone] == .denied)
     }
 
+    /// Skip is offered on every step but Welcome and Done (DESIGN §11.1's "no Skip everything" on
+    /// Welcome is a view-layer choice; the state machine still has to survive a stray one) and the
+    /// walk still terminates: five steps, four skips.
     @Test func skipEverythingStillFinishes() {
         var m = M()
-        #expect(m.handle(.skip) == [])  // welcome skip → micCheck, blocked (no mic grant)
-        #expect(m.step == .micCheck)
+        #expect(m.handle(.skip) == [])  // welcome skip → Microphone, blocked (no mic grant)
+        #expect(m.step == .microphone)
         #expect(m.micVerdict == .permissionRequired)
-        #expect(m.handle(.skip) == [.stopMicMonitoring, .checkModelPresence, .startDownload,
-                                    .checkRecognizerReadiness])
-        #expect(m.step == .modelInstall)
+        #expect(m.handle(.skip) == [.stopMicMonitoring])  // Microphone skip → Accessibility
+        #expect(m.step == .accessibility)
         // Entering the dictation step now asks which recogniser is available first, so the screen
         // can name it instead of presenting a test that may not be able to work.
         #expect(m.handle(.skip) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(m.step == .firstDictation)
         #expect(m.handle(.skip) == [.finish(skipped: true)])
         #expect(m.step == .done)
         #expect(!m.stackInstalled)  // nothing landed, and the machine says so rather than guessing
     }
 
-    /// A failed download blocks Continue rather than waving the user through to a dictation screen
-    /// with nothing to transcribe with — but Skip is still there, and now says what it costs.
-    @Test func modelInstallContinueStaysShutAfterAFailedDownloadAndSkipSaysWhy() {
+    /// A failed download is never a reason to hold anyone on any step (DESIGN §11.1 — "never a
+    /// blocking progress screen"). It just keeps being told about, honestly, wherever it appears.
+    @Test func failedDownloadNeverBlocksAStepAndStaysHonestAboutWhy() {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
-        #expect(m.handle(.next) == [.startMicMonitoring])  // all granted → permissions step auto-skips
-        #expect(m.step == .micCheck)
-        m.handle(.next)
+        #expect(m.handle(.installModels) == [.checkModelPresence, .startDownload, .checkRecognizerReadiness])
+        #expect(m.handle(.next) == [.startMicMonitoring])   // all granted → straight to the meter
+        #expect(m.step == .microphone)
         #expect(m.handle(.downloadFailed("offline")) == [.checkModelPresence, .checkRecognizerReadiness])
         #expect(m.download == .failed("offline"))
-        #expect(!m.canContinueFromModelInstall)
-        #expect(m.continueBlockedReason?.contains("offline") == true)
-        #expect(m.handle(.next) == [])
-        #expect(m.step == .modelInstall, "Continue must not walk the user past a model that never arrived")
-        #expect(m.skipConsequence?.contains("dictation won't work") == true)
-        #expect(m.handle(.skip) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(m.modelInstallStatusLine?.contains("offline") == true)
+        // Continue works regardless — a failed background download is not this step's problem.
+        // (Accessibility was already granted too, so this reaches "Try the key" directly.)
+        #expect(m.handle(.next) == [.stopMicMonitoring, .checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
-        #expect(m.skippedModelInstallWithoutModel)
     }
 
     @Test func pregrantedPermissionsAreSkippedInOrder() {
         var m = fullWalkM(initialStatuses: [.microphone: .granted])
-        m.handle(.next)
+        advanceToFirstOpenPermission(&m)
         #expect(m.currentPermission == .inputMonitoring)
         m.handle(.allow(.inputMonitoring)); m.handle(.permissionResult(.inputMonitoring, .granted))
         #expect(m.currentPermission == .accessibility)
@@ -341,24 +367,27 @@ struct OnboardingStateMachineTests {
         #expect(m.currentPermission == .microphone)
         #expect(m.statuses[.accessibility] == .granted)
         m.handle(.allow(.microphone)); m.handle(.permissionResult(.microphone, .granted))
-        m.handle(.allow(.inputMonitoring)); m.handle(.permissionResult(.inputMonitoring, .granted))
-        #expect(m.step == .micCheck)  // accessibility already granted → skipped
+        m.handle(.next)   // past the meter
+        #expect(m.step == .firstDictation)   // accessibility already granted → Accessibility skipped entirely
     }
 
     @Test func backNavigation() {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
-        m.handle(.next); m.handle(.next)
-        #expect(m.step == .modelInstall)
+        m.handle(.next)
+        #expect(m.step == .microphone)
+        m.handle(.next)
+        #expect(m.step == .firstDictation, "both permissions already granted, so Accessibility is skipped too")
+        #expect(m.handle(.back) == [])
+        #expect(m.step == .accessibility)
         #expect(m.handle(.back) == [.startMicMonitoring])
-        #expect(m.step == .micCheck)
-        #expect(m.handle(.back) == [.stopMicMonitoring, .startMicMonitoring])  // permissions all granted → bounces to mic check
+        #expect(m.step == .microphone)
         var denied = M(initialStatuses: [.microphone: .denied])
         denied.handle(.skip)
-        #expect(denied.step == .micCheck)
+        #expect(denied.step == .microphone)
         denied.handle(.skip)
-        #expect(denied.step == .modelInstall)
+        #expect(denied.step == .accessibility)
         denied.handle(.back)
-        #expect(denied.step == .permissions)
+        #expect(denied.step == .microphone)
         var fresh = M()
         #expect(fresh.handle(.back) == [])
     }
@@ -368,7 +397,7 @@ struct OnboardingStateMachineTests {
     private func atMicCheck() -> M {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
         m.handle(.next)
-        precondition(m.step == .micCheck)
+        precondition(m.step == .microphone)
         // Every one of these cases is about audio that did or did not arrive from a *real* capture
         // stack, which the view model declares before the first level.
         m.handle(.micCaptureBegan(real: true))
@@ -507,7 +536,7 @@ struct PromptablePermissionTests {
         #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
         // The same answer from a non-promptable service is genuinely a Settings problem.
         var im = fullWalkM(initialStatuses: [.microphone: .granted])
-        im.handle(.next)
+        advanceToFirstOpenPermission(&im)
         im.handle(.allow(.inputMonitoring))
         im.handle(.permissionResult(.inputMonitoring, .notDetermined))
         #expect(im.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
@@ -531,7 +560,7 @@ struct PromptablePermissionTests {
         #expect(undecided.permissionPhase == .requesting)
         // Never for a non-promptable one: there is no API that could prompt.
         var im = fullWalkM(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
-        im.handle(.next)
+        advanceToFirstOpenPermission(&im)
         #expect(im.handle(.verify(.inputMonitoring)) == [.checkPermission(.inputMonitoring)])
     }
 
@@ -548,7 +577,7 @@ struct PromptablePermissionTests {
         #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
         // A non-promptable service has nothing to heal into: no prompt exists for it either way.
         var im = fullWalkM(initialStatuses: [.microphone: .granted], alreadyRequested: [.inputMonitoring])
-        im.handle(.next)
+        advanceToFirstOpenPermission(&im)
         #expect(im.handle(.statusRefreshed(.inputMonitoring, .notDetermined)) == [])
         #expect(im.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
     }
@@ -610,6 +639,10 @@ struct OnboardingViewModelTests {
         #expect(checker.openedSettings == [.microphone])
         checker.statuses[.microphone] = .granted
         vm.send(.verify(.microphone))
+        // The grant reveals the meter on this same screen; Continue is what reaches Input Monitoring.
+        #expect(vm.machine.currentPermission == nil)
+        #expect(vm.step == .microphone)
+        vm.send(.next)
         #expect(vm.machine.currentPermission == .inputMonitoring)
     }
 
@@ -620,12 +653,12 @@ struct OnboardingViewModelTests {
         let vm = OnboardingViewModel(dependencies: deps)
         var finished: Bool?
         vm.onFinished = { finished = $0 }
+        // The install already started the moment `vm` was created (R6.2 §11.1) — no step gates it.
         vm.send(.next)
-        for p in vm.machine.permissionOrder {
-            vm.send(.allow(p))
-            try await waitUntil { vm.machine.statuses[p] == .granted }
-        }
-        #expect(vm.step == .micCheck)
+        #expect(vm.step == .microphone)
+        vm.send(.allow(.microphone))
+        try await waitUntil { vm.machine.statuses[.microphone] == .granted }
+        #expect(vm.step == .microphone, "the meter is what's left on this screen, not Accessibility")
         let mic = try #require(deps.micLevel as? OnboardingMockMicLevelPublisher)
         #expect(mic.monitoring)
         mic.send(0.5)
@@ -633,11 +666,13 @@ struct OnboardingViewModelTests {
         #expect(vm.micLevel == 0.5)
         vm.send(.next)
         #expect(!mic.monitoring)
-        // The install runs itself; nothing is chosen and nothing is pressed.
+        #expect(vm.step == .accessibility)
+        vm.send(.allow(.accessibility))
+        try await waitUntil { vm.machine.statuses[.accessibility] == .granted }
+        #expect(vm.step == .firstDictation)
+        // The install ran itself in the background the whole time; nothing was chosen or pressed.
         try await waitUntil { vm.machine.download == .installed }
-        #expect(vm.machine.canContinueFromModelInstall)
         #expect(deps.models.isStackInstalled)
-        vm.send(.next)
         // Two presses, because one press cannot contain an utterance (see `startGuidedDictation`).
         vm.startGuidedDictation()
         try await waitUntil { vm.isDictating }
@@ -665,7 +700,9 @@ struct OnboardingViewModelTests {
         let checker = try #require(deps.permissions as? OnboardingMockPermissionChecker)
         vm.send(.next)
         vm.send(.allow(.microphone))
-        try await waitUntil { vm.machine.currentPermission == .inputMonitoring }
+        try await waitUntil { vm.machine.statuses[.microphone] == .granted }
+        vm.send(.next)   // past the meter, onto Input Monitoring
+        #expect(vm.machine.currentPermission == .inputMonitoring)
         vm.send(.allow(.inputMonitoring))
         try await waitUntil { vm.machine.permissionPhase.isNeedsSystemSettings }
         #expect(vm.machine.currentPermission == .inputMonitoring)   // not a dead end: still actionable
@@ -688,7 +725,9 @@ struct OnboardingViewModelTests {
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
         vm.send(.allow(.microphone))
-        try await waitUntil { vm.machine.currentPermission == .inputMonitoring }
+        try await waitUntil { vm.machine.statuses[.microphone] == .granted }
+        vm.send(.next)   // past the meter, onto Input Monitoring
+        #expect(vm.machine.currentPermission == .inputMonitoring)
         vm.send(.allow(.inputMonitoring))
         try await waitUntil { store.bool("onboarding.requested.inputMonitoring") == true }
         vm.teardown()
@@ -702,6 +741,7 @@ struct OnboardingViewModelTests {
         second.send(.next)
         (relaunch.permissions as? OnboardingMockPermissionChecker)?.statuses[.microphone] = .granted
         second.send(.permissionResult(.microphone, .granted))
+        second.send(.next)   // past the meter, onto Input Monitoring
         #expect(second.machine.currentPermission == .inputMonitoring)
         #expect(second.machine.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
         second.teardown()
@@ -733,6 +773,7 @@ struct OnboardingViewModelTests {
         vm.send(.allow(.microphone))
         try await waitUntil { vm.machine.statuses[.microphone] == .granted }
         #expect(checker.requests == [.microphone], "AVCaptureDevice.requestAccess must actually be called")
+        vm.send(.next)   // past the meter
         // Input Monitoring is non-promptable, so its flag legitimately keeps the recovery-first shape.
         #expect(vm.machine.currentPermission == .inputMonitoring)
         #expect(vm.machine.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
@@ -767,13 +808,13 @@ struct OnboardingViewModelTests {
     @Test func micCaptureFailureReachesTheScreen() async throws {
         let deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip)                      // welcome → mic check (blocked, no grant)
-        vm.send(.back)                      // back to permissions
-        for p in vm.machine.permissionOrder {
-            vm.send(.allow(p))
-            try await waitUntil { vm.machine.statuses[p] == .granted }
-        }
-        #expect(vm.step == .micCheck)
+        vm.send(.skip)                      // welcome → Microphone, blocked (no grant)
+        #expect(vm.step == .microphone)
+        vm.send(.back)                      // back to Welcome
+        vm.send(.next)                      // into Microphone again
+        vm.send(.allow(.microphone))
+        try await waitUntil { vm.machine.statuses[.microphone] == .granted }
+        #expect(vm.step == .microphone, "the meter is what's on screen once the microphone alone is granted")
         let mic = try #require(deps.micLevel as? OnboardingMockMicLevelPublisher)
         mic.fail("noInputDevice")
         try await waitUntil { vm.machine.micVerdict == .unavailable("noInputDevice") }
@@ -786,26 +827,26 @@ struct OnboardingViewModelTests {
         let deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
-        for p in vm.machine.permissionOrder {
-            vm.send(.allow(p))
-            try await waitUntil { vm.machine.statuses[p] == .granted }
-        }
-        #expect(vm.step == .micCheck)
+        vm.send(.allow(.microphone))
+        try await waitUntil { vm.machine.statuses[.microphone] == .granted }
+        #expect(vm.step == .microphone)
         #expect(vm.machine.micVerdict == .waiting)
         try await waitUntil(timeoutMs: 6000) { vm.machine.micVerdict == .noAudio }
         vm.teardown()
     }
 
+    /// R6.2 — a failed background install is never a step's problem (DESIGN §11.1: "never a
+    /// blocking progress screen"). It shows up as an honest line, not a wall.
     @Test func downloadFailureIsNonBlocking() async throws {
         let deps = OnboardingDependencies.mock()
         (deps.models as? OnboardingMockModelManager)?.failDownload = true
-        let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model install
+        let vm = OnboardingViewModel(dependencies: deps)   // the install started itself right here
+        vm.send(.skip); vm.send(.skip)   // welcome → blocked Microphone → Accessibility
+        #expect(vm.step == .accessibility)
         try await waitUntil { if case .failed = vm.machine.download { return true }; return false }
-        // Continue is shut — the model never arrived — but Skip still gets the user off the screen.
+        #expect(vm.machine.modelInstallStatusLine?.contains("didn't finish installing") == true)
+        // Continue just continues — a failed model install is never any step's wall.
         vm.send(.next)
-        #expect(vm.step == .modelInstall)
-        vm.send(.skip)
         #expect(vm.step == .firstDictation)
     }
 }

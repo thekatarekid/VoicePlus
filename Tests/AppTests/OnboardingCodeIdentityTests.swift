@@ -260,6 +260,10 @@ struct FirstRunEscalationTests {
     @Test func aSingleRecheckOnACleanMacProducesNoOlderBuildClaim() throws {
         var machine = OnboardingStateMachine(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted])
         machine.handle(.next)
+        // R6.2 — the microphone's ask and its meter now share one screen (DESIGN §11.2); with the
+        // microphone already granted, this `.next` only reaches that meter, and a second Continue
+        // is what reaches Accessibility.
+        machine.handle(.next)
         #expect(machine.currentPermission == .accessibility)
         #expect(machine.permissionPhase == .explain)
 

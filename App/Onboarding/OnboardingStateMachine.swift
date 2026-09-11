@@ -2,11 +2,23 @@ import Foundation
 
 /// Pure, synchronous onboarding state machine (Build doc P1.9 T1). The view-model feeds it
 /// events; it never touches permissions, audio or models itself, so every branch is unit-testable.
+///
+/// R6.2 (`DESIGN.md` §11) fixed the flow at exactly five steps — **Welcome → Microphone →
+/// Accessibility → Try the key → Done** — and nothing else. Two things that used to be their own
+/// screens are folded in:
+///
+/// * The microphone **permission ask** and the **level meter** used to be two steps
+///   (`permissions`, then `micCheck`); DESIGN §11.2 draws them as one screen, so `.microphone` now
+///   owns both — the permission UI shows while the grant is outstanding, the meter shows once it
+///   isn't, and a denial greys the meter rather than leaving the step.
+/// * The model install used to be its own gated step (`modelInstall`, née `modelChoice`) with
+///   Continue held shut until the stack landed. DESIGN §11.1's rule — "never a blocking progress
+///   screen" — means installing is not a step at all any more: it starts the moment onboarding
+///   opens and runs in the background for the rest of the walk, and every other step is free to
+///   mention how far along it is without waiting for it.
 public struct OnboardingStateMachine: Equatable, Sendable {
     public enum Step: Equatable, Sendable, CaseIterable {
-        /// `modelInstall` was `modelChoice` until R6.1. Nothing is chosen there any more: the one
-        /// stack installs, and the step reports its progress.
-        case welcome, permissions, micCheck, modelInstall, firstDictation, done
+        case welcome, microphone, accessibility, firstDictation, done
     }
 
     /// Sub-state of the permissions step for the permission currently in focus.
@@ -113,8 +125,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case micSettled
         /// Capture failed to start, with the underlying reason.
         case micFailed(String)
-        /// Install the one stack — whatever part of it is missing. Sent on entering the step, and
-        /// again by Retry. Idempotent: with the stack already on disk it fetches nothing.
+        /// Install the one stack — whatever part of it is missing. Sent once when onboarding opens
+        /// (whatever step it opens on), and again by Retry. Idempotent: with the stack already on
+        /// disk it fetches nothing. Never gates a step any more — see the type doc.
         case installModels
         case cancelDownload
         case downloadProgress(ModelDownloadProgress)
@@ -156,6 +169,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     }
 
     public private(set) var step: Step = .welcome
+    /// Cursor into `permissionOrder`. Index 0 is always `.microphone` (see `permissionOrder`), so
+    /// `.microphone` step only ever concerns index 0 and `.accessibility` owns everything after it
+    /// — one screen for "whatever is left once the microphone is settled", which is one permission
+    /// on a default install and two on the `hotkeyForceEventTap` escape hatch.
     public private(set) var permissionIndex = 0
     public private(set) var permissionPhase: PermissionPhase = .explain
     public private(set) var statuses: [OnboardingPermission: OnboardingPermissionStatus] = [:]
@@ -183,44 +200,32 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     ///
     /// Not derivable from `downloadState`: a fetch that has been started but has not yet reported a
     /// byte is still `.notStarted`, and without this the same install could be asked for twice —
-    /// once by entering the step, once by a Retry press — and be fetched twice. It is also what
-    /// tells the screen apart "starting…" from "the user cancelled it", which wear the same state.
+    /// once for onboarding opening, once by a Retry press — and be fetched twice. It is also what
+    /// tells "starting…" apart from "the user cancelled it", which wear the same state.
     public private(set) var installRequested = false
-    /// True when the user left this screen with nothing installed — the one case where dictation
-    /// genuinely cannot work, and therefore the one case the later screens must say so out loud.
-    public private(set) var skippedModelInstallWithoutModel = false
+    public private(set) var skippedSteps: Set<Step> = []
 
-    /// The install's state — what the dictation gate and the footer ask about.
+    /// The install's state — what every step's footer line and the dictation gate ask about.
     public var download: DownloadState { stackInstalled ? .installed : downloadState }
 
-    /// Continue is allowed only when the stack is actually on this Mac. Anything less walks the
-    /// user onto the dictation screen with nothing to transcribe with.
-    public var canContinueFromModelInstall: Bool { stackInstalled }
-
-    /// Why Continue is off, in the user's words. A disabled button with no explanation is its own
-    /// dead end — the user cannot tell a bug from a precondition.
-    public var continueBlockedReason: String? {
-        guard !canContinueFromModelInstall else { return nil }
-        switch downloadState {
-        case .downloading(let p):
-            return "The speech model is still downloading (\(p.percent)%). Continue turns on the moment it lands."
-        case .failed(let why):
-            return "The speech model didn't download: \(why). Retry it, or Skip — but with no model on this Mac, dictation won't work."
-        case .notStarted, .installed:
-            return "The speech model is still installing. Continue turns on once it's on this Mac."
-        }
-    }
-
-    /// What Skip costs right now. Nil when the stack is present, so the warning cannot cry wolf.
-    public var skipConsequence: String? {
+    /// One honest sentence about the install, or nil once it is done. Never a reason to disable
+    /// Continue anywhere — DESIGN §11 is explicit that this is never a blocking screen, only a line
+    /// that has to tell the truth wherever it appears (Welcome, Microphone, Accessibility, Done).
+    public var modelInstallStatusLine: String? {
         guard !stackInstalled else { return nil }
-        return "Skipping is fine, but with no model on this Mac dictation won't work until one is installed — it carries on in the background, or you can come back here."
+        switch downloadState {
+        case .downloading(let p): return "Speech model still installing — \(p.percent)%."
+        case .failed(let why): return "Speech model didn't finish installing (\(why)) — retry it from Settings › Models."
+        case .notStarted:
+            return installRequested ? "Speech model still installing." : "Setting up the speech model — you can keep going."
+        case .installed:
+            return nil   // unreachable while `!stackInstalled`, but `DownloadState` doesn't know that
+        }
     }
     /// What the last guided-dictation attempt achieved. Nil = not attempted.
     public private(set) var dictation: GuidedDictationOutcome?
     /// What would transcribe right now. `.unavailable` until the step asks.
     public private(set) var readiness: RecognizerReadiness = .unavailable(reason: "Checking which speech model is ready…")
-    public private(set) var skippedSteps: Set<Step> = []
 
     /// Text VoicePlus actually typed into the app the user was in — the only thing that may be
     /// reported as "It landed". Deliberately not "the dictation returned something".
@@ -230,13 +235,13 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// The failure to show, in the words the user should read. Nil when the attempt worked.
     public var dictationError: String? { dictation?.failureMessage }
 
-    /// Which permissions this run walks, in order.
+    /// Which permissions this run walks, in order. Element 0 is always `.microphone` — every caller
+    /// of `order(hotkeyRequires:)` guarantees that — which is what lets `.microphone` and
+    /// `.accessibility` split the list at index 0 without either step needing to know what is in it.
     ///
-    /// Not `OnboardingPermission.allCases` any more. Input Monitoring was in that list because the
-    /// only hotkey mechanism was a `.listenOnly` CGEvent tap; the default mechanism now consults no
-    /// TCC service, so the step is skipped unless the active backend actually needs it
-    /// (`OnboardingPermission.order(hotkeyRequires:)`). Onboarding is where that cost was charged to
-    /// every user, and it is where it stops being charged.
+    /// Not `OnboardingPermission.allCases` any more. Input Monitoring is in this walk only when the
+    /// active hotkey backend actually needs it (`hotkeyForceEventTap`); the default backend consults
+    /// no TCC service, so the step most installs never see is simply absent from the list.
     public let permissionOrder: [OnboardingPermission]
 
     public init(initialStatuses: [OnboardingPermission: OnboardingPermissionStatus] = [:],
@@ -248,8 +253,17 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         permissionIndex = Self.firstUndecidedIndex(in: initialStatuses, order: permissionOrder)
     }
 
+    /// The permission in focus, or nil once this step's own share of the walk is resolved (granted
+    /// or continued-past). `.microphone` only ever answers for index 0; `.accessibility` only ever
+    /// answers for everything after it — so a permission cannot be "in focus" on the wrong screen.
     public var currentPermission: OnboardingPermission? {
-        step == .permissions && permissionIndex < permissionOrder.count ? permissionOrder[permissionIndex] : nil
+        guard permissionIndex < permissionOrder.count else { return nil }
+        let p = permissionOrder[permissionIndex]
+        switch step {
+        case .microphone: return permissionIndex == 0 ? p : nil
+        case .accessibility: return permissionIndex > 0 ? p : nil
+        default: return nil
+        }
     }
 
     public var allPermissionsGranted: Bool { permissionOrder.allSatisfy { statuses[$0] == .granted } }
@@ -270,125 +284,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             return skipCurrent()
         case (_, .back):
             return goBack()
-
-        // Welcome
-        case (.welcome, .next):
-            return enter(.permissions)
-
-        // Permissions
-        case (.permissions, .allow(let p)) where p == currentPermission:
-            permissionPhase = .requesting
-            requestedPermissions.insert(p)
-            return [.requestPermission(p), .rememberRequested(p)]
-        case (.permissions, .permissionResult(let p, let status)):
-            statuses[p] = status
-            requestedPermissions.insert(p)
-            guard p == currentPermission else { return [] }
-            guard status != .granted else { return advancePermission() }
-            // A promptable service that is *still* undecided means the dialog never landed (dismissed,
-            // or the call raced a reset). Retrying is the only cure — System Settings cannot help,
-            // because with no TCC row the app is not in that list and the pane has no "+" to add it.
-            if p.isPromptable, status == .notDetermined {
-                permissionPhase = .explain
-                return []
-            }
-            // Anything else lands in the one phase that always has a way forward. A re-check that
-            // comes back ungranted increments the counter, which switches the copy to the stale-TCC
-            // recovery instructions instead of repeating the same advice.
-            if case .needsSystemSettings(let n) = permissionPhase {
-                permissionPhase = .needsSystemSettings(recheckAttempts: n + 1)
-            } else {
-                permissionPhase = .needsSystemSettings(recheckAttempts: 0)
-            }
-            return []
-        case (.permissions, .statusRefreshed(let p, let status)):
-            statuses[p] = status
-            guard p == currentPermission else { return [] }
-            guard status != .granted else { return advancePermission() }
-            // TCC dropped back to undecided while we were sitting in the recovery phase — the
-            // `tccutil reset` signature. For a promptable service the prompt is available again, so
-            // both the phase and the persisted "asked once" flag that put us here are stale. Heal.
-            if p.isPromptable, status == .notDetermined, permissionPhase.isNeedsSystemSettings {
-                permissionPhase = .explain
-                requestedPermissions.remove(p)
-                return [.forgetRequested(p)]
-            }
-            return []
-        case (.permissions, .verify(let p)) where p == currentPermission:
-            // "Re-check" on a promptable service macOS has not decided is not a status question: a
-            // status read can never change on its own, and for the microphone the API call is the
-            // only thing that puts VoicePlus into the System Settings list at all. Ask for real.
-            if p.isPromptable, (statuses[p] ?? .notDetermined) == .notDetermined {
-                permissionPhase = .requesting
-                requestedPermissions.insert(p)
-                return [.requestPermission(p), .rememberRequested(p)]
-            }
-            return [.checkPermission(p)]
-        case (.permissions, .next):
-            // "Continue anyway" / "Skip this one": advance exactly one permission, never the step.
-            return advancePermission()
-
-        // Mic check
-        case (.micCheck, .micCaptureBegan(let real)):
-            micCaptureIsReal = real
-            if !real { micVerdict = .unavailable(Self.simulatedCaptureReason) }
-            return []
-        case (.micCheck, .micLevel(let level)):
-            // The gate. A level that did not come from declared, live capture is not evidence about
-            // this user's microphone, so it never touches the peak and never reaches `verdict`.
-            guard micCaptureIsReal else { return [] }
-            micLevelEvents += 1
-            peakLevel = max(peakLevel, level)
-            micVerdict = Self.verdict(for: level, peak: peakLevel, settled: micSettled)
-            return []
-        case (.micCheck, .micSettled):
-            micSettled = true
-            if micCaptureIsReal, micLevelEvents > 0 { micVerdict = Self.verdict(for: 0, peak: peakLevel, settled: true) }
-            return []
-        case (.micCheck, .micNoAudio):
-            // Only meaningful while nothing has ever arrived; a late timer must not undo a good verdict.
-            if micLevelEvents == 0, micVerdict != .permissionRequired, micCaptureIsReal { micVerdict = .noAudio }
-            return []
-        case (.micCheck, .micFailed(let reason)):
-            micVerdict = .unavailable(reason)
-            return []
-        case (.micCheck, .permissionResult(.microphone, let status)),
-             (.micCheck, .statusRefreshed(.microphone, let status)):
-            // The blocked screen's "Re-check" answer. A grant re-enters the step for real; anything
-            // else leaves it blocked rather than opening a meter that cannot move.
-            statuses[.microphone] = status
-            guard micVerdict == .permissionRequired, status == .granted else { return [] }
-            return enter(.micCheck)
-        case (.micCheck, .verify):
-            // "Try again". While the grant is missing that is a permission question, not an audio
-            // one — restarting capture would just redraw the same dead bar.
-            if micVerdict == .permissionRequired { return [.checkPermission(.microphone)] }
-            peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
-            micCaptureIsReal = false
-            return [.stopMicMonitoring, .startMicMonitoring]
-        case (.micCheck, .next):
-            return enter(.modelInstall)
-
-        // Model install
-        case (.modelInstall, .next):
-            // The gate, not merely a disabled button: a `.next` that arrives anyway (a keyboard
-            // shortcut, a stale view) must not walk the user onto the dictation screen with no model.
-            guard canContinueFromModelInstall else { return [] }
-            return enter(.firstDictation)
-
-        // First dictation
-        case (.firstDictation, .dictationFinished(let outcome)):
-            dictation = outcome; return []
-        case (.firstDictation, .retryDictation):
-            // Clear the last verdict so the screen cannot show a stale error beside a fresh attempt.
-            dictation = nil; return [.checkRecognizerReadiness]
-        case (.firstDictation, .next):
-            return enter(.done)
-
-        // Install events can arrive on any step (a background download finishing, the dictation step
-        // opening); keep the state coherent wherever the user is.
+        // Model install can be asked for on any step — onboarding opening, or a Retry press — and
+        // the background events it produces (progress, finished, failed, presence) can land on any
+        // step too. None of this ever depends on where the user is standing.
         case (_, .installModels):
-            return startInstall()
+            return [.checkModelPresence] + startInstall() + [.checkRecognizerReadiness]
         case (_, .cancelDownload):
             guard installRequested else { return [] }
             installRequested = false
@@ -413,6 +313,139 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             // and nothing left to ask for.
             if present { downloadState = .installed; installRequested = false }
             return []
+
+        // Welcome
+        case (.welcome, .next):
+            return enter(.microphone)
+
+        // Microphone — permission ask and real meter, merged (DESIGN §11.2)
+        case (.microphone, .allow(let p)) where p == .microphone && p == currentPermission:
+            permissionPhase = .requesting
+            requestedPermissions.insert(p)
+            return [.requestPermission(p), .rememberRequested(p)]
+        case (.microphone, .permissionResult(.microphone, let status)):
+            statuses[.microphone] = status
+            requestedPermissions.insert(.microphone)
+            guard currentPermission == .microphone else { return [] }
+            guard status == .granted else { return escalate(status) }
+            return resolveMicrophonePermission()   // stay on this step; the meter is what's left to show
+        case (.microphone, .statusRefreshed(.microphone, let status)):
+            statuses[.microphone] = status
+            guard currentPermission == .microphone else { return [] }
+            guard status != .granted else { return resolveMicrophonePermission() }
+            // TCC dropped back to undecided while sitting in the recovery phase — the `tccutil
+            // reset` signature. Heal both the phase and the persisted "asked once" flag that put us
+            // here, since both are now stale.
+            if OnboardingPermission.microphone.isPromptable, status == .notDetermined, permissionPhase.isNeedsSystemSettings {
+                permissionPhase = .explain
+                requestedPermissions.remove(.microphone)
+                return [.forgetRequested(.microphone)]
+            }
+            return []
+        case (.microphone, .verify(.microphone)) where currentPermission == .microphone:
+            // "Re-check" on a promptable service macOS has not decided is not a status question: a
+            // status read can never change on its own, and for the microphone the API call is the
+            // only thing that puts VoicePlus into the System Settings list at all. Ask for real.
+            if OnboardingPermission.microphone.isPromptable,
+               (statuses[.microphone] ?? .notDetermined) == .notDetermined {
+                permissionPhase = .requesting
+                requestedPermissions.insert(.microphone)
+                return [.requestPermission(.microphone), .rememberRequested(.microphone)]
+            }
+            return [.checkPermission(.microphone)]
+        case (.microphone, .micCaptureBegan(let real)):
+            micCaptureIsReal = real
+            if !real { micVerdict = .unavailable(Self.simulatedCaptureReason) }
+            return []
+        case (.microphone, .micLevel(let level)):
+            // The gate. A level that did not come from declared, live capture is not evidence about
+            // this user's microphone, so it never touches the peak and never reaches `verdict`.
+            guard micCaptureIsReal else { return [] }
+            micLevelEvents += 1
+            peakLevel = max(peakLevel, level)
+            micVerdict = Self.verdict(for: level, peak: peakLevel, settled: micSettled)
+            return []
+        case (.microphone, .micSettled):
+            micSettled = true
+            if micCaptureIsReal, micLevelEvents > 0 { micVerdict = Self.verdict(for: 0, peak: peakLevel, settled: true) }
+            return []
+        case (.microphone, .micNoAudio):
+            // Only meaningful while nothing has ever arrived; a late timer must not undo a good verdict.
+            if micLevelEvents == 0, micVerdict != .permissionRequired, micCaptureIsReal { micVerdict = .noAudio }
+            return []
+        case (.microphone, .micFailed(let reason)):
+            micVerdict = .unavailable(reason)
+            return []
+        case (.microphone, .verify):
+            // "Try again". While the grant is missing that is a permission question, not an audio
+            // one — restarting capture would just redraw the same dead bar.
+            if micVerdict == .permissionRequired { return [.checkPermission(.microphone)] }
+            peakLevel = 0; micLevelEvents = 0; micSettled = false; micVerdict = .waiting
+            micCaptureIsReal = false
+            return [.stopMicMonitoring, .startMicMonitoring]
+        case (.microphone, .next):
+            // "Continue anyway" / "Skip this one" while still asking; a plain Continue once the
+            // permission side of the screen has nothing left to say. Either way this is the one
+            // step no denial can wall shut (DESIGN §11.2 — "Continue is also always enabled").
+            if currentPermission == .microphone { return advancePermission() }
+            return enter(.accessibility)
+
+        // Accessibility — permission ask only (and, on the escape hatch, Input Monitoring first)
+        case (.accessibility, .allow(let p)) where p == currentPermission:
+            permissionPhase = .requesting
+            requestedPermissions.insert(p)
+            return [.requestPermission(p), .rememberRequested(p)]
+        case (.accessibility, .permissionResult(let p, let status)):
+            statuses[p] = status
+            requestedPermissions.insert(p)
+            guard p == currentPermission else { return [] }
+            guard status != .granted else { return advancePermission() }
+            return escalate(status)
+        case (.accessibility, .statusRefreshed(let p, let status)):
+            statuses[p] = status
+            guard p == currentPermission else { return [] }
+            guard status != .granted else { return advancePermission() }
+            // TCC dropped back to undecided while we were sitting in the recovery phase — the
+            // `tccutil reset` signature. For a promptable service the prompt is available again, so
+            // both the phase and the persisted "asked once" flag that put us here are stale. Heal.
+            if p.isPromptable, status == .notDetermined, permissionPhase.isNeedsSystemSettings {
+                permissionPhase = .explain
+                requestedPermissions.remove(p)
+                return [.forgetRequested(p)]
+            }
+            return []
+        case (.accessibility, .verify(let p)) where p == currentPermission:
+            if p.isPromptable, (statuses[p] ?? .notDetermined) == .notDetermined {
+                permissionPhase = .requesting
+                requestedPermissions.insert(p)
+                return [.requestPermission(p), .rememberRequested(p)]
+            }
+            return [.checkPermission(p)]
+        case (.accessibility, .next):
+            // "Continue anyway" / "Skip this one": advance exactly one permission, never the step.
+            return advancePermission()
+
+        // First dictation ("Try the key")
+        case (.firstDictation, .dictationFinished(let outcome)):
+            dictation = outcome; return []
+        case (.firstDictation, .retryDictation):
+            // Clear the last verdict so the screen cannot show a stale error beside a fresh attempt.
+            dictation = nil; return [.checkRecognizerReadiness]
+        case (.firstDictation, .next):
+            return enter(.done)
+
+        // A result or refresh about a permission that is not the one this screen is focused on
+        // (e.g. a background poll of an Accessibility grant made while Microphone is still on
+        // screen) is still recorded — the checklist reads every status, not only the focused one —
+        // it just never advances anything.
+        case (_, .permissionResult(let p, let status)):
+            statuses[p] = status
+            requestedPermissions.insert(p)
+            return []
+        case (_, .statusRefreshed(let p, let status)):
+            statuses[p] = status
+            return []
+
         default:
             return []
         }
@@ -420,36 +453,62 @@ public struct OnboardingStateMachine: Equatable, Sendable {
 
     // MARK: Helpers
 
-    private mutating func enter(_ next: Step) -> [SideEffect] {
+    /// A promptable service that is *still* undecided means the dialog never landed (dismissed, or
+    /// the call raced a reset). Retrying is the only cure — System Settings cannot help, because
+    /// with no TCC row the app is not in that list and the pane has no "+" to add it. Anything else
+    /// lands in the one phase that always has a way forward; a re-check that comes back ungranted
+    /// increments the counter, which switches the copy to the stale-TCC recovery instructions
+    /// instead of repeating the same advice.
+    private mutating func escalate(_ status: OnboardingPermissionStatus) -> [SideEffect] {
+        guard let p = currentPermission else { return [] }
+        if p.isPromptable, status == .notDetermined {
+            permissionPhase = .explain
+            return []
+        }
+        if case .needsSystemSettings(let n) = permissionPhase {
+            permissionPhase = .needsSystemSettings(recheckAttempts: n + 1)
+        } else {
+            permissionPhase = .needsSystemSettings(recheckAttempts: 0)
+        }
+        return []
+    }
+
+    /// - Parameter fallThroughIfResolved: when entering `.accessibility` with nothing left to ask
+    ///   (every remaining permission already granted), the *forward* path auto-skips straight to
+    ///   "Try the key" rather than drawing an empty screen. Backward navigation must NOT do that —
+    ///   Back from "Try the key" has to land ON Accessibility (showing its checklist / all-set
+    ///   state), not bounce forward again the instant it gets there. `goBack()` is the one caller
+    ///   that passes `false`.
+    private mutating func enter(_ next: Step, fallThroughIfResolved: Bool = true) -> [SideEffect] {
         var effects: [SideEffect] = []
-        if step == .micCheck { effects.append(.stopMicMonitoring) }
+        if step == .microphone, next != .microphone { effects.append(.stopMicMonitoring) }
         step = next
         switch next {
-        case .permissions:
-            permissionIndex = Self.firstUndecidedIndex(in: statuses, order: permissionOrder)
-            if permissionIndex >= permissionOrder.count { return effects + enter(.micCheck) }
-            let p = permissionOrder[permissionIndex]
-            permissionPhase = Self.initialPhase(for: p, requested: requestedPermissions,
-                                                status: statuses[p] ?? .notDetermined)
-        case .micCheck:
+        case .microphone:
+            if currentPermission == .microphone {
+                let p = OnboardingPermission.microphone
+                permissionPhase = Self.initialPhase(for: p, requested: requestedPermissions,
+                                                    status: statuses[p] ?? .notDetermined)
+                micVerdict = .permissionRequired
+                return effects
+            }
+            // Granted (or the meter is what is left to show): reset the meter and start capture.
             peakLevel = 0; micLevelEvents = 0; micSettled = false; micCaptureIsReal = false
-            // No grant → no capture → no possible pass. This used to fall through to `.modelInstall`
-            // without a word, which meant a user who denied (or skipped) the microphone was never
-            // told the one thing standing between them and a working app.
             guard statuses[.microphone] == .granted else {
+                // Skipped past without a grant: no capture, no possible pass. This used to fall
+                // through wordlessly; it is now its own screen with a route to System Settings.
                 micVerdict = .permissionRequired
                 return effects
             }
             micVerdict = .waiting
             effects.append(.startMicMonitoring)
-        case .modelInstall:
-            // What is on disk decides every button on this screen — including whether Continue is
-            // allowed — so the screen must never draw before it has asked. `checkModelPresence`
-            // runs first for exactly that reason: the install right behind it then finds the stack
-            // already there and fetches nothing.
-            effects.append(.checkModelPresence)
-            effects += startInstall()
-            effects.append(.checkRecognizerReadiness)
+        case .accessibility:
+            guard let p = currentPermission else {
+                guard fallThroughIfResolved else { return effects }
+                return effects + enter(.firstDictation)
+            }
+            permissionPhase = Self.initialPhase(for: p, requested: requestedPermissions,
+                                                status: statuses[p] ?? .notDetermined)
         case .firstDictation:
             // Readiness first: the screen must know which recogniser it is about to offer before it
             // draws the button, or it is back to presenting a test that cannot work.
@@ -458,12 +517,12 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             effects.append(.beginGuidedDictation)
         case .done:
             effects.append(.finish(skipped: !skippedSteps.isEmpty))
-        default: break
+        case .welcome: break
         }
         return effects
     }
 
-    /// Ask for the one install, at most once at a time. Entering the step and pressing Retry are
+    /// Ask for the one install, at most once at a time. Onboarding opening and pressing Retry are
     /// the same thing, and neither may schedule a second fetch of the same model.
     private mutating func startInstall() -> [SideEffect] {
         guard !stackInstalled, !installRequested else { return [] }
@@ -472,14 +531,42 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         return [.startDownload]
     }
 
+    /// The microphone grant landed while `.microphone` is on screen. Unlike `advancePermission`,
+    /// this must NOT leave the step — DESIGN §11.2 draws the ask and the meter as one screen, so a
+    /// grant reveals the meter right here rather than advancing to Accessibility. It still has to
+    /// move `permissionIndex` past index 0, though: `.accessibility`'s own walk (and `currentPermission`
+    /// generally) depends on the invariant that the cursor never points at an already-granted
+    /// permission, the same invariant `advancePermission` maintains for everything after it.
+    private mutating func resolveMicrophonePermission() -> [SideEffect] {
+        if permissionIndex == 0 { permissionIndex = 1 }
+        while permissionIndex < permissionOrder.count, statuses[permissionOrder[permissionIndex]] == .granted {
+            permissionIndex += 1
+        }
+        peakLevel = 0; micLevelEvents = 0; micSettled = false; micCaptureIsReal = false
+        micVerdict = .waiting
+        return [.startMicMonitoring]
+    }
+
+    /// Moves past the permission currently in focus. Within `.accessibility` that can mean the next
+    /// permission on the same screen (the escape hatch's Input Monitoring → Accessibility); leaving
+    /// `.microphone` always means the next *step*, because `.microphone` only ever owns index 0.
     private mutating func advancePermission() -> [SideEffect] {
-        if let p = currentPermission, statuses[p] != .granted { skippedSteps.insert(.permissions) }
+        if let p = currentPermission, statuses[p] != .granted { skippedSteps.insert(step) }
         permissionIndex += 1
-        while let p = currentPermission, statuses[p] == .granted { permissionIndex += 1 }
-        guard let next = currentPermission else { return enter(.micCheck) }
-        permissionPhase = Self.initialPhase(for: next, requested: requestedPermissions,
-                                            status: statuses[next] ?? .notDetermined)
-        return []
+        while permissionIndex < permissionOrder.count, statuses[permissionOrder[permissionIndex]] == .granted {
+            permissionIndex += 1
+        }
+        switch step {
+        case .microphone:
+            return enter(.accessibility)
+        case .accessibility:
+            guard let next = currentPermission else { return enter(.firstDictation) }
+            permissionPhase = Self.initialPhase(for: next, requested: requestedPermissions,
+                                                status: statuses[next] ?? .notDetermined)
+            return []
+        default:
+            return []
+        }
     }
 
     /// Which phase a permission opens on.
@@ -503,18 +590,14 @@ public struct OnboardingStateMachine: Equatable, Sendable {
 
     private mutating func skipCurrent() -> [SideEffect] {
         switch step {
-        // Skipping on the permissions step skips *this* permission, not the whole step — otherwise
-        // the third permission (Accessibility) is unreachable whenever the second one stalls.
-        case .permissions: return advancePermission()
-        case .welcome: skippedSteps.insert(step); return enter(.micCheck)
-        case .micCheck: skippedSteps.insert(step); return enter(.modelInstall)
-        case .modelInstall:
+        // Skipping on a permission screen skips *this* permission, not the whole step — otherwise
+        // a second permission on the same screen (the escape hatch's Accessibility, behind Input
+        // Monitoring) would be unreachable whenever the first one stalls.
+        case .microphone, .accessibility:
             skippedSteps.insert(step)
-            // Skipping stays allowed — the install carries on in the background — but it is
-            // recorded honestly, so the screens after this one can say that dictation has nothing
-            // to run on yet.
-            skippedModelInstallWithoutModel = !stackInstalled
-            return enter(.firstDictation)
+            if currentPermission != nil { return advancePermission() }
+            return enter(step == .microphone ? .accessibility : .firstDictation)
+        case .welcome: skippedSteps.insert(step); return enter(.microphone)
         case .firstDictation, .done: skippedSteps.insert(step); return enter(.done)
         }
     }
@@ -522,10 +605,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     private mutating func goBack() -> [SideEffect] {
         switch step {
         case .welcome, .done: return []
-        case .permissions: return enter(.welcome)
-        case .micCheck: return enter(.permissions)
-        case .modelInstall: return statuses[.microphone] == .granted ? enter(.micCheck) : enter(.permissions)
-        case .firstDictation: return enter(.modelInstall)
+        case .microphone: return enter(.welcome)
+        case .accessibility: return enter(.microphone)
+        case .firstDictation: return enter(.accessibility, fallThroughIfResolved: false)
         }
     }
 
@@ -537,10 +619,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         "onboarding: \(permission.rawValue) status=\(status.rawValue) phase=\(phase.logLabel)"
     }
 
-    /// Which permission the permissions step is focused on, and in which phase — nil off the step.
-    /// The view model logs whenever this pair changes, which is exactly "entered or advanced".
+    /// Which permission the current step is focused on, and in which phase — nil once the screen has
+    /// nothing left to ask (granted, or continued past).
     public var permissionFocus: (permission: OnboardingPermission, phase: PermissionPhase)? {
-        guard step == .permissions, let p = currentPermission else { return nil }
+        guard let p = currentPermission else { return nil }
         return (p, permissionPhase)
     }
 

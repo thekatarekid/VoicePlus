@@ -66,6 +66,10 @@ public final class OnboardingViewModel: ObservableObject {
         contactsOffer = ContactsImportOffer(store: dependencies.contacts, database: dependencies.database,
                                             settings: dependencies.settingsStore)
         observeAppActivation()
+        // R6.2 / DESIGN §11.1 — the model install is not a step any more; it starts the moment
+        // onboarding opens and runs in the background for the rest of the walk, so Welcome can
+        // already say "you can keep going" truthfully.
+        send(.installModels)
     }
 
     deinit {
@@ -84,9 +88,10 @@ public final class OnboardingViewModel: ObservableObject {
 
     public func send(_ event: OnboardingStateMachine.Event) {
         let before = machine.step
+        let hadFocus = machine.currentPermission != nil
         let effects = machine.handle(event)
         for effect in effects { perform(effect) }
-        if machine.step != before || before == .permissions { syncPermissionPolling() }
+        if machine.step != before || hadFocus { syncPermissionPolling() }
         logPermissionTransition()
     }
 
@@ -110,7 +115,7 @@ public final class OnboardingViewModel: ObservableObject {
     /// Keeps a 0.5 s poll running for exactly as long as the permissions step is visible, so the
     /// checkmark flips the instant the user toggles the switch in System Settings.
     private func syncPermissionPolling() {
-        guard step == .permissions, let p = machine.currentPermission else {
+        guard let p = machine.currentPermission else {
             permissionPollTimer?.invalidate(); permissionPollTimer = nil
             return
         }
@@ -137,7 +142,7 @@ public final class OnboardingViewModel: ObservableObject {
     /// per-service `liveNote` and the "Quit & Reopen" button are for; the poll still catches
     /// Accessibility, and catches everything after a relaunch.
     func pollCurrentPermission() {
-        guard step == .permissions, let current = machine.currentPermission else {
+        guard let current = machine.currentPermission else {
             permissionPollTimer?.invalidate(); permissionPollTimer = nil
             return
         }
@@ -308,7 +313,7 @@ public final class OnboardingViewModel: ObservableObject {
         micWatchdog?.invalidate()
         micWatchdog = Timer.scheduledTimer(withTimeInterval: Self.noAudioGrace, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.machine.step == .micCheck else { return }
+                guard let self, self.machine.step == .microphone else { return }
                 if self.machine.micLevelEvents == 0 {
                     Log.app.warning("mic check: no audio after \(Self.noAudioGrace)s of capture")
                     self.send(.micNoAudio)
@@ -323,7 +328,7 @@ public final class OnboardingViewModel: ObservableObject {
         settleTimer?.invalidate()
         settleTimer = Timer.scheduledTimer(withTimeInterval: OnboardingStateMachine.settleSeconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.machine.step == .micCheck else { return }
+                guard let self, self.machine.step == .microphone else { return }
                 self.send(.micSettled)
             }
         }
@@ -588,7 +593,7 @@ public final class OnboardingViewModel: ObservableObject {
         deps.settingsStore = ReadOnlySettingsStore(UserDefaultsSettingsStore())
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
-        while vm.step == .permissions { vm.send(.next) }
+        while vm.machine.currentPermission != nil { vm.send(.next) }
         vm.teardown()
         return 0
     }

@@ -60,8 +60,8 @@ struct MicCheckPipelineTests {
         let vm = OnboardingViewModel(dependencies: deps)
         #expect(publisher.isRealCapture)
 
-        vm.send(.next)                       // all granted → straight to the mic check
-        #expect(vm.step == .micCheck)
+        vm.send(.next)                       // all granted → straight to the meter
+        #expect(vm.step == .microphone)
         #expect(vm.machine.micVerdict == .waiting)
 
         try await waitForCapture(audio)

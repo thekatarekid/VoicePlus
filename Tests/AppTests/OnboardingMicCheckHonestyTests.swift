@@ -23,7 +23,7 @@ struct OnboardingMicCheckHonestyTests {
     private func atMicCheck() -> M {
         var m = M(initialStatuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
         m.handle(.next)
-        precondition(m.step == .micCheck)
+        precondition(m.step == .microphone)
         return m
     }
 
@@ -93,14 +93,17 @@ struct OnboardingMicCheckHonestyTests {
 
     // MARK: C — a microphone macOS has not granted
 
-    @Test func deniedMicrophoneLandsOnABlockedScreenAndStartsNoCapture() {
+    /// A denial that is continued past never gets a second look at a blocked meter — the ask and
+    /// its denial share one screen (R6.2 / DESIGN §11.2), so "Continue anyway" there moves straight
+    /// on (here, all the way to "Try the key", since Accessibility was already granted).
+    @Test func deniedMicrophoneContinuedPastNeverShowsABlockedMeterScreen() {
         var m = M(initialStatuses: [.microphone: .denied, .inputMonitoring: .granted, .accessibility: .granted])
         m.handle(.next)
-        #expect(m.step == .permissions)
+        #expect(m.step == .microphone)
         #expect(m.currentPermission == .microphone)
         let effects = m.handle(.next)   // "Continue anyway" past the denied microphone
-        #expect(m.step == .micCheck)
-        #expect(m.micVerdict == .permissionRequired)
+        #expect(m.step == .firstDictation, "accessibility was already granted, so nothing is left to ask")
+        #expect(m.micVerdict != .good, "nothing may pretend the refused microphone passed")
         #expect(!effects.contains(.startMicMonitoring), "there is nothing to meter without the grant")
     }
 
@@ -108,8 +111,8 @@ struct OnboardingMicCheckHonestyTests {
     /// the check cannot succeed and must not pretend it might.
     @Test func undeterminedMicrophoneIsAlsoBlocked() {
         var m = M()
-        m.handle(.skip)                       // welcome → mic check
-        #expect(m.step == .micCheck)
+        m.handle(.skip)                       // welcome → Microphone
+        #expect(m.step == .microphone)
         #expect(m.micVerdict == .permissionRequired)
         #expect(!m.micCaptureIsReal)
         // And nothing that arrives while blocked can dislodge it into a pass.
@@ -162,11 +165,9 @@ struct OnboardingMicCheckSourceTests {
         deps.micLevel = fake
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
-        for p in vm.machine.permissionOrder {
-            vm.send(.allow(p))
-            try await waitUntil { vm.machine.statuses[p] == .granted }
-        }
-        #expect(vm.step == .micCheck)
+        vm.send(.allow(.microphone))
+        try await waitUntil { vm.machine.statuses[.microphone] == .granted }
+        #expect(vm.step == .microphone)
         #expect(!fake.monitoring, "a source that is not capture is not even started")
         #expect(vm.machine.micVerdict == .unavailable(OnboardingStateMachine.simulatedCaptureReason))
 

@@ -441,6 +441,20 @@ public final class AppContainer {
             }
         )
         dependencies.prepareEngine = { [weak self] in await self?.refreshEngineIfNeeded() }
+        // R6.2 — the practice field in "Try the key" has to use the real R2 commit path (the same
+        // `UtteranceLander` production dictation lands through, `DeliveryOutcome` and all), never a
+        // simulated success. `system.frontmostApp()` is the same focus snapshot the real hotkey path
+        // takes at key release; while the practice field has keyboard focus, VoicePlus *is* the
+        // frontmost app, so this is a real injection into a real AX text field, not a stand-in.
+        dependencies.landUtterance = { [weak self] spans in
+            guard let self else {
+                return GuidedLanding(text: spans.map(\.text).joined(separator: " "), injected: false)
+            }
+            let focus = self.system.frontmostApp()
+            let result = await self.lander.land(spans, startedAt: Date(), focus: focus)
+            let appName = result.destinationName.isEmpty ? nil : result.destinationName
+            return GuidedLanding(text: result.text, injected: result.landed, appName: appName)
+        }
         return dependencies
     }
 

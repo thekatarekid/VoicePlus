@@ -3,23 +3,22 @@ import Foundation
 import Testing
 @testable import VoicePlusApp
 
-/// R6.1 — there is no model picker any more.
-///
-/// Until this task onboarding showed three options (`fast` = TDT-CTC 110M, `balanced` = TDT v3,
-/// `best` = TDT v3 + EOU), each with its own Download button, its own progress bar and its own
-/// "Installed" badge. Two of the three described *fallbacks* as products, the only correct answer
-/// was always the third, and the screen's whole job was to get the user to pick it. So: one stack
-/// (`ModelStack.models`), installed on first run, using the same progress, estimate and
-/// failure/retry reporting the picker's rows used.
+/// R6.1 — there is no model picker any more. R6.2 (DESIGN §11.1) went further: the install is not
+/// a *step* either. It used to be its own screen (`modelInstall`, née `modelChoice`) with Continue
+/// held shut until the stack landed — exactly the "blocking progress screen" DESIGN §11 forbids.
+/// The install now starts the instant onboarding opens and runs in the background for the rest of
+/// the walk; every step is free to say how far along it is (`modelInstallStatusLine`), and none of
+/// them may ever refuse to continue because of it.
 ///
 /// What is on disk is kept. Nothing is re-downloaded and no manifest is rewritten — see
 /// `ModelStackInstallTests` in `EngineTests` for the on-disk half of that promise.
-@Suite("Onboarding model install — one stack, no picker")
+@Suite("Onboarding model install — one stack, no picker, never a wall")
 @MainActor
 struct OnboardingModelInstallTests {
     typealias M = OnboardingStateMachine
 
-    /// Walks a fresh view model to the install step (no permissions granted, so two skips).
+    /// A fresh view model. The install starts itself the moment it is constructed — no step, no
+    /// walk, needs to be reached first.
     private func installViewModel(installed: Set<ModelID> = [],
                                   hold: (@Sendable () async -> Void)? = nil)
         -> (OnboardingViewModel, OnboardingMockModelManager) {
@@ -28,8 +27,6 @@ struct OnboardingModelInstallTests {
         models.hold = hold
         deps.models = models
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip); vm.send(.skip)
-        #expect(vm.step == .modelInstall)
         return (vm, models)
     }
 
@@ -42,20 +39,14 @@ struct OnboardingModelInstallTests {
     /// `SideEffect.selectModel` are all gone; this file would not compile if any of them survived.
     @Test func onboardingStateHasNoTierPicker() {
         var m = M()
-        m.handle(.skip); m.handle(.skip)
-        #expect(m.step == .modelInstall)
-        // One stack, named by the catalog, in install order.
+        // Nothing to choose, nothing to press: one event starts the one install.
+        #expect(m.handle(.installModels) == [.checkModelPresence, .startDownload, .checkRecognizerReadiness])
         #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160])
-        // Entering the step asks for the one install by itself — nothing to choose, nothing to press.
         #expect(m.installRequested)
-        // A second ask while it is running starts nothing: no way to queue a second download.
-        #expect(m.handle(.installModels) == [])
-        #expect(m.handle(.installModels) == [])
-        // And the effects of entering the step are exactly: read the disk, install, name the recogniser.
-        var fresh = M()
-        fresh.handle(.skip)
-        #expect(fresh.handle(.skip) == [.stopMicMonitoring, .checkModelPresence, .startDownload,
-                                        .checkRecognizerReadiness])
+        // A second ask while it is running fetches nothing a second time — it still re-checks
+        // presence and readiness (cheap, and always safe), but never starts a second download.
+        #expect(m.handle(.installModels) == [.checkModelPresence, .checkRecognizerReadiness])
+        #expect(m.handle(.installModels) == [.checkModelPresence, .checkRecognizerReadiness])
     }
 
     /// Settings offers one local option too — the routing picker used to list "Local · Fast",
@@ -92,21 +83,20 @@ struct OnboardingModelInstallTests {
         #expect(models.fetched == [ModelStack.models],
                 "one install, of the two models in the stack, and nothing else")
         #expect(models.downloadCalls == 1)
-        try await waitUntil { vm.machine.canContinueFromModelInstall }
-        vm.send(.next)
-        #expect(vm.step == .firstDictation)
+        #expect(vm.machine.stackInstalled)
+        #expect(vm.machine.modelInstallStatusLine == nil, "nothing left to say once it's here")
         vm.teardown()
     }
 
     /// The install starts on its own — the user is not asked to press anything for the one thing
     /// the app cannot work without.
-    @Test func theStepStartsTheInstallWithoutBeingAsked() async throws {
+    @Test func theInstallStartsWithoutBeingAsked() async throws {
         let gate = InstallGate()
         let (vm, _) = installViewModel(hold: { await gate.wait() })
         try await waitUntil { vm.machine.download.isInFlight }
         #expect(vm.downloadLine?.contains("Parakeet") == true, "the bar names the real model")
         gate.open()
-        try await waitUntil { vm.machine.canContinueFromModelInstall }
+        try await waitUntil { vm.machine.stackInstalled }
         vm.teardown()
     }
 
@@ -114,7 +104,7 @@ struct OnboardingModelInstallTests {
 
     @Test func anExistingInstallIsNotDownloadedAgain() async throws {
         let (vm, models) = installViewModel(installed: Set(ModelStack.models))
-        #expect(vm.machine.canContinueFromModelInstall, "what is already here needs no download")
+        #expect(vm.machine.stackInstalled, "what is already here needs no download")
         #expect(models.remainingStackBytes == 0)
         try await Task.sleep(for: .milliseconds(50))
         #expect(models.fetched.flatMap { $0 }.isEmpty, "not one byte re-fetched")
@@ -137,25 +127,23 @@ struct OnboardingModelInstallTests {
         vm.teardown()
     }
 
-    // MARK: Continue is gated on real presence
+    // MARK: Never a blocking progress screen (DESIGN §11.1)
 
-    @Test func continueIsShutUntilTheStackIsOnDisk() async throws {
+    /// The whole point of R6.2's rewrite: an install that is nowhere near done must never be a
+    /// reason Continue refuses to fire, on Welcome or anywhere else.
+    @Test func continueIsNeverShutByAnUnfinishedInstall() async throws {
         let gate = InstallGate()
         let (vm, _) = installViewModel(hold: { await gate.wait() })
         try await waitUntil { vm.machine.download.isInFlight }
 
-        #expect(!vm.machine.canContinueFromModelInstall, "3 % is not a working model")
-        let reason = try #require(vm.machine.continueBlockedReason)
-        #expect(reason.contains("speech model"))
-        #expect(reason.lowercased().contains("download"))
-        vm.send(.next)
-        #expect(vm.step == .modelInstall, "Continue must not fire while the model is still arriving")
+        #expect(!vm.machine.stackInstalled, "3% is not a working model")
+        #expect(vm.machine.modelInstallStatusLine?.contains("installing") == true)
+        vm.send(.next)   // Welcome → Microphone; the install is nowhere near done
+        #expect(vm.step == .microphone, "an unfinished install must never refuse Continue")
 
         gate.open()
-        try await waitUntil { vm.machine.canContinueFromModelInstall }
-        #expect(vm.machine.continueBlockedReason == nil)
-        vm.send(.next)
-        #expect(vm.step == .firstDictation)
+        try await waitUntil { vm.machine.stackInstalled }
+        #expect(vm.machine.modelInstallStatusLine == nil)
         vm.teardown()
     }
 
@@ -171,7 +159,7 @@ struct OnboardingModelInstallTests {
         gate.open()
         try await Task.sleep(for: .milliseconds(50))
         #expect(!models.isStackInstalled, "a cancelled download installs nothing")
-        #expect(!vm.machine.canContinueFromModelInstall)
+        #expect(!vm.machine.stackInstalled)
         // Install again: the same event, and it really does start a fetch this time.
         vm.send(.installModels)
         try await waitUntil { models.isStackInstalled }
@@ -184,36 +172,15 @@ struct OnboardingModelInstallTests {
         models.failDownload = true
         deps.models = models
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip); vm.send(.skip)
         try await waitUntil { if case .failed = vm.machine.download { return true }; return false }
-        #expect(!vm.machine.canContinueFromModelInstall)
-        #expect(vm.machine.continueBlockedReason?.contains("didn't download") == true)
+        #expect(!vm.machine.stackInstalled)
+        #expect(vm.machine.modelInstallStatusLine?.contains("didn't finish installing") == true)
 
         models.failDownload = false
         vm.send(.installModels)
         try await waitUntil { models.isStackInstalled }
         #expect(vm.machine.download == .installed)
         vm.teardown()
-    }
-
-    // MARK: Skip stays available, and honest
-
-    @Test func skipIsAllowedButSaysWhatItCosts() {
-        var m = M()
-        m.handle(.skip); m.handle(.skip)
-        #expect(m.skipConsequence?.contains("dictation won't work") == true)
-        m.handle(.skip)
-        #expect(m.step == .firstDictation, "skipping remains a legitimate choice")
-        #expect(m.skippedModelInstallWithoutModel, "the later screens must be able to say why nothing works")
-    }
-
-    @Test func skipWithTheStackPresentRaisesNoAlarm() {
-        var m = M()
-        m.handle(.skip); m.handle(.skip)
-        m.handle(.modelPresenceChanged(true))
-        #expect(m.skipConsequence == nil, "a warning that is always on is a warning nobody reads")
-        m.handle(.skip)
-        #expect(!m.skippedModelInstallWithoutModel)
     }
 }
 

@@ -79,6 +79,9 @@ struct OnboardingSkipsInputMonitoringTests {
         m.handle(.next)
         #expect(m.currentPermission == .microphone)
         m.handle(.allow(.microphone)); m.handle(.permissionResult(.microphone, .granted))
+        // R6.2 — the microphone's ask and its meter now share one screen (DESIGN §11.2); a grant
+        // reveals the meter there before Continue moves on.
+        m.handle(.next)
         #expect(m.currentPermission == .accessibility, "Input Monitoring must not be between them")
         m.handle(.allow(.accessibility)); m.handle(.permissionResult(.accessibility, .granted))
         #expect(m.currentPermission == nil)
@@ -100,6 +103,7 @@ struct OnboardingSkipsInputMonitoringTests {
         var m = M(permissionOrder: order)
         m.handle(.next)
         m.handle(.allow(.microphone)); m.handle(.permissionResult(.microphone, .granted))
+        m.handle(.next)   // past the meter
         #expect(m.currentPermission == .inputMonitoring)
     }
 

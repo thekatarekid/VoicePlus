@@ -82,12 +82,13 @@ private func onboardingAtDictationStep(engine: EngineProtocol,
     deps.models = models
     deps.landUtterance = land
     let vm = OnboardingViewModel(dependencies: deps)
-    // With no microphone grant the mic-check step is blocked rather than skipped silently, so it
-    // takes two skips from the welcome screen to reach the model install step.
+    // With no microphone or accessibility grant, each of those screens is blocked rather than
+    // skipped silently, so it takes one skip per screen: Welcome → Microphone (blocked) →
+    // Accessibility (unresolved) → Try the key. Whatever model install is running (if any) already
+    // started in the background the moment `vm` was created, and never gates this walk (§11.1).
     vm.send(.skip)
     vm.send(.skip)
-    // Continue only opens once the model is really there; a test with nothing installed skips.
-    vm.send(vm.machine.canContinueFromModelInstall ? .next : .skip)
+    vm.send(.skip)
     return vm
 }
 
@@ -102,8 +103,8 @@ struct GuidedDictationOutcomeTests {
 
     @Test func successMessageNeedsARealLanding() {
         var m = M()
-        // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
-        // installed model now, so the model step is reached with one already present.
+        // welcome → Microphone (blocked, no grant) → Accessibility (unresolved) → Try the key.
+        // The install (§11.1) is never a step, so nothing here needs it to be present.
         m.handle(.skip); m.handle(.skip)
         m.handle(.modelPresenceChanged(true)); m.handle(.next)
         #expect(m.step == .firstDictation)
@@ -122,8 +123,8 @@ struct GuidedDictationOutcomeTests {
     /// and every failure case carries its message.
     @Test func failureCanNotMasqueradeAsSuccess() {
         var m = M()
-        // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
-        // installed model now, so the model step is reached with one already present.
+        // welcome → Microphone (blocked, no grant) → Accessibility (unresolved) → Try the key.
+        // The install (§11.1) is never a step, so nothing here needs it to be present.
         m.handle(.skip); m.handle(.skip)
         m.handle(.modelPresenceChanged(true)); m.handle(.next)
         m.handle(.dictationFinished(.failed(reason: "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")))
@@ -139,8 +140,8 @@ struct GuidedDictationOutcomeTests {
 
     @Test func retryClearsTheStaleVerdict() {
         var m = M()
-        // welcome → mic check (blocked, no grant) → model choice → dictation. Continue needs an
-        // installed model now, so the model step is reached with one already present.
+        // welcome → Microphone (blocked, no grant) → Accessibility (unresolved) → Try the key.
+        // The install (§11.1) is never a step, so nothing here needs it to be present.
         m.handle(.skip); m.handle(.skip)
         m.handle(.modelPresenceChanged(true)); m.handle(.next)
         m.handle(.dictationFinished(.failed(reason: "nope")))
@@ -382,10 +383,12 @@ struct RecognizerReadinessTests {
         m.handle(.skip); m.handle(.skip)
         m.handle(.downloadFailed("no network"))
         #expect(m.download == .failed("no network"))
-        #expect(m.handle(.installModels) == [.startDownload], "Retry after a failure fetches again")
+        #expect(m.handle(.installModels) == [.checkModelPresence, .startDownload, .checkRecognizerReadiness],
+                "Retry after a failure fetches again")
         m.handle(.downloadFinished)
         #expect(m.download == .installed)
-        #expect(m.handle(.installModels) == [], "and once it is here, nothing is fetched again")
+        #expect(m.handle(.installModels) == [.checkModelPresence, .checkRecognizerReadiness],
+                "and once it is here, nothing is fetched again")
     }
 
     /// `ModelStackInstaller.stackReadiness` mirrors `RecognizerFactory.chooseFinal`, so the screen
@@ -476,8 +479,8 @@ struct DownloadProgressTextTests {
         let gate = TestGate()
         models.hold = { await gate.wait() }
         deps.models = models
+        // The install starts itself the moment `vm` is constructed (R6.2 §11.1) — no step to reach.
         let vm = OnboardingViewModel(dependencies: deps)
-        vm.send(.skip); vm.send(.skip)   // welcome → blocked mic check → model install
         try await waitUntil { vm.machine.download.isInFlight }
         let line = try #require(vm.downloadLine)
         #expect(line.contains("Parakeet TDT 0.6B v3"))

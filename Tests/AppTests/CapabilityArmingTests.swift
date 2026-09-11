@@ -259,6 +259,10 @@ struct OnboardingLivePollingTests {
         checker.statuses = [.microphone: .granted, .inputMonitoring: .denied, .accessibility: .denied]
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
+        // R6.2 — the microphone's ask and its meter now share one screen (DESIGN §11.2); with the
+        // microphone already granted, the first `.next` only reaches that meter, and a second is
+        // what reaches Input Monitoring.
+        vm.send(.next)
         #expect(vm.machine.currentPermission == .inputMonitoring)
 
         // The user grants the one that is NOT in focus.
@@ -267,10 +271,11 @@ struct OnboardingLivePollingTests {
         #expect(vm.machine.statuses[.accessibility] == .granted)
         #expect(vm.machine.currentPermission == .inputMonitoring, "a background grant must not steal focus")
 
-        // And the focused one still advances when it lands.
+        // And the focused one still advances when it lands — accessibility was already granted
+        // above, so this is the whole walk finishing.
         checker.statuses[.inputMonitoring] = .granted
         vm.pollCurrentPermission()
-        #expect(vm.machine.step == .micCheck)
+        #expect(vm.machine.step == .firstDictation)
     }
 
     @Test func recoveryEvidenceOnlyCountsOtherNonPromptableGrants() throws {
