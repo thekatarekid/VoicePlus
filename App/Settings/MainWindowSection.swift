@@ -234,6 +234,7 @@ public enum SettingsReachability {
     public static let newlySurfaced: [LegacySettingsItem] = [
         .init(.general, "Never inject into this app (R2.3)", "apps.neverInject", .dictionary),
         .init(.data, "Ambient capture", "privacy.ambientCapture", .privacy),
+        .init(.data, "Keep other voices too (R8.1)", "privacy.ambientEverySpeaker", .privacy),
         .init(.data, "Transcript retention", "privacy.retentionDays", .privacy),
         .init(.data, "Delete everything saved", "privacy.deleteAll", .privacy),
         .init(.benchmark, "Run the Lab on this Mac", "voice.benchmark.run", .voice),

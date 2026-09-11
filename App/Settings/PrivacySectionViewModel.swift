@@ -72,18 +72,37 @@ public final class PrivacySectionViewModel: ObservableObject {
 
     // MARK: Captured
 
-    /// Ambient capture is the `directedSpeech` flag today — the real gate, not a new mirror of it.
-    /// Default off (V3 §9.4, R8.1).
+    /// Ambient capture: its **own** switch, off by default (V3 §8, §9.4, R8.1).
+    ///
+    /// Until R8.1 this wrote the `directedSpeech` feature flag. That conflated two unrelated things:
+    /// `directedSpeech` is the hands-free experiment, which V3 §8 says "stays off", and the latch
+    /// runtime reads it (`LatchController.isEnabled`). Turning on a transcript Timeline would have
+    /// armed a hands-free path, and turning hands-free off would have silently emptied the Timeline.
+    /// The key is now `ambient.capture.enabled` and is shared with nothing.
     public var ambientCapture: Bool {
-        get { flags?.isEnabled(.directedSpeech) ?? false }
+        get { AmbientCaptureSettings.isEnabled(settings) }
         set {
-            try? flags?.setOverride(newValue, for: .directedSpeech)
+            AmbientCaptureSettings.setEnabled(newValue, store: settings)
+            objectWillChange.send()
+        }
+    }
+
+    /// "Keep what other people said too." Off by default: without it a voice that is not the enrolled
+    /// user is discarded rather than stored (V3 §8), and it is a *third* switch because widening
+    /// capture to the room is not implied by turning the Timeline on.
+    public var capturesEverySpeaker: Bool {
+        get { AmbientCaptureSettings.capturesEverySpeaker(settings) }
+        set {
+            AmbientCaptureSettings.setCapturesEverySpeaker(newValue, store: settings)
             objectWillChange.send()
         }
     }
 
     public static let enrolledSpeakerOnlyNote =
         "Ambient capture only keeps what your enrolled voice said, as transcript. Nothing is typed anywhere, and it never reaches an injection path."
+
+    /// What the Privacy section says under the retention picker, from the policy that enforces it.
+    public var retentionSentence: String { AmbientRetentionPolicy(days: retentionDays).sentence }
 
     public var retentionDays: Int {
         get { AmbientRetentionSettings.days(settings) }

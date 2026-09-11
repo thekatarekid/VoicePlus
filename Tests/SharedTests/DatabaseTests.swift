@@ -10,6 +10,8 @@ import Testing
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'grdb_%' ORDER BY name")
         }
         #expect(tables == [
+            // R8.2 added `ambient_search_index` (and nothing else) — see AmbientSearchIndexTests.
+            "ambient_search_index",
             "corrections", "dictation_history", "dictionary", "feature_flags", "injection_outcomes",
             "lab_runs", "network_log", "personas", "snippets",
         ])

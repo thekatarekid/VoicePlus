@@ -93,9 +93,16 @@ public enum MainWindowController {
     /// window is testable.
     private static func make(deps: OnboardingDependencies) -> MainWindowViewModel {
         let audio = AudioInputSettingsViewModel()
+        // R8.1/R8.2 — ambient capture has its own switch (`ambient.capture.enabled`), not the
+        // `directedSpeech` flag this used to read; and the Timeline's store is built here when the
+        // composition root has not installed one, because that is also what enforces the seven-day
+        // retention (`AmbientWiring.store` sweeps on the way out). Building it writes nothing: the
+        // ambient directory is not created until an entry is actually captured.
+        let timeline = environment.timeline
+            ?? AmbientWiring.store(database: deps.database, settings: deps.settingsStore)
         let today = TodaySectionViewModel(deps: deps, audio: audio,
-                                          reader: environment.timeline,
-                                          ambientCaptureOn: { deps.flags.isEnabled(.directedSpeech) },
+                                          reader: timeline,
+                                          ambientCaptureOn: { AmbientCaptureSettings.isEnabled(deps.settingsStore) },
                                           heldProvider: environment.heldItems,
                                           heldAction: environment.heldAction)
         let meetings = MeetingsSectionViewModel(settings: deps.settingsStore,

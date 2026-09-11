@@ -32,7 +32,7 @@ public final class AppDatabase: Sendable {
 
     // MARK: Migrations
 
-    public static let migrationIdentifiers: [String] = ["v1_phase1_core"]
+    public static let migrationIdentifiers: [String] = ["v1_phase1_core", "v2_ambient_search_index"]
 
     static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
@@ -115,6 +115,19 @@ public final class AppDatabase: Sendable {
                 t.column("spokenForms", .text).notNull()
                 t.column("weight", .double).notNull().defaults(to: 1.0)
                 t.column("createdAt", .datetime).notNull()
+            }
+        }
+
+        // R8.2 — the ambient Timeline's search index. Purely additive: it creates one new table and
+        // touches no existing one, so an install that already has dictation history keeps it
+        // (V3 §1.6). Ambient transcript text is *not* here — see `AmbientSearchIndex.swift`.
+        migrator.registerMigration("v2_ambient_search_index") { db in
+            try db.create(table: "ambient_search_index") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("entryID", .text).notNull().indexed()
+                t.column("recordID", .text).notNull().indexed()
+                t.column("capturedAt", .datetime).notNull().indexed()
+                t.column("token", .text).notNull().indexed()
             }
         }
         return migrator

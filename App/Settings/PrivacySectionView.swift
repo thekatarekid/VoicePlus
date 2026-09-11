@@ -49,6 +49,20 @@ struct PrivacySectionView: View {
                 .accessibilityIdentifier("privacy.ambientCapture")
                 Text(PrivacySectionViewModel.enrolledSpeakerOnlyNote)
                     .font(.caption).foregroundStyle(.secondary)
+                // R8.1 — other voices are discarded *unless the user explicitly asks* for them
+                // (V3 §8). Its own switch, off by default, and never implied by the one above.
+                Toggle("Keep what other people said too", isOn: Binding(
+                    get: { model.capturesEverySpeaker },
+                    set: { model.capturesEverySpeaker = $0 }
+                ))
+                .accessibilityIdentifier("privacy.ambientEverySpeaker")
+                .disabled(!model.ambientCapture)
+                Text(model.capturesEverySpeaker
+                     ? "ON — speech from other people in the room is kept as transcript too, labelled as another voice. Still nothing is typed anywhere."
+                     : "Off. Only your enrolled voice is kept; anyone else in the room is discarded.")
+                    .font(.caption)
+                    .foregroundStyle(model.capturesEverySpeaker ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .accessibilityIdentifier("privacy.ambientEverySpeakerNote")
                 Picker("Keep transcripts for", selection: Binding(
                     get: { model.retentionDays },
                     set: { model.retentionDays = $0 }
