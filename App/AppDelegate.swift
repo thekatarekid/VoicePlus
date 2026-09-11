@@ -362,6 +362,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
                                           connectedProviders: container.connectedProviderNames)
         }
+        // R7.3/R7.1 — "Open VoicePlus" and "Settings…" are the same window at different sections
+        // (V3 §9.2). Without this, openWindow fell back to onOpenSettings and both landed on
+        // Settings, so the menu had no route to Today at all.
+        status.onOpenWindow = { [weak self, weak container] in
+            guard let self, let container else { return }
+            _ = MainWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
+                                          section: .today,
+                                          connectedProviders: container.connectedProviderNames)
+        }
         // R2.4 — "Recover text" carries the same three actions as the held pill row, off the same
         // queue, and Quit warns while anything is still held (V3 §6). Both are invisible until
         // something is actually held.
