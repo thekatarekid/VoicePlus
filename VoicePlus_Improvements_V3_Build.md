@@ -388,10 +388,10 @@ Evidence labels: `impl` = implemented · `fix` = fixture-verified · `hw` = hard
 | R3 coordinator/latch/mute | 2 | [x] | impl | `2785f28` 24 new; every V3 §8 row; 3 carried gaps (§8 below) |
 | R4.1b ranked context | 2 | [x] | fix | `914ce7b` recall 0.600→0.800, false ins. 2→6 |
 | R4.2 field-role formatting | 2 | [x] | fix | `baad052`+`97e55d7` 6 goldens; AX-hints wiring in flight |
-| R4.3 dictionary + learning UI | 2 | [ ] | — | |
+| R4.3 dictionary + learning UI | 2 | [x] | fix | `9f8190c` removal proven to survive retrain(); 577/577 AppTests |
 | R5.2 refine stage | 2 | [x] | impl | `4075723` 31 new; withdraws confidence on rewrite |
 | R5.3 gate policy + settings | 2 | [ ] | — | |
-| R6.2 onboarding flow | 2 | [~] | — | in flight |
+| R6.2 onboarding flow | 2 | [x] | impl | `cd053f2` 5 steps; practice field wired to the real lander (was never wired) |
 | R5.4 benchmark | 3 | [ ] | — | early data: Qwen 0.1724 vs Parakeet 0.0990 → gate likely fails, flag stays off |
 | R7 one window, one menu | 3 | [ ] | — | |
 | R8 ambient + Timeline | 4 | [ ] | — | |
@@ -421,5 +421,6 @@ Recorded so they are not lost between waves. None is a regression; each is work 
 | G3 | **Speaker filtering has no Settings toggle.** `SpeakerFilter` is explicit opt-in but nothing in the UI can opt in. | R3.3 | Settings UI belongs to R4.3 / R8. |
 | G4 | **`PromptBuilder` char cap saturates.** 1000-char cap filled at 189 of 400 terms, so the cap, not the ranker, decides what the model sees. | R4.1b | R5.3 to decide by measurement whether to raise it. |
 | G5 | **`GatekeeperLatencyTests.classifyStaysUnderBudget` is a cold-start flake.** Passes in isolation, fails under parallel load. | observed by 3 agents | Confirm at the release gate on an idle machine; do not treat as a regression. |
+| G7 | **`DESIGN.md` §11 and the onboarding implementation disagree.** DESIGN says disable the practice field while the model installs; R6.2 kept the existing fallback-recognizer path with an honest banner instead. | R6.2 | The implemented behaviour is defensible and tested, but the spec doc now describes something else. Reconcile in R7 — one of the two must change. |
 | G6 | **Qwen is measurably worse overall** (corpus mean WER 0.1724 vs Parakeet 0.0990) while now being correct (WER 0.000 on the probe line). | R5.1 / R5.4 | R5.4 must split by segment class before the flag decision is final. Flag stays off. |
 
