@@ -386,3 +386,41 @@ would have to clear that bar on this same corpus.
 - Verified on one Mac (M2 Pro, 16 GB). The thermal behaviour of a 30-minute latched session with both
   models resident is **not measured** — it was not needed to close R5, and it must be measured before
   anyone reconsiders enabling refinement.
+
+## R1.5 — the preview choice, measured (11 Sep 2026)
+
+Recorded late: the agent that built the R1.5 harness was killed by a usage limit before it wrote this
+section, so its commit (`74bd335`) landed the measurement code without the decision. Numbers below are
+from re-running `previewCandidateComparison` on `Fixtures/real-room/builtin` (20 utterances, 220
+reference words, real weights, 100 ms feed as `RealEngine` feeds live capture).
+
+| candidate | WER | WER + light formatting | first word p50 | p95 | CPU s per audio s |
+|---|---|---|---|---|---|
+| A · EOU 120M stream (today's default) | 0.268 | 0.241 | 712 ms | 1210 ms | 0.14 |
+| B · polling TDT v3, 1 s interval | **0.118** | **0.118** | 807 ms | 1989 ms | **0.08** |
+| — final TDT v3 (reference, whole utterance) | 0.100 | 0.100 | — | — | 0.01 |
+
+Neither candidate ever failed to produce a word (A 0, B 0 silent utterances).
+
+**Two findings contradict the `previewBackend` flag's own doc comment**, which said A "is the measured
+winner" and that B "misses the 300 ms first-word budget" as though A met it:
+
+1. **Both candidates miss V3 §10.2's 300 ms preview budget, by a wide margin** — 712 ms and 807 ms p50.
+   The 95 ms that separates them is small against the >400 ms by which both overshoot. Latency is
+   therefore not a discriminator between these two; it is a shared, unmet target.
+2. **B is less than half A's WER (0.118 vs 0.268) and costs less CPU (0.08 vs 0.14).** B lands within
+   0.018 of the final recognizer, so what the pill shows while listening would nearly match what lands.
+   A's 0.268 means roughly one word in four is wrong in the text the user is watching — which is
+   precisely the "felt accuracy" complaint that opened V3 (§2.2, §14.1).
+
+**What argues for keeping A anyway,** and why this is not a pure numbers call:
+- B's tail is worse: p95 1989 ms against A's 1210 ms.
+- B polls on a 1 s interval, so its preview arrives in chunks rather than streaming word by word. WER
+  does not capture that difference in how responsive the pill feels, and no measurement here does.
+- R2.4 now shows the **committed** text on land, which addresses the accuracy-perception gap by a
+  different route than making the preview itself more accurate.
+
+**Status: flag default unchanged (A) pending the owner's call.** Both paths stay in the build per
+build-doc rule 5. The measurement is recorded here so the decision is made on evidence rather than on
+the flag comment's incorrect premise; an interval shorter than 1 s (0.4 s was started and abandoned by
+the killed agent) is the obvious third arm and is not yet measured.
