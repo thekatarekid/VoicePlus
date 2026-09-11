@@ -172,6 +172,26 @@ public final class TrainingPairStore: @unchecked Sendable {
 
     public func clipURL(for pair: TrainingPair) -> URL? { pair.clipFile.map { clipsDirectory.appendingPathComponent($0) } }
 
+    /// R4.3 — removes every pair whose `corrected` side is this spelling (case-insensitive), so a
+    /// forgotten Dictionary entry cannot be relearned by the next `AdaptationLoop.retrain()`. Clips
+    /// are left on disk (harmless orphans) rather than risking a partial rewrite; only the JSONL
+    /// index changes. Returns the number of pairs removed.
+    @discardableResult
+    public func forgetCorrections(_ spelling: String) throws -> Int {
+        let key = spelling.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !key.isEmpty else { return 0 }
+        lock.lock(); defer { lock.unlock() }
+        let keep = cache.filter { $0.corrected.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != key }
+        let removed = cache.count - keep.count
+        guard removed > 0 else { return 0 }
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        var data = Data()
+        for p in keep { var line = try enc.encode(p); line.append(UInt8(ascii: "\n")); data.append(line) }
+        try data.write(to: pairsFile)
+        cache = keep
+        return removed
+    }
+
     /// Deletes every pair and clip (Data Panel "forget my training data").
     public func eraseAll() throws {
         lock.lock(); defer { lock.unlock() }

@@ -239,6 +239,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         SettingsWindowController.connectorHub = container.connectorHub
         SettingsWindowController.syncService = container.sync
+        // R4.3 — Dictionary tab's "learned automatically" list + Forget action read and mutate
+        // the same adaptation loop the pipeline uses, so a forget takes effect on the next utterance.
+        SettingsWindowController.adaptationLoop = container.adaptation?.loop
+        SettingsWindowController.trainingPairStore = container.adaptation?.store
         // P6.2 — "Train by voice": ~2 s through the engine's audio tap → pronunciation store.
         SettingsWindowController.trainByVoice = { [weak container] word in
             guard let container, let adaptation = container.adaptation else { return nil }

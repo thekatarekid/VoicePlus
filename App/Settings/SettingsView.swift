@@ -7,6 +7,11 @@ public struct SettingsView: View {
     @ObservedObject var models: ModelsSettingsViewModel
     @ObservedObject var personas: PersonasViewModel
     @ObservedObject var dictionary: DictionaryViewModel
+    /// R4.3 — the learned half of the Dictionary tab (spelling / heard-as / origin / forget),
+    /// distinct from `dictionary`'s user-typed term list.
+    @ObservedObject var learnedDictionary: LearnedDictionaryViewModel
+    /// R4.3 — Benchmark tab: R4.1b's ranked-context-list recall/false-insertion counters.
+    @ObservedObject var benchmark: BenchmarkViewModel
     @ObservedObject var flags: FlagsViewModel
     @ObservedObject var data: DataPanelViewModel
     @ObservedObject var snippets: SnippetsViewModel
@@ -30,6 +35,7 @@ public struct SettingsView: View {
             ConnectorsSettingsTab(model: connectors).tabItem { Label("Services", systemImage: "link") }.tag(SettingsTab.connectors)
             SyncSettingsTab(model: sync).tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }.tag(SettingsTab.sync)
             dataTab.tabItem { Label("Data", systemImage: "network") }.tag(SettingsTab.data)
+            benchmarkTab.tabItem { Label("Benchmark", systemImage: "gauge.with.dots.needle.50percent") }.tag(SettingsTab.benchmark)
         }
         .frame(width: 560, height: 400)
         .padding(12)
@@ -193,7 +199,73 @@ public struct SettingsView: View {
             if let importResult {
                 Text(describe(importResult)).font(.caption).foregroundStyle(.secondary)
             }
+            Divider()
+            learnedDictionarySection
         }
+    }
+
+    /// R4.3 — words this Mac corrected on its own: the spelling it settled on, what it used to
+    /// hear instead, and where the correction came from. Forgetting one takes effect on the very
+    /// next utterance (`LearnedDictionaryViewModel.forget`, `AdaptationLoop.forget`).
+    private var learnedDictionarySection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Learned automatically").font(.headline)
+            if learnedDictionary.entries.isEmpty {
+                Text("Nothing learned yet — corrections you make while dictating show up here.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("dictionary.learned.empty")
+            } else {
+                List(learnedDictionary.entries) { entry in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.spelling)
+                            Text(entry.heardAs.isEmpty ? "heard as: (no misheard form on record)" : "heard as: \(entry.heardAs.joined(separator: ", "))")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text("origin: \(entry.origin)").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(role: .destructive) { learnedDictionary.forget(entry) } label: {
+                            Label("Forget", systemImage: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("dictionary.learned.forget.\(entry.id)")
+                    }
+                }
+                .accessibilityIdentifier("dictionary.learned.list")
+            }
+        }
+    }
+
+    private var benchmarkTab: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recall and false insertions from the ranked context list on the real-room corpus (R4.1b). Not run here — this shows the last completed measurement.")
+                .font(.caption).foregroundStyle(.secondary)
+            if !benchmark.hasData {
+                Text("No measurements yet.").accessibilityIdentifier("benchmark.empty")
+            } else {
+                if let corpusLabel = benchmark.corpusLabel {
+                    Text(corpusLabel).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
+                ForEach(benchmark.rows) { row in
+                    HStack {
+                        Text(row.arm)
+                        Spacer()
+                        Text("recall \(row.recallText)").font(.caption.monospaced())
+                        Text("false insertions \(row.falseInsertions)").font(.caption.monospaced())
+                    }
+                    .accessibilityIdentifier("benchmark.row.\(row.id)")
+                }
+                if let recallGainText = benchmark.recallGainText {
+                    Text(recallGainText).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("benchmark.recallGain")
+                }
+                if let passLabel = benchmark.passLabel {
+                    Text(passLabel).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("benchmark.passLabel")
+                }
+            }
+        }
+        .padding(4)
     }
 
     private func describe(_ o: ContactsImportOffer.Outcome) -> String {
@@ -258,4 +330,4 @@ struct DataRow: Identifiable {
     var purpose: String { record.purpose }
 }
 
-public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, connectors, sync, data }
+public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, connectors, sync, data, benchmark }

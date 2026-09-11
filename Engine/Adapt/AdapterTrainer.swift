@@ -150,6 +150,33 @@ public final class AdaptationLoop: @unchecked Sendable {
         lock.lock(); lastResults = results; lock.unlock()
         return results
     }
+
+    /// R4.3 — "forget" for one Dictionary entry: removes `spelling` from `terms` and every
+    /// `variants` entry that corrects to it, persists the trimmed lexicon immediately, and purges
+    /// the matching `TrainingPair`s so a later `retrain()` cannot resurrect what was just removed.
+    ///
+    /// `lexicon` is the same stored property `RegressionGuardStage` and `LearnedLexiconSource`
+    /// re-read fresh on every utterance (`App/Services/AdaptationService.swift`,
+    /// `Engine/Adapt/AdapterTrainer.swift`'s `LearnedLexiconSource.harvest`) — this mutates that
+    /// value in place, not a copy, so the removal is live for the very next utterance with no
+    /// retrain, restart or cache to invalidate.
+    @discardableResult
+    public func forget(spelling: String) -> Bool {
+        let key = spelling.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !key.isEmpty else { return false }
+        lock.lock()
+        let hadTerm = lexicon.terms.removeValue(forKey: key) != nil
+        let variantKeys = lexicon.variants.filter { $0.value.corrected.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key }.map(\.key)
+        for k in variantKeys { lexicon.variants.removeValue(forKey: k) }
+        let changed = hadTerm || !variantKeys.isEmpty
+        let snap = lexicon
+        lock.unlock()
+        guard changed else { return false }
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        try? enc.encode(snap).write(to: file)
+        try? store.forgetCorrections(spelling)
+        return true
+    }
 }
 
 /// Feeds the learned lexicon into the Biasing ranker.
