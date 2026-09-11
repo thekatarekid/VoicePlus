@@ -347,6 +347,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         status.heldItems = { [weak delivery] in delivery?.held.items ?? [] }
         status.onHeldAction = { [weak delivery] item, action in delivery?.perform(action, on: item.id) }
         delivery.onHeldChanged = { [weak status] _ in MainActor.assumeIsolated { status?.rebuild() } }
+        // R7.3 — the one menu goes through the session owner (R3) for Start / Stop / latch, and it
+        // is the only place an explicit Stop exists while capture is open (V3 §9.3).
+        status.session = sessionCoordinator
+        status.onToggleLatch = { [weak sessionCoordinator] in
+            guard let sessionCoordinator else { return }
+            if sessionCoordinator.isLatched {
+                sessionCoordinator.stop(sessionCoordinator.activeRequester ?? .menu, reason: .userStopped)
+            } else {
+                sessionCoordinator.start(.menu, mode: .latched)
+            }
+        }
+        // "Stop meeting" ends a recording the user started; the opt-in remains the Calendar gesture.
+        status.meetingRunning = { [weak container] in container?.meeting.session != nil }
+        status.onStopMeeting = { [weak container] in
+            guard let meeting = container?.meeting else { return }
+            Task { _ = await meeting.finishSession() }
+        }
         status.presenceIndicatorEnabled = { [weak container] in PresenceSettings.isEnabled(container?.settings) }
         status.onTogglePresenceIndicator = { [weak container] in
             PresenceSettings.setEnabled(!PresenceSettings.isEnabled(container?.settings), store: container?.settings)
@@ -366,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Any click on the dot — left, right or ⌃-click — pops the status menu; `PresenceClickRouter`
         // owns that decision. (1.7.9 briefly made the left click explain/repair instead; reverted at
         // the owner's request.) Popping a menu takes no focus from the app being typed into.
-        presence.onClick = { [weak self] in self?.statusItem?.popUpMenu() }
+        presence.onClick = { [weak self] in self?.statusItem?.popUpMenu(from: .notch) }
         presence.pausedProvider = { [weak coordinator] in coordinator?.paused ?? false }
         presence.bind(pill: pill.model, mute: container.handsFree.mute)
         presence.start()

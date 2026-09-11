@@ -33,3 +33,32 @@ public enum PresenceClickRouter {
         return .menu
     }
 }
+
+// MARK: - R7.3 — one menu, four ways in
+
+/// Which gesture asked for the menu. It exists to be *ignored* by everything that builds the menu:
+/// V3 §9.3 and `DESIGN.md` §10 say left click, right click and ⌃-click, on the status-item glyph or
+/// on the idle notch chin, all open **the same menu**. Naming the four ways in is what lets a test
+/// prove they agree instead of asserting it in prose.
+public enum MenuEntryPoint: String, CaseIterable, Equatable, Sendable {
+    /// Left click on the menu-bar glyph.
+    case glyph
+    /// Right click or ⌃-click on the menu-bar glyph.
+    case glyphSecondary
+    /// Left click on the notch presence chin.
+    case notch
+    /// Right click or ⌃-click on the notch presence chin.
+    case notchSecondary
+
+    public var isSecondary: Bool { self == .glyphSecondary || self == .notchSecondary }
+    public var isNotch: Bool { self == .notch || self == .notchSecondary }
+
+    public static func glyph(secondary: Bool) -> MenuEntryPoint { secondary ? .glyphSecondary : .glyph }
+    public static func notch(secondary: Bool) -> MenuEntryPoint { secondary ? .notchSecondary : .notch }
+}
+
+public extension PresenceClickRouter {
+    /// The notch chin's click, named as a menu entry point. Same answer as `action(for:secondary:)`,
+    /// carried in a form the menu builder can log.
+    static func entryPoint(secondary: Bool) -> MenuEntryPoint { .notch(secondary: secondary) }
+}

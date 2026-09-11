@@ -1,8 +1,25 @@
 import AppKit
 import Engine
+import Injection
 import Shared
 
-/// Menu-bar item + dropdown dashboard (T1/T4). Rebuilt on every open so counters are live.
+/// The menu-bar item and **the one menu** (R7.3, V3 §9.2–9.3, `DESIGN.md` §10).
+///
+/// One menu, four ways in: left click and right click on the glyph, left click and ⌃/right click on
+/// the notch presence chin (`PresenceClickRouter` answers `.menu` for every state and every button,
+/// and `AppDelegate` routes the chin's click to `popUpMenu(from:)`). The rows are decided by
+/// `StatusMenuSpec` — pure data, so the menu can be tested without an `NSStatusItem`, an XCTest or a
+/// UI test, none of which exist on this toolchain.
+///
+/// **Focus.** Opening the menu never activates the app: the status item pops the menu itself, the
+/// chin behind it is a non-activating panel, and building the rows reads no focus and touches no
+/// held text. Dictation still has somewhere to land afterwards (DESIGN §5.3).
+///
+/// **What is deliberately *not* here** (DESIGN §10, "Removed from today's menu"): the Lab, the Data
+/// Panel, feature flags, the two key submenus, "Enroll voice…", the presence-indicator switch,
+/// launch at login, update and permission checks. All of them live in the one window — keeping them
+/// here as well would make two sources of truth. The callbacks below stay so the composition root
+/// keeps compiling while R7.1/R7.2 finish hosting them.
 public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
@@ -11,43 +28,57 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let coordinator: DictationCoordinator
     private let hotkey: HotkeyService
     private let updater: UpdaterProtocol
+    /// R7.1 — the one window, at Today. Falls back to `onOpenSettings` until the window exists.
+    public var onOpenWindow: (() -> Void)?
+    public var onOpenSettings: (() -> Void)?
+    /// Kept for the composition root; no longer menu rows (DESIGN §10 — they live in the window).
     public var onOpenLab: (() -> Void)?
     public var onOpenDataPanel: (() -> Void)?
-    public var onOpenSettings: (() -> Void)?
     public var onRecheckPermissions: (() -> Void)?
-    /// Live labels supplied by the composition root (P1.12); defaults keep shell tests unchanged.
-    public var activeModelName: () -> String = { "Mock engine (fixture)" }
-    public var micName: () -> String = { "Default microphone" }
-    /// P1.5.2 — "show what changed" list + per-app off switch (nil keeps the Phase 1 menu).
+    public var onEnrollVoice: (() -> Void)?
+    public var presenceIndicatorEnabled: (() -> Bool)?
+    public var onTogglePresenceIndicator: (() -> Void)?
     public var corrections: CorrectionLedger?
     public var correctionSettings: SettingsStore?
     public var correctionRevertSink: (() -> ReplaceRangeSink?)?
-    /// P5.4 — ambient state glyph + one-gesture hard mute (nil until hands-free is wired).
+    public var actHotkey: HotkeyService?
+    public var actKeyStore: SettingsStore?
+    /// Live labels supplied by the composition root (P1.12); defaults keep shell tests unchanged.
+    public var activeModelName: () -> String = { "Mock engine (fixture)" }
+    public var micName: () -> String = { "Default microphone" }
+    /// R3 — the session owner. Start, Stop and mic arbitration go through it; the engine is never
+    /// called directly from here. Nil falls back to `DictationCoordinator` (shell tests).
+    public var session: SessionCoordinator?
+    /// R3.1 — latch on/off. Nil uses `session`/`coordinator` directly.
+    public var onToggleLatch: (() -> Void)?
+    /// P5.4 — ambient state glyph + one-gesture hard mute (`MuteController`).
     public var ambientSymbol: (() -> String?)?
     public var ambientMuted: (() -> Bool)?
     public var onToggleMute: (() -> Void)?
-    /// P5.3 — voice enrollment window.
-    public var onEnrollVoice: (() -> Void)?
-    /// P5 — mirror of the presence-indicator switch, so the thing that replaces a culled status
-    /// item can also be turned off from the status item while it is still reachable.
-    public var presenceIndicatorEnabled: (() -> Bool)?
-    public var onTogglePresenceIndicator: (() -> Void)?
-    /// P5.5 — meeting capture opt-in. Toggling it on is what asks for Calendar access; nothing
-    /// about meetings runs (or prompts) until the user does. nil hides the item entirely.
+    /// The chin's state, so the menu's first line says exactly what the chin says. Nil derives a
+    /// conservative one from mute / capabilities / capture.
+    public var presenceState: (() -> PresenceState)?
+    /// "Copy last text". Nil reads the most recent dictation out of the database.
+    public var lastCommittedText: (() -> String?)?
+    /// P5.5 — meeting capture opt-in. Toggling it on is what asks for Calendar access.
     public var meetingCaptureEnabled: (() -> Bool)?
     public var onToggleMeetingCapture: (() -> Void)?
-    /// P4.2 — the act key (Bet 5's second key). Supplied by the composition root together with the
-    /// store that holds its on/off switch; with either nil the "Actions key" item is not shown at
-    /// all, which keeps every existing shell test's menu unchanged.
-    public var actHotkey: HotkeyService?
-    public var actKeyStore: SettingsStore?
+    /// R7.3 — an actual meeting recording, and the explicit stop for it.
+    public var meetingRunning: (() -> Bool)?
+    public var onStartMeeting: (() -> Void)?
+    public var onStopMeeting: (() -> Void)?
     public var frontmostBundleID: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     /// R2.4 — committed text with no safe destination (V3 §6). The menu carries the same three
-    /// actions as the held pill row, and Quit warns while anything is held. Left nil (the default)
-    /// the menu is exactly what it was before, which is what every existing shell test asserts.
+    /// actions as the held pill row, off the same queue; Quit warns while anything is held.
     public var heldItems: (() -> [HeldItem])?
     public var onHeldAction: ((HeldItem, HeldAction) -> Void)?
+    /// `Injection`'s own queue, used when the app-side mirror is not wired.
+    public var focusGuard: FocusGuard?
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
+    /// Which gesture opened the menu last. Logged, never branched on (V3 §9.3).
+    public private(set) var lastEntryPoint: MenuEntryPoint = .glyph
+    /// Set by `popUpMenu(from:)` so AppKit's own `menuNeedsUpdate` does not relabel a chin click.
+    private var pendingEntryPoint: MenuEntryPoint?
 
     public init(flags: FeatureFlagService, database: AppDatabase?, coordinator: DictationCoordinator,
                 hotkey: HotkeyService, updater: UpdaterProtocol) {
@@ -59,6 +90,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         menu.delegate = self
+        // Enablement is the spec's answer, not AppKit's guess: an unavailable action stays visible
+        // and disabled with the reason in its title (DESIGN §10).
+        menu.autoenablesItems = false
+        // A status item with a menu pops it on **both** buttons, which is half of "one menu".
         statusItem.menu = menu
         statusItem.button?.toolTip = "VoicePlus"
         refreshIcon()
@@ -69,189 +104,192 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         return MenuModel(zeroEditCount: stats.zeroEdit, totalCount: stats.total, wordsToday: stats.wordsToday,
                          activeModel: activeModelName(), micName: micName(),
                          micStatus: coordinator.lastMicQuality?.verdict, paused: coordinator.paused,
-                         handsFree: coordinator.handsFree, hotkeyName: hotkey.binding.kind.displayName,
+                         latched: coordinator.latched, hotkeyName: hotkey.binding.kind.displayName,
                          launchAtLogin: LaunchAtLogin.isEnabled)
     }
 
     public func refreshIcon() {
         let m = model()
-        // P5.4 — ambient three-state glyph (listening/muted/processing) wins when hands-free is wired.
+        // P5.4 — ambient three-state glyph (listening/muted/processing) wins when latch is wired.
         let symbol = ambientSymbol?() ?? m.statusSymbol
         statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "VoicePlus")
         statusItem.button?.appearsDisabled = m.paused || ambientMuted?() == true
     }
 
-    public func menuNeedsUpdate(_ menu: NSMenu) { rebuild() }
-
-    /// P5 — the presence indicator pops this same menu. That is the point of it: when macOS has
-    /// culled the status item from a crowded menu bar, the chin under the notch is the only
-    /// remaining way into Settings, mute and Quit.
-    public func popUpMenu(at point: NSPoint = NSEvent.mouseLocation) {
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        lastEntryPoint = pendingEntryPoint ?? .glyph
+        pendingEntryPoint = nil
         rebuild()
+    }
+
+    /// The presence chin pops this same menu — that is the point of the chin: when macOS has culled
+    /// the status item from a crowded menu bar, it is the remaining way into Stop, Mute, recovery
+    /// and Quit. Popping a menu takes no focus from the app being typed into.
+    public func popUpMenu(at point: NSPoint = NSEvent.mouseLocation, from entryPoint: MenuEntryPoint = .notch) {
+        lastEntryPoint = entryPoint
+        pendingEntryPoint = entryPoint
+        rebuild()
+        Log.app.notice("menu opened from \(entryPoint.rawValue)")
         menu.popUp(positioning: nil, at: point, in: nil)
     }
 
+    // MARK: - The state the menu is a function of
+
+    /// Pure with respect to focus: nothing here reads the frontmost app or dequeues held text.
+    public func menuState() -> StatusMenuState {
+        let muted = ambientMuted?() ?? session?.isMuted ?? false
+        let capturing = session?.activeRequester != nil || coordinator.engine.state.isActive
+        let latched = session?.isLatched ?? coordinator.latched
+        return StatusMenuState(presence: presenceState?() ?? derivedPresence(muted: muted, capturing: capturing),
+                               micName: micName(), micStatus: coordinator.lastMicQuality?.verdict,
+                               micAvailable: capabilities.canCapture,
+                               isCapturing: capturing, isLatched: latched, isMuted: muted,
+                               hasLastText: lastText() != nil, held: heldSummaries(),
+                               meeting: meetingState())
+    }
+
+    public func menuEntries(from entryPoint: MenuEntryPoint? = nil) -> [MenuEntry] {
+        StatusMenuSpec.entries(menuState(), from: entryPoint ?? lastEntryPoint)
+    }
+
+    /// Only the microphone can block dictation here: a missing *hotkey* permission must not disable
+    /// "Start dictation", because the menu is exactly the fallback for that case.
+    private func derivedPresence(muted: Bool, capturing: Bool) -> PresenceState {
+        if muted { return .muted }
+        if !capabilities.canCapture { return .blocked(.microphoneDenied) }
+        if coordinator.paused { return .paused }
+        switch coordinator.engine.state {
+        case .listening(let level): return .listening(level: level)
+        case .previewing: return .listening(level: 0)
+        case .finalizing: return .processing
+        default: return capturing ? .listening(level: 0) : .ready
+        }
+    }
+
+    private func heldSummaries() -> [StatusMenuState.Held] {
+        if let heldItems { return heldItems().map(StatusMenuState.Held.init) }
+        if let focusGuard { return HeldMenuRouter.held(in: focusGuard) }
+        return []
+    }
+
+    private func lastText() -> String? {
+        if let lastCommittedText { return lastCommittedText().flatMap { $0.isEmpty ? nil : $0 } }
+        guard let database, let record = (try? database.recentDictations(limit: 1))?.first,
+              !record.finalText.isEmpty else { return nil }
+        return record.finalText
+    }
+
+    private func meetingState() -> StatusMenuState.Meeting {
+        if meetingRunning?() == true { return .running }
+        if let meetingCaptureEnabled, onToggleMeetingCapture != nil, !meetingCaptureEnabled() {
+            return .needsCalendarAccess
+        }
+        return .idle(canStart: onStartMeeting != nil)
+    }
+
+    // MARK: - Rendering
+
     func rebuild() {
-        let m = model()
         menu.removeAllItems()
-        menu.addItem(info(m.zeroEditLine))
-        menu.addItem(info(m.wordsLine))
-        menu.addItem(info(m.modelLine))
-        menu.addItem(info(m.micLine))
-        menu.addItem(.separator())
-        let pause = NSMenuItem(title: m.pauseTitle, action: #selector(togglePause), keyEquivalent: "p")
-        pause.target = self
-        menu.addItem(pause)
-        if let ambientMuted, onToggleMute != nil {
-            let muted = ambientMuted()
-            let mute = NSMenuItem(title: muted ? "Unmute microphone" : "Mute microphone (hard)",
-                                  action: #selector(toggleMute), keyEquivalent: "m")
-            mute.target = self
-            mute.state = muted ? .on : .off
-            menu.addItem(mute)
-        }
-        if capabilities.needsMenuFallback || !hotkey.isRunning {
-            let start = NSMenuItem(title: coordinator.engine.state.isActive ? "Stop dictation" : "Start dictation (no hotkey)",
-                                   action: #selector(toggleDictation), keyEquivalent: "d")
-            start.target = self
-            menu.addItem(start)
-        }
-        menu.addItem(.separator())
-        if let recover = recoverTextItem() { menu.addItem(recover) }
-        // The submenu is grouped by *style*, because style is what decides the mechanism and the
-        // mechanism is what used to decide the permission bill. Both groups are free now; the
-        // footer says so rather than leaving the user to wonder which one costs something.
-        let hotkeyMenu = NSMenu()
-        for (heading, style) in [("Hold a modifier", HotkeyBinding.Style.bareModifier),
-                                 ("Hold a chord", HotkeyBinding.Style.chord)] {
-            let header = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            hotkeyMenu.addItem(header)
-            for kind in HotkeyBinding.Kind.allCases where kind.style == style {
-                let item = NSMenuItem(title: kind.displayName, action: #selector(pickHotkey(_:)), keyEquivalent: "")
-                item.target = self
-                item.indentationLevel = 1
-                item.representedObject = kind.rawValue
-                item.state = kind == hotkey.binding.kind ? .on : .off
-                item.toolTip = Self.permissionNote(for: kind, forcingEventTap: hotkey.forcesEventTap)
-                hotkeyMenu.addItem(item)
-            }
-        }
-        hotkeyMenu.addItem(.separator())
-        let note = NSMenuItem(title: Self.permissionNote(for: hotkey.binding.kind,
-                                                         forcingEventTap: hotkey.forcesEventTap),
-                              action: nil, keyEquivalent: "")
-        note.isEnabled = false
-        hotkeyMenu.addItem(note)
-        let hotkeyItem = NSMenuItem(title: "Dictation key: \(m.hotkeyName)", action: nil, keyEquivalent: "")
-        hotkeyItem.submenu = hotkeyMenu
-        menu.addItem(hotkeyItem)
-
-        if let actItem = actKeyItem() { menu.addItem(actItem) }
-
-        let flagMenu = NSMenu()
-        for flag in flags.knownFlags {
-            let item = NSMenuItem(title: flag.id, action: #selector(toggleFlag(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = flag.id
-            item.state = flags.isEnabled(flag) ? .on : .off
-            item.toolTip = flag.description
-            flagMenu.addItem(item)
-        }
-        let flagsItem = NSMenuItem(title: "Feature flags", action: nil, keyEquivalent: "")
-        flagsItem.submenu = flagMenu
-        menu.addItem(flagsItem)
-
-        if let corrections {
-            menu.addItem(CorrectionMenuBuilder.item(ledger: corrections, settings: correctionSettings, bundleID: frontmostBundleID(), target: self,
-                                                    revert: #selector(revertCorrection(_:)), toggleApp: #selector(toggleCorrectionsForApp(_:))))
-        }
-        let lab = NSMenuItem(title: "Open the Lab…", action: #selector(openLab), keyEquivalent: "l")
-        lab.target = self
-        menu.addItem(lab)
-        let data = NSMenuItem(title: "Data Panel…", action: #selector(openDataPanel), keyEquivalent: "")
-        data.target = self
-        menu.addItem(data)
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-        let perms = NSMenuItem(title: "Check permissions…", action: #selector(recheckPermissions), keyEquivalent: "")
-        perms.target = self
-        menu.addItem(perms)
-        if onEnrollVoice != nil {
-            let enroll = NSMenuItem(title: "Enroll voice…", action: #selector(enrollVoice), keyEquivalent: "")
-            enroll.target = self
-            menu.addItem(enroll)
-        }
-        menu.addItem(.separator())
-        if let meetingCaptureEnabled, onToggleMeetingCapture != nil {
-            let on = meetingCaptureEnabled()
-            let meetings = NSMenuItem(title: on ? "Capture meetings" : "Capture meetings (asks for Calendar access)",
-                                      action: #selector(toggleMeetingCapture), keyEquivalent: "")
-            meetings.target = self
-            meetings.state = on ? .on : .off
-            menu.addItem(meetings)
-        }
-        if let presenceIndicatorEnabled, onTogglePresenceIndicator != nil {
-            let on = presenceIndicatorEnabled()
-            let indicator = NSMenuItem(title: "Show indicator under the notch",
-                                       action: #selector(togglePresenceIndicator), keyEquivalent: "")
-            indicator.target = self
-            indicator.state = on ? .on : .off
-            menu.addItem(indicator)
-        }
-        let login = NSMenuItem(title: "Launch at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
-        login.target = self
-        login.state = m.launchAtLogin ? .on : .off
-        login.isEnabled = LaunchAtLogin.isAvailable
-        menu.addItem(login)
-        let update = NSMenuItem(title: "Check for updates…", action: #selector(checkUpdates), keyEquivalent: "")
-        update.target = self
-        update.isEnabled = updater.canCheckForUpdates
-        menu.addItem(update)
-        menu.addItem(.separator())
-        // R2.4 — Quit goes through the held-text guard rather than straight to `terminate`.
-        let quit = NSMenuItem(title: "Quit VoicePlus", action: #selector(quitVoicePlus), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
+        render(menuEntries(), into: menu)
     }
 
-    /// R2.4 / DESIGN §10 — "Recover text": one section per held item, each with Insert here / Copy
-    /// / Discard, hidden entirely when nothing is held and counted in the title when it is.
-    func recoverTextItem() -> NSMenuItem? {
-        guard let heldItems else { return nil }
-        let items = heldItems()
-        guard HeldMenu.isVisible(count: items.count) else { return nil }
-        let submenu = NSMenu()
-        for item in items {
-            let header = NSMenuItem(title: HeldMenu.header(for: item), action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            submenu.addItem(header)
-            for action in HeldMenu.actions {
-                let entry = NSMenuItem(title: action.menuTitle, action: #selector(performHeldAction(_:)), keyEquivalent: "")
-                entry.target = self
-                entry.indentationLevel = 1
-                entry.representedObject = "\(item.id.uuidString)|\(action.rawValue)"
-                submenu.addItem(entry)
+    private func render(_ entries: [MenuEntry], into menu: NSMenu) {
+        for entry in entries {
+            guard !entry.isSeparator else { menu.addItem(.separator()); continue }
+            let hasAction = entry.action != nil && entry.isEnabled
+            let item = NSMenuItem(title: entry.title,
+                                  action: hasAction ? #selector(performEntry(_:)) : nil,
+                                  keyEquivalent: entry.keyEquivalent)
+            item.target = hasAction ? self : nil
+            item.isEnabled = entry.isEnabled
+            item.state = entry.isOn ? .on : .off
+            item.representedObject = entry.id
+            item.identifier = NSUserInterfaceItemIdentifier(entry.id)
+            // The one red-tinted row (DESIGN §10): mute is a promise about the microphone.
+            if entry.isDestructive {
+                item.attributedTitle = NSAttributedString(string: entry.title,
+                                                          attributes: [.foregroundColor: NSColor.systemRed])
             }
-            if item.id != items.last?.id { submenu.addItem(.separator()) }
+            if !entry.children.isEmpty {
+                let submenu = NSMenu()
+                submenu.autoenablesItems = false
+                render(entry.children, into: submenu)
+                item.submenu = submenu
+            }
+            menu.addItem(item)
         }
-        let root = NSMenuItem(title: HeldMenu.title(count: items.count), action: nil, keyEquivalent: "")
-        root.submenu = submenu
-        return root
     }
 
-    @objc private func performHeldAction(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String else { return }
-        let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let id = UUID(uuidString: parts[0]), let action = HeldAction(rawValue: parts[1]),
-              let item = heldItems?().first(where: { $0.id == id }) else { return }
-        onHeldAction?(item, action)
+    @objc private func performEntry(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let entry = StatusMenuSpec.entry(id, in: menuEntries()), let action = entry.action else { return }
+        run(action)
+    }
+
+    // MARK: - Doing what the row says
+
+    func run(_ action: MenuAction) {
+        switch action {
+        case .startDictation: startDictation()
+        case .stopDictation: stopDictation()
+        case .toggleLatch: toggleLatch()
+        case .toggleMute: toggleMute()
+        case .copyLastText: copyLastText()
+        case .held(let id, let heldAction): performHeld(id: id, action: heldAction)
+        case .enableMeetingCapture: onToggleMeetingCapture?()
+        case .startMeeting: onStartMeeting?() ?? onToggleMeetingCapture?()
+        case .stopMeeting: onStopMeeting?()
+        case .openWindow: (onOpenWindow ?? onOpenSettings)?()
+        case .openSettings: onOpenSettings?()
+        case .quit: quitVoicePlus()
+        }
+        refreshIcon()
         rebuild()
     }
 
+    /// R3 — through the session owner, so mic arbitration and mute are honoured.
+    private func startDictation() {
+        if let session { session.start(.menu, mode: .hold) } else { coordinator.start() }
+    }
+
+    /// The explicit Stop V3 §9.3 asks for: it stops whoever holds the microphone, not only the menu.
+    private func stopDictation() {
+        if let session { session.stop(session.activeRequester ?? .menu, reason: .userStopped) }
+        else { coordinator.finalize() }
+    }
+
+    private func toggleLatch() {
+        if let onToggleLatch { onToggleLatch(); return }
+        if let session {
+            if session.isLatched { session.stop(session.activeRequester ?? .menu, reason: .userStopped) }
+            else { session.start(.menu, mode: .latched) }
+        } else if coordinator.latched {
+            coordinator.endLatch()
+        } else {
+            coordinator.handle(.enterLatch)
+        }
+    }
+
+    private func toggleMute() { onToggleMute?() }
+
+    private func copyLastText() {
+        guard let text = lastText() else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        Log.app.info("copied the last \(text.count) dictated characters from the menu")
+    }
+
+    private func performHeld(id: UUID, action: HeldAction) {
+        if let onHeldAction, let item = heldItems?().first(where: { $0.id == id }) {
+            onHeldAction(item, action)
+        } else if let focusGuard {
+            HeldMenuRouter.perform(action, on: id, in: focusGuard)
+        }
+    }
+
     @objc private func quitVoicePlus() {
-        switch QuitGuard.decision(heldCount: heldItems?().count ?? 0) {
+        switch QuitGuard.decision(heldCount: heldSummaries().count) {
         case .quit:
             NSApp.terminate(nil)
         case .warn(let title, let message):
@@ -265,38 +303,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func info(_ title: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        return item
-    }
-
-    @objc private func toggleMute() {
-        onToggleMute?()
-        refreshIcon()
-        rebuild()
-    }
-
-    @objc private func enrollVoice() { onEnrollVoice?() }
-
-    @objc private func togglePresenceIndicator() {
-        onTogglePresenceIndicator?()
-        rebuild()
-    }
-
-    @objc private func togglePause() {
-        coordinator.setPaused(!coordinator.paused)
-        hotkey.isPaused = coordinator.paused
-        refreshIcon()
-    }
-
-    @objc private func toggleDictation() {
-        if coordinator.engine.state.isActive { coordinator.finalize() } else { coordinator.start() }
-    }
-
     /// The one line that says what a binding costs. Pure and static so the copy is unit-testable
     /// without a status item — and so "no permission" cannot quietly become a lie if the selection
     /// rule changes: it is derived from `HotkeyBackendSelector`, not written by hand per case.
+    /// The picker itself is Settings › Keys now (DESIGN §10); this sentence is shown there.
     static func permissionNote(for kind: HotkeyBinding.Kind, forcingEventTap: Bool) -> String {
         let backend = HotkeyBackendSelector.kind(for: HotkeyBinding(kind: kind), forceEventTap: forcingEventTap)
         guard let permission = backend.requiredPermission else {
@@ -308,97 +318,4 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         }
         return "Legacy event tap — needs \(permission.title), and a quit & reopen"
     }
-
-    @objc private func pickHotkey(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let kind = HotkeyBinding.Kind(rawValue: raw) else { return }
-        hotkey.setBinding(kind)
-    }
-
-    /// The act key gets the same treatment as the dictation key — one submenu, grouped by style —
-    /// plus the entry the dictation key must never have: **Off**. Until 1.7.11 this key was live on
-    /// Right ⌘ on every install and appeared in no menu and no settings pane, so the only way to
-    /// stop it swallowing a keypress was `defaults write`.
-    func actKeyItem() -> NSMenuItem? {
-        guard let actHotkey, let actKeyStore else { return nil }
-        let enabled = ActKeySettings.isEnabled(actKeyStore)
-        let submenu = NSMenu()
-        let off = NSMenuItem(title: "Off", action: #selector(pickActKey(_:)), keyEquivalent: "")
-        off.target = self
-        off.representedObject = ActKeyChoice.off.rawValue
-        off.state = enabled ? .off : .on
-        off.toolTip = "Actions does nothing and no second key is armed."
-        submenu.addItem(off)
-        for (heading, style) in [("Hold a modifier", HotkeyBinding.Style.bareModifier),
-                                 ("Hold a chord", HotkeyBinding.Style.chord)] {
-            let header = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            submenu.addItem(header)
-            for kind in HotkeyBinding.Kind.allCases where kind.style == style {
-                let collides = kind == hotkey.binding.kind
-                let item = NSMenuItem(title: collides ? "\(kind.displayName) — your dictation key" : kind.displayName,
-                                      action: #selector(pickActKey(_:)), keyEquivalent: "")
-                item.target = self
-                item.indentationLevel = 1
-                item.representedObject = kind.rawValue
-                item.state = (enabled && kind == actHotkey.binding.kind) ? .on : .off
-                // Offered, not hidden — a user swapping both keys passes through this state — but
-                // never silently: dictation wins the collision and the act key would stay inert.
-                item.toolTip = collides
-                    ? "Dictation already uses this key. Pick a different one or the Actions key stays inert."
-                    : Self.permissionNote(for: kind, forcingEventTap: actHotkey.forcesEventTap)
-                submenu.addItem(item)
-            }
-        }
-        submenu.addItem(.separator())
-        let note = NSMenuItem(title: "Actions needs a provider pinned for “Actions (voice commands)” in Settings › Models.",
-                              action: nil, keyEquivalent: "")
-        note.isEnabled = false
-        submenu.addItem(note)
-        let item = NSMenuItem(title: "Actions key: \(enabled ? actHotkey.binding.kind.displayName : "Off")",
-                              action: nil, keyEquivalent: "")
-        item.submenu = submenu
-        return item
-    }
-
-    @objc private func pickActKey(_ sender: NSMenuItem) {
-        guard let actHotkey, let actKeyStore, let raw = sender.representedObject as? String else { return }
-        guard let kind = HotkeyBinding.Kind(rawValue: raw) else {
-            ActKeySettings.setEnabled(false, store: actKeyStore)   // "Off"
-            return
-        }
-        actHotkey.setBinding(kind)
-        ActKeySettings.setEnabled(true, store: actKeyStore)
-    }
-
-    @objc private func toggleFlag(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, let flag = flags.knownFlags.first(where: { $0.id == id }) else { return }
-        try? flags.setOverride(!flags.isEnabled(flag), for: flag)
-    }
-
-    @objc private func revertCorrection(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw),
-              let entry = corrections?.entry(id: id), let sink = correctionRevertSink?() else { return }
-        corrections?.revert(entry, via: sink)
-    }
-
-    @objc private func toggleCorrectionsForApp(_ sender: NSMenuItem) {
-        guard let bundle = sender.representedObject as? String, let store = correctionSettings else { return }
-        CorrectionSettings.setEnabled(!CorrectionSettings.isEnabled(for: bundle, store: store), for: bundle, store: store)
-    }
-
-    @objc private func openLab() {
-        onOpenLab?() ?? Log.app.info("Lab not wired yet (P1.11)")
-    }
-
-    @objc private func openDataPanel() { onOpenDataPanel?() }
-
-    @objc private func openSettings() { onOpenSettings?() }
-
-    @objc private func recheckPermissions() { onRecheckPermissions?() }
-
-    @objc private func toggleLaunchAtLogin() { LaunchAtLogin.set(enabled: !LaunchAtLogin.isEnabled) }
-
-    @objc private func toggleMeetingCapture() { onToggleMeetingCapture?() }
-
-    @objc private func checkUpdates() { updater.checkForUpdates() }
 }
