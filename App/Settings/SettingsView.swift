@@ -28,6 +28,10 @@ public struct SettingsView: View {
         TabView(selection: $selectedTab) {
             generalTab.tabItem { Label("General", systemImage: "gear") }.tag(SettingsTab.general)
             modelsTab.tabItem { Label("Models", systemImage: "cpu") }.tag(SettingsTab.models)
+            // R5.3 — Voice owns the refinement mode (Auto / Always / Never). It builds its own
+            // view model from `deps`, so this tab needs no new injected dependency.
+            VoiceSettingsTab(store: deps.settingsStore, flags: deps.flags)
+                .tabItem { Label("Voice", systemImage: "waveform") }.tag(SettingsTab.voice)
             personasTab.tabItem { Label("Personas", systemImage: "person.text.rectangle") }.tag(SettingsTab.personas)
             dictionaryTab.tabItem { Label("Dictionary", systemImage: "character.book.closed") }.tag(SettingsTab.dictionary)
             SnippetsSettingsTab(model: snippets).padding(4).tabItem { Label("Snippets", systemImage: "text.quote") }.tag(SettingsTab.snippets)
@@ -330,4 +334,4 @@ struct DataRow: Identifiable {
     var purpose: String { record.purpose }
 }
 
-public enum SettingsTab: String, CaseIterable, Sendable { case general, models, personas, dictionary, snippets, flags, connectors, sync, data, benchmark }
+public enum SettingsTab: String, CaseIterable, Sendable { case general, models, voice, personas, dictionary, snippets, flags, connectors, sync, data, benchmark }
