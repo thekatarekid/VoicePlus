@@ -21,7 +21,19 @@ public final class DictationCoordinator {
     public var focusSnapshot: (() -> FocusSnapshot?)?
     public var onLanded: ((LandingResult) -> Void)?
     public private(set) var lastMicQuality: MicQuality?
-    public private(set) var handsFree = false
+    /// R3.1 — **latched** (V3 §4.3/§4.7): the double-tap mode where capture continues across
+    /// endpoints. Was `handsFree`.
+    ///
+    /// Nothing in the session-teardown path clears this any more. `finalize()` used to, which is
+    /// exactly why latch never worked (V3 §2.3): the first finalize of a latched session — and in a
+    /// latched session finalizes happen *per segment*, not per session — dropped the user out of the
+    /// mode they had explicitly asked for. The mode now changes only on an explicit gesture
+    /// (`handle(.enterLatch)`, `handle(.finalize)`, `endLatch()`) or on an event that must end
+    /// capture outright (hard mute, lock/sleep).
+    public private(set) var latched = false
+    /// R3.1 compatibility alias for callers not yet renamed (`AppDelegate`, `StatusItemController`).
+    @available(*, deprecated, renamed: "latched")
+    public var handsFree: Bool { latched }
     public private(set) var paused = false
     /// Reported when `engine.start()` could not open a session. The app uses it to reset the hotkey
     /// gesture, so a key that is still physically down does not leave the recogniser "capturing".
@@ -137,21 +149,47 @@ public final class DictationCoordinator {
         audio.onLevel = { [capturedLevels] level in capturedLevels.send(level) }
     }
 
+    /// Hard mute (V3 §4.4) and anything else that closes the microphone for good. Pausing ends the
+    /// latch: the mode promises "listening continues", and a paused coordinator cannot keep that
+    /// promise. Unpausing never resumes — the user starts the next session themselves.
     public func setPaused(_ paused: Bool) {
         self.paused = paused
-        if paused { cancel() }
+        if paused {
+            endLatch()
+            cancel()
+        }
     }
 
     public func handle(_ action: HotkeyStateMachine.Action) {
         guard !paused else { return }
         switch action {
         case .startCapture: start()
-        case .finalize: finalize()
+        case .finalize:
+            // The gesture layer owns the mode, not the teardown path. A `.finalize` that arrives
+            // while latched *is* the single tap that stops (V3 §4.3), so it leaves latch; a
+            // `finalize()` called for any other reason (a segment, a guided landing, a swap) does
+            // not touch the mode.
+            if latched { endLatch() }
+            finalize()
         case .cancelCapture: cancel()
-        case .enterHandsFree:
-            handsFree = true
+        case .enterLatch:
+            latched = true
             pill.model.handsFree = true
+            onLatchChanged?(true)
         }
+    }
+
+    /// Called whenever the latch mode changes, so the session coordinator and the surfaces agree
+    /// without either of them polling.
+    public var onLatchChanged: ((Bool) -> Void)?
+
+    /// Leaves latch without ending the session. Capture, if open, is unaffected — the caller
+    /// decides whether to `finalize()` (stop and land) or `cancel()` (stop and land nothing).
+    public func endLatch() {
+        guard latched else { return }
+        latched = false
+        pill.model.handsFree = false
+        onLatchChanged?(false)
     }
 
     public func noteMicQuality(_ quality: MicQuality) {
@@ -205,6 +243,10 @@ public final class DictationCoordinator {
         Log.app.error("engine start failed: \(error)")
         await engine.cancel()
         sessionLock.withLock { sessionHeld = false }
+        // Capture never opened, so there is no latched session to be in. Leaving `latched` set here
+        // would put the gesture recogniser (which the app resets on this callback) and the
+        // coordinator into two different modes.
+        await MainActor.run { self.endLatch() }
         let report = onStartFailure
         if let report { await MainActor.run { report(error) } }
     }
@@ -237,8 +279,9 @@ public final class DictationCoordinator {
     public var engineIsUnavailable: Bool { (engine as? EngineAvailabilityReporting)?.isUnavailable ?? false }
 
     public func finalize() {
-        handsFree = false
-        pill.model.handsFree = false
+        // R3.1: the line that used to sit here — `handsFree = false` — is *the* reason latch did not
+        // exist (V3 §2.3). Ending one session must not end the mode; see `latched` and `endLatch()`.
+        //
         // Taken here, on the key-release turn, not inside the queued work: the point of the snapshot
         // is what was focused when the user let go.
         let focus = focusSnapshot?()
@@ -281,9 +324,11 @@ public final class DictationCoordinator {
         }
     }
 
+    /// Aborts capture without landing anything. Deliberately leaves `latched` alone: a cancelled
+    /// utterance inside a latched session (a stray tap, a swap, a preflight failure) is not the user
+    /// asking to leave latch. The paths that *must* end the mode — hard mute, lock/sleep, an
+    /// explicit stop — call `endLatch()` themselves (`SessionCoordinator`).
     public func cancel() {
-        handsFree = false
-        pill.model.handsFree = false
         enqueue { [weak self] in
             guard let self else { return }
             _ = self.takeSession()

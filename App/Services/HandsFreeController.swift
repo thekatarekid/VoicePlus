@@ -3,14 +3,17 @@ import Foundation
 import Pipeline
 import Shared
 
-/// P5 integration — hands-free gate: `DirectedSpeechDetector` (RAM-only ring) decides whether
-/// speech was addressed to the machine, `SpeakerGate` rejects other voices, the hard mute wins
-/// over everything, and "not you" teaches both.
+/// P5 integration, R3.1 vocabulary — the **latch** gate: `DirectedSpeechDetector` (RAM-only ring)
+/// decides whether speech was addressed to the machine, `SpeakerFilter` decides whether it may be
+/// inserted, the hard mute wins over everything, and "not you" teaches both.
 ///
 /// Audio flows in through `appendAudio` + `handle(_:)` (VAD events); when a speech segment ends
-/// and every gate passes, `onShouldCapture` fires — that is what starts the engine in hands-free
-/// mode. Nothing here persists audio.
-public final class HandsFreeController: @unchecked Sendable {
+/// and every gate passes, `onShouldCapture` fires — that is what starts the engine while latched.
+/// Nothing here persists audio.
+///
+/// Renamed from `HandsFreeController` (V3 §4.7: the mode is "latched"). The old name is a
+/// `typealias` below so callers that have not been renamed yet keep compiling.
+public final class LatchController: @unchecked Sendable {
     public let detector: DirectedSpeechDetector
     public let embedder: any SpeakerEmbedder
     public var speakerGate: SpeakerGate
@@ -19,12 +22,36 @@ public final class HandsFreeController: @unchecked Sendable {
     public let profiles: SpeakerProfileStore
     public private(set) var notYouCorrection: NotYouCorrection!
 
-    /// The app answers "is hands-free mode on right now?" (double-tap state).
-    public var isHandsFree: () -> Bool = { false }
+    /// The app answers "is the latch on right now?" (double-tap state).
+    public var isLatched: () -> Bool = { false }
+    /// R3.1 compatibility alias. Assigning either one sets the same closure.
+    @available(*, deprecated, renamed: "isLatched")
+    public var isHandsFree: () -> Bool {
+        get { isLatched }
+        set { isLatched = newValue }
+    }
     /// Fires when a directed, user-voiced segment ends → start capture.
     public var onShouldCapture: ((DirectedSpeechDecision) -> Void)?
-    /// Last reason a segment was dropped ("muted" / "not directed" / "speaker") — pill/debug.
+    /// Last reason a segment was dropped ("muted" / "not directed" / a
+    /// `SpeakerFilter.SuppressionReason`) — pill/debug.
     public private(set) var lastRejection: String?
+    /// R3.3 — has the user asked for speaker filtering? **Off until asked**, and enrolling a voice
+    /// does not turn it on: V3 §8 has the dependency the other way round ("enrollment is requested
+    /// when enabling speaker filtering"), and a setting the user never chose must not start
+    /// suppressing their dictation. The Settings toggle that writes this belongs to the settings
+    /// item; this is where the policy reads it.
+    ///
+    /// With it off, `SpeakerGate` behaves exactly as it did before R3.3. With it on, an uncertain
+    /// result and an absent embedding model both suppress — see `SpeakerFilter`.
+    public var speakerFilteringEnabled = false
+    /// The filter as it stands right now: the gate, plus whether the loaded embedder can identify a
+    /// speaker at all. On a machine with no WeSpeaker weights that answer is no, and the status is
+    /// `.modelUnavailable` — which suppresses insertion and says so, rather than implying a check.
+    public var speakerFilter: SpeakerFilter {
+        SpeakerFilter(isOn: speakerFilteringEnabled, gate: speakerGate, embedder: embedder)
+    }
+    /// The honest sentence for the current filter state, or nil when there is nothing to say.
+    public var speakerFilterMessage: String? { speakerFilter.status.message }
     let lock = NSLock()
     var claimed = false
 
@@ -57,14 +84,26 @@ public final class HandsFreeController: @unchecked Sendable {
     public func handle(_ event: VADEvent, utteranceSamples: [Float]? = nil) -> Bool {
         let preview = detector.preview
         guard let decision = detector.handle(event) else { return false }
-        guard isEnabled, isHandsFree() else { return false }
+        guard isEnabled, isLatched() else { return false }
         guard !mute.isMuted else { lastRejection = "muted"; return false }
         guard decision.directed else { lastRejection = "not directed"; return false }
         var embedding: SpeakerEmbedding?
-        if speakerGate.profile != nil {
+        // R3.3 — with filtering on, a mismatch *and* an uncertain result suppress the utterance, and
+        // an absent embedding model suppresses it with an honest reason instead of a claim. With
+        // filtering off the gate keeps its old, permissive behaviour.
+        let filter = speakerFilter
+        if filter.isOn {
+            let samples = utteranceSamples ?? detector.ring.samples(in: decision.utterance)
+            if case .suppress(let reason) = filter.decide(samples: samples, embedder: embedder) {
+                lastRejection = reason.rawValue
+                Log.app.notice("latch: dropped a segment — \(reason.rawValue)")
+                return false
+            }
+            embedding = try? embedder.embed(samples)
+        } else if speakerGate.profile != nil {
             let samples = utteranceSamples ?? detector.ring.samples(in: decision.utterance)
             let verdict = speakerGate.verdict(for: samples, embedder: embedder)
-            guard speakerGate.shouldAccept(verdict, handsFree: true) else {
+            guard speakerGate.shouldAccept(verdict, latched: true) else {
                 lastRejection = "speaker"
                 return false
             }
@@ -86,7 +125,10 @@ public final class HandsFreeController: @unchecked Sendable {
 
     public func markWasMe() { detector.markWasMe() }
 
-    /// Enrollment finished (onboarding-2): persist + arm the gate.
+    /// Enrollment finished (onboarding-2): persist + arm the gate. Deliberately does **not** turn
+    /// `speakerFilteringEnabled` on — enrolling a voice is not the same as asking for every other
+    /// voice to be suppressed, and on a machine with no embedding weights that would silence
+    /// dictation outright.
     public func install(profile: SpeakerProfile) {
         profiles.save(profile)
         speakerGate.profile = profile
@@ -142,9 +184,9 @@ public final class SpeakerProfileStore: SpeakerProfileUpdating, @unchecked Senda
     }
 }
 
-/// P5.4 — "not you" spoken correction, claimed by the gatekeeper only in hands-free mode so it
-/// is never typed. Shares the lander's claim-consumer mechanism with the act hook.
-extension HandsFreeController: GatekeeperPreRouting {
+/// P5.4 — "not you" spoken correction, claimed by the gatekeeper only while latched so it is never
+/// typed. Shares the lander's claim-consumer mechanism with the act hook.
+extension LatchController: GatekeeperPreRouting {
     static let notYouPhrases: Set<String> = ["not you", "not me", "that wasn't me", "that was not me", "wasn't talking to you"]
 
     public func preRoute(_ text: String, context: StageContext) -> GatekeeperDecision? {
@@ -165,3 +207,9 @@ extension HandsFreeController: GatekeeperPreRouting {
         return was
     }
 }
+
+/// R3.1 — the old name. `HandsFreeController` is what `AppContainer`, `AppDelegate` and the P5
+/// acceptance tests still say; keeping the alias is what lets the rename land without reaching into
+/// files this item does not own.
+@available(*, deprecated, renamed: "LatchController")
+public typealias HandsFreeController = LatchController

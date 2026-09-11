@@ -8,6 +8,10 @@ import Shared
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
     private var coordinator: DictationCoordinator?
+    /// R3.1 — the one owner of start / stop / cancel and of microphone arbitration.
+    private var session: SessionCoordinator?
+    /// R3.2 — endpoint-driven segment delivery while latched.
+    private var latchRuntime: LatchRuntime?
     private var orchestrator: PermissionOrchestrator?
     private var permissionPoller: PermissionPoller?
     /// Owns the tap lifecycle for the whole life of the process — see `CapabilityWatcher`.
@@ -112,6 +116,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.coordinator = coordinator
 
+        // R3.1 — one coordinator owns start / stop / cancel and microphone arbitration for the
+        // hotkey, the menu, onboarding and meetings (V3 §4.6), on top of the ranked capture-graph
+        // ownership in `PipelineAudioSource.Owner`. R3.2's latch runtime hangs off it: endpoints
+        // close segments through R2.2 while listening continues, and committed text lands through
+        // the same lander and the same held queue as a hold.
+        let latch = LatchRuntime(delivery: LanderLatchDelivery(
+            lander: container.lander,
+            focusGuard: container.injector.focusGuard,
+            focusSnapshot: { [weak container] in container?.injector.focusGuard.snapshot() }))
+        latch.onOutcome = { outcome, segment in
+            Log.app.info("latch segment \(segment.description): \(String(describing: outcome))")
+        }
+        let sessionCoordinator = SessionCoordinator(dictation: coordinator, mute: container.handsFree.mute, latch: latch)
+        sessionCoordinator.observeSystemEvents()
+        sessionCoordinator.onStopped = { [weak self] _, reason in
+            guard reason == .locked || reason == .slept else { return }
+            self?.pill.model.present(.preview(text: "Dictation stopped — start it again when you're ready"))
+        }
+        self.latchRuntime = latch
+        self.session = sessionCoordinator
+
         // P2.3 — transform pill (tint, "editing N words", ghost, 8 s warm window).
         let transformPill = TransformPillDriver(pill: pill.model, warmWindow: container.transform.session.warmWindow)
         container.transform.onEvent = { [weak transformPill] e in Task { @MainActor in transformPill?.handle(e) } }
@@ -146,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.presentElicitation(state) }
         }
 
-        hotkey.onAction = { [weak coordinator, weak container, weak inkOverlay] action in
+        hotkey.onAction = { [weak sessionCoordinator, weak container, weak inkOverlay] action in
             switch action {
             case .startCapture:
                 container?.deixis.beginCapture()
@@ -154,10 +179,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .finalize, .cancelCapture:
                 container?.deixis.endCapture()
                 Task { @MainActor in inkOverlay?.hide() }
-            case .enterHandsFree:
+            case .enterLatch:
                 break
             }
-            coordinator?.handle(action)
+            // R3.1 — every gesture goes through the one session owner, which arbitrates the
+            // microphone and owns the mode before `DictationCoordinator` sees it.
+            sessionCoordinator?.handle(action)
         }
 
         // P4 — act session behind the second key: consent panels, agent cursor, step chips.
@@ -233,20 +260,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let baseAugmenter = container.lander.contextAugmenter
         container.lander.contextAugmenter = { [weak coordinator] spans, ctx in
             var ctx = baseAugmenter?(spans, ctx) ?? ctx
-            if coordinator?.handsFree == true {
+            if coordinator?.latched == true {
                 ctx.extra[WakeVerbPreRoute.modeKey] = WakeVerbPreRoute.handsFreeValue
             }
             return ctx
         }
-        container.handsFree.isHandsFree = { [weak coordinator] in coordinator?.handsFree ?? false }
+        container.handsFree.isLatched = { [weak coordinator] in coordinator?.latched ?? false }
         container.handsFree.onShouldCapture = { [weak coordinator] _ in
             // Addressed speech opens the mic for the follow-on utterance (RAM-only ring;
             // nothing is stored). The engine's normal finalize path lands it.
             DispatchQueue.main.async { coordinator?.start() }
         }
-        container.handsFree.mute.observe { [weak self, weak coordinator] model in
+        container.handsFree.mute.observe { [weak self, weak sessionCoordinator] model in
             DispatchQueue.main.async {
-                coordinator?.setPaused(model.muted)
+                // R3.3 — hard mute goes through the session owner: capture stops on every path,
+                // pending insertion is cancelled, and the latch ends. Unmuting never resumes.
+                if model.muted { sessionCoordinator?.muteEngaged() } else { sessionCoordinator?.muteReleased() }
                 self?.statusItem?.refreshIcon()
                 if model.muted { self?.pill.model.present(.preview(text: "Muted — mic stays closed until you unmute")) }
             }

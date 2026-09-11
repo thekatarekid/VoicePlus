@@ -6,8 +6,9 @@ import Foundation
 /// Gestures:
 /// - Hold (≥ holdThreshold): capture starts on key-down, finalizes on key-up.
 /// - Tap (< holdThreshold): capture is cancelled on key-up; a tap shorter than `tapGuard` counts toward a double-tap.
-/// - Double-tap (two guarded taps within `doubleTapWindow`): hands-free mode — capture keeps running after key-up.
-/// - Any key-down while hands-free: finalize and leave hands-free.
+/// - Double-tap (two guarded taps within `doubleTapWindow`): **latch** — capture keeps running after
+///   key-up, and endpoints close segments while listening continues (V3 §4.3).
+/// - Any key-down while latched: a single tap stops and finalizes, leaving latch.
 public struct HotkeyStateMachine: Equatable, Sendable {
     public struct Timing: Equatable, Sendable {
         public var holdThreshold: TimeInterval
@@ -24,18 +25,20 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public enum Action: Equatable, Sendable {
         /// Begin capture (key went down; pill should appear immediately).
         case startCapture
-        /// Key released after a hold, or hands-free ended: finalize the utterance.
+        /// Key released after a hold, or latch stopped: finalize the utterance.
         case finalize
         /// Key released too early: abort without text.
         case cancelCapture
-        /// Second quick tap detected: keep capturing until the next key-down.
-        case enterHandsFree
+        /// Second quick tap detected — latch: keep capturing until the next key-down. R3.1 renamed
+        /// this from `enterHandsFree` (V3 §4.7: the mode is "latched", never "hands-free").
+        case enterLatch
     }
 
     public enum Phase: Equatable, Sendable {
         case idle
         case keyDown(since: TimeInterval)
-        case handsFree
+        /// Latched: capture continues with no key held (R3.1; was `handsFree`).
+        case latched
     }
 
     public let timing: Timing
@@ -48,7 +51,7 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public var isCapturing: Bool {
         switch phase {
         case .idle: return false
-        case .keyDown, .handsFree: return true
+        case .keyDown, .latched: return true
         }
     }
 
@@ -57,7 +60,8 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         switch phase {
         case .keyDown:
             return [] // key repeat — ignore
-        case .handsFree:
+        case .latched:
+            // A single tap while latched stops and finalizes (V3 §4.3).
             phase = .idle
             lastTapUp = nil
             return [.finalize]
@@ -78,9 +82,9 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         }
         if duration < timing.tapGuard {
             if let previous = lastTapUp, t - previous <= timing.doubleTapWindow {
-                phase = .handsFree
+                phase = .latched
                 lastTapUp = nil
-                return [.enterHandsFree]
+                return [.enterLatch]
             }
             lastTapUp = t
             phase = .idle

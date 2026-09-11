@@ -7,6 +7,15 @@ public protocol SpeakerEmbedder: AnyObject, Sendable {
     var name: String { get }
     var dimension: Int { get }
     func embed(_ samples: [Float]) throws -> SpeakerEmbedding
+    /// R3.3 — does this backend actually identify a speaker? Only a trained embedding model does.
+    /// The default is `false`, so a fallback embedder can never be mistaken for identification:
+    /// `SpeakerFilter` reads this to decide between "not you" and the honest
+    /// "speaker model unavailable" (V3 §2.3 — the WeSpeaker weights are absent on this machine).
+    var identifiesSpeakers: Bool { get }
+}
+
+public extension SpeakerEmbedder {
+    var identifiesSpeakers: Bool { false }
 }
 
 /// Speaker vector. Two metrics share one type so gates/profiles are backend-agnostic:

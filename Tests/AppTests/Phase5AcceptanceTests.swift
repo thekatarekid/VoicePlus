@@ -21,15 +21,15 @@ struct Phase5AcceptanceTests {
         #expect(metrics.missedAddressRate < 0.5)
     }
 
-    static func controller(flagOn: Bool = true, threshold: Double = 0.0) -> (HandsFreeController, InMemoryMuteStore) {
+    static func controller(flagOn: Bool = true, threshold: Double = 0.0) -> (LatchController, InMemoryMuteStore) {
         let store = InMemoryMuteStore()
         let flags = FeatureFlagService.inMemory(["directedSpeech": flagOn])
-        let controller = HandsFreeController(flags: flags, mute: MuteController(store: store),
+        let controller = LatchController(flags: flags, mute: MuteController(store: store),
                                              embedder: MFCCEmbedder(),
                                              profiles: SpeakerProfileStore(url: FileManager.default.temporaryDirectory
                                                 .appendingPathComponent("p5-profile-\(UUID()).json")))
         controller.detector.classifier.threshold = threshold
-        controller.isHandsFree = { true }
+        controller.isLatched = { true }
         return (controller, store)
     }
 
@@ -37,14 +37,14 @@ struct Phase5AcceptanceTests {
         (0..<Int(rate * seconds)).map { 0.4 * sin(2 * .pi * hz * Float($0) / rate) }
     }
 
-    static func speak(_ controller: HandsFreeController, samples: [Float]? = nil) -> Bool {
+    static func speak(_ controller: LatchController, samples: [Float]? = nil) -> Bool {
         let audio = samples ?? tone(220)
         controller.appendAudio(audio)
         controller.handle(.speechStart(at: 0))
         return controller.handle(.speechEnd(at: Double(audio.count) / 16_000), utteranceSamples: samples)
     }
 
-    @Test func handsFreeGateOpensOnDirectedSpeechOnly() {
+    @Test func latchGateOpensOnDirectedSpeechOnly() {
         let (controller, _) = Self.controller()
         var captures = 0
         controller.onShouldCapture = { _ in captures += 1 }

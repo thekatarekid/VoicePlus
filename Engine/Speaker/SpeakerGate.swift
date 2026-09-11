@@ -39,9 +39,19 @@ public struct SpeakerGate: Sendable {
         return verdict(for: e)
     }
 
-    /// Hands-free policy: pass the utterance only when it is the user (or when identity is unknown).
-    public func shouldAccept(_ v: Verdict, handsFree: Bool) -> Bool {
-        guard handsFree else { return true }
+    /// Latch policy: pass the utterance only when it is the user (or when identity is unknown).
+    ///
+    /// "Unknown is allowed" is the right default for a machine with no enrolled profile and no
+    /// speaker filtering asked for — the gate must not silence a user it cannot measure. Once the
+    /// user *has* asked for filtering, uncertainty stops being permissive: that stricter rule lives
+    /// in `SpeakerFilter` (R3.3, V3 §8), which is what decides whether text may be inserted.
+    public func shouldAccept(_ v: Verdict, latched: Bool) -> Bool {
+        guard latched else { return true }
         switch v { case .user, .unknown: return true; case .other: return false }
     }
+
+    /// R3.1 vocabulary (V3 §4.7): `handsFree` is now `latched`. Kept so callers outside this
+    /// module keep compiling while the rename lands.
+    @available(*, deprecated, renamed: "shouldAccept(_:latched:)")
+    public func shouldAccept(_ v: Verdict, handsFree: Bool) -> Bool { shouldAccept(v, latched: handsFree) }
 }

@@ -33,12 +33,12 @@ struct HotkeyStateMachineTests {
         #expect(m.lastTapUp == nil)
     }
 
-    @Test func doubleTapWithinWindowEntersHandsFreeAndNextPressFinalizes() {
+    @Test func doubleTapWithinWindowLatchesAndNextPressFinalizes() {
         var m = HotkeyStateMachine()
         m.keyDown(at: 0); m.keyUp(at: 0.05)
         #expect(m.keyDown(at: 0.2) == [.startCapture])
-        #expect(m.keyUp(at: 0.25) == [.enterHandsFree])
-        #expect(m.phase == .handsFree)
+        #expect(m.keyUp(at: 0.25) == [.enterLatch])
+        #expect(m.phase == .latched)
         #expect(m.isCapturing)
         #expect(m.keyDown(at: 3) == [.finalize])
         #expect(m.keyUp(at: 3.05) == [])

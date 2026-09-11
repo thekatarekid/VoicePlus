@@ -6,6 +6,9 @@ import Shared
 public final class FluidSpeakerEmbedder: SpeakerEmbedder, @unchecked Sendable {
     public let name = "fluid-wespeaker"
     public let dimension = 256
+    /// The one backend in the app that really identifies a speaker — and it only ever exists when
+    /// the WeSpeaker weights are on disk (`loadIfAvailable`), so this is never an empty claim.
+    public let identifiesSpeakers = true
     private let backend: FluidSpeakerEmbedding
 
     public static var isAvailable: Bool { FluidSpeakerEmbedding.areModelsPresent }

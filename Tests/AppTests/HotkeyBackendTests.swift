@@ -151,7 +151,7 @@ struct CarbonDrivenStateMachineTests {
         #expect(actions == [.startCapture, .finalize])
     }
 
-    @Test func chordDoubleTapEntersHandsFreeAndTheNextPressFinalizes() {
+    @Test func chordDoubleTapLatchesAndTheNextPressFinalizes() {
         let s = service()
         var actions: [HotkeyStateMachine.Action] = []
         s.onAction = { actions.append($0) }
@@ -159,8 +159,8 @@ struct CarbonDrivenStateMachineTests {
         s.handleChord(down: false, timestamp: 0.05)      // guarded tap
         s.handleChord(down: true, timestamp: 0.2)
         s.handleChord(down: false, timestamp: 0.25)      // second tap, inside the 350 ms window
-        #expect(actions == [.startCapture, .cancelCapture, .startCapture, .enterHandsFree])
-        #expect(s.machine.phase == .handsFree)
+        #expect(actions == [.startCapture, .cancelCapture, .startCapture, .enterLatch])
+        #expect(s.machine.phase == .latched)
         s.handleChord(down: true, timestamp: 3)
         #expect(actions.last == .finalize)
     }

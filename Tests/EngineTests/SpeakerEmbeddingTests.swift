@@ -81,7 +81,7 @@ struct SpeakerEmbeddingTests {
         try? FileManager.default.removeItem(at: url)
     }
 
-    @Test func gateVerdictsAndHandsFreePolicy() throws {
+    @Test func gateVerdictsAndLatchPolicy() throws {
         let emb = MFCCEmbedder()
         var enr = SpeakerEnrollment()
         for s in [Float](arrayLiteral: 0, 0.4, 0.9) { enr.record(try emb.embed(Self.tone(130, seed: s))) }
@@ -91,9 +91,9 @@ struct SpeakerEmbeddingTests {
         let tv = try emb.embed(Self.tone(700, harmonics: 1))
         #expect(gate.verdict(for: me).isUser)
         #expect(!gate.verdict(for: tv).isUser)
-        #expect(gate.shouldAccept(.other(similarity: 0), handsFree: false))
-        #expect(!gate.shouldAccept(.other(similarity: 0), handsFree: true))
-        #expect(gate.shouldAccept(.unknown, handsFree: true))
+        #expect(gate.shouldAccept(.other(similarity: 0), latched: false))
+        #expect(!gate.shouldAccept(.other(similarity: 0), latched: true))
+        #expect(gate.shouldAccept(.unknown, latched: true))
         #expect(SpeakerGate(profile: nil).verdict(for: me) == .unknown)
         #expect(gate.verdict(for: [Float](repeating: 0, count: 10), embedder: emb) == .unknown)
 
