@@ -1518,3 +1518,30 @@ DMG per wave, version bumped each time, previous DMGs kept.
   sha256 `91caf4a9…`, `verify_install.sh` OK. **23 DMGs** retained, none overwritten.
 - Next: wave 3 = R5.4 (segment-class breakdown only; decision already made) + R7 (one window).
 
+### Waves 3 and 4 complete — the V3 document is implemented · 1.10.0 candidate
+
+- Wave 3: R5.4 `1b1e9d5` · R7.1/R7.2 `16987a7` · R7.3 `1248626` · G10 fix `f5cdca8`.
+- Wave 4: R8.3/R8.4 `6dd032b` · R8.1/R8.2 `9fa61ca` + wiring `fadc4ca`. G2 rename swept `debf88a`.
+- **All items R0–R8 implemented. 1970 tests, all passing** with `--no-parallel`, verified twice: in the
+  working tree and again in a clean worktree at `0233c62`.
+- **R5 closed on the numbers.** Per-segment-class breakdown found **no class where Qwen wins**: all 0.099
+  vs 0.178, entities 0.081 vs 0.197, ≥7 s 0.182 vs 0.335, digits 0.405 vs 0.738. Under the deadline the
+  gated two-pass improved **0** segments and damaged 2 (4 of 6 gated timed out); p95 1816 ms vs 1500 ms;
+  peak memory measured at 1866 MB vs Parakeet's 90 MB. Flag off; a test fails if it is flipped without a
+  new table. The port itself is correct (forced decoder ids, WER 1.000 → 0.000).
+- **R7:** all 11 old tabs placed, 46 settings proven reachable, Lab/Data Panel/enrollment folded in,
+  nine-tab TabView gone. Surfaced two settings that had been `defaults write`-only (never-inject list,
+  ambient switch). `DESIGN.md` §11.4 amended rather than the code — closing G7 honestly.
+- **R8.4 indicator proof:** driven through the real `PipelineAudioSource` graph — start, meter→engine
+  handover, a displaced meter's late `stop`, stop — plus a 9×8 ownership × situation sweep, and a
+  throwing capture source proving a failed start never lights it.
+- **R8.1 never-inject proof:** four independent layers, including a *control* test that the same rig
+  does deliver `source == .dictation`, so the main assertion cannot rot into a tautology.
+- **Gaps closed:** G4, G5 (diagnosed), G7, G8, G10. **Still open:** G1 (Escape unbound — needs a design
+  decision on Input Monitoring), G9 (no manual meeting start), G11 (ambient discards everything until
+  the transcript seam carries audio), G2's one deliberate wire string.
+- **1.10.0 DMG** from a clean worktree at `0233c62`: `VoicePlus_V3-w34_1.10.0.dmg`, 15 MB,
+  sha256 `1dba1348…`, `verify_install.sh` OK. **24 DMGs** retained, none overwritten.
+- Remaining work is the owner hardware session (build doc §5) — it cannot be done on this machine:
+  no microphone, no window server, no TCC grants.
+
