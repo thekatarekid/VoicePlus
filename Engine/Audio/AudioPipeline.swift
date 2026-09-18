@@ -56,6 +56,16 @@ public final class AudioPipeline: @unchecked Sendable {
     private var lastOverruns = 0
     private var sawAudio = false
     private var watchdog: DispatchWorkItem?
+    /// Live latch flag (guarded by `stateLock`). `options.latched` is only its initial value.
+    private var latched: Bool
+
+    /// Whether the endpointer is currently driven (`.endpoint` events emitted).
+    public var isLatched: Bool { stateLock.withLock { latched } }
+
+    /// G0.2 — flips `Options.latched` on a live pipeline, without restarting capture. Takes effect
+    /// from the next processed audio block. The endpointer's speech/silence bookkeeping runs
+    /// regardless, so latching mid-utterance endpoints from the real speech history.
+    public func setLatched(_ on: Bool) { stateLock.withLock { latched = on } }
 
     // processing state (touched only by the worker task)
     private var chunker: Chunker
@@ -74,6 +84,7 @@ public final class AudioPipeline: @unchecked Sendable {
         self.ring = RingBuffer(capacity: Int(options.ringSeconds * 16_000))
         self.chunker = Chunker(minDuration: options.chunkMin, maxDuration: options.chunkMax)
         self.endpointer = options.endpointer
+        self.latched = options.latched
     }
 
     /// Fresh stream per call; every event after subscribing is delivered in order.
@@ -290,7 +301,7 @@ public final class AudioPipeline: @unchecked Sendable {
             await runVAD(frame)
         }
         let now = Double(position) / 16_000
-        if options.latched, let d = endpointer.tick(now: now) { broadcaster.send(.endpoint(d)) }
+        if isLatched, let d = endpointer.tick(now: now) { broadcaster.send(.endpoint(d)) }
     }
 
     private func runVAD(_ frame: [Float]) async {

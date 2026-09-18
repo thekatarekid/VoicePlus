@@ -27,6 +27,25 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     /// passes after landing. Reset at `start()`, frozen at `stop()`. Off when nil.
     public var utteranceTap: UtteranceAudioTap?
 
+    // G0.2 — the pipeline has always emitted `.vad`, `.chunk` and `.endpoint`; the events loop
+    // used to drop them on the floor (`default: break`), which is why the latch runtime's
+    // `noteVAD`/`noteEndpoint` were never called. They are forwarded, in pipeline order, from the
+    // forwarder task (not the main thread).
+    /// Speech start / end as the pipeline's VAD saw it (stream seconds).
+    public var onVAD: (@Sendable (VADEvent) -> Void)?
+    /// Latched-mode endpoint decisions. Only emitted while the pipeline is latched (`setLatched`).
+    public var onEndpoint: (@Sendable (Endpointer.Decision) -> Void)?
+    /// 3–5 s ASR-sized chunks, cut at speech ends where possible.
+    public var onChunk: (@Sendable (AudioChunk) -> Void)?
+
+    /// Flips `AudioPipeline.Options.latched` on the live pipeline: from the next audio block the
+    /// pipeline drives its endpointer and emits `.endpoint` (forwarded to `onEndpoint`), without
+    /// restarting capture. Survives `start()`/`stop()` until flipped back.
+    public func setLatched(_ on: Bool) { pipeline.setLatched(on) }
+
+    /// Whether the live pipeline is currently latched.
+    public var isLatched: Bool { pipeline.isLatched }
+
     /// Who is allowed to hold the shared capture graph, and who wins when two want it.
     ///
     /// One graph, one owner. Before 1.7.4 `start()` silently returned success when the source was
@@ -112,10 +131,18 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
                 case .captureFailed(let reason):
                     Log.engine.error("audio source: \(reason)")
                     self.onCaptureFailure?(reason)
+                case .vad(let event):
+                    self.onVAD?(event)
+                case .endpoint(let decision):
+                    self.onEndpoint?(decision)
+                case .chunk(let chunk):
+                    self.onChunk?(chunk)
+                case .started, .overrun:
+                    // No consumer yet. Listed rather than `default:` so a new pipeline event is a
+                    // compile error here instead of another silently dropped signal.
+                    break
                 case .stopped:
                     return
-                default:
-                    break
                 }
             }
         }
