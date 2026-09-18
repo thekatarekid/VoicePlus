@@ -26,6 +26,9 @@ import Shared
 @Suite("Recording replay (real model)", .serialized)
 struct RecordingReplayTests {
 
+    /// `RealEngine.minimumUtteranceSeconds` (FluidAudio's 4800-sample floor at 16 kHz).
+    static let minimumReplaySeconds: Double = 0.3
+
     static func wavs(in root: URL) -> [URL] {
         if root.pathExtension.lowercased() == "wav" { return [root] }
         let files = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
@@ -73,6 +76,13 @@ struct RecordingReplayTests {
             print(String(format: "  %.2fs, rms %.1f dBFS, peak %.1f dBFS",
                          Double(samples.count) / 16_000,
                          UtteranceRecorder.rmsDBFS(samples), UtteranceRecorder.peakDBFS(samples)))
+            // Same floor as `RealEngine.stop()`: below 300 ms FluidAudio can only throw
+            // `invalidAudioData`, and the app never hands it such a clip. A stray tap that the
+            // recorder saved is not a replay failure.
+            guard Double(samples.count) / 16_000 >= Self.minimumReplaySeconds else {
+                print("  skipped: shorter than the recognizer's \(Self.minimumReplaySeconds) s floor")
+                continue
+            }
             let hyp = try await final.recognize(samples).joinedText
             print("  heard: \(hyp)")
             if let reference {
