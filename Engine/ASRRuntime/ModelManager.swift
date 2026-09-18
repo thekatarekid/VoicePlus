@@ -73,46 +73,97 @@ public actor ModelManager {
     public typealias ModelLoader = @Sendable (ModelID, ModelDescriptor, URL) async throws -> LoadedModel
     private let loader: ModelLoader
 
-    /// Whether this manager may rearrange the models root it is pointed at.
+    /// Whether this manager may rearrange the models root it is pointed at, and when.
     ///
     /// `.skip` exists for tests. Ten of them construct `ModelManager()` — no arguments, so the *real*
     /// `~/Library/Application Support/VoicePlus/Models` — to run WER and golden-transcript checks
     /// against whatever the developer actually has downloaded. Those are read-only intentions, but
-    /// maintenance runs from `init`, so `swift test` was silently entitled to migrate and delete
-    /// directories in a real user's 468 MB model store. A test suite that can do that is a hazard
-    /// regardless of how careful the migration is.
+    /// maintenance used to run from `init`, so `swift test` was silently entitled to migrate and
+    /// delete directories in a real user's 468 MB model store. A test suite that can do that is a
+    /// hazard regardless of how careful the migration is.
+    ///
+    /// V4.8: `init` never runs the pass any more. It used to, synchronously, under a cross-process
+    /// file lock, on the path that builds the container — so the hotkey could not be armed until
+    /// another process let go of the lock. Nothing that reads the layout ever sees it half-moved:
+    /// a read while the pass runs waits for it, and a load or download awaits it first.
     public enum Maintenance: Sendable {
-        /// Migrate the layout and sweep parked directories. What the app does.
+        /// Migrate the layout and sweep parked directories, on first use: the first layout read runs
+        /// it inline, the first load or download starts it detached and awaits it.
         case run
+        /// What the app does: the same pass, started detached by `startMaintenance()` once the app
+        /// is wired (or by the first load/download, whichever comes first). Until then reads see the
+        /// layout as it is on disk, which nothing is moving.
+        case deferred
         /// Touch nothing. For reading a real models root without being entitled to change it.
         case skip
     }
+
+    /// How the pass takes the cross-process lock. Injectable so a test can hold the lock and prove
+    /// `init` does not wait for it.
+    public typealias RootLock = @Sendable (_ root: URL, _ body: () -> Void) -> Void
+    public static let crossProcessRootLock: RootLock = { root, body in ModelRootLock.withLock(root: root, body) }
+
+    private let maintenanceMode: Maintenance
+    private let maintenancePass: ModelMaintenancePass
 
     public init(root: URL = ModelCatalog.modelsRoot(),
                 fetchers: [ModelKind: ModelFetcher]? = nil,
                 externalCaches: [ModelID: [URL]]? = nil,
                 loader: ModelLoader? = nil,
-                maintenance: Maintenance = .run) {
+                maintenance: Maintenance = .run,
+                rootLock: RootLock? = nil) {
         self.root = root
         self.fetchers = fetchers ?? [.finalTDT: FluidAudioFetcher(), .streamingEOU: FluidAudioFetcher(), .whisper: ManifestFetcher()]
         self.externalCaches = externalCaches ?? Self.defaultExternalCaches()
         self.loader = loader ?? Self.coreMLLoader
-        if case .run = maintenance { Self.runMaintenance(root: root) }
+        self.maintenanceMode = maintenance
+        let lock = rootLock ?? Self.crossProcessRootLock
+        if case .skip = maintenance {
+            self.maintenancePass = ModelMaintenancePass(skipped: true) {}
+        } else {
+            self.maintenancePass = ModelMaintenancePass(skipped: false) { Self.runMaintenance(root: root, lock: lock) }
+        }
+    }
+
+    /// V4.8 — start the maintenance pass detached, if it has not started. Never blocks. The app calls
+    /// this once it has wired itself, so the pass never sits on the launch path.
+    public nonisolated func startMaintenance() { maintenancePass.startDetached() }
+
+    /// Wait for the maintenance pass (starting it if it has not started). Returns at once for `.skip`.
+    public nonisolated func maintenanceFinished() async { await maintenancePass.finished() }
+
+    /// True once the pass has run (or will never run: `.skip`).
+    public nonisolated var isMaintenanceComplete: Bool { maintenancePass.isComplete }
+
+    /// Before a synchronous read of the layout: a pass that is moving directories is waited for, and
+    /// under `.run` a pass that has not started runs here, first.
+    private func settleLayoutForRead() {
+        switch maintenanceMode {
+        case .run: maintenancePass.runOrWait()
+        case .deferred: maintenancePass.waitWhileRunning()
+        case .skip: break
+        }
+    }
+
+    /// Before anything that writes into the layout or hands a folder to CoreML: the pass has finished.
+    private func settleLayout() async {
+        guard !maintenancePass.isComplete else { return }
+        await maintenancePass.finished()
     }
 
     /// Layout migration + parked-directory sweep, under a cross-process lock.
     ///
-    /// Deliberately here in `init` and not lazily behind `locate`: a migration that ran halfway
-    /// through a load would move the directory out from under CoreML. It has to be finished before
-    /// anything can ask where a model is.
+    /// A migration that ran halfway through a load would move the directory out from under CoreML,
+    /// so every read of the layout waits while it runs and every load awaits it (see `Maintenance`).
+    /// It no longer runs in `init` (V4.8): `ModelMaintenancePass` runs it once, on its own queue or
+    /// inline on first use.
     ///
     /// The lock is what keeps two VoicePlus processes launching together from interleaving each
-    /// other's park/rename/delete over the same two paths. `init` is synchronous and non-isolated,
-    /// so it is already a place that can block; `ModelRootLock` bounds how long it will.
+    /// other's park/rename/delete over the same two paths. `ModelRootLock` bounds how long it waits.
     ///
     /// Cost on an already-migrated install: one `open`, a `stat` per model, one directory listing.
-    private static func runMaintenance(root: URL) {
-        ModelRootLock.withLock(root: root) {
+    private static func runMaintenance(root: URL, lock: RootLock) {
+        lock(root) {
             let migrated = ModelLayoutMigration.migrate(root: root)
             if !migrated.isEmpty {
                 let reclaimed = migrated.reduce(0) { $0 + $1.reclaimedBytes }
@@ -169,10 +220,17 @@ public actor ModelManager {
 
     /// Where the model lives on disk, if anywhere (our folder first, then external caches).
     public func locate(_ id: ModelID) -> URL? {
+        settleLayoutForRead()
         let d = ModelCatalog.descriptor(id)
         let own = folder(for: id)
         if hasRequiredFiles(d, at: own) { return own }
-        return (externalCaches[id] ?? []).first { hasRequiredFiles(d, at: $0) }
+        if let external = (externalCaches[id] ?? []).first(where: { hasRequiredFiles(d, at: $0) }) { return external }
+        // V4.8 — while a deferred pass has not run yet, an install still on the pre-1.7.13 layout
+        // is present, just not migrated. Say so, rather than building the launch engine as if the
+        // model were missing. Nothing loads from here: `load` awaits the pass, which moves it first.
+        guard case .deferred = maintenanceMode, !maintenancePass.isComplete else { return nil }
+        return d.legacyFolderNames.map { root.appendingPathComponent($0, isDirectory: true) }
+            .first { hasRequiredFiles(d, at: $0) }
     }
 
     public func status(_ id: ModelID) -> ModelStatus {
@@ -209,6 +267,7 @@ public actor ModelManager {
     /// Download if missing. Concurrent callers share one download task. Returns the model folder.
     @discardableResult
     public func ensureAvailable(_ id: ModelID, progress handler: ModelProgressHandler? = nil) async throws -> URL {
+        await settleLayout()
         if let url = locate(id) { return url }
         if let task = downloads[id] { return try await task.value }
         let d = ModelCatalog.descriptor(id)
@@ -246,6 +305,8 @@ public actor ModelManager {
     /// External caches are somebody else's directory and are never touched.
     @discardableResult
     public func repair(_ id: ModelID) -> [String] {
+        // Repair and the pass sweep the same directories; never both at once.
+        if case .skip = maintenanceMode {} else { maintenancePass.runOrWait() }
         // Parked copies (`.superseded-`/`.replaced-`) are the other kind of debris a failed install
         // leaves, and they are the expensive kind — a whole 468 MB tree, not a scratch file. Nothing
         // used to look at them at all, so a crash mid-swap stranded them permanently.
@@ -280,6 +341,10 @@ public actor ModelManager {
     /// caller that made it reachable.
     @discardableResult
     public func load(_ id: ModelID) async throws -> LoadedModel {
+        if let m = loaded[id] { return m }
+        // V4.8 — the pass that used to finish inside `init` is awaited here instead, so a migration
+        // can still never move a folder CoreML is reading.
+        await settleLayout()
         if let m = loaded[id] { return m }
         if let inFlight = loads[id] { return try await inFlight.value }
         guard let url = locate(id) else { throw ModelManagerError.notPresent(id) }
@@ -346,5 +411,78 @@ public actor ModelManager {
     /// Shares `BundledModel.finalModelsByQuality` with `RecognizerFactory.chooseFinal`.
     public func bestFinalModelOnDisk() -> ModelID? {
         BundledModel.finalModelsByQuality.first { isPresent($0) }
+    }
+}
+
+/// V4.8 — the model-store maintenance pass, run exactly once: detached on its own queue
+/// (`startDetached`), inline on first use (`runOrWait`), or never (`skipped`). Its own dispatch queue
+/// rather than a Swift task on purpose: a synchronous reader blocks in `waitWhileRunning` on a
+/// cooperative-pool thread, and the pass must never need a pool thread to finish.
+final class ModelMaintenancePass: @unchecked Sendable {
+    enum Phase: Equatable, Sendable { case pending, running, finished, skipped }
+
+    private let condition = NSCondition()
+    private var phase: Phase
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let work: @Sendable () -> Void
+    private let queue = DispatchQueue(label: "in.adityakatare.voiceplus.models.maintenance", qos: .utility)
+
+    init(skipped: Bool, work: @escaping @Sendable () -> Void) {
+        self.phase = skipped ? .skipped : .pending
+        self.work = work
+    }
+
+    var current: Phase { condition.lock(); defer { condition.unlock() }; return phase }
+    var isComplete: Bool { let p = current; return p == .finished || p == .skipped }
+
+    /// Starts a pending pass on its own queue. Never blocks.
+    func startDetached() {
+        guard claim() else { return }
+        queue.async { self.run() }
+    }
+
+    /// Runs a pending pass on the calling thread, or waits for one that is already running.
+    func runOrWait() {
+        if claim() { run() } else { waitWhileRunning() }
+    }
+
+    /// Blocks only while a pass is actually moving directories; a pending one is left alone.
+    func waitWhileRunning() {
+        condition.lock()
+        while phase == .running { condition.wait() }
+        condition.unlock()
+    }
+
+    /// Starts the pass if it is pending and suspends until it has finished.
+    func finished() async {
+        startDetached()
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            condition.lock()
+            if phase == .running {
+                waiters.append(c)
+                condition.unlock()
+            } else {
+                condition.unlock()
+                c.resume()
+            }
+        }
+    }
+
+    private func claim() -> Bool {
+        condition.lock(); defer { condition.unlock() }
+        guard phase == .pending else { return false }
+        phase = .running
+        return true
+    }
+
+    private func run() {
+        work()
+        condition.lock()
+        phase = .finished
+        let resumed = waiters
+        waiters.removeAll()
+        condition.broadcast()
+        condition.unlock()
+        resumed.forEach { $0.resume() }
     }
 }
