@@ -37,7 +37,7 @@ public struct ProseListFormatter: PipelineStage {
         Fillers.remove(&toks)
         SpokenPunctuation.apply(&toks)
         SelfCorrection.resolve(&toks)
-        Numbers.normalize(&toks, spellOutSmall: options.spellOutSmallNumbers)
+        Numbers.normalize(&toks, spellOutSmall: options.spellOutSmallNumbers, spans: spans)
         ListDetector.apply(&toks, forceList: register == .list)
         Capitalizer.apply(&toks, addTerminalPeriod: options.addTerminalPeriod)
         return Assembler.assemble(toks, into: spans, stage: id)
@@ -307,13 +307,44 @@ enum Numbers {
         return m10 == 1 ? "st" : m10 == 2 ? "nd" : m10 == 3 ? "rd" : "th"
     }
 
-    /// Parses a run of number words starting at `i`. Returns (value, tokensConsumed).
-    static func parse(_ toks: [Tok], at i: Int) -> (Int, Int)? {
-        var total = 0, current = 0, j = i, sawAny = false
+    // MARK: Punctuation-tolerant lookup (E1, V4.11)
+
+    /// Marks the recogniser glues onto a word ("fifty.", "one,"). They are stripped before every
+    /// table lookup and re-attached to what is emitted for the last word consumed. A word that
+    /// carries one always ends the number: the mark is a boundary somebody heard.
+    static let trailingMarks: Set<Character> = [",", ".", ";", ":", "!", "?"]
+
+    /// "fifty." → ("fifty", "."); "a.m.," → ("a.m", ".,"); "hello" → ("hello", "").
+    static func split(_ text: String) -> (core: String, mark: String) {
+        var end = text.endIndex
+        while end > text.startIndex {
+            let before = text.index(before: end)
+            guard trailingMarks.contains(text[before]) else { break }
+            end = before
+        }
+        return (String(text[..<end]), String(text[end...]))
+    }
+
+    /// Lowercased token text without its trailing marks.
+    static func core(_ t: Tok) -> String { split(t.lower).core }
+    /// The token's trailing marks ("" when it has none).
+    static func mark(_ t: Tok) -> String { split(t.text).mark }
+
+    /// A parsed number: its value, the tokens it used, and the trailing mark of the last of them.
+    struct Parsed: Equatable {
+        var value: Int
+        var consumed: Int
+        var mark: String
+    }
+
+    /// Parses a run of number words starting at `i`.
+    static func parse(_ toks: [Tok], at i: Int) -> Parsed? {
+        var total = 0, current = 0, j = i, sawAny = false, mark = ""
         while j < toks.count, toks[j].isWord, !toks[j].locked {
-            let l = toks[j].lower
+            let (l, m) = split(toks[j].lower)
             if let u = units[l], l != "oh" {
-                if current % 10 != 0 || (current >= 20 && u >= 10) { break }  // "five six" are separate
+                // "five six" and "twenty fifteen" are separate; "one hundred fifteen" is one number.
+                if current % 10 != 0 || (current % 100 >= 20 && u >= 10) { break }
                 if current > 0, current < 20 { break }                          // "twelve five"
                 current += u; sawAny = true
             } else if let t = tens[l] {
@@ -323,100 +354,304 @@ enum Numbers {
                 if !sawAny { break }
                 if s == 100 { current = (current == 0 ? 1 : current) * 100 }
                 else { total += (current == 0 ? 1 : current) * s; current = 0 }
-            } else if l == "and", sawAny, current % 100 == 0, current > 0, j + 1 < toks.count,
-                      (units[toks[j + 1].lower] != nil || tens[toks[j + 1].lower] != nil) {
+            } else if l == "and", m.isEmpty, bridges(toks, at: j, current: current) {
                 // "one hundred and twenty"
             } else { break }
             j += 1
+            if !m.isEmpty { mark = m; break }
         }
         guard sawAny else { return nil }
-        return (total + current, j - i)
+        return Parsed(value: total + current, consumed: j - i, mark: mark)
+    }
+
+    /// The `and` of "one hundred and fifty": only after a hundreds value, and only when the word
+    /// after it — marks stripped ("fifty.") — continues the number.
+    static func bridges(_ toks: [Tok], at j: Int, current: Int) -> Bool {
+        guard current > 0, current % 100 == 0, j + 1 < toks.count, toks[j + 1].isWord, !toks[j + 1].locked
+        else { return false }
+        let next = core(toks[j + 1])
+        return (units[next] != nil && next != "oh") || tens[next] != nil
     }
 
     static let unitsAfter: [String: String] = ["percent": "%", "%": "%"]
     static let currencyAfter: [String: String] = ["dollars": "$", "dollar": "$", "bucks": "$", "euros": "€", "pounds": "£"]
     static let timeAfter: Set<String> = ["am", "pm", "a.m.", "p.m.", "o'clock", "oclock"]
 
-    static func normalize(_ toks: inout [Tok], spellOutSmall: Bool) {
+    static func isTimeWord(_ t: Tok) -> Bool {
+        guard t.isWord, !t.locked else { return false }
+        let c = core(t)
+        return timeAfter.contains(t.lower) || timeAfter.contains(c) || timeAfter.contains(c + ".")
+    }
+
+    /// - Parameter spans: the formatter's input spans. Their `audioRange`s drive the digit-sequence
+    ///   and paired-year rules (E2); with none, those rules are off and single digits stay words.
+    static func normalize(_ toks: inout [Tok], spellOutSmall: Bool, spans: [TranscriptSpan] = []) {
         var out: [Tok] = []
         var i = 0
+        var digitRunBlockedUntil = 0      // E2: a run a low-confidence digit blocked ends here
         while i < toks.count {
             let t = toks[i]
             guard t.isWord, !t.locked else { out.append(t); i += 1; continue }
             let prevIsMonth = out.last.map { SelfCorrection.months.contains($0.lower) && $0.isWord } ?? false
+            let (tCore, tMark) = split(t.lower)
 
             // Ordinal after month: "March fifth" -> "March 5"; "fifth of March" -> "5th of March".
-            if let o = ordinalValue(t.lower), prevIsMonth || (i + 2 < toks.count && toks[i + 1].lower == "of" && SelfCorrection.months.contains(toks[i + 2].lower)) {
-                var day = o
-                var consumed = 1
-                if o >= 20, o % 10 == 0, i + 1 < toks.count, let u = ordinalValue(toks[i + 1].lower), u < 10 { day += u; consumed = 2 }
-                out.append(Tok(text: prevIsMonth ? "\(day)" : "\(day)\(suffix(day))", span: t.span))
+            if let o = ordinalValue(tCore), prevIsMonth || (tMark.isEmpty && i + 2 < toks.count && toks[i + 1].lower == "of"
+                                                             && SelfCorrection.months.contains(core(toks[i + 2]))) {
+                var day = o, consumed = 1, dayMark = tMark
+                if tMark.isEmpty, o >= 20, o % 10 == 0, i + 1 < toks.count, toks[i + 1].isWord, !toks[i + 1].locked,
+                   let u = ordinalValue(core(toks[i + 1])), u < 10 {
+                    day += u; consumed = 2; dayMark = mark(toks[i + 1])
+                }
+                out.append(Tok(text: (prevIsMonth ? "\(day)" : "\(day)\(suffix(day))") + dayMark, span: t.span))
                 i += consumed
                 // Year after "March 5 twenty twenty four" -> "March 5, 2024".
-                if prevIsMonth, let (y, n) = parseYear(toks, at: i) {
+                if prevIsMonth, dayMark.isEmpty, let y = parseYear(toks, at: i) {
                     out.append(Tok(text: ",", span: toks[i].span, kind: .punct(",")))
-                    out.append(Tok(text: "\(y)", span: toks[i].span))
-                    i += n
+                    out.append(Tok(text: "\(y.value)" + y.mark, span: toks[i].span))
+                    i += y.consumed
                 }
                 continue
             }
             // Compound ordinal after month using tens + ordinal: "March twenty first".
-            if prevIsMonth, let ten = tens[t.lower], i + 1 < toks.count, let u = ordinalValue(toks[i + 1].lower), u < 10 {
-                out.append(Tok(text: "\(ten + u)", span: t.span)); i += 2
-                if let (y, n) = parseYear(toks, at: i) {
+            if prevIsMonth, tMark.isEmpty, let ten = tens[tCore], i + 1 < toks.count, toks[i + 1].isWord, !toks[i + 1].locked,
+               let u = ordinalValue(core(toks[i + 1])), u < 10 {
+                let dayMark = mark(toks[i + 1])
+                out.append(Tok(text: "\(ten + u)" + dayMark, span: t.span)); i += 2
+                if dayMark.isEmpty, let y = parseYear(toks, at: i) {
                     out.append(Tok(text: ",", span: toks[i].span, kind: .punct(",")))
-                    out.append(Tok(text: "\(y)", span: toks[i].span)); i += n
+                    out.append(Tok(text: "\(y.value)" + y.mark, span: toks[i].span)); i += y.consumed
                 }
                 continue
             }
 
-            if let (y, n) = parseYear(toks, at: i), prevIsMonth || isYearContext(out) {
-                out.append(Tok(text: "\(y)", span: t.span)); i += n; continue
+            if let y = parseYear(toks, at: i), prevIsMonth || isYearContext(out) {
+                out.append(Tok(text: "\(y.value)" + y.mark, span: t.span)); i += y.consumed; continue
             }
-            guard let (value, n) = parse(toks, at: i) else { out.append(t); i += 1; continue }
-            let next = i + n < toks.count ? toks[i + n] : nil
-            let nextLower = next?.lower ?? ""
+
+            // E2 (V4.12): spoken digits read by their timing — "1234" or "1, 2, 3, 4".
+            if !spans.isEmpty {
+                switch i < digitRunBlockedUntil ? nil : DigitSequence.match(toks, at: i, spans: spans) {
+                case .rewrite(let tokens, let end)?:
+                    out.append(contentsOf: tokens); i = end; continue
+                case .blocked(let neighbours, let end)?:
+                    // A low-confidence digit would have joined the run: rewrite none of it (not even
+                    // the tail that is still ≥ 3 digits long) and flag that digit.
+                    digitRunBlockedUntil = end
+                    for n in neighbours {
+                        if n > i { toks[n].flagged = true } else if let last = out.indices.last, out[last].locked { out[last].flagged = true }
+                    }
+                case nil:
+                    break
+                }
+                if let y = DigitSequence.pairedYear(toks, at: i, spans: spans) {
+                    out.append(Tok(text: "\(y.value)" + y.mark, span: t.span)); i += y.consumed; continue
+                }
+            }
+
+            guard let number = parse(toks, at: i) else { out.append(t); i += 1; continue }
+            let value = number.value, n = number.consumed
+            // A mark on the number's last word closes it: nothing after the mark binds to it.
+            let next = number.mark.isEmpty && i + n < toks.count ? toks[i + n] : nil
             let nextOK = next.map { $0.isWord && !$0.locked } ?? false
+            let (nextCore, nextMark) = next.map { split($0.lower) } ?? (core: "", mark: "")
 
             // Time: "three thirty pm", "three pm", "seven o'clock".
-            if nextOK, value <= 24, let (mins, m) = parse(toks, at: i + n), mins < 60, i + n + m < toks.count,
-               timeAfter.contains(toks[i + n + m].lower), toks[i + n + m].isWord {
-                out.append(Tok(text: String(format: "%d:%02d", value, mins), span: t.span))
-                i += n + m; continue
+            if nextOK, value <= 24, let mins = parse(toks, at: i + n), mins.mark.isEmpty, mins.value < 60,
+               i + n + mins.consumed < toks.count, isTimeWord(toks[i + n + mins.consumed]) {
+                out.append(Tok(text: String(format: "%d:%02d", value, mins.value), span: t.span))
+                i += n + mins.consumed; continue
             }
-            if nextOK, timeAfter.contains(nextLower), value <= 24 {
+            if nextOK, let next, isTimeWord(next), value <= 24 {
                 out.append(Tok(text: "\(value)", span: t.span)); i += n; continue
             }
-            if nextOK, let sym = unitsAfter[nextLower] {
-                out.append(Tok(text: "\(value)\(sym)", span: t.span)); i += n + 1; continue
+            if nextOK, let sym = unitsAfter[nextCore] {
+                out.append(Tok(text: "\(value)\(sym)" + nextMark, span: t.span)); i += n + 1; continue
             }
-            if nextOK, let sym = currencyAfter[nextLower] {
-                out.append(Tok(text: "\(sym)\(value)", span: t.span)); i += n + 1; continue
+            if nextOK, let sym = currencyAfter[nextCore] {
+                out.append(Tok(text: "\(sym)\(value)" + nextMark, span: t.span)); i += n + 1; continue
             }
             if prevIsMonth {
-                out.append(Tok(text: "\(value)", span: t.span)); i += n; continue
+                out.append(Tok(text: "\(value)" + number.mark, span: t.span)); i += n; continue
             }
             // "one" alone is usually a pronoun/article ("one of them"); leave single small words.
             if spellOutSmall, value < 10, n == 1 {
                 out.append(t); i += 1; continue
             }
-            out.append(Tok(text: "\(value)", span: t.span))
+            out.append(Tok(text: "\(value)" + number.mark, span: t.span))
             i += n
         }
         toks = out
     }
 
     /// "twenty twenty four" / "nineteen ninety five" / "two thousand twenty" -> year.
-    static func parseYear(_ toks: [Tok], at i: Int) -> (Int, Int)? {
-        guard let (a, n) = parse(toks, at: i) else { return nil }
-        if (1900...2099).contains(a) { return (a, n) }
-        guard (19...20).contains(a), let (b, m) = parse(toks, at: i + n), b < 100, b >= 1 || toks[i + n].lower == "hundred" else { return nil }
-        return (a * 100 + b, n + m)
+    static func parseYear(_ toks: [Tok], at i: Int) -> Parsed? {
+        guard let a = parse(toks, at: i) else { return nil }
+        if (1900...2099).contains(a.value) { return a }
+        guard a.mark.isEmpty, (19...20).contains(a.value), let b = parse(toks, at: i + a.consumed), b.value < 100,
+              b.value >= 1 else { return nil }
+        return Parsed(value: a.value * 100 + b.value, consumed: a.consumed + b.consumed, mark: b.mark)
     }
 
     static func isYearContext(_ out: [Tok]) -> Bool {
         guard let last = out.last(where: { $0.isWord }) else { return false }
         return ["in", "since", "of", "year", "by", "until"].contains(last.lower)
+    }
+}
+
+// MARK: - Digit sequences (E2, V4.12)
+
+extension Numbers {
+    /// Spoken digits read by their timing: "one two three four" said without a pause is one number
+    /// (a PIN, a phone number, an amount read digit by digit); said with pauses or spoken commas it
+    /// is a list.
+    ///
+    /// - A run is ≥ 3 consecutive single-digit words (`zero`–`nine`, a bare digit, or `oh` after the
+    ///   first), each in its own span: digits that share a span, or whose spans carry no usable
+    ///   timing (see `gap`), are left as they are. A word carrying `.?!;:` ends the run and its mark
+    ///   stays on the result; a model comma does not end it.
+    /// - Between two digits, a spoken comma ("comma", or a span whose punctuation is `.spoken`) or a
+    ///   gap of ≥ 250 ms between their `audioRange`s is a break; anything shorter joins them.
+    /// - No breaks → one number ("1234"). Only breaks → a list ("1, 2, 3, 4"). Both → groups, split
+    ///   by a space where the speaker paused and by ", " where they said "comma" ("982 345 6789").
+    /// - Each group is written into its first span; the other spans are left empty (`Assembler`),
+    ///   which `renderedText` skips.
+    /// - A low-confidence digit next to the run would have been merged into it, so nothing is
+    ///   rewritten and that span is flagged for repair (Bet 9).
+    enum DigitSequence {
+        static let pauseSeconds: TimeInterval = 0.25
+        static let minimumRun = 3
+
+        enum Boundary: Equatable { case join, pause, spokenComma }
+
+        enum Outcome {
+            /// Replacement tokens for `toks[i..<end]`.
+            case rewrite([Tok], end: Int)
+            /// Token indices of low-confidence digits touching the run `toks[i..<end]`, which stays
+            /// as spoken.
+            case blocked([Int], end: Int)
+        }
+
+        static func digitValue(_ core: String, allowOh: Bool) -> Int? {
+            if core == "oh" { return allowOh ? 0 : nil }
+            if let u = units[core], u < 10 { return u }
+            if core.count == 1, let d = Int(core) { return d }
+            return nil
+        }
+
+        static func digit(_ t: Tok, allowOh: Bool) -> Int? {
+            guard t.isWord, !t.locked else { return nil }
+            return digitValue(core(t), allowOh: allowOh)
+        }
+
+        static func isLockedDigit(_ t: Tok) -> Bool {
+            t.locked && t.isWord && digitValue(core(t), allowOh: true) != nil
+        }
+
+        /// A locked digit before the run that the run would have taken in: one whose own mark does
+        /// not close it ("nine." ends a sentence; "nine," is a list item like any other).
+        static func joinsFromBefore(_ t: Tok) -> Bool {
+            let m = mark(t)
+            return isLockedDigit(t) && (m.isEmpty || m == ",")
+        }
+
+        /// A "comma" the user said (`SpokenPunctuation` tokens carry no text of their own).
+        static func isSpokenComma(_ t: Tok) -> Bool { t.kind == .punct(",") && t.text.isEmpty }
+
+        /// Seconds of silence between two tokens' spans. `nil` — no timing, so no digit rule — when
+        /// they share a span, or when the second does not start after the first (identical or
+        /// reversed ranges: spans a stage made up, like `0...0` for typed text, carry no pause).
+        static func gap(_ a: Tok, _ b: Tok, _ spans: [TranscriptSpan]) -> TimeInterval? {
+            guard a.span != b.span, spans.indices.contains(a.span), spans.indices.contains(b.span) else { return nil }
+            let first = spans[a.span].audioRange, second = spans[b.span].audioRange
+            guard second.lowerBound > first.lowerBound else { return nil }
+            return second.lowerBound - first.upperBound
+        }
+
+        /// ≥ 250 ms, compared in whole milliseconds so a 0.25 s gap built from float sums is a pause.
+        static func isPause(_ gap: TimeInterval) -> Bool { (gap * 1000).rounded() >= pauseSeconds * 1000 }
+
+        static func match(_ toks: [Tok], at i: Int, spans: [TranscriptSpan]) -> Outcome? {
+            guard digit(toks[i], allowOh: false) != nil else { return nil }
+            var elems = [i]                    // token index of each digit
+            var bounds: [Boundary] = []        // bounds[n] sits between elems[n] and elems[n + 1]
+            var commas: [Int?] = []            // the spoken comma token at that boundary, if any
+            var k = i
+            while true {
+                let m = mark(toks[k])
+                if !m.isEmpty, m != "," { break }                     // ".?!;:" closes the run
+                var next = k + 1
+                var spoken = m == "," && spans.indices.contains(toks[k].span)
+                    && spans[toks[k].span].punctuationOrigin == .spoken
+                var comma: Int? = nil
+                if next < toks.count, isSpokenComma(toks[next]) { spoken = true; comma = next; next += 1 }
+                guard next < toks.count, digit(toks[next], allowOh: true) != nil,
+                      let g = gap(toks[k], toks[next], spans) else { break }
+                bounds.append(spoken ? .spokenComma : isPause(g) ? .pause : .join)
+                commas.append(comma)
+                elems.append(next)
+                k = next
+            }
+            // "four five six hundred": the last digit belongs to the scale word after it.
+            if elems.count >= 2, let last = elems.last, mark(toks[last]).isEmpty, last + 1 < toks.count,
+               toks[last + 1].isWord, !toks[last + 1].locked, scales[core(toks[last + 1])] != nil {
+                elems.removeLast(); bounds.removeLast(); commas.removeLast()
+            }
+            guard elems.count >= minimumRun, let last = elems.last else { return nil }
+
+            let lastMark = mark(toks[last])
+            var neighbours: [Int] = []
+            if i > 0, joinsFromBefore(toks[i - 1]) { neighbours.append(i - 1) }
+            if lastMark.isEmpty || lastMark == ",", last + 1 < toks.count, isLockedDigit(toks[last + 1]) {
+                neighbours.append(last + 1)
+            }
+            if !neighbours.isEmpty { return .blocked(neighbours, end: last + 1) }
+
+            let pausesAreSpaces = bounds.contains(.join)
+            var result: [Tok] = []
+            var text = "", span = toks[i].span
+            for (n, e) in elems.enumerated() {
+                if n > 0, bounds[n - 1] != .join {
+                    let previous = toks[elems[n - 1]]
+                    result.append(Tok(text: text, span: span))
+                    if bounds[n - 1] == .spokenComma {
+                        // Keep the user's own comma token (it carries the spoken mark to the Assembler).
+                        result.append(commas[n - 1].map { toks[$0] } ?? Tok(text: "", span: previous.span, kind: .punct(",")))
+                    } else if !pausesAreSpaces {
+                        result.append(Tok(text: ",", span: previous.span, kind: .punct(",")))
+                    }
+                    text = ""; span = toks[e].span
+                }
+                text += String(digitValue(core(toks[e]), allowOh: true) ?? 0)
+            }
+            result.append(Tok(text: text + lastMark, span: span))
+            return .rewrite(result, end: last + 1)
+        }
+
+        /// "twenty twenty six" / "nineteen ninety five" / "twenty oh five": a year said as two pairs
+        /// with no pause between them. Outside a year context — `parseYear` already covers "in …".
+        /// Not before a currency or unit word: "nineteen ninety nine dollars" is a price, and stays
+        /// what the amount rules make of it.
+        static func pairedYear(_ toks: [Tok], at i: Int, spans: [TranscriptSpan]) -> Parsed? {
+            guard let a = parse(toks, at: i), a.consumed == 1, a.mark.isEmpty, (19...20).contains(a.value),
+                  i + 1 < toks.count, let g = gap(toks[i], toks[i + 1], spans), !isPause(g) else { return nil }
+            let j = i + 1
+            let year: Parsed
+            if digit(toks[j], allowOh: true) == 0, mark(toks[j]).isEmpty, j + 1 < toks.count,
+               let d = digit(toks[j + 1], allowOh: false), d > 0,
+               let g2 = gap(toks[j], toks[j + 1], spans), !isPause(g2) {
+                year = Parsed(value: a.value * 100 + d, consumed: 3, mark: mark(toks[j + 1]))   // "twenty oh five"
+            } else {
+                guard let b = parse(toks, at: j), (10...99).contains(b.value) else { return nil }
+                year = Parsed(value: a.value * 100 + b.value, consumed: 1 + b.consumed, mark: b.mark)
+            }
+            let after = i + year.consumed
+            if year.mark.isEmpty, after < toks.count, toks[after].isWord, !toks[after].locked,
+               unitsAfter[core(toks[after])] != nil || currencyAfter[core(toks[after])] != nil {
+                return nil
+            }
+            return year
+        }
     }
 }
 
@@ -533,6 +768,11 @@ enum Capitalizer {
 
 // MARK: - Assembly
 
+/// Writes the tokens back into the input spans: each token's text goes into the span it names, so
+/// a number built from several words (E1/E2: "5150", "2340") sits in its first span and the spans
+/// it consumed are left empty — `renderedText` skips them, so no stray spaces reach the field.
+/// Punctuation glues onto the span holding the previous word; every span keeps its own
+/// `audioRange`, confidence, alternates and `punctuationOrigin`.
 enum Assembler {
     static func assemble(_ toks: [Tok], into spans: [TranscriptSpan], stage: StageID) -> [TranscriptSpan] {
         var texts = [String](repeating: "", count: spans.count)

@@ -55,7 +55,7 @@ public enum PreviewFormatter {
     ]
     private static let scales: [String: Int] = ["thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000]
 
-    private enum Kind { case unit, teen, ten, hundred, scale }
+    private enum Kind { case unit, teen, ten, hundred, scale, and }
 
     private static func kind(_ word: String) -> Kind? {
         if units[word] != nil { return .unit }
@@ -66,23 +66,45 @@ public enum PreviewFormatter {
         return nil
     }
 
+    /// Marks a recognizer may glue onto a word ("fifty.", "one,"), the same set the final pass
+    /// tolerates (E1, V4.11). Stripped before lookup and put back on the last word of the number,
+    /// so no punctuation is added or lost; a word carrying one ends the number.
+    private static let trailingMarks: Set<Character> = [",", ".", ";", ":", "!", "?"]
+
+    private static func split(_ word: String) -> (core: String, mark: String) {
+        var end = word.endIndex
+        while end > word.startIndex, trailingMarks.contains(word[word.index(before: end)]) {
+            end = word.index(before: end)
+        }
+        return (String(word[..<end]), String(word[end...]))
+    }
+
     /// Rewrites every maximal run of number words. A run that composes to a value ≥ 10 becomes
     /// digits; a run that is a single small word ("two of the large ones", "meet at four") is left
     /// alone, because that is how the final text writes it too and a bare `2` there would be a
     /// change, not an improvement.
     private static func digitize(_ words: [String]) -> [String] {
         var out: [String] = []
-        var run: [String] = []          // number words, exactly as they arrived
+        var run: [String] = []          // number words, lowercase, marks stripped
+        var runMark = ""                // trailing mark of the run's last word
 
         func flushRun() {
             guard !run.isEmpty else { return }
-            out.append(contentsOf: convert(run: run))
+            var rendered = convert(run: run)
+            if !runMark.isEmpty, !rendered.isEmpty { rendered[rendered.count - 1] += runMark }
+            out.append(contentsOf: rendered)
             run = []
+            runMark = ""
         }
 
-        for word in words {
-            if kind(word.lowercased()) != nil, word == word.lowercased() {  // unpunctuated, lowercase
-                run.append(word.lowercased())
+        for (index, word) in words.enumerated() {
+            let (core, mark) = split(word)
+            if kind(core) != nil, core == core.lowercased() {       // lowercase number word
+                run.append(core)
+                if !mark.isEmpty { runMark = mark; flushRun() }
+            } else if core == "and", mark.isEmpty,
+                      bridges(run, next: index + 1 < words.count ? words[index + 1] : nil) {
+                run.append(core)
             } else {
                 flushRun()
                 out.append(word)
@@ -90,6 +112,19 @@ public enum PreviewFormatter {
         }
         flushRun()
         return out
+    }
+
+    /// The `and` of "one hundred and fifty", exactly where the final pass (`Numbers.parse`) takes
+    /// it: after a counted hundred ("two hundred", not a bare "hundred" — and only a hundred that
+    /// `convert` keeps in the same number as its count) and before a unit, teen or ten ("fifty."
+    /// counts — its mark is stripped first).
+    private static func bridges(_ run: [String], next: String?) -> Bool {
+        guard run.count >= 2, run[run.count - 1] == "hundred", let next else { return false }
+        guard let before = kind(run[run.count - 2]), before == .unit || before == .teen,
+              canExtend(previous: before, with: .hundred), run[run.count - 2] != "oh" else { return false }
+        let core = split(next).core
+        guard core == core.lowercased(), core != "oh", let k = kind(core) else { return false }
+        return k == .unit || k == .teen || k == .ten
     }
 
     /// Splits a run into the numbers it actually spells and renders each one.
@@ -113,7 +148,7 @@ public enum PreviewFormatter {
 
         var previous: Kind?
         for word in run {
-            let k = kind(word)!
+            let k: Kind = word == "and" ? .and : kind(word)!
             if let previous, !canExtend(previous: previous, with: k) { emit() }
             group.append(word)
             previous = k
@@ -130,14 +165,16 @@ public enum PreviewFormatter {
              (.teen, .hundred), (.teen, .scale),
              (.ten, .unit), (.ten, .scale),
              (.hundred, .unit), (.hundred, .teen), (.hundred, .ten), (.hundred, .scale),
-             (.scale, .unit), (.scale, .teen), (.scale, .ten), (.scale, .hundred):
+             (.scale, .unit), (.scale, .teen), (.scale, .ten), (.scale, .hundred),
+             (.hundred, .and), (.and, .unit), (.and, .teen), (.and, .ten):
             return true
         default:
             return false
         }
     }
 
-    /// Standard composition: units/teens/tens accumulate, `hundred` multiplies, scales carry.
+    /// Standard composition: units/teens/tens accumulate, `hundred` multiplies, scales carry,
+    /// `and` adds nothing.
     private static func value(of group: [String]) -> Int {
         var total = 0, current = 0
         for word in group {
