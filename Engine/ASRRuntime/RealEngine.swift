@@ -270,6 +270,8 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
 
     private var feed: VADFeed = .none
     private var ledger = SpeechLedger()
+    /// Serializes `release(_:…)`: commit + `.closed` broadcast as one step, so events keep spoken order.
+    private let releaseLock = NSLock()
     /// Events are accepted from `start()` until the session's last segment is decided.
     private var ledgerOpen = false
     /// `.pipeline` feed only: the subscription has seen this session's `.started`.
@@ -868,8 +870,14 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     }
 
     /// Commits one segment and emits `.closed` for everything the commit put in order.
+    ///
+    /// The commit and its sends are one step under `releaseLock`: two segments whose passes finish
+    /// together would otherwise commit in order and then broadcast out of order (segment 1's
+    /// `.closed` before segment 0's), breaking the spoken-order promise above.
     private func release(_ id: SegmentID?, spans: [TranscriptSpan], stability: Stability, reason: SegmentCloseReason) {
         guard let id else { return }
+        releaseLock.lock()
+        defer { releaseLock.unlock() }
         lock.withLock { closureFacts[id] = (stability, reason) }
         switch segments.commit(id, spans: stamped(spans, stability)) {
         case .rejected(let why):
