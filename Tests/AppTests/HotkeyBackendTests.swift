@@ -67,8 +67,9 @@ struct HotkeyBackendSelectionTests {
     }
 
     /// The default binding — what an install with no stored choice gets — must be free.
+    /// V4.51 (I1): fn / 🌐, a bare modifier on the global monitor.
     @Test func theShippedDefaultCostsNothing() {
-        #expect(HotkeyBinding.default.kind == .rightOption)
+        #expect(HotkeyBinding.default.kind == .fn)
         #expect(HotkeyBackendSelector.requiredPermission(for: .default) == nil)
     }
 }
@@ -216,7 +217,7 @@ struct HotkeyBackendLifecycleTests {
         let d = defaults()
         d.set("someFutureKey", forKey: HotkeyService.bindingDefaultsKey)
         let service = HotkeyService(defaults: d)
-        #expect(service.binding.kind == .rightOption)
+        #expect(service.binding.kind == HotkeyService.defaultBinding.kind)
         #expect(service.requiredPermission == nil)
     }
 
@@ -266,12 +267,12 @@ struct HotkeyBackendLifecycleTests {
         let service = HotkeyService(defaults: d)
         service.installer = stub.installer
         #expect(service.start())
-        d.set(HotkeyBinding.Kind.fn.rawValue, forKey: HotkeyService.bindingDefaultsKey)
+        d.set(HotkeyBinding.Kind.rightControl.rawValue, forKey: HotkeyService.bindingDefaultsKey)
         // `start()` also installs the `UserDefaults.didChangeNotification` observer, so on a machine
         // where that notification has already been delivered the change is applied before this line.
         // Assert the effect, not the race.
         service.reloadBindingFromDefaults()
-        #expect(service.binding.kind == .fn)
+        #expect(service.binding.kind == .rightControl)
         #expect(!service.reloadBindingFromDefaults(), "a second read with nothing new is a no-op")
     }
 

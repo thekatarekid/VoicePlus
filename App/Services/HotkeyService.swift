@@ -166,6 +166,55 @@ public final class StubEventTap {
     }
 }
 
+// MARK: - Reading macOS's own fn / 🌐 action
+
+/// Reads `AppleFnUsageType` (`com.apple.HIToolbox`). nil when no value is stored.
+public struct FnUsageReader {
+    public var read: () -> Int?
+
+    public init(read: @escaping () -> Int?) { self.read = read }
+
+    /// The live system value. Synchronizes first, so a change the user just made in System
+    /// Settings › Keyboard is seen without a relaunch.
+    public static let system = FnUsageReader {
+        let domain = FnKeySystemAction.defaultsDomain as CFString
+        CFPreferencesAppSynchronize(domain)
+        return FnUsageReader.integer(CFPreferencesCopyAppValue(FnKeySystemAction.defaultsKey as CFString, domain))
+    }
+
+    /// The same key read from a given defaults store — how the tests fake the system domain.
+    public static func defaults(_ defaults: UserDefaults) -> FnUsageReader {
+        FnUsageReader { integer(defaults.object(forKey: FnKeySystemAction.defaultsKey)) }
+    }
+
+    /// `defaults write … -int 2` stores a number; a hand-edited plist may hold a string.
+    static func integer(_ value: Any?) -> Int? {
+        switch value {
+        case let number as NSNumber: return number.intValue
+        case let string as String: return Int(string.trimmingCharacters(in: .whitespaces))
+        default: return nil
+        }
+    }
+}
+
+// MARK: - Telling Carbon hot keys apart
+
+/// Which registration a `kEventHotKeyPressed` / `kEventHotKeyReleased` event belongs to.
+enum CarbonHotKeyEvent {
+    static func id(of event: EventRef) -> EventHotKeyID? {
+        var id = EventHotKeyID()
+        let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                       nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+        return status == noErr ? id : nil
+    }
+
+    /// Is this event for the registration made with `signature` and `token`?
+    static func matches(_ id: EventHotKeyID?, signature: OSType, token: Int) -> Bool {
+        guard let id else { return false }
+        return id.signature == signature && Int(id.id) == token
+    }
+}
+
 // MARK: - The service
 
 /// Global dictation-key listener (T3), feeding `HotkeyStateMachine`.
@@ -199,6 +248,9 @@ public final class HotkeyService {
     /// Escape hatch: force the pre-1.6.8 `.listenOnly` CGEvent tap. The only setting that can make
     /// VoicePlus need Input Monitoring, and nothing in the shipped UI turns it on.
     public static let forceEventTapDefaultsKey = "hotkeyForceEventTap"
+    /// V4.51 — the dictation key when nothing is stored: fn / 🌐 (hold = dictate, double tap =
+    /// Latch). Stored bindings always win; the act key passes its own default (Right ⌘).
+    public static let defaultBinding = HotkeyBinding(kind: .fn)
 
     public var onAction: ((HotkeyStateMachine.Action) -> Void)?
     /// Whether this service should hold a live source at all. Read fresh on every arming tick, so
@@ -247,7 +299,7 @@ public final class HotkeyService {
     /// shipped picker can produce.
     public static func currentRequiredPermission(defaults: UserDefaults = .standard,
                                                  bindingKey: String = HotkeyService.bindingDefaultsKey) -> Permission? {
-        let binding = storedBinding(defaults: defaults, key: bindingKey) ?? .default
+        let binding = storedBinding(defaults: defaults, key: bindingKey) ?? defaultBinding
         return HotkeyBackendSelector.requiredPermission(for: binding,
                                                         forceEventTap: defaults.bool(forKey: forceEventTapDefaultsKey))
     }
@@ -255,6 +307,42 @@ public final class HotkeyService {
     private var selectedBackend: HotkeyBackend {
         installer ?? .system(for: binding, forceEventTap: forcesEventTap)
     }
+
+    // MARK: Naming the key (V4.51)
+
+    /// The bound key as every hint names it ("fn / 🌐").
+    public var label: String { binding.label }
+
+    /// "Hold or Double Tap fn / 🌐 to dictate" — "Hold fn / 🌐 to dictate" with Latch off.
+    public func readyHint(latchEnabled: Bool = true) -> String { binding.readyHint(latchEnabled: latchEnabled) }
+
+    // MARK: fn / 🌐 system-action conflict (V4.51)
+
+    /// Where `AppleFnUsageType` is read from. Swappable so tests use a throwaway defaults suite.
+    public var fnUsage: FnUsageReader = .system
+
+    /// What macOS does on its own when 🌐 is pressed, read fresh on every call (the user may have
+    /// just changed it in System Settings).
+    public var fnSystemAction: FnKeySystemAction { FnKeySystemAction(usageType: fnUsage.read()) }
+
+    /// True when the dictation key is fn and macOS also acts on it (`AppleFnUsageType != 0`, or
+    /// no value stored). S7g / S8 render `fnConflict` with an "Open Keyboard settings" button.
+    public var fnSystemActionConflict: Bool { fnConflict != nil }
+
+    /// The prompt to show, or nil when there is nothing to warn about.
+    public var fnConflict: FnKeyConflict? { Self.fnConflict(for: binding, reader: fnUsage) }
+
+    /// The same answer before a service exists (onboarding asks before arming anything).
+    public static func fnConflict(for binding: HotkeyBinding, reader: FnUsageReader = .system) -> FnKeyConflict? {
+        guard binding.kind == .fn else { return nil }
+        return FnKeyConflict(FnKeySystemAction(usageType: reader.read()))
+    }
+
+    /// fn `flagsChanged` edges this service has received, whatever the binding. Onboarding's key
+    /// test (`FnKeyProbe`) reads "never saw one" as "this keyboard does not report fn".
+    public private(set) var fnEventsSeen = 0
+    /// Called on the main thread for every fn edge the source delivers.
+    public var onFnEvent: (() -> Void)?
 
     private var installedSource: InstalledHotkeySource?
     /// The token the live source carries, or nil while disarmed. Internal so the tests can prove
@@ -285,7 +373,7 @@ public final class HotkeyService {
 
     public init(defaults: UserDefaults = .standard, timing: HotkeyStateMachine.Timing = .default,
                 bindingKey: String = HotkeyService.bindingDefaultsKey,
-                defaultBinding: HotkeyBinding = .default) {
+                defaultBinding: HotkeyBinding = HotkeyService.defaultBinding) {
         self.defaults = defaults
         self.bindingKey = bindingKey
         self.machine = HotkeyStateMachine(timing: timing)
@@ -518,7 +606,15 @@ public final class HotkeyService {
     /// Counts the event for the liveness probe, then runs the gesture recogniser. Main thread only.
     private func receiveModifier(keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
         eventsReceived += 1
+        noteFnEvent(keyCode: keyCode)
         handle(keyCode: keyCode, flags: flags, timestamp: timestamp)
+    }
+
+    /// Counts fn edges for the key test. Internal so tests can feed it without a source.
+    func noteFnEvent(keyCode: Int64) {
+        guard keyCode == HotkeyBinding.Kind.fn.keyCode else { return }
+        fnEventsSeen += 1
+        onFnEvent?()
     }
 
     private func receiveChord(down: Bool, timestamp: TimeInterval) {
@@ -585,30 +681,15 @@ public final class HotkeyService {
             Log.app.error("hotkey: refusing to register a bare modifier with Carbon — it returns noErr and never fires")
             return nil
         }
-        var handlerRef: EventHandlerRef?
-        var specs = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
-                     EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))]
-        // Non-capturing, like the tap callback: the token in `userData` is the whole context.
-        let handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
-            guard let event else { return noErr }
-            let token = Int(bitPattern: userData)
-            HotkeyService.deliverChord(token: token,
-                                       down: GetEventKind(event) == UInt32(kEventHotKeyPressed),
-                                       timestamp: ProcessInfo.processInfo.systemUptime)
-            return noErr
-        }, 2, &specs, UnsafeMutableRawPointer(bitPattern: token), &handlerRef)
-        guard handlerStatus == noErr else {
-            Log.app.error("hotkey: InstallEventHandler failed (\(handlerStatus))")
-            return nil
-        }
+        guard let handlerRef = installCarbonChordHandler(token: token) else { return nil }
         var hotKeyRef: EventHotKeyRef?
-        let id = EventHotKeyID(signature: OSType(0x564F_4943), id: UInt32(token))   // 'VOIC'
+        let id = EventHotKeyID(signature: carbonSignature, id: UInt32(token))
         let status = RegisterEventHotKey(chord.keyCode, chord.carbonModifiers, id,
                                          GetApplicationEventTarget(), 0, &hotKeyRef)
         guard status == noErr, let hotKeyRef else {
             // -9878 is `eventHotKeyExistsErr`: someone else owns this chord system-wide.
             Log.app.error("hotkey: RegisterEventHotKey failed (\(status)) — the chord may already be taken")
-            if let handlerRef { RemoveEventHandler(handlerRef) }
+            RemoveEventHandler(handlerRef)
             return nil
         }
         var removed = false
@@ -618,9 +699,46 @@ public final class HotkeyService {
                 guard !removed else { return }
                 removed = true
                 UnregisterEventHotKey(hotKeyRef)
-                if let handlerRef { RemoveEventHandler(handlerRef) }
+                RemoveEventHandler(handlerRef)
             }
         )
+    }
+
+    /// 'VOIC' — the signature on every chord this service registers.
+    static let carbonSignature = OSType(0x564F_4943)
+
+    /// The chord's press/release handler on the application target.
+    ///
+    /// Every Carbon hot key in the process — the dictation chord, the act key's chord, Escape during
+    /// a turn (`EscapeHotkey`) — is dispatched to every handler installed on the application target,
+    /// newest first, and a handler that returns `noErr` ends the dispatch. Until 1.11 this handler
+    /// answered `noErr` for *any* hot key, so whichever handler was newest swallowed the others'
+    /// presses (and an Escape release would have read as a chord key-up). It now answers only for
+    /// its own registration and passes everything else on with `eventNotHandledErr`.
+    ///
+    /// Non-capturing, like the tap callback: the token in `userData` is the whole context. Split
+    /// from the registration so the dispatch can be tested without registering a system hot key.
+    static func installCarbonChordHandler(token: Int) -> EventHandlerRef? {
+        var handlerRef: EventHandlerRef?
+        var specs = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+                     EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))]
+        let handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
+            let token = Int(bitPattern: userData)
+            guard let event,
+                  CarbonHotKeyEvent.matches(CarbonHotKeyEvent.id(of: event),
+                                            signature: HotkeyService.carbonSignature, token: token) else {
+                return OSStatus(eventNotHandledErr)
+            }
+            HotkeyService.deliverChord(token: token,
+                                       down: GetEventKind(event) == UInt32(kEventHotKeyPressed),
+                                       timestamp: ProcessInfo.processInfo.systemUptime)
+            return noErr
+        }, 2, &specs, UnsafeMutableRawPointer(bitPattern: token), &handlerRef)
+        guard handlerStatus == noErr, let handlerRef else {
+            Log.app.error("hotkey: InstallEventHandler failed (\(handlerStatus))")
+            return nil
+        }
+        return handlerRef
     }
 
     // MARK: Backend 3 — the legacy CGEvent tap (escape hatch; costs Input Monitoring)

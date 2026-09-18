@@ -81,7 +81,7 @@ struct HotkeyServiceTests {
 
     @Test func rightOptionHoldProducesStartThenFinalize() {
         let defaults = UserDefaults(suiteName: "AppTests.hotkey.\(UUID())")!
-        let service = HotkeyService(defaults: defaults)
+        let service = HotkeyService(defaults: defaults, defaultBinding: HotkeyBinding(kind: .rightOption))
         var actions: [HotkeyStateMachine.Action] = []
         service.onAction = { actions.append($0) }
         service.handle(event: flagsChanged(keyCode: 61, flags: .maskAlternate, seconds: 10))
@@ -103,7 +103,8 @@ struct HotkeyServiceTests {
     }
 
     @Test func pausedServiceDropsEvents() {
-        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.hotkey.\(UUID())")!)
+        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.hotkey.\(UUID())")!,
+                                    defaultBinding: HotkeyBinding(kind: .rightOption))
         service.isPaused = true
         var fired = false
         service.onAction = { _ in fired = true }

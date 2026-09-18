@@ -17,7 +17,8 @@ import Testing
 @Suite("Hotkey tap lifecycle — one tap, no dangling context")
 struct HotkeyTapLifecycleTests {
     private func service(_ stub: StubEventTap) -> HotkeyService {
-        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.taplife.\(UUID())")!)
+        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.taplife.\(UUID())")!,
+                                    defaultBinding: HotkeyBinding(kind: .rightOption))   // the events below are Right ⌥
         service.installer = stub.installer
         return service
     }
@@ -166,7 +167,8 @@ struct HotkeyOffMainDeliveryTests {
 
     @Test func aBackgroundThreadDeliveryIsAppliedOnTheMainThread() async throws {
         let stub = StubEventTap()
-        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.offmain.\(UUID())")!)
+        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.offmain.\(UUID())")!,
+                                    defaultBinding: HotkeyBinding(kind: .rightOption))
         service.installer = stub.installer
         let recorder = Recorder()
         service.onAction = { recorder.record($0, onMain: Thread.isMainThread) }
