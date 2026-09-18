@@ -1563,3 +1563,28 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Open for wave 1: B reconciles `AudioPipeline.options.latched` vs live `isLatched` and the `.endpoint`
   doc comment; B1 hops the `@Sendable` audio callbacks to MainActor. S6: `.starting/.finishing` show as
   listening. S2: `.landedPartial` size and retract. No test covers `.partial` routing in PillDeliveryRouter.
+
+#### Wave 1
+
+- A1–A5 done · 657bab5..836e95a · format sync, 3/5/8 s budgets, hotkey before container, warm graph, maintenance off launch
+- B1–B4 done · ced7ae6..4ed1f53 · latch endpoint loop, pause setting, segments land through the lander, timer feed
+- C1–C3 done · e77834f..02b230d, b2a8318 · no-speech gate, hallucination guard, pre-roll only on a running graph
+- D1–D7 done · 6bb5fb3..7347bf5 · three-valued caret, provisional punctuation, continuation table, landing memory, spacing setting
+- E1–E2 done · 592bf82 · punctuation-tolerant ITN and digit runs joined by span timing
+- F1 done · 06dc150 · MicQualityAnalyzer v2: pre-speech floor vs first second of speech
+- G1–G3 done · 58c8902..35da7cd, c79603d · key-gated box, screenshot + OCR service, box → element + text + crop
+- H2–H3 done · 9cd26b2..b88c70e, cb5c1e8 · WeSpeaker weights, passive enrollment; gate wired holds and latch audio
+- I1–I2 done · 4f6ef0d..bd43acc · fn / 🌐 default key with conflict flag; Escape hotkey during a turn
+- J1–J2 done · 411f669..6049b9b · recording retention setting; Claude desktop through the Electron adapter
+- S1 done · 19b7b3f · Spool art ported exactly; 624 frames, 26 cameos, 6 flights match golden hashes
+- S6 done · 29aaff8 · cassette menu-bar glyph and the design's status menu
+- S9 done · 29980a4, f458784 · recovery catalogue (59 entries), engine errors show catalogue headlines
+- **Wave 1 gate passed (13/13 done).** `swift build --build-tests` clean (this wave's new warnings fixed; the rest predate it); `swift test --no-parallel`: **2498 tests, all passing**.
+- Gate fixes: `f458784` onboarding copy tests expect S9 headlines (updated copy tests) · `c79603d` deixis retention
+  tests waited on regions only, crops are dropped just after (race) · `b2a8318` `RealEngine.release` commits and
+  broadcasts as one step (two passes finishing together sent segment 1's `.closed` before 0's; `fullBacklogCommitsPassOne`) · `cb5c1e8` H2 app wiring (`SpeakerAudioWiring`:
+  holds → `observeHoldUtterance`, latch audio → speaker guard, "Voice learned" pill line; +7 tests) · `1022fc0` new
+  warnings · `d6260a9` keep-all retention copy, self-test budget text, stale v1/describe comments.
+- Open for wave 2: S3 wires `EscapeHotkey` and the A06 quiet return; S2 wires `LanderLatchDelivery.onLanded`, the box chip
+  and `presenceState`; S7f/S7g settings rows; 24 Spool art hex colours vs DesignTokens; DECISIONS.md SNR hypothesis (R);
+  all hardware checks in build doc §5.

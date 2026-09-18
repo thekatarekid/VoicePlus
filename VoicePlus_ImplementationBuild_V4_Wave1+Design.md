@@ -217,144 +217,144 @@ waves. Agents in wave 1 have no dependency on each other except the file-ownersh
 
 ### Wave 1 — A · Audio start and warm-up (V4.6–V4.10)
 
-- [ ] **A1 Format sync (V4.9) · [P]**
+- [x] **A1 Format sync (V4.9) · [P]**
   - `CoreAudioCaptureSource.buildGraph`: call `syncClientFormat(unit:)` **unconditionally** after `pin` (including the "already the system default" early return). If `verifyFormats` still disagrees, recreate the `AVAudioEngine` (make `engine` a `var`; tear down tap/monitor; rebuild once) and verify again; only then throw `.formatMismatch`.
   - Keep the route monitor running while stopped (or re-enumerate at the top of `prewarm`) so a device change between turns is seen.
   - Tests: `EngineTests` — pure `GraphRebuildPolicy` (formats agree → no rebuild; disagree after sync → rebuild once; disagree twice → throw); diagnostics record `clientFormatPushed` on the default-device path. Evidence: `implemented`; §5 item 1 for hardware.
 
-- [ ] **A2 Adaptive start budget (V4.10) · [P]**
+- [x] **A2 Adaptive start budget (V4.10) · [P]**
   - `PipelineAudioSource.startTimeout` becomes `budget(for transport:)`: builtIn 3 s, USB 5 s, Bluetooth / Continuity / virtual 8 s (self-test keeps 15).
   - Error copy via `RecoveryCatalog` ids: timeout → **A03** "Couldn't start this microphone" naming the device; format → **A04** "This microphone needs reconnecting". Subtitle keeps "Nothing was typed".
   - Tests: budget table; error mapping. Evidence: `implemented`.
 
-- [ ] **A3 Hotkey armed before the container (V4.6) · [P]**
+- [x] **A3 Hotkey armed before the container (V4.6) · [P]**
   - `AppDelegate.applicationDidFinishLaunching`: construct `HotkeyService` + `CapabilityWatcher` first; then `Task { AppContainer.build }`. A press before the container lands shows `.starting` ("Starting microphone…"); if the key is still down when the container lands, capture starts; if released, nothing lands (K03 quiet return). One queued press max.
   - Tests: `AppTests` with a fake container future: press-before-ready → `.starting`; still-held → capture; released → nothing; two presses → one.
 
-- [ ] **A4 Warm-up at launch, graph kept between turns (V4.7) · [P]**
+- [x] **A4 Warm-up at launch, graph kept between turns (V4.7) · [P]**
   - `AppContainer.warmUpEngine()`: `.userInitiated`; after `preloadModel()` call `engine.prewarm()` (audio graph built, mic **not** open) and again on `.deviceChanged`.
   - `CoreAudioCaptureSource.stop()`: between turns `engine.pause()` with the tap left installed and the AUHAL pinned; full `engine.stop()` only on hard mute, quit, device change or 10 min idle. `start()` from paused state must not re-enumerate or re-pin.
   - Log key-down → first buffer (ms) per turn at `.info`.
   - Tests: `EngineTests` capture-state machine (`prepared → running → paused → running`, `paused → stopped` on mute/idle); no HAL calls on `paused → running` (count through the diagnostics struct). Evidence: `implemented`; §5 items 2–3 for the p95 < 150 ms and the mic indicator off while paused.
 
-- [ ] **A5 Maintenance off the build path (V4.8) · [P]**
+- [x] **A5 Maintenance off the build path (V4.8) · [P]**
   - `ModelManager.runMaintenance` runs detached after `wire()`; still under the cross-process lock; `ModelManager.init` no longer blocks on it. Tests: init returns before maintenance completes (fake lock).
 
 ### Wave 1 — B · Latch (V4.32, V4.33, V4.37, V4.38 publish)
 
-- [ ] **B1 Endpoint loop (V4.32) · [P]**
+- [x] **B1 Endpoint loop (V4.32) · [P]**
   - On `.enterLatch`: `audio.setLatched(true)`; subscribe `onVAD` → `LatchRuntime.noteVAD`, `onEndpoint` → `LatchRuntime.noteEndpoint`; drive `LatchRuntime.tick` from the audio position; on `.endpoint` call `closeSegmentAtEndpoint()` → engine closes the segment → `.closed(reason: .endpoint)` → delivery.
   - Delivery takes a **fresh focus snapshot at segment close**, never the key-release one. Focus changed since the segment's speech began → `.held` (D01 copy). Segments are serialized by `SegmentID`.
   - On leaving latch: `setLatched(false)`, endpointer reset.
   - Tests: `AppTests` with `MockEngine` + scripted VAD: three pauses → three landings in order; focus change mid-segment → that segment held, next lands; no endpoint → nothing lands until the stop tap. Evidence: `implemented` + `fixture-verified` (`Fixtures/audio/vad`).
 
-- [ ] **B2 Pause setting (V4.33) · [P]**
+- [x] **B2 Pause setting (V4.33) · [P]**
   - `SettingsKeys` entry `latch.pauseSeconds` (read through the `SettingsStore` protocol) (1.0–5.0, default 2.0) → `LatchRuntime.endpointer = Endpointer(trailingSilence: pause, noSpeechTimeout: 8, maxUtterance: 30)`; live update while latched. UI row is S7g (Shortcuts subpage). Tests: setting round trip; endpointer rebuilt on change.
 
-- [ ] **B3 Field context in the latch path (V4.37) · [P]**
+- [x] **B3 Field context in the latch path (V4.37) · [P]**
   - `LatchRuntime.swift:406`: replace the raw `joinedText` injection with `UtteranceLander.land` (continuation, field rules, `renderedText`). Tests: latch segment lands through the lander (spy).
 
-- [ ] **B4 Latch presentation feed · [P]**
+- [x] **B4 Latch presentation feed · [P]**
   - `LatchRuntime` publishes `elapsed` → `DictationCoordinator` → `pill.model.apply(.latched(elapsed:))` for
     the design's timer. No countdown ring (V4.38 withdrawn to match the design). Tests: elapsed advances,
     resets on a new latch.
 
 ### Wave 1 — C · Speech guards (V4.21–V4.23)
 
-- [ ] **C1 Decode only if the VAD saw speech (V4.21) · [P]**
+- [x] **C1 Decode only if the VAD saw speech (V4.21) · [P]**
   - `RealEngine` receives `noteVAD(_:)` (wired from `onVAD`) and accumulates speech seconds per open segment. `stop()` and the endpoint close decode only when `speechSeconds ≥ 0.3`; otherwise return `[]` with `EngineStopReason.noSpeech`. Coordinator maps it to **A06** "No speech detected — Try again" as a quiet return (fades 1200 ms).
   - Tests: `EngineTests` — silence hold → no decode call (spy decoder); 0.4 s speech → decode. `Fixtures/audio/silence` replay lands nothing.
 
-- [ ] **C2 Hallucination guard (V4.22) · [P]**
+- [x] **C2 Hallucination guard (V4.22) · [P]**
   - `Engine/ASRRuntime/HallucinationGuard.swift`: pure `verdict(text:, speechRatio:, speechSeconds:, meanConfidence:, tokens:) -> Verdict`. Drop when (speechRatio < 0.2 ∧ normalized text ∈ filler set {"you", "thank you", "thanks for watching", "bye", "the end", "subtitles by", "okay"}) ∨ (any token repeats ≥ 4× consecutively) ∨ (meanConfidence < 0.3 ∧ speechSeconds < 1). Applied in `RealEngine` after the final pass; drops are logged with the utterance stamp and count in `EngineDiagnostics`.
   - Tests: verdict table (≥ 12 rows incl. "Thank you." with 60 % speech ratio → keep).
 
-- [ ] **C3 Pre-roll only when the graph was already running (V4.23) · [P]**
+- [x] **C3 Pre-roll only when the graph was already running (V4.23) · [P]**
   - `AcousticCaptureSource.start()`: prepend `held` only if `prewarmed` was true **before** this key-down (A4 makes that the normal case); a press that opened the mic gets no pad. Tests: two-path test with a fake inner source.
 
 ### Wave 1 — D · Caret and formatting (V4.1–V4.5, V4.13, V4.16, V4.17)
 
-- [ ] **D1 Three-valued caret (V4.2, V4.3) · [P]**
+- [x] **D1 Three-valued caret (V4.2, V4.3) · [P]**
   - `FieldContextReader` returns `CaretState`. Rungs: `kAXSelectedTextRange` on `kAXValue` → `AXSelectedTextMarkerRange` + `AXStringForTextMarkerRange` / `AXTextMarkerRangeForUnorderedTextMarkers` (WebKit/Chromium; add the parameterized reads to `LiveSystemAccess`, mocked in `MockSystemAccess`) → `unknown`. `endOfField` only when a range is known and equals the value length. Remove the `?? count` fallback at `:60`.
   - Tests: `AppTests` + `InjectionTests` — value without range → `unknown` (not end); marker range answers → `known`; secure → refused as before.
 
-- [ ] **D2 Model punctuation is provisional (V4.1) · [P]**
+- [x] **D2 Model punctuation is provisional (V4.1) · [P]**
   - `SpokenPunctuation` stage marks spans it creates `.spoken`. `FieldRoleFormatter`: `stripAddedTrailingPeriod` strips a `.model` period when the caret is `known` with non-empty `after` or when `before` does not end a sentence; `applyFirstWordCase` lowercases a `.model` capital when `before` ends with a word character or a space after a non-terminal; `.spoken` marks are always kept.
   - `FieldRolePipeline`: StyleStage is disabled whenever a caret state exists that is not `endOfField`-after-terminal; with no context (`unknown`) StyleStage is **off**.
   - Tests: `PipelineTests` matrix (mid-sentence word → lowercase, no period; after "." + space → capital; empty field → capital + period for ≥ 3 words).
 
-- [ ] **D3 Continuation rules (V4.4) · [P]**
+- [x] **D3 Continuation rules (V4.4) · [P]**
   - `Continuation.swift`: table — after `[.!?]`+space → capital, no leading space; after a word → " " + lowercase + no period; before a word → trailing " ", no period; inside a word → no spaces; empty → capital, period only if ≥ 4 words; `unknown` → **no leading space**, ≥ 3 words keep model casing/punctuation, 1–2 words stripped; `paragraphIntent` branch removed unless wired.
   - Setting `formatting.unknownCaretStyle` = `sentence` (default) | `asSpoken` (S7g renders it).
   - Tests: full table; `unknown` never produces a leading space.
 
-- [ ] **D4 `renderedText` everywhere (V4.13) · [P]**
+- [x] **D4 `renderedText` everywhere (V4.13) · [P]**
   - `UtteranceLander` `:132,154,167,178,191,201`, `LatchRuntime` (B3 does its line), `CodeSwitchService` if it joins. Tests: filler-removed first span → no leading space; ITN-collapsed spans → single spaces.
 
-- [ ] **D5 Landing memory (V4.16) · [P]**
+- [x] **D5 Landing memory (V4.16) · [P]**
   - `App/Services/LandingMemory.swift`: records element identity (bundle, role, AX hash), landed text, ending class (word / space / terminal), timestamp. Invalidated by NSEvent global monitors for mouse-down, scroll, key-down (Accessibility trust; if unavailable, mouse + app switch + 30 s TTL only), app activation. `FieldContextReader` consults it when the AX rung is `unknown` → `known(before: lastLanded, after: "")`.
   - Tests: sequence of two landings → second joins correctly; click between → `unknown`.
 
-- [ ] **D6 Spacing setting (V4.17) · [P]** — `formatting.spacing` = automatic | always | never; applied in `Continuation`. Tests: three modes.
+- [x] **D6 Spacing setting (V4.17) · [P]** — `formatting.spacing` = automatic | always | never; applied in `Continuation`. Tests: three modes.
 
-- [ ] **D7 Per-app caret capability memory (V4.5) · [P]** — after N = 5 landings in a bundle where every AX rung was `unknown`, skip the AX round-trip (go to landing memory), reset when a rung answers. Tests: counter and reset.
+- [x] **D7 Per-app caret capability memory (V4.5) · [P]** — after N = 5 landings in a bundle where every AX rung was `unknown`, skip the AX round-trip (go to landing memory), reset when a rung answers. Tests: counter and reset.
 
 ### Wave 1 — E · Numbers (V4.11, V4.12)
 
-- [ ] **E1 Punctuation-tolerant ITN (V4.11) · [P]**
+- [x] **E1 Punctuation-tolerant ITN (V4.11) · [P]**
   - `Numbers.parse`: strip trailing `[,.;:!?]` from each token before lookup, carry the mark of the **last consumed** token, re-attach to the emitted number. The `and` bridge checks the stripped next token. Tests: "five thousand one hundred and fifty." → "5,150."? — **no grouping separators** by default (design has 2,340 in script 05; keep `Numbers` grouping as it is today); "one, two, three, four." unchanged by E1 alone (E2 handles it).
 
-- [ ] **E2 Digit sequences by timing (V4.12) · [P]**
+- [x] **E2 Digit sequences by timing (V4.12) · [P]**
   - ≥ 3 consecutive single-digit spans with inter-span `audioRange` gaps < 250 ms and no `.spoken` comma → concatenate ("1234"); with gaps ≥ 250 ms or spoken commas → list "1, 2, 3, 4". Years ("twenty twenty six") and phone-style runs covered by the same rule. `Assembler` writes the result into one span and blanks the rest (D4 renders cleanly).
   - `PreviewFormatter` digitizer gains `hundred` and `and` so preview and final agree on the common cases (full unification is V4.14, Wave 2).
   - Tests: timing table with synthetic `audioRange`s; corpus replay on `Fixtures/real-room` script line 05 unchanged.
 
 ### Wave 1 — F · SNR that measures SNR (V4.18)
 
-- [ ] **F1 MicQualityAnalyzer v2 · [P]**
+- [x] **F1 MicQualityAnalyzer v2 · [P]**
   - Noise floor = p10 of 10 ms frame RMS over the pre-speech window (key-down → first VAD `speechStart`, min 200 ms; else the running 4 s minimum from `EnergyVAD`'s floor tracker). Signal = p90 over VAD-speech frames of the first 1 s of speech. Emit **once**, after both exist. `lowLevel` only when speech peak < −40 dBFS; a pause is never graded. Verdict: poor < 10 dB, bad < 5 dB (recorded as `hypothesis` in DECISIONS.md, to be set by Wave 2 corpus). `flush()` at stop grades only if speech was seen.
   - Feed: `AudioPipeline.process` passes VAD events to the analyzer (F1 owns those lines; C1 owns nothing in `AudioPipeline`).
   - Tests: `EngineTests` on `Fixtures/audio/clean` (≥ 20 dB, `.good`), `noisy` (< 10 dB), `silence` (no verdict), synthetic 1.5 s pause then speech (no `lowLevel`).
 
 ### Wave 1 — G · Deixis box, screenshot, OCR service (V4.27–V4.31, V4.53)
 
-- [ ] **G1 Rectangle gesture, key-gated (V4.27, V4.28, V4.31) · [P]**
+- [x] **G1 Rectangle gesture, key-gated (V4.27, V4.28, V4.31) · [P]**
   - `EventTapRecorder`: left-drag while `HotkeyService.isDictationKeyDown` (add: true between key-down and key-up of the bound key) → `RegionCapture` (rect in display coords); bare drag ignored unless setting `deixis.drawWithoutKey` (default off, latch only). `InkStrokeCapture` replaced by `RegionCapture`; `StrokeGeometry` becomes `RegionGeometry` (orange 1 px rectangle, hand-drawn corner jitter optional, 1.5 s fade after the utterance).
   - `AppDelegate` hotkey block: overlay ordered front only while the key is down; `.enterLatch` ends deixis capture and hides the overlay; key-down inside latch re-arms for the drag.
   - Tests: `ActionsTests` gesture table (key down + drag → region; drag alone → nothing; latch + setting → region). `AppTests` overlay visibility per action.
 
-- [ ] **G2 Screen capture + OCR service and permission (V4.53, V4.29) · [P]**
+- [x] **G2 Screen capture + OCR service and permission (V4.53, V4.29) · [P]**
   - `App/Services/ScreenTextService.swift` implements `ScreenTextReader`: `SCShareableContent` + `SCScreenshotManager.captureImage` (macOS 14) of the window under the rect at backing scale; `VNRecognizeTextRequest` (`.accurate`, `usesLanguageCorrection` by field role, `customWords` from `LearnedLexicon`, recognition languages en + configured); returns lines with boxes converted to points. Frame held in memory for the turn; never written.
   - `PermissionMatrix`: add `screenRecording` (optional; `CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess`; asked the first time a box is drawn, with a one-line explanation; denial → box carries AX text only and the pill says "Screen text isn't available").
   - Tests: protocol mock; point/pixel conversion; permission state machine. Evidence: `implemented`; §5 item 6.
 
-- [ ] **G3 Box → element + text + image (V4.29, V4.30 data) · [P]**
+- [x] **G3 Box → element + text + image (V4.29, V4.30 data) · [P]**
   - `DeixisService`: on region → AX hit-test (existing) → element role/title; text inside the rect via `kAXStringForRange` over the element's visible range when available, else `ScreenTextService.lines(in:)`; build `DeixisRegion { rect, element, text, imageID, source: .ax | .ocr }`; `contextLine` extended (`region 1 = <role> "<title>" text: "<…>"`); image kept for the utterance and exposed to S2's chip through `DeixisService.currentRegions`.
   - Tests: AX text present → no OCR call; absent → OCR; region cleared at turn end.
 
 ### Wave 1 — H · Speaker enrollment plumbing (V4.49, V4.50)
 
-- [ ] **H2 Passive enrollment · [P]**
+- [x] **H2 Passive enrollment · [P]**
   - `SpeakerEnrollment`: accumulate embeddings from hold-to-talk utterances with ≥ 1.5 s of VAD speech; after 10 build the profile; expose `progress`. `LatchController.install(profile:)` sets `speakerFilteringEnabled = true` and assigns `LatchRuntime.speakerGuard`; "Not you" correction (`NotYouCorrection`) adjusts the threshold. Filter applies to latch segments only (hold is the user by definition).
   - Tests: 10 synthetic utterances → profile; filter rejects a far embedding (cosine < 0.6) and passes a near one; hold never filtered.
 
-- [ ] **H3 Embedding weights (V4.50) · [P]**
+- [x] **H3 Embedding weights (V4.50) · [P]**
   - `ModelCatalog`: add the FluidAudio speaker-embedding model (the diarizer's WeSpeaker CoreML; verify the exact repo id and size through `FluidSpeakerEmbedder`) as a required download with Parakeet; `SpeakerEmbedderFactory.make()` returns it when present so `identifiesSpeakers == true`. MFCC stays the fallback and is labelled "Voice filtering unavailable" (X03 copy). Tests: descriptor round trip; factory choice.
 
 ### Wave 1 — I · Hotkey default and Escape (V4.51, design §5)
 
-- [ ] **I1 fn default (V4.51) · [P]**
+- [x] **I1 fn default (V4.51) · [P]**
   - `HotkeyService.defaultBinding = .fn`; stored bindings win. `HotkeyBinding.label` used for every hint: "Hold or Double Tap fn / 🌐 to dictate" ("Hold fn / 🌐 to dictate" when latch is disabled). Read `AppleFnUsageType` (`com.apple.HIToolbox`); if ≠ 0 expose `fnSystemActionConflict` for onboarding/Settings (S7g/S8 render the prompt + "Open Keyboard settings"). If no fn event is ever seen in 3 presses during onboarding's key test, offer Right ⌥ (S8).
   - Tests: default resolution; stored binding precedence; label interpolation; conflict flag from a fake defaults.
 
-- [ ] **I2 Escape during a turn · [P]**
+- [x] **I2 Escape during a turn · [P]**
   - `App/Services/EscapeHotkey.swift`: Carbon `RegisterEventHotKey(kVK_Escape, 0)` registered on turn start (listening / finishing / preview), unregistered on idle, held, error or menu. Fires `TurnController.escape()` (S3): before write → cancel, nothing inserted, `.cancelled` 800 ms; after write begins → resolve outcome, then offer Undo. Never registered while idle.
   - Tests: registration lifecycle per state; double Escape idempotent.
 
 ### Wave 1 — J · Small fixes
 
-- [ ] **J1 Recording retention (V4.52) · [P]** — `UtteranceRecorder.retainedUtterances` from `SettingsKeys` entry `recordings.retain` (`100` default, `0` = keep all); folder size reported; manifest gains `corpus: String?` (label set from Privacy, S7f). Tests: pruning at 100 and never at 0.
-- [ ] **J2 Claude desktop adapter (V4.40) · [P]** — add the Claude app's bundle id to `ElectronAdapter` (verify with `osascript -e 'id of app "Claude"'`; record the id in the report). Tests: match.
+- [x] **J1 Recording retention (V4.52) · [P]** — `UtteranceRecorder.retainedUtterances` from `SettingsKeys` entry `recordings.retain` (`100` default, `0` = keep all); folder size reported; manifest gains `corpus: String?` (label set from Privacy, S7f). Tests: pruning at 100 and never at 0.
+- [x] **J2 Claude desktop adapter (V4.40) · [P]** — add the Claude app's bundle id to `ElectronAdapter` (verify with `osascript -e 'id of app "Claude"'`; record the id in the report). Tests: match.
 
 ### Wave 1 — S1 · Spool art — exact port of the prototype (design §3.1, §11.1)
 
@@ -481,14 +481,14 @@ these are part of the verified design and are tested separately from the golden 
 
 ### Wave 1 — S6 · Menu bar glyph and status menu (design §4 "menu-bar identity", §8.8)
 
-- [ ] **S6 · [P]**
+- [x] **S6 · [P]**
   - `App/UI/MenuBarGlyph.swift`: the prototype's glyph exactly (`spool_spec.json` › `menuGlyph`): viewBox 32 × 24, rounded rect (1, 2, 30 × 21, r4, stroke 1.5), eyes r4 at (10, 10) and (22, 10), mouth `M11 17q5 4 10 0`; scaled into an 18 × 16 pt `NSImage`, `isTemplate = true`, stroke only. Replaces the SF symbol in `StatusItemController.refreshIcon`. Never tinted.
   - Menu (`MenuModel`): Ready / Muted / Blocked line, current microphone, Start dictation (click-to-stop), Mute, Held text (N), Open VoicePlus, Settings, Quit (capture guard: Stop and quit / Cancel; held drafts saved). Opening the menu never records.
   - Tests: `MenuModelTests` item table per state; glyph renders non-empty at 1× and 2×.
 
 ### Wave 1 — S9 · Recovery catalogue (design §10)
 
-- [ ] **S9 `App/Core/RecoveryCatalog.swift` · [P]**
+- [x] **S9 `App/Core/RecoveryCatalog.swift` · [P]**
   - Data: all 59 entries (`P01…X08`) **loaded from or tested against `Fixtures/design/design_copy.json` › `errors`** (id, family, trigger, headline, consequence, action, data policy) and `spool_spec.json` › `errorPoses` (Spool treatment and pose key); Spool treatment (`.heldTape`, `.attentiveReview`, `.setupLatch`, `.closedShutters`, `.quietReturn`, `.unconfirmedHold`, `.liveWarning`, `.scopedNotice`).
   - Mapping: `RecoveryCatalog.entry(for: Error | DeliveryReason | PermissionState | EngineState)` covering `AudioCaptureError`, `EngineError`, `ProviderError`, `ModelManager` errors, `DeliveryReason`, `SpeakerError`, `PairingError`, plus the catch-all X08.
   - `EngineErrorMessage.describe` routes through the catalogue; raw text goes to `Log` only.
@@ -841,19 +841,19 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 0 | G0.2 | [x] | 6ad3286..ef56ebc | AppTests 783 passed (+3), Engine 458: 457 passed | build clean, .build-slot1 | AudioPipeline edit outside Owns; W0 gate `42c2c19` fixed the replay test (skips clips < 0.3 s); wave 0 gate: 2060 tests green `--no-parallel` |
 | 0 | G0.3 | [x] | 60f28aa..86351c5 | AppTests 780 passed (+9), DesignTokenTests 22 passing | build clean, scratch .build-slot2 | separator/pill border kept decorative per §3.3; hardware rendering unverified |
 | 0 | G0.4 | [x] | 6c57b64..4d139a9 | SharedTests 84 passed; AppTests 771 passed (7 new) | build clean, scratch .build-slot3 | deviation: compiler-forced edits to PillPresentation/PillView/PresenceState; S6/S2/S2 gaps reported not fixed |
-| 1 | A1–A5 | [ ] | | | | |
-| 1 | B1–B4 | [ ] | | | | |
-| 1 | C1–C3 | [ ] | | | | |
-| 1 | D1–D7 | [ ] | | | | |
-| 1 | E1–E2 | [ ] | | | | |
-| 1 | F1 | [ ] | | | | |
-| 1 | G1–G3 | [ ] | | | | |
-| 1 | H2–H3 | [ ] | | | | |
-| 1 | I1–I2 | [ ] | | | | |
-| 1 | J1–J2 | [ ] | | | | |
-| 1 | S1 | [ ] | | | | |
-| 1 | S6 | [ ] | | | | |
-| 1 | S9 | [ ] | | | | |
+| 1 | A1–A5 | [x] | 657bab5..836e95a | A suites 119 passed (Engine+App) | implemented; §5 items 1–3 | Bluetooth beginPreroll() unwired; AppContainer wiring hardware-only |
+| 1 | B1–B4 | [x] | ced7ae6..4ed1f53 | B filter 147 passed (+39) | implemented + fixture-verified | onLanded pill row unwired (S2); settings row S7g |
+| 1 | C1–C3 | [x] | e77834f..02b230d, b2a8318 | EngineTests C suites 36 passed | implemented; silence fixture-verified | gate: ordered .closed broadcast; A06 mapping not asserted |
+| 1 | D1–D7 | [x] | 6bb5fb3..7347bf5 | Pipeline 372, Injection 122, App D 38 (+new suites) | implemented + fixture-verified; §5 item 5 | AX text markers mock-only; settings UI S7g |
+| 1 | E1–E2 | [x] | 592bf82 | PipelineTests 372 (+NumbersTimingTests) | implemented + fixture-verified (line 05) | preview/final digit parity left for V4.14 |
+| 1 | F1 | [x] | 06dc150 | EngineTests 598 (+17 MicQualityV2) | fixture-verified | thresholds hypothesis; DECISIONS.md entry for R |
+| 1 | G1–G3 | [x] | 58c8902..35da7cd, c79603d | Actions 195, App G 47 (+1) | implemented; §5 item 6 | gate: retention tests wait for crops too; chip is S2 |
+| 1 | H2–H3 | [x] | 9cd26b2..b88c70e, cb5c1e8 | Engine +18, App +10, gate +7 wiring | implemented + fixture-verified | gate wired holds→enrollment, latch audio→guard, Voice learned |
+| 1 | I1–I2 | [x] | 4f6ef0d..bd43acc | App I suites 40 (+40), gate run green | implemented; copy fixture-verified | EscapeHotkey → TurnController.escape() wired in S3 |
+| 1 | J1–J2 | [x] | 411f669..6049b9b | J filter 41 (+17), Injection 122 | implemented | Privacy rows S7f; keep-all copy fixed at gate |
+| 1 | S1 | [x] | 19b7b3f | App Spool 31 (SpoolParity + SpoolMotion) | fixture-verified; §5 item 7 | 24 art hex colours outside DesignTokens; SpoolView unplaced |
+| 1 | S6 | [x] | 29aaff8 | App S6 suites 48 functions | implemented | presenceState unwired in AppDelegate; held row prototype wording |
+| 1 | S9 | [x] | 29980a4, f458784 | S9 suites 55 (+2 files) | implemented; copy fixture-checked | consumers switch in S11; 9 ids defensive |
 | 2 | S2 | [ ] | | | | |
 | 2 | S3 + S11 store | [ ] | | | | |
 | 2 | S7a | [ ] | | | | |
