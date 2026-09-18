@@ -196,3 +196,47 @@ public final class LiveSystemAccess: SystemAccess {
         guard err == .success else { throw SystemAccessError.axError(err.rawValue) }
     }
 }
+
+// MARK: - D1 — the caret through text markers (WebKit / Chromium)
+
+extension LiveSystemAccess: TextMarkerCaretReading {
+    /// The attribute names, spelled as literals: they are not in the public AX headers.
+    enum MarkerAttribute {
+        static let selectedRange = "AXSelectedTextMarkerRange"
+        static let rangeForElement = "AXTextMarkerRangeForUIElement"
+        static let startOfRange = "AXStartTextMarkerForTextMarkerRange"
+        static let endOfRange = "AXEndTextMarkerForTextMarkerRange"
+        static let rangeForMarkers = "AXTextMarkerRangeForUnorderedTextMarkers"
+        static let string = "AXStringForTextMarkerRange"
+    }
+
+    /// Selection edges from `AXSelectedTextMarkerRange`; field edges from the element's own
+    /// marker range (`AXTextMarkerRangeForUIElement`); then `AXTextMarkerRangeForUnorderedTextMarkers`
+    /// builds field-start → selection-start and selection-end → field-end, and
+    /// `AXStringForTextMarkerRange` reads each. Any missing piece answers `nil` — the caller falls
+    /// through to `unknown`, never to "end".
+    ///
+    /// Deliberately no fallback to `AXStartTextMarker` / `AXEndTextMarker`: those are the
+    /// *document's* edges, so "before" would carry the page's text above an empty input — the
+    /// very "always starts with a space" bug this rung exists to remove (V4 §5).
+    public func caretByTextMarkers() -> TextMarkerCaret? {
+        guard let element = try? focusedAXElement(),
+              let selection = copyAttribute(element, MarkerAttribute.selectedRange),
+              let selectionStart = parameterized(element, MarkerAttribute.startOfRange, selection),
+              let selectionEnd = parameterized(element, MarkerAttribute.endOfRange, selection),
+              let whole = parameterized(element, MarkerAttribute.rangeForElement, element),
+              let fieldStart = parameterized(element, MarkerAttribute.startOfRange, whole),
+              let fieldEnd = parameterized(element, MarkerAttribute.endOfRange, whole),
+              let beforeRange = parameterized(element, MarkerAttribute.rangeForMarkers, [fieldStart, selectionStart] as CFArray),
+              let afterRange = parameterized(element, MarkerAttribute.rangeForMarkers, [selectionEnd, fieldEnd] as CFArray),
+              let before = parameterized(element, MarkerAttribute.string, beforeRange) as? String,
+              let after = parameterized(element, MarkerAttribute.string, afterRange) as? String else { return nil }
+        return TextMarkerCaret(before: before, after: after)
+    }
+
+    private func parameterized(_ element: AXUIElement, _ name: String, _ parameter: CFTypeRef) -> CFTypeRef? {
+        var value: CFTypeRef?
+        let err = AXUIElementCopyParameterizedAttributeValue(element, name as CFString, parameter, &value)
+        return err == .success ? value : nil
+    }
+}
