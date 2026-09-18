@@ -22,13 +22,26 @@ public struct StyleStage: PipelineStage {
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
         var cells = spans.map { $0.isLowConfidence ? $0.flaggedForRepair(by: id) : $0.touched(by: id) }
-        guard context.extra[Self.enabledKey] != "false", !cells.isEmpty else { return cells }
+        guard context.extra[Self.enabledKey] != "false", Self.caretAllowsStyle(context), !cells.isEmpty else { return cells }
         let profile = try resolveProfile(context: context)
         guard profile.category != .code, profile.category != .terminal,
               context.register != .code, context.register != .terminal else { return cells }
         Self.applyCapitalization(&cells, profile: profile, by: id)
         Self.applyTerminalPeriod(&cells, profile: profile, by: id)
         return cells
+    }
+
+    /// D2 — the learned profile's two edits (first-word capital, terminal period) are sentence
+    /// edits. They run only where the caret is known to sit at the end of the field right after a
+    /// sentence end (`endOfField` after `.!?`). Every other caret state the run carries switches
+    /// the stage off: mid-sentence, text after the caret, an empty field (D3 decides its capital
+    /// and its full-clause period there; a cold-start prior would re-add a period to "Sounds
+    /// good"), and `unknown` (no field context could be read). A run with no caret reading at all
+    /// (the Lab, a test without a field) is unaffected.
+    static func caretAllowsStyle(_ context: StageContext) -> Bool {
+        guard let kind = context.extra[FieldContext.Keys.caret] else { return true }
+        guard kind == CaretState.Kind.endOfField.rawValue else { return false }
+        return ContinuationPlanner.endsSentence(context.extra[FieldContext.Keys.textBefore] ?? "")
     }
 
     func resolveProfile(context: StageContext) throws -> StyleProfile {
@@ -67,6 +80,8 @@ public struct StyleStage: PipelineStage {
         guard let i = cells.lastIndex(where: { !$0.text.isEmpty }), !cells[i].isLowConfidence else { return }
         let text = cells[i].text
         if profile.terminalPeriodRate <= decisionThreshold {
+            // D2 — a period the user dictated ("full stop") is never a style decision.
+            guard cells[i].punctuationOrigin != .spoken else { return }
             guard text.hasSuffix("."), !text.hasSuffix(".."), !text.hasSuffix("…") else { return }
             let core = text.dropLast()
             // Leave abbreviations / numbers ("etc.", "3.") alone when the period is part of a token.

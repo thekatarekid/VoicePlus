@@ -8,10 +8,10 @@ struct FieldRoleFormatterTests {
 
     static func field(_ bundle: String?, role: String? = nil, subrole: String? = nil, hints: [String] = [],
                       before: String = "", after: String = "", multiline: Bool? = nil,
-                      submits: Bool? = nil, paragraph: Bool = false) -> FieldContext {
+                      submits: Bool? = nil) -> FieldContext {
         FieldContext(appBundleID: bundle, axRole: role, axSubrole: subrole, hints: hints,
                      isMultiline: multiline, submitsOnReturn: submits,
-                     textBeforeCursor: before, textAfterCursor: after, paragraphIntent: paragraph)
+                     textBeforeCursor: before, textAfterCursor: after)
     }
 
     static func spans(_ words: String) -> [TranscriptSpan] {
@@ -123,20 +123,21 @@ struct FieldRoleFormatterTests {
         #expect(ContinuationPlanner.plan(before: "cd ~/Dev", rules: terminal).leading == " ")
     }
 
-    @Test("a paragraph break is a blank line, and is not doubled up")
-    func paragraphBreak() {
-        #expect(ContinuationPlanner.plan(before: "Done.", paragraphIntent: true, rules: Self.prose).leading == "\n\n")
-        #expect(ContinuationPlanner.plan(before: "Done.\n", paragraphIntent: true, rules: Self.prose).leading == "\n")
-        #expect(ContinuationPlanner.plan(before: "Done.\n\n", paragraphIntent: true, rules: Self.prose).leading == "")
-        // A single-line field never gets a newline.
-        let chat = FieldRules(category: .chat, autoCapitalize: true, trailingPeriod: false,
-                              allowSubmit: true, allowParagraphBreak: false, preserveIdentifiers: false)
-        #expect(ContinuationPlanner.plan(before: "Done.", paragraphIntent: true, rules: chat).leading == " ")
+    @Test("D3: the unwired paragraph branch is gone — the planner never invents a newline")
+    func noParagraphBranch() {
+        for before in ["Done.", "Done.\n", "Done.\n\n", "", "word"] {
+            let plan = ContinuationPlanner.plan(before: before, rules: Self.prose)
+            #expect(!plan.leading.contains("\n"), Comment(rawValue: before))
+            #expect(plan.paragraphBreak == false)
+        }
     }
 
     @Test("a trailing space is added only when text follows the caret")
     func trailingSpace() {
-        #expect(ContinuationPlanner.plan(before: "is", after: "on the first request.", rules: Self.prose).trailing == " ")
+        #expect(ContinuationPlanner.plan(before: "is ", after: "on the first request.", rules: Self.prose).trailing == " ")
+        // D3 — letters on both sides of the caret is inside a word: no space either side.
+        #expect(ContinuationPlanner.plan(before: "is", after: "on the first request.", rules: Self.prose).trailing == "")
+        #expect(ContinuationPlanner.plan(before: "is", after: "on the first request.", rules: Self.prose).leading == "")
         #expect(ContinuationPlanner.plan(before: "is", after: " on the first request.", rules: Self.prose).trailing == "")
         #expect(ContinuationPlanner.plan(before: "is", after: "", rules: Self.prose).trailing == "")
         #expect(ContinuationPlanner.plan(before: "is", after: ", really", rules: Self.prose).trailing == "")
@@ -209,7 +210,7 @@ struct FieldRoleFormatterTests {
     func contextRoundTrip() {
         let original = Self.field("com.microsoft.VSCode", role: "AXTextArea", subrole: nil,
                                   hints: ["Terminal input", "xterm-screen"], before: "cd ~/ ", after: "x",
-                                  multiline: true, submits: false, paragraph: true)
+                                  multiline: true, submits: false)
         var context = StageContext()
         original.write(into: &context)
         let decoded = FieldContext(stageContext: context)
@@ -220,6 +221,6 @@ struct FieldRoleFormatterTests {
         #expect(decoded.textAfterCursor == original.textAfterCursor)
         #expect(decoded.isMultiline == true)
         #expect(decoded.submitsOnReturn == false)
-        #expect(decoded.paragraphIntent)
+        #expect(decoded.caret == .known(before: "cd ~/ ", after: "x"))
     }
 }

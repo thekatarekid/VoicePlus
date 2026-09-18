@@ -44,45 +44,62 @@ public struct FieldRoleFormatterStage: PipelineStage {
         if rules.preserveIdentifiers {
             out = CodeIdentifier.restore(CodeIdentifier.spellings(in: spans), in: out)
         }
-        if !rules.trailingPeriod {
-            out = Self.stripAddedTrailingPeriod(out, original: spans)
-        }
-        out = Self.applyFirstWordCase(out, original: spans, plan: plan)
+        // D2 — which marks the user dictated; those are never stripped below.
+        out = PunctuationProvenance.annotate(out, original: spans)
+        let decision = plan.resolved(wordCount: Self.wordCount(out), textRole: rules.autoCapitalize)
+        out = Self.applyTerminalPeriod(out, original: spans, keepModel: decision.keepModelPeriod,
+                                       keepAdded: decision.keepAddedPeriod && rules.trailingPeriod)
+        out = Self.applyFirstWordCase(out, original: spans, action: decision.firstWord)
         return out.map { $0.touched(by: id) }
+    }
+
+    /// Words in the insertion (tokens with a letter or digit), after fillers were removed.
+    static func wordCount(_ spans: [TranscriptSpan]) -> Int {
+        spans.renderedText.split(whereSeparator: { $0.isWhitespace }).filter { PunctuationProvenance.hasContent(String($0)) }.count
     }
 
     // MARK: - Field-role fixups
 
-    /// Removes a period the inner formatter appended. Never removes one the user dictated, and
-    /// never touches `...`, `?` or `!`.
-    static func stripAddedTrailingPeriod(_ spans: [TranscriptSpan], original: [TranscriptSpan]) -> [TranscriptSpan] {
-        guard let last = spans.lastIndex(where: { !$0.text.isEmpty }) else { return spans }
+    /// D2 — the final period, by origin: a spoken one always stays; the recogniser's stays when
+    /// `keepModel`; one a formatter appended stays when `keepAdded`. `?`, `!`, `...`, an
+    /// abbreviation's dot and a low-confidence span are never touched.
+    static func applyTerminalPeriod(_ spans: [TranscriptSpan], original: [TranscriptSpan],
+                                    keepModel: Bool, keepAdded: Bool) -> [TranscriptSpan] {
+        guard let (index, origin) = PunctuationProvenance.trailingPeriod(in: spans, original: original) else { return spans }
         var out = spans
-        let text = out[last].text
-        guard !out[last].isLowConfidence, text.hasSuffix("."), !text.hasSuffix("..") else { return spans }
-        let spokenHere = original.first { $0.audioRange == out[last].audioRange }?.text
-            ?? original.last(where: { !$0.text.isEmpty })?.text ?? ""
-        guard !spokenHere.hasSuffix(".") else { return spans }
-        out[last].text = String(text.dropLast())
+        let keep: Bool
+        switch origin {
+        case .spoken: keep = true
+        case .model: keep = keepModel
+        case .stage: keep = keepAdded
+        }
+        if keep {
+            if origin == .stage { out[index].punctuationOrigin = .stage }
+            return out
+        }
+        let text = out[index].text
+        guard let dot = text.lastIndex(of: "."),
+              text[text.index(after: dot)...].allSatisfy(\.isWhitespace) else { return spans }
+        out[index].text.remove(at: dot)
         return out
     }
 
-    /// Applies `plan.capitalizeFirstWord` to the first word of the insertion.
+    /// D2 — the first word's capital.
     ///
-    /// Lowercasing back is only ever done when the *spoken* word was lowercase — the formatter
-    /// capitalized it because it assumed a sentence start, and the text before the cursor says
-    /// otherwise. A proper noun, an all-caps word, "I", and anything identifier-shaped are left
-    /// exactly as the formatter left them.
+    /// `.capitalize` uppercases a lowercase first letter. `.lowercase` lowercases a capital from
+    /// the recogniser or a formatter; `.lowercaseAddedOnly` only one a formatter added (the heard
+    /// word was lowercase). Either way a proper-noun-shaped word is left alone: "I", an acronym,
+    /// an identifier, a weekday or month. A low-confidence first span is never rewritten.
     static func applyFirstWordCase(_ spans: [TranscriptSpan], original: [TranscriptSpan],
-                                   plan: ContinuationPlan) -> [TranscriptSpan] {
-        guard let index = spans.firstIndex(where: { !$0.isLowConfidence && $0.text.contains(where: \.isLetter) })
-        else { return spans }
+                                   action: FirstWordAction) -> [TranscriptSpan] {
+        guard let index = spans.firstIndex(where: { $0.text.contains(where: \.isLetter) }),
+              !spans[index].isLowConfidence else { return spans }
         var out = spans
         let text = out[index].text
         guard let letter = text.firstIndex(where: \.isLetter) else { return spans }
         let character = text[letter]
 
-        if plan.capitalizeFirstWord {
+        if action == .capitalize {
             guard character.isLowercase else { return spans }
             out[index].text = text.replacingCharacters(in: letter...letter, with: character.uppercased())
             return out
@@ -92,19 +109,14 @@ public struct FieldRoleFormatterStage: PipelineStage {
         let core = word.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?\"')]}"))
         guard !iForms.contains(core), !CodeIdentifier.looksLikeIdentifier(word),
               core != core.uppercased() || core.count == 1,
-              spokenFirstLetterIsLowercase(original) else { return spans }
+              !Capitalizer.always.contains(core.lowercased()) else { return spans }
+        if action == .lowercaseAddedOnly,
+           !PunctuationProvenance.heardFirstLetterIsLowercase(for: spans[index], original: original) { return spans }
         out[index].text = text.replacingCharacters(in: letter...letter, with: character.lowercased())
         return out
     }
 
     static let iForms: Set<String> = ["I", "I'm", "I'll", "I've", "I'd"]
-
-    static func spokenFirstLetterIsLowercase(_ original: [TranscriptSpan]) -> Bool {
-        for span in original {
-            if let c = span.text.first(where: \.isLetter) { return c.isLowercase }
-        }
-        return false
-    }
 }
 
 /// The result the injector needs: the spans (for history and provenance) and the exact string,

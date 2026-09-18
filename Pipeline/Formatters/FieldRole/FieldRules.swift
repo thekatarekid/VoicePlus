@@ -10,7 +10,9 @@ public struct FieldRules: Sendable, Equatable {
     public var category: AppCategory
     /// Capitalize a sentence start. False for terminals and code — `Grep` is not `grep`.
     public var autoCapitalize: Bool
-    /// Append a period when the utterance ends without terminal punctuation.
+    /// Append a period when the utterance ends without terminal punctuation. False at an unknown
+    /// caret and when text follows the caret. The continuation plan narrows it further (D2/D3:
+    /// no period after a word, a full clause only in an empty field).
     public var trailingPeriod: Bool
     /// Whether the injector may press Return after the text. **Always false for a terminal role**,
     /// even when the caller says the field submits on Return: a stray newline in a shell runs a
@@ -76,8 +78,9 @@ public struct FieldRules: Sendable, Equatable {
             let category = appCategory(for: field)
             let multiline = !role.isSingleLine && field.isMultiline != false
             // Inserting *into* a sentence: the sentence already has its full stop further along,
-            // so a period here would land in the middle of it.
-            let endOfField = field.textAfterCursor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // so a period here would land in the middle of it. An unknown caret has no "end" to
+            // speak of (V4.2): no invented period there either.
+            let endOfField = field.caret.textAfter.map { !ContinuationPlanner.textFollowsOnLine($0) } ?? false
             // Default: a search field and a one-line chat composer submit; nothing else does.
             // An explicit `submitsOnReturn` can only ever confirm, never widen — a mail body
             // that claims to submit on Return still does not get its Send pressed for it.

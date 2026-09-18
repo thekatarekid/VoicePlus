@@ -45,29 +45,52 @@ public struct FieldContext: Sendable, Equatable {
     /// True when Return sends rather than inserting a newline (a chat composer). Never honoured
     /// for a terminal role — a terminal is never submitted for the user.
     public var submitsOnReturn: Bool?
-    /// Text immediately before the caret, as read back. May be a bounded tail, not the whole field.
-    public var textBeforeCursor: String
-    /// Text immediately after the caret. Used to decide a trailing space.
-    public var textAfterCursor: String
-    /// The user asked for a new paragraph (spoken command, or a latch resuming after a pause).
-    public var paragraphIntent: Bool
+    /// D1 (V4.2) — where the caret is: `known(before, after)`, `endOfField(before)` or `unknown`.
+    /// `unknown` is never read as "end of field": the continuation planner gives it no leading
+    /// space, no invented capital and no invented period.
+    public var caret: CaretState
     /// The gatekeeper's register, used only when the bundle ID says nothing.
     public var register: Utterance.Register?
+    /// D6 — Settings → Spacing.
+    public var spacing: SpacingPreference
+    /// D3 — Settings → how text lands at an unknown caret.
+    public var unknownCaretStyle: UnknownCaretStyle
 
+    /// Text immediately before the caret, as read back. May be a bounded tail, not the whole
+    /// field. `""` when the caret is `unknown` — check `caret` before reading "empty" into it.
+    public var textBeforeCursor: String { caret.textBefore ?? "" }
+    /// Text immediately after the caret; `""` at the end of the field or when the caret is unknown.
+    public var textAfterCursor: String { caret.textAfter ?? "" }
+
+    /// `caret` wins when given. Without it, `textBeforeCursor`/`textAfterCursor` describe a caret
+    /// the caller *did* read (tests, goldens, the Lab): `endOfField` when nothing follows it,
+    /// `known` otherwise.
     public init(appBundleID: String? = nil, axRole: String? = nil, axSubrole: String? = nil,
                 hints: [String] = [], isMultiline: Bool? = nil, submitsOnReturn: Bool? = nil,
                 textBeforeCursor: String = "", textAfterCursor: String = "",
-                paragraphIntent: Bool = false, register: Utterance.Register? = nil) {
+                register: Utterance.Register? = nil, caret: CaretState? = nil,
+                spacing: SpacingPreference = .automatic, unknownCaretStyle: UnknownCaretStyle = .sentence) {
         self.appBundleID = appBundleID
         self.axRole = axRole
         self.axSubrole = axSubrole
         self.hints = hints
         self.isMultiline = isMultiline
         self.submitsOnReturn = submitsOnReturn
-        self.textBeforeCursor = textBeforeCursor
-        self.textAfterCursor = textAfterCursor
-        self.paragraphIntent = paragraphIntent
+        self.caret = caret ?? Self.caret(before: textBeforeCursor, after: textAfterCursor)
         self.register = register
+        self.spacing = spacing
+        self.unknownCaretStyle = unknownCaretStyle
+    }
+
+    /// A caret the caller read: `endOfField` when nothing follows it.
+    public static func caret(before: String, after: String) -> CaretState {
+        after.isEmpty ? .endOfField(before: before) : .known(before: before, after: after)
+    }
+
+    /// Both formatting settings as one value.
+    public var preferences: FormattingPreferences {
+        get { FormattingPreferences(spacing: spacing, unknownCaretStyle: unknownCaretStyle) }
+        set { spacing = newValue.spacing; unknownCaretStyle = newValue.unknownCaretStyle }
     }
 }
 
@@ -84,9 +107,15 @@ public extension FieldContext {
         public static let hints = "field.hints"
         public static let textBefore = "field.textBefore"
         public static let textAfter = "field.textAfter"
+        /// D1 — `CaretState.Kind.rawValue`. Absent means the run has no caret reading at all
+        /// (the Lab, a test without a field): the text keys then describe the caret, as before.
+        public static let caret = "field.caret"
         public static let multiline = "field.multiline"
         public static let submitsOnReturn = "field.submitsOnReturn"
-        public static let paragraphIntent = "field.paragraphIntent"
+        /// D6 — `SpacingPreference.rawValue`; also the settings key.
+        public static let spacing = "formatting.spacing"
+        /// D3 — `UnknownCaretStyle.rawValue`; also the settings key.
+        public static let unknownCaretStyle = "formatting.unknownCaretStyle"
     }
 
     /// ASCII unit separator: cannot occur in an AX label, so no escaping is needed.
@@ -95,6 +124,14 @@ public extension FieldContext {
     init(stageContext: StageContext) {
         let e = stageContext.extra, f = stageContext.flags
         let hintBlob = e[Keys.hints] ?? ""
+        let before = e[Keys.textBefore] ?? "", after = e[Keys.textAfter] ?? ""
+        let caret: CaretState
+        switch e[Keys.caret].flatMap(CaretState.Kind.init(rawValue:)) {
+        case .unknown?: caret = .unknown
+        case .endOfField?: caret = .endOfField(before: before)
+        case .known?: caret = .known(before: before, after: after)
+        case nil: caret = Self.caret(before: before, after: after)
+        }
         self.init(
             appBundleID: stageContext.appBundleID,
             axRole: e[Keys.axRole],
@@ -102,10 +139,10 @@ public extension FieldContext {
             hints: hintBlob.isEmpty ? [] : hintBlob.components(separatedBy: Self.hintSeparator),
             isMultiline: f[Keys.multiline],
             submitsOnReturn: f[Keys.submitsOnReturn],
-            textBeforeCursor: e[Keys.textBefore] ?? "",
-            textAfterCursor: e[Keys.textAfter] ?? "",
-            paragraphIntent: f[Keys.paragraphIntent] ?? false,
-            register: stageContext.register
+            register: stageContext.register,
+            caret: caret,
+            spacing: e[Keys.spacing].flatMap(SpacingPreference.init(rawValue:)) ?? .automatic,
+            unknownCaretStyle: e[Keys.unknownCaretStyle].flatMap(UnknownCaretStyle.init(rawValue:)) ?? .sentence
         )
     }
 
@@ -115,11 +152,13 @@ public extension FieldContext {
         if let axRole { stageContext.extra[Keys.axRole] = axRole }
         if let axSubrole { stageContext.extra[Keys.axSubrole] = axSubrole }
         if !hints.isEmpty { stageContext.extra[Keys.hints] = hints.joined(separator: Self.hintSeparator) }
+        stageContext.extra[Keys.caret] = caret.kind.rawValue
         stageContext.extra[Keys.textBefore] = textBeforeCursor
         stageContext.extra[Keys.textAfter] = textAfterCursor
+        stageContext.extra[Keys.spacing] = spacing.rawValue
+        stageContext.extra[Keys.unknownCaretStyle] = unknownCaretStyle.rawValue
         if let isMultiline { stageContext.flags[Keys.multiline] = isMultiline }
         if let submitsOnReturn { stageContext.flags[Keys.submitsOnReturn] = submitsOnReturn }
-        if paragraphIntent { stageContext.flags[Keys.paragraphIntent] = true }
     }
 }
 

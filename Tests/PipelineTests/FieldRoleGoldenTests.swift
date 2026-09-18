@@ -103,8 +103,7 @@ struct FieldRoleGoldenTests {
             isMultiline: f["multiline"].flatMap(Bool.init),
             submitsOnReturn: f["submits"].flatMap(Bool.init),
             textBeforeCursor: unquote(f["before"] ?? ""),
-            textAfterCursor: unquote(f["after"] ?? ""),
-            paragraphIntent: Bool(f["paragraph"] ?? "false") ?? false
+            textAfterCursor: unquote(f["after"] ?? "")
         )
     }
 

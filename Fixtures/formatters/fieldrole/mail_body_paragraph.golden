@@ -1,8 +1,8 @@
-# mail_body_paragraph — mail body after a finished sentence, with a paragraph break asked for:
-# a blank line, a capital, and a full stop at the end.
+# mail_body_paragraph — mail body after a finished sentence. D3 removed the paragraph branch
+# (nothing produced paragraph intent), so this continues the paragraph: one space, a capital,
+# and a full stop at the end (a full clause after a sentence end).
 app: com.apple.mail
 role: AXTextArea
-paragraph: true
 before: "Thanks for the detailed write-up."
 after: ""
 words: the cache is cold on the first request only
@@ -13,9 +13,9 @@ autoCapitalize: true
 trailingPeriod: true
 allowSubmit: false
 preserveIdentifiers: false
-leading: "\n\n"
+leading: " "
 trailing: ""
 capitalizeFirstWord: true
-paragraphBreak: true
+paragraphBreak: false
 words: "The cache is cold on the first request only."
-text: "\n\nThe cache is cold on the first request only."
+text: " The cache is cold on the first request only."

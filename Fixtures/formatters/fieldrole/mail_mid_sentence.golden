@@ -1,8 +1,10 @@
-# mail_mid_sentence — inserting into the middle of a sentence: a leading space, no capital,
-# a trailing space before the text that follows, and no period (the sentence already has one).
+# mail_mid_sentence — inserting into the middle of a sentence: no capital, a trailing space
+# before the text that follows, no leading space (one is already there), and no period (the
+# sentence already has one). D3: the caret sits between "is " and "on"; with no space on either
+# side the caret would be inside a word, which gets no spaces at all.
 app: com.apple.mail
 role: AXTextArea
-before: "The number that matters is"
+before: "The number that matters is "
 after: "on the first request."
 words: the cold cache latency
 ---
@@ -12,9 +14,9 @@ autoCapitalize: true
 trailingPeriod: false
 allowSubmit: false
 preserveIdentifiers: false
-leading: " "
+leading: ""
 trailing: " "
 capitalizeFirstWord: false
 paragraphBreak: false
 words: "the cold cache latency"
-text: " the cold cache latency "
+text: "the cold cache latency "
