@@ -16,8 +16,8 @@ import Testing
 @Suite("Latch segments land through the lander (B3)")
 @MainActor
 struct LatchLanderPathTests {
-    static let textEdit = FocusSnapshot(pid: 100, bundleID: "com.apple.TextEdit", appName: "TextEdit", elementToken: "el-1")
-    static let mail = FocusSnapshot(pid: 200, bundleID: "com.apple.mail", appName: "Mail", elementToken: "el-2")
+    nonisolated static let textEdit = FocusSnapshot(pid: 100, bundleID: "com.apple.TextEdit", appName: "TextEdit", elementToken: "el-1")
+    nonisolated static let mail = FocusSnapshot(pid: 200, bundleID: "com.apple.mail", appName: "Mail", elementToken: "el-2")
 
     struct Stack {
         let system: MockSystemAccess

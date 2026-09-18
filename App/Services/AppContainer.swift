@@ -372,7 +372,7 @@ public final class AppContainer {
         guard let real = engine as? RealEngine else { return }
         Task.detached(priority: .userInitiated) { [weak self] in
             let loaded = real.isModelLoaded ? true : await real.preloadModel()
-            await MainActor.run { self?.prewarmCapture(engine: real, modelLoaded: loaded) }
+            await MainActor.run { [weak self] in self?.prewarmCapture(engine: real, modelLoaded: loaded) }
         }
     }
 
