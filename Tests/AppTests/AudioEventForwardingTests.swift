@@ -16,7 +16,8 @@ struct AudioEventForwardingTests {
     private static let lead = 3_200, speech = 16_000, tail = 16_000
     private static let block = 800   // 50 ms, the pipeline's native block
 
-    private func bridge(latched: Bool, chunkMin: TimeInterval = 3, chunkMax: TimeInterval = 5)
+    private func bridge(latched: Bool, chunkMin: TimeInterval = 3, chunkMax: TimeInterval = 5,
+                        endpointer: Endpointer = Endpointer(trailingSilence: 0.3, noSpeechTimeout: 8, maxUtterance: 60))
         -> (PipelineAudioSource, FixtureCaptureSource) {
         let source = FixtureCaptureSource(wav: WAVFile(sampleRate: 16_000, samples: []))  // manual pushes
         var options = AudioPipeline.Options()
@@ -24,7 +25,7 @@ struct AudioEventForwardingTests {
         options.latched = latched
         options.chunkMin = chunkMin
         options.chunkMax = chunkMax
-        options.endpointer = Endpointer(trailingSilence: 0.3, noSpeechTimeout: 8, maxUtterance: 60)
+        options.endpointer = endpointer
         let audio = PipelineAudioSource(pipeline: AudioPipeline(source: source, vad: ScriptedVAD(), options: options))
         audio.requireMicrophonePermission = false
         return (audio, source)
@@ -61,6 +62,8 @@ struct AudioEventForwardingTests {
 
         #expect(log.vadEvents == [.speechStart(at: 0.2), .speechEnd(at: 1.2)])
         #expect(log.endpoints == [.endpoint(at: 1.2)], "the endpoint lands on the real speech end")
+        // Across the three callbacks, delivery keeps pipeline order: start, end, then the endpoint.
+        #expect(log.order.filter { $0 != "chunk" } == ["vad.start", "vad.end", "endpoint"])
         // Chunks arrive whole, in order, tiling the stream from 0 s.
         let chunks = log.chunks
         #expect(chunks.first?.range.lowerBound == 0)
@@ -110,6 +113,87 @@ struct AudioEventForwardingTests {
         #expect(!audio.isLatched && !audio.pipeline.isLatched)
     }
 
+    /// `onEndpoint` forwards every `Endpointer.Decision`, not just `.endpoint(at:)`: the latch
+    /// runtime needs `.noSpeech` and `.maxDuration` to close a segment too.
+    @Test("onEndpoint forwards .noSpeech and .maxDuration decisions")
+    func noSpeechAndMaxDurationReachOnEndpoint() async throws {
+        // Silence past `noSpeechTimeout` → .noSpeech, and no VAD event.
+        do {
+            let (audio, source) = bridge(latched: true,
+                                         endpointer: Endpointer(trailingSilence: 0.3, noSpeechTimeout: 0.5, maxUtterance: 60))
+            let log = ForwardLog()
+            audio.onVAD = { log.vad($0) }
+            audio.onEndpoint = { log.endpoint($0) }
+            try audio.start(for: .engine)
+            push([Float](repeating: 0, count: 16_000), into: source)
+            await audio.pipeline.drain()
+            try await poll { log.endpoints.count == 1 }
+            #expect(log.endpoints == [.noSpeech])
+            #expect(log.vadEvents.isEmpty)
+            audio.stop()
+        }
+        // Speech that never pauses, past `maxUtterance` → .maxDuration.
+        do {
+            let (audio, source) = bridge(latched: true,
+                                         endpointer: Endpointer(trailingSilence: 0.3, noSpeechTimeout: 8, maxUtterance: 1.0))
+            let log = ForwardLog()
+            audio.onVAD = { log.vad($0) }
+            audio.onEndpoint = { log.endpoint($0) }
+            try audio.start(for: .engine)
+            let tone = (0..<24_000).map { 0.2 * sin(Float($0) * 2 * .pi * 440 / 16_000) }
+            push(tone, into: source)
+            await audio.pipeline.drain()
+            try await poll { log.endpoints.count == 1 }
+            #expect(log.endpoints == [.maxDuration])
+            #expect(log.order.filter { $0 != "chunk" } == ["vad.start", "endpoint"])
+            audio.stop()
+        }
+    }
+
+    /// Chunks and VAD do not depend on the latch: a plain hold still gets both, and no endpoint.
+    @Test("An unlatched pipeline forwards .vad and .chunk but never .endpoint")
+    func unlatchedForwardsVADAndChunksOnly() async throws {
+        let (audio, source) = bridge(latched: false, chunkMin: 0.5, chunkMax: 1.0)
+        let log = ForwardLog()
+        audio.onVAD = { log.vad($0) }
+        audio.onEndpoint = { log.endpoint($0) }
+        audio.onChunk = { log.chunk($0) }
+        audio.sink = { log.samples($0.count) }
+
+        try audio.start(for: .engine)
+        let pushed = Self.utterance()
+        push(pushed, into: source)
+        await audio.pipeline.drain()
+        try await poll { log.sampleCount == pushed.count && log.vadEvents.count == 2 && log.chunks.count >= 2 }
+
+        #expect(log.vadEvents == [.speechStart(at: 0.2), .speechEnd(at: 1.2)])
+        #expect(log.chunks.first?.range.lowerBound == 0)
+        #expect(log.endpoints.isEmpty, "2.2 s with 1 s of trailing silence must not endpoint while unlatched")
+        audio.stop()
+    }
+
+    /// The latch flag outlives a stop/start cycle, and each start gets a fresh endpointer, so a
+    /// second latched turn endpoints again without another `setLatched(true)`.
+    @Test("setLatched set before start survives stop/start; each start endpoints afresh")
+    func latchSurvivesRestartWithAFreshEndpointer() async throws {
+        let (audio, source) = bridge(latched: false)
+        audio.setLatched(true)                      // before the first start
+        let log = ForwardLog()
+        audio.onVAD = { log.vad($0) }
+        audio.onEndpoint = { log.endpoint($0) }
+
+        for turn in 1...2 {
+            try audio.start(for: .engine)
+            #expect(audio.isLatched)
+            push(Self.utterance(), into: source)
+            await audio.pipeline.drain()
+            try await poll { log.endpoints.count == turn && log.vadEvents.count == 2 * turn }
+            audio.stop()
+        }
+        #expect(log.endpoints == [.endpoint(at: 1.2), .endpoint(at: 1.2)], "stream time restarts at 0 on each start")
+        #expect(log.vadEvents == [.speechStart(at: 0.2), .speechEnd(at: 1.2), .speechStart(at: 0.2), .speechEnd(at: 1.2)])
+    }
+
     private func poll(timeoutMs: Int = 5_000, _ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1_000)
         while !condition() {
@@ -130,20 +214,29 @@ private final class ForwardLog: @unchecked Sendable {
     private var _chunks: [AudioChunk] = []
     private var _samples = 0
     private var _samplesAtFirstEndpoint: Int?
+    private var _order: [String] = []
 
     var vadEvents: [VADEvent] { lock.withLock { _vad } }
     var endpoints: [Endpointer.Decision] { lock.withLock { _endpoints } }
     var chunks: [AudioChunk] { lock.withLock { _chunks } }
     var sampleCount: Int { lock.withLock { _samples } }
     var samplesAtFirstEndpoint: Int? { lock.withLock { _samplesAtFirstEndpoint } }
+    /// One tag per callback invocation, across all three callbacks, in delivery order.
+    var order: [String] { lock.withLock { _order } }
 
-    func vad(_ e: VADEvent) { lock.withLock { _vad.append(e) } }
-    func chunk(_ c: AudioChunk) { lock.withLock { _chunks.append(c) } }
+    func vad(_ e: VADEvent) {
+        lock.withLock {
+            _vad.append(e)
+            if case .speechStart = e { _order.append("vad.start") } else { _order.append("vad.end") }
+        }
+    }
+    func chunk(_ c: AudioChunk) { lock.withLock { _chunks.append(c); _order.append("chunk") } }
     func samples(_ n: Int) { lock.withLock { _samples += n } }
     func endpoint(_ d: Endpointer.Decision) {
         lock.withLock {
             if _samplesAtFirstEndpoint == nil { _samplesAtFirstEndpoint = _samples }
             _endpoints.append(d)
+            _order.append("endpoint")
         }
     }
 }
