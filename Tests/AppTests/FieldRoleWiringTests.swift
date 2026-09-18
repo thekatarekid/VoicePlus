@@ -74,9 +74,10 @@ import Shared
     }
 
     @Test func anOrdinaryProseFieldStillGetsSentenceRules() async {
-        // The contrast that shows terminal rules are rules, not a no-op everywhere.
+        // The contrast that shows terminal rules are rules, not a no-op everywhere. D3: an empty
+        // field gets a formatter period only for a full clause (≥ 4 words), so this is one.
         let (lander, mock) = Self.stack(Self.textEdit, field: MockSystemAccess.Field(role: "AXTextArea"))
-        let result = await lander.land(Self.spans("hello there"), startedAt: Date(), focus: mock.frontmost)
+        let result = await lander.land(Self.spans("hello there from the office"), startedAt: Date(), focus: mock.frontmost)
         #expect(result.fieldRole == .multilineText)
         #expect(result.text.hasPrefix("H"))
         #expect(result.text.hasSuffix("."))
@@ -106,21 +107,20 @@ import Shared
     @Test func theCaretWindowIsReadInUTF16UnitsAroundTheCaret() {
         let value = "The quick brown jumps over"
         let caret = "The quick brown".utf16.count
-        let (before, after) = FieldContextReader.textAroundCaret(value: value, range: caret..<caret, window: 400)
+        let (before, after) = FieldContextReader.textAroundCaret(value: value, range: caret..<caret, window: 400)!
         #expect(before == "The quick brown")
         #expect(after == " jumps over")
         // Bounded: a huge field contributes only the window either side.
         let long = String(repeating: "x", count: 5_000)
-        let (b2, a2) = FieldContextReader.textAroundCaret(value: long, range: 2_500..<2_500, window: 400)
+        let (b2, a2) = FieldContextReader.textAroundCaret(value: long, range: 2_500..<2_500, window: 400)!
         #expect(b2.count == 400)
         #expect(a2.count == 400)
-        // No caret at all: the caret is the end of the value (appending is the safe reading).
-        let (b3, a3) = FieldContextReader.textAroundCaret(value: "abc", range: nil, window: 400)
-        #expect(b3 == "abc")
-        #expect(a3.isEmpty)
+        // D1 — no caret at all is not "the end of the value": the V3 fallback is gone.
+        #expect(FieldContextReader.textAroundCaret(value: "abc", range: nil, window: 400) == nil)
         // A surrogate pair at the window edge is not sliced in half.
         let emoji = "ab\u{1F600}cd"
-        let (b4, _) = FieldContextReader.textAroundCaret(value: emoji, range: nil, window: 3)
+        let end = emoji.utf16.count
+        let (b4, _) = FieldContextReader.textAroundCaret(value: emoji, range: end..<end, window: 3)!
         #expect(!b4.contains("\u{FFFD}"))
     }
 
@@ -158,9 +158,9 @@ import Shared
 
     @Test func theInnerFormatterRunsExactlyOncePerUtterance() async {
         let (lander, mock) = Self.stack(Self.textEdit, field: MockSystemAccess.Field(role: "AXTextArea"))
-        let result = await lander.land(Self.spans("hello there"), startedAt: Date(), focus: mock.frontmost)
-        // "Hello there." — a second prose pass would have appended a second period or re-cased it.
-        #expect(result.text == "Hello there.")
+        let result = await lander.land(Self.spans("hello there from the office"), startedAt: Date(), focus: mock.frontmost)
+        // A second prose pass would have appended a second period or re-cased it.
+        #expect(result.text == "Hello there from the office.")
         #expect(!result.text.hasSuffix(".."))
     }
 }

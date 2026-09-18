@@ -29,6 +29,9 @@ public struct LandingResult: Sendable {
     /// R4.2 — `FieldRules.allowSubmit`: whether anything downstream may press Return after this
     /// text. Always false for a terminal role, whatever the field claims about Return.
     public var allowSubmit = false
+    /// D1 — the caret state the text was formatted for; `nil` when no field reader is wired.
+    /// `.unknown` is what the pill's "placed as spoken" hint keys on.
+    public var caret: CaretState.Kind?
 
     public var landed: Bool { injection?.succeeded ?? false }
 
@@ -82,8 +85,16 @@ public final class UtteranceLander: @unchecked Sendable {
     public var fieldContextProvider: ((String?) -> FieldContext?)?
     /// P4.2 — returns true (and consumes the claim) when the act pre-route hook took this utterance.
     public var actClaimConsumer: (() -> Bool)?
-    /// P6.3 — script-aware text assembly (code-switch merger); nil result keeps the joined text.
+    /// P6.3 — script-aware text assembly (code-switch merger); nil result keeps the rendered text.
     public var textFinalizer: (([TranscriptSpan]) -> String?)?
+    /// D3/D6 — Settings → spacing and unknown-caret style, read once per landing. Defaults to the
+    /// app's settings domain (`UserDefaultsSettingsStore`, the store `AppContainer` uses).
+    public var formattingPreferences: () -> FormattingPreferences = {
+        FormattingSettings.preferences(UserDefaultsSettingsStore())
+    }
+    /// D5 — our last landing, so the next one can join onto it where AX shows no caret. The
+    /// same instance `FieldContextReader` consults: both attach to this `system`.
+    public var landingMemory: LandingMemory
     /// Tests await the reconcile; the app runs it off the landing path.
     public var reconcileInline = false
     /// Diagnostic: when true, the raw recognised text and the landed text are written to the log
@@ -103,6 +114,7 @@ public final class UtteranceLander: @unchecked Sendable {
         self.database = database
         self.zeroEdit = zeroEdit
         self.recentWords = recentWords
+        self.landingMemory = LandingMemory.attached(to: system)
     }
 
     public func context(bundleID: String?) -> StageContext {
@@ -124,12 +136,17 @@ public final class UtteranceLander: @unchecked Sendable {
         var ctx = context(bundleID: bundleID)
         if let contextAugmenter { ctx = contextAugmenter(spans, ctx) }
         // R4.2 — the field context goes in last so nothing else can overwrite its keys.
-        let field = fieldContextProvider?(bundleID)
+        // D1 — a wired reader that finds no readable element means the caret is `unknown`, and
+        // the run says so (no leading space, no invented capital or period, StyleStage off).
+        let readField = fieldContextProvider?(bundleID)
+        var field = readField ?? (fieldContextProvider == nil ? nil : FieldContext(appBundleID: bundleID, caret: .unknown))
+        if field != nil { field?.preferences = formattingPreferences() }
         if let field { FieldRolePipeline.write(field, into: &ctx) }
         var result = LandingResult(utteranceID: id, route: .none, register: .unknown, text: "", injection: nil,
                                    focusDestination: Self.destinationName(focus: focus, bundleID: bundleID),
                                    repair: nil, pipelineMs: 0, totalMs: 0)
-        guard !spans.isEmpty, !spans.joinedText.trimmingCharacters(in: .whitespaces).isEmpty else { return result }
+        result.caret = field?.caret.kind
+        guard !spans.isEmpty, !spans.renderedText.trimmingCharacters(in: .whitespaces).isEmpty else { return result }
 
         var outSpans = spans
         var decision = GatekeeperDecision.fallback()
@@ -151,7 +168,7 @@ public final class UtteranceLander: @unchecked Sendable {
         // Plain route-.none decisions (fillers-only) carry no claim and land verbatim as before.
         if actClaimConsumer?() == true {
             result.route = Utterance.Route.none
-            result.text = outSpans.joinedText
+            result.text = outSpans.renderedText
             result.totalMs = ms(since: t0)
             Log.app.info("act domain claimed utterance (\(result.text.count) chars)")
             return result
@@ -164,7 +181,8 @@ public final class UtteranceLander: @unchecked Sendable {
             if outcome != .notHandled {
                 result.transform = outcome
                 result.route = transform.route(decision).route
-                result.text = spans.joinedText
+                result.text = spans.renderedText
+                landingMemory.invalidate(.otherEdit)
                 result.totalMs = ms(since: t0)
                 Log.app.info("transform: \(String(describing: outcome))")
                 return result
@@ -173,9 +191,10 @@ public final class UtteranceLander: @unchecked Sendable {
 
         // P1.5.2 — "put it back" undoes a silent correction before the repair session's own undo.
         if decision.route == .repairCommand, let correction, let sink = repair?.replaceSink,
-           case .revertedCorrection(let entry) = CorrectionUndoRouter.handle(text: spans.joinedText, ledger: correction.ledger, sink: sink, at: clock()) {
+           case .revertedCorrection(let entry) = CorrectionUndoRouter.handle(text: spans.renderedText, ledger: correction.ledger, sink: sink, at: clock()) {
             result.revertedCorrection = entry
-            result.text = spans.joinedText
+            result.text = spans.renderedText
+            landingMemory.invalidate(.otherEdit)
             result.totalMs = ms(since: t0)
             return result
         }
@@ -188,7 +207,8 @@ public final class UtteranceLander: @unchecked Sendable {
             let r = repair.lastResult
             if r.consumedUtterance {
                 result.repair = r
-                result.text = outSpans.joinedText
+                result.text = outSpans.renderedText
+                landingMemory.invalidate(.otherEdit)
                 result.totalMs = ms(since: t0)
                 Log.app.info("repair: \(String(describing: r))")
                 return result
@@ -198,14 +218,16 @@ public final class UtteranceLander: @unchecked Sendable {
         // Everything else types. (Transform / question routes arrive in Phase 2; until then the
         // gatekeeper's decision is logged and the text lands verbatim — never silently dropped.)
         let finalSpans = outSpans
-        var text = textFinalizer?(finalSpans) ?? finalSpans.joinedText
+        // V4.13 — `renderedText`: a blanked span (a removed filler, a number the ITN collapsed)
+        // leaves no leading or doubled space.
+        var text = textFinalizer?(finalSpans) ?? finalSpans.renderedText
 
         // R4.2 — the field-role decision, made once. `plan` runs no formatter (the pipeline's
         // `FieldRoleFormatterStage` already did that, exactly once), so this cannot format twice:
         // it only yields the rules and the continuation whitespace, which is field state, not audio.
         if let field {
             let plan = FieldRoleFormatter().plan(for: field)
-            result.fieldRole = plan.role
+            if readField != nil { result.fieldRole = plan.role }
             result.allowSubmit = plan.rules.allowSubmit
             if plan.rules.refusesDictation {
                 // A password field. Nothing is formatted, nothing is typed, nothing is written to
@@ -229,6 +251,10 @@ public final class UtteranceLander: @unchecked Sendable {
         let utterance = Utterance(id: id, spans: finalSpans, startedAt: startedAt, endedAt: clock(),
                                   register: decision.register, route: decision.route)
         if outcome.succeeded {
+            // D5 — the caret now sits right after this text, until the user touches anything.
+            if let element = LandedElement(focus: focus ?? system.frontmostApp(), role: field?.axRole) {
+                landingMemory.record(text: text, in: element)
+            }
             repair?.land(utterance, fieldOffset: caret)
             recentWords?.record(text)
             if let zeroEdit, let focus {
