@@ -191,7 +191,7 @@ waves. Agents in wave 1 have no dependency on each other except the file-ownersh
 
 ### Wave 0 — gates
 
-- [ ] **G0.1 Shared types · [P]**
+- [x] **G0.1 Shared types · [P]**
   - `Shared/Types/CaretState.swift`: `enum CaretState { case known(before: String, after: String), endOfField(before: String), unknown }` + `var textBefore/textAfter`.
   - `Shared/Types/TranscriptSpan.swift`: add `punctuationOrigin: PunctuationOrigin = .model` (`.model`, `.spoken`, `.stage`) Codable with default; add `var renderedText: String` on `[TranscriptSpan]` (skips empty spans, collapses runs of spaces). Keep `joinedText` for tests only.
   - `Shared/Types/TurnRecord.swift` (design §12): `turnID`, `startedAt`, destination snapshot (`bundleID`, role, element hash, display), `rawText`, `finalText`, `uncertainSpans: [Range<Int>]`, capture timestamps, `writeAttempted`, `outcome: DeliveryOutcome`, `retainedAudioPath?`.
@@ -837,7 +837,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 
 | Wave | Task | Status | Commit | Tests (+added) | Evidence | Notes |
 |---|---|---|---|---|---|---|
-| 0 | G0.1 | [ ] | | | | |
+| 0 | G0.1 | [x] | 54d80ec..1705ac2 | SharedTests 89 passed (+5), PipelineTests 330, InjectionTests 111, AppTests(filtered) 34 | build clean, scratch .build-base | deviation: PillDelivery.swift 1 case; Pipeline renderedText still shadows Shared's (unowned) |
 | 0 | G0.2 | [ ] | | | | |
 | 0 | G0.3 | [ ] | | | | |
 | 0 | G0.4 | [x] | 6c57b64..4d139a9 | SharedTests 84 passed; AppTests 771 passed (7 new) | build clean, scratch .build-slot3 | deviation: compiler-forced edits to PillPresentation/PillView/PresenceState; S6/S2/S2 gaps reported not fixed |

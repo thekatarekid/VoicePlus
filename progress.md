@@ -1551,3 +1551,4 @@ DMG per wave, version bumped each time, previous DMGs kept.
 #### Wave 0
 
 - G0.4 done · 6c57b64..4d139a9 · PillState/EngineState V4 additive cases, reducer table verification · SharedTests 84 passed, AppTests 771 passed
+- G0.1 done · 54d80ec..1705ac2 · Shared types (CaretState, punctuationOrigin, TurnRecord, ScreenTextReader, .partial) + decode-clamp fix · SharedTests 89 passed (+5)
