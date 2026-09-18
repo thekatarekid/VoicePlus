@@ -35,16 +35,35 @@ public struct SelectionSnapshot: Equatable, Hashable, Sendable {
     }
 }
 
+/// G1 — one box drawn with the dictation key held (V4.27). Written to the timeline when the drag
+/// starts (`isComplete == false`, zero-size rect) and again when it ends as a box. A drag too small
+/// to be a box (a click) never gets its closing sample, so it never binds.
+public struct RegionSample: Equatable, Hashable, Sendable {
+    public var regionID: UUID
+    /// Cocoa global points, clamped to the display the drag started on.
+    public var rect: CGRect
+    public var displayID: UInt32
+    public var isComplete: Bool
+
+    public init(regionID: UUID, rect: CGRect, displayID: UInt32, isComplete: Bool) {
+        self.regionID = regionID; self.rect = rect; self.displayID = displayID; self.isComplete = isComplete
+    }
+}
+
 public enum TimelineEventKind: Equatable, Hashable, Sendable {
     case pointerMove(GlobalPoint)
     case click(GlobalPoint, button: MouseButton, down: Bool)
+    /// A free-hand ink point. Live capture no longer produces these (G1 replaced ink with boxes);
+    /// the kind stays so recorded timelines and replay fixtures still bind.
     case strokePoint(strokeID: UUID, GlobalPoint, pressure: Float)
     case selectionChange(SelectionSnapshot)
+    /// A drawn box (G1). Not positional: the drag that drew it is already in the pointer path.
+    case region(RegionSample)
 
     public var point: GlobalPoint? {
         switch self {
         case .pointerMove(let p), .click(let p, _, _), .strokePoint(_, let p, _): return p
-        case .selectionChange: return nil
+        case .selectionChange, .region: return nil
         }
     }
 }

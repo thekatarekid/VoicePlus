@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 /// Pure state for the agent cursor: where it is, how bright it glows, and the trail of wisp particles
-/// it leaves behind. Display-local points (same frame as `InkLayerView`). No AppKit — unit-testable.
+/// it leaves behind. Display-local points (same frame as `RegionLayerView`). No AppKit — unit-testable.
 /// The cursor is purely visual: it never reads or moves the user's real pointer.
 public struct AgentCursorModel: Equatable {
     public struct Wisp: Equatable {

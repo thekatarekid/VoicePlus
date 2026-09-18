@@ -1,6 +1,24 @@
 import Foundation
 import os
 
+/// A finished box and when it was drawn (first sample → closing sample).
+public struct TimedRegion: Equatable, Sendable {
+    public var sample: RegionSample
+    public var began: TimelineInstant
+    public var ended: TimelineInstant
+
+    public init(sample: RegionSample, began: TimelineInstant, ended: TimelineInstant) {
+        self.sample = sample; self.began = began; self.ended = ended
+    }
+
+    /// Seconds between `instant` and the drawing (0 when the instant falls inside it).
+    public func distance(to instant: TimelineInstant) -> TimeInterval {
+        if instant < began { return began - instant }
+        if instant > ended { return instant - ended }
+        return 0
+    }
+}
+
 /// Bounded, in-memory ring of timeline events. Holds at most `horizon` seconds of history
 /// (relative to the newest event) and at most `capacity` events. Never persisted anywhere.
 public final class InputTimeline: @unchecked Sendable {
@@ -78,6 +96,24 @@ public final class InputTimeline: @unchecked Sendable {
             if case .strokePoint(let id, _, _) = e.kind, ids.contains(id) { out[id, default: []].append(e) }
         }
         return out
+    }
+
+    /// G1 — boxes finished (drawn and released as a box) whose drawing overlaps `range`, in the
+    /// order they were started. Each carries its final rect and the span it was drawn over.
+    public func regions(in range: ClosedRange<TimelineInstant>) -> [TimedRegion] {
+        var began: [UUID: TimelineInstant] = [:]
+        var order: [UUID] = []
+        var finished: [UUID: (RegionSample, TimelineInstant)] = [:]
+        for e in events {
+            guard case .region(let s) = e.kind else { continue }
+            if began[s.regionID] == nil { began[s.regionID] = e.timestamp; order.append(s.regionID) }
+            if s.isComplete { finished[s.regionID] = (s, e.timestamp) }
+        }
+        return order.compactMap { id -> TimedRegion? in
+            guard let (sample, end) = finished[id], let start = began[id] else { return nil }
+            guard start <= range.upperBound, end >= range.lowerBound else { return nil }
+            return TimedRegion(sample: sample, began: start, ended: end)
+        }
     }
 
     public func selection(at instant: TimelineInstant) -> SelectionSnapshot? {

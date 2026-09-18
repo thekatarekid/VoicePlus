@@ -16,21 +16,25 @@ public enum InputRecorderError: Error, Equatable {
     case tapCreationFailed
 }
 
-/// Listen-only `CGEvent` tap feeding the timeline (pointer path, clicks) and the ink capture
-/// (drags become strokes while `inkEnabled`). Active only between `start()`/`stop()`; it never
-/// modifies or swallows events. Requires Input Monitoring (`CGPreflightListenEventAccess`).
+/// Listen-only `CGEvent` tap feeding the timeline (pointer path, clicks) and the region capture
+/// (G1: a left drag draws a box only while `gate` is open — the dictation key is down, or latch
+/// with "draw without a key"). Active only between `start()`/`stop()`; it never modifies or
+/// swallows events. Requires Input Monitoring (`CGPreflightListenEventAccess`).
 public final class EventTapRecorder: InputRecorder, @unchecked Sendable {
     public let timeline: InputTimeline
-    public let ink: InkStrokeCapture
-    public var normalizer: DisplayNormalizer
-    /// When true, left-button drags are captured as strokes (draw-to-point). Toggled by the app
-    /// (e.g. hold ⌥ with the hotkey).
-    public var inkEnabled = true
+    public let regions: RegionCapture
+    public var normalizer: DisplayNormalizer {
+        didSet { regions.normalizer = normalizer }
+    }
+    /// Decides, when a drag starts, whether it draws a box (V4.28). Closed until the app wires it.
+    public var gate: RegionGate = .closed
     public private(set) var isRecording = false
     private let clock: TimelineClock
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
-    private var leftDown = false
+    /// Mouse-down position of the left button while it is held; a drag whose gate opens after the
+    /// press (key pressed mid-drag) still starts its box here.
+    private var leftAnchor: GlobalPoint?
     /// Throttle for pointer moves — 120 Hz is plenty for deixis binding.
     private var lastMove: TimelineInstant = -1
     public var moveInterval: TimeInterval = 1.0 / 120
@@ -40,7 +44,7 @@ public final class EventTapRecorder: InputRecorder, @unchecked Sendable {
         self.timeline = timeline
         self.normalizer = normalizer
         self.clock = clock
-        self.ink = InkStrokeCapture(timeline: timeline)
+        self.regions = RegionCapture(timeline: timeline, normalizer: normalizer)
     }
 
     public static var hasListenAccess: Bool { CGPreflightListenEventAccess() }
@@ -78,14 +82,18 @@ public final class EventTapRecorder: InputRecorder, @unchecked Sendable {
         #endif
     }
 
-    public func stop() {
+    /// Release the tap. A box still being dragged is finished where the pointer is (the key came
+    /// up a moment before the mouse), or dropped when `finishingDrag` is false (cancel).
+    public func stop(finishingDrag: Bool) {
         guard isRecording else { return }
         if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        if leftDown { ink.end(time: clock.now()); leftDown = false }
+        finishDrag(keep: finishingDrag, at: nil, time: clock.now())
         tap = nil; source = nil
         isRecording = false
     }
+
+    public func stop() { stop(finishingDrag: true) }
 
     /// Entry point for synthetic events (tests, replay). Mirrors what the tap callback receives.
     public func handle(_ type: CGEventType, _ event: CGEvent) {
@@ -97,19 +105,23 @@ public final class EventTapRecorder: InputRecorder, @unchecked Sendable {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             let p = normalizer.normalize(quartz: q)
             timeline.append(.init(timestamp: t, kind: .click(p, button: Self.button(type), down: true)))
-            if type == .leftMouseDown, inkEnabled {
-                leftDown = true
-                ink.begin(at: p, time: t, pressure: Float(event.getDoubleValueField(.mouseEventPressure)))
+            if type == .leftMouseDown {
+                if regions.isDrawing { regions.end(time: t) }
+                leftAnchor = p
+                if gate.isOpen { regions.begin(at: p, time: t) }
             }
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             let p = normalizer.normalize(quartz: q)
             timeline.append(.init(timestamp: t, kind: .click(p, button: Self.button(type), down: false)))
-            if type == .leftMouseUp, leftDown { leftDown = false; ink.end(time: t) }
+            if type == .leftMouseUp { finishDrag(keep: true, at: p, time: t) }
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             handleMove(quartz: q, force: false, at: t)
-            if type == .leftMouseDragged, leftDown {
-                ink.extend(to: normalizer.normalize(quartz: q), time: t,
-                           pressure: Float(event.getDoubleValueField(.mouseEventPressure)))
+            if type == .leftMouseDragged {
+                let p = normalizer.normalize(quartz: q)
+                if !regions.isDrawing, let anchor = leftAnchor, gate.isOpen {
+                    regions.begin(at: anchor, time: t)
+                }
+                if regions.isDrawing { regions.update(to: p, time: t) }
             }
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
@@ -120,6 +132,12 @@ public final class EventTapRecorder: InputRecorder, @unchecked Sendable {
     /// Selection changes arrive from the AX layer (Injection), not from the event tap.
     public func recordSelection(_ s: SelectionSnapshot) {
         timeline.record(.selectionChange(s), at: clock.now())
+    }
+
+    private func finishDrag(keep: Bool, at p: GlobalPoint?, time t: TimelineInstant) {
+        leftAnchor = nil
+        guard regions.isDrawing else { return }
+        if keep { regions.end(at: p, time: t) } else { regions.cancel() }
     }
 
     private func handleMove(quartz q: CGPoint, force: Bool, at t: TimelineInstant? = nil) {

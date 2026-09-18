@@ -125,52 +125,138 @@ struct ClockAlignmentTests {
     }
 }
 
-@Suite("P3.1 ink capture + recorder")
-struct InkCaptureTests {
-    final class Sink: InkStrokeSink {
-        var began = 0, changed = 0, ended: [InkStroke] = []
-        func strokeBegan(_ s: InkStroke) { began += 1 }
-        func strokeChanged(_ s: InkStroke) { changed += 1 }
-        func strokeEnded(_ s: InkStroke) { ended.append(s) }
+@Suite("G1 region capture + recorder")
+struct RegionCaptureTests {
+    final class Sink: RegionSink {
+        var began = 0, changed = 0, ended: [DrawnRegion] = [], discarded = 0
+        func regionBegan(_ r: DrawnRegion) { began += 1 }
+        func regionChanged(_ r: DrawnRegion) { changed += 1 }
+        func regionEnded(_ r: DrawnRegion) { ended.append(r) }
+        func regionDiscarded(_ r: DrawnRegion) { discarded += 1 }
     }
 
-    @Test func strokeFeedsTimelineAndSink() {
+    static let twoDisplays = DisplayNormalizer(displays: [DisplayFrame(id: 1, frame: CGRect(x: 0, y: 0, width: 1000, height: 500)),
+                                                          DisplayFrame(id: 2, frame: CGRect(x: 1000, y: 0, width: 800, height: 600))])
+
+    @Test func dragBecomesBoxOnTimelineAndSink() {
         let tl = InputTimeline()
         let sink = Sink()
-        let cap = InkStrokeCapture(timeline: tl, sink: sink)
-        cap.begin(at: pt(0, 0), time: 1)
-        cap.extend(to: pt(0.5, 0), time: 1.01)     // below min spacing → dropped
-        cap.extend(to: pt(10, 0), time: 1.02)
-        cap.extend(to: pt(20, 5, d: 2), time: 1.03) // crosses displays
-        let s = cap.end(time: 1.05)
-        #expect(sink.began == 1 && sink.changed == 2 && sink.ended.count == 1)
-        #expect(s?.points.count == 3 && s?.isComplete == true)
-        #expect(s?.displayIDs == [1, 2])
-        #expect(s?.timeRange == 1.0...1.03)
-        #expect(tl.strokes(in: 1...1.05)[s!.id]?.count == 3)
-        #expect(cap.current == nil)
+        let cap = RegionCapture(timeline: tl, normalizer: Self.twoDisplays, sink: sink)
+        var finished: [DrawnRegion] = []
+        cap.onRegion = { finished.append($0) }
+        cap.begin(at: pt(300, 200), time: 1)
+        cap.update(to: pt(200, 260), time: 1.05)     // dragged up-left: rect normalises
+        let r = cap.end(time: 1.1)
+        #expect(sink.began == 1 && sink.changed == 1 && sink.ended.count == 1 && finished.count == 1)
+        #expect(r?.rect == CGRect(x: 200, y: 200, width: 100, height: 60))
+        #expect(r?.isComplete == true && r?.displayID == 1)
+        let boxes = tl.regions(in: 0...2)
+        #expect(boxes.count == 1 && boxes[0].sample.rect == r?.rect && boxes[0].began == 1 && boxes[0].ended == 1.1)
+        #expect(cap.current == nil && cap.completed.count == 1)
     }
 
-    @Test func recorderSyntheticEventsProduceStrokeAndClicks() throws {
-        var fake: TimelineInstant = 0
-        let clock = TimelineClock(source: { fake })
+    @Test func boxIsClampedToTheDisplayItStartedOn() {
+        let cap = RegionCapture(timeline: InputTimeline(), normalizer: Self.twoDisplays)
+        cap.begin(at: pt(900, 100), time: 0)
+        cap.update(to: pt(1200, 700, d: 2), time: 0.1)   // runs onto display 2 and off its top
+        let r = cap.end(time: 0.2)
+        #expect(r?.displayID == 1)
+        #expect(r?.rect == CGRect(x: 900, y: 100, width: 100, height: 400))
+        #expect(r?.displayRect == r?.rect)                 // display 1 is at the origin
+        cap.begin(at: pt(1100, 100, d: 2), time: 1)
+        let second = cap.end(at: pt(1300, 300, d: 2), time: 1.1)
+        #expect(second?.displayRect == CGRect(x: 100, y: 100, width: 200, height: 200))
+    }
+
+    @Test func clickOrNudgeIsNotABox() {
+        let tl = InputTimeline()
+        let sink = Sink()
+        let cap = RegionCapture(timeline: tl, sink: sink)
+        var started = 0
+        cap.onBoxStarted = { _ in started += 1 }
+        cap.begin(at: pt(10, 10), time: 0)
+        cap.update(to: pt(40, 12), time: 0.05)          // wide but only 2 pt tall
+        #expect(cap.end(time: 0.1) == nil)
+        #expect(sink.discarded == 1 && sink.ended.isEmpty && started == 0)
+        #expect(tl.regions(in: 0...1).isEmpty)
+        cap.begin(at: pt(10, 10), time: 1)
+        cap.update(to: pt(40, 40), time: 1.05)
+        cap.update(to: pt(60, 60), time: 1.1)
+        #expect(started == 1)                            // announced once, when it first became a box
+        cap.cancel()
+        #expect(sink.discarded == 2 && tl.regions(in: 0...2).isEmpty)
+    }
+
+    private static func ev(_ type: CGEventType, _ x: CGFloat, _ y: CGFloat) -> CGEvent {
+        CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: .left)!
+    }
+
+    final class FakeTime: @unchecked Sendable { var now: TimelineInstant = 0 }
+
+    /// Drives one drag (down, two drags, up) through the recorder's synthetic entry point.
+    private static func drag(_ rec: EventTapRecorder, time: FakeTime) {
+        rec.handle(.leftMouseDown, ev(.leftMouseDown, 10, 10)); time.now += 0.05
+        rec.handle(.leftMouseDragged, ev(.leftMouseDragged, 50, 40)); time.now += 0.05
+        rec.handle(.leftMouseDragged, ev(.leftMouseDragged, 90, 60)); time.now += 0.05
+        rec.handle(.leftMouseUp, ev(.leftMouseUp, 90, 60))
+    }
+
+    /// The G1 gesture table: key down + drag → box; drag alone → nothing; latch + setting → box;
+    /// latch without the setting → nothing; the setting never applies outside latch.
+    @Test(arguments: [
+        (keyDown: true, latched: false, drawWithoutKey: false, box: true),
+        (keyDown: false, latched: false, drawWithoutKey: false, box: false),
+        (keyDown: false, latched: true, drawWithoutKey: true, box: true),
+        (keyDown: false, latched: true, drawWithoutKey: false, box: false),
+        (keyDown: false, latched: false, drawWithoutKey: true, box: false),
+        (keyDown: true, latched: true, drawWithoutKey: false, box: true),
+    ])
+    func gestureTable(row: (keyDown: Bool, latched: Bool, drawWithoutKey: Bool, box: Bool)) {
+        #expect(RegionGesturePolicy.drawsRegion(keyDown: row.keyDown, latched: row.latched,
+                                                drawWithoutKey: row.drawWithoutKey) == row.box)
+        let time = FakeTime()
+        let clock = TimelineClock(source: { time.now })
         let n = DisplayNormalizer(displays: [DisplayFrame(id: 1, frame: CGRect(x: 0, y: 0, width: 1000, height: 500))])
         let rec = EventTapRecorder(normalizer: n, clock: clock)
-        let sink = Sink(); rec.ink.sink = sink
-        func ev(_ type: CGEventType, _ x: CGFloat, _ y: CGFloat) -> CGEvent {
-            let e = try! #require(CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: .left))
-            return e
-        }
-        rec.handle(.leftMouseDown, ev(.leftMouseDown, 10, 10)); fake += 0.05
-        rec.handle(.leftMouseDragged, ev(.leftMouseDragged, 50, 10)); fake += 0.05
-        rec.handle(.leftMouseDragged, ev(.leftMouseDragged, 90, 10)); fake += 0.05
-        rec.handle(.leftMouseUp, ev(.leftMouseUp, 90, 10))
-        #expect(sink.ended.count == 1 && sink.ended[0].points.count == 3)
+        rec.gate = RegionGate(isDictationKeyDown: { row.keyDown }, isLatched: { row.latched },
+                              drawWithoutKey: { row.drawWithoutKey })
+        let sink = Sink(); rec.regions.sink = sink
+        Self.drag(rec, time: time)
+        #expect((sink.ended.count == 1) == row.box)
+        #expect(rec.timeline.regions(in: 0...10).count == (row.box ? 1 : 0))
+        // Clicks and the pointer path are recorded either way.
         let clicks = rec.timeline.events.filter { if case .click = $0.kind { return true } else { return false } }
         #expect(clicks.count == 2)
-        // Quartz y=10 on a 500-tall display → cocoa y=490
-        #expect(sink.ended[0].points[0].point.y == 490)
-        #expect(rec.isRecording == false)
+        if row.box {
+            // Quartz (10,10)→(90,60) on a 500-tall display → Cocoa x 10…90, y 440…490.
+            #expect(sink.ended[0].rect == CGRect(x: 10, y: 440, width: 80, height: 50))
+        }
+    }
+
+    @Test func closedGateByDefaultDrawsNothing() {
+        let time = FakeTime()
+        let rec = EventTapRecorder(normalizer: DisplayNormalizer(displays: [DisplayFrame(id: 1, frame: CGRect(x: 0, y: 0, width: 100, height: 100))]),
+                                   clock: TimelineClock(source: { time.now }))
+        let sink = Sink(); rec.regions.sink = sink
+        Self.drag(rec, time: time)
+        #expect(sink.began == 0 && sink.ended.isEmpty && !RegionGate.closed.isOpen)
+    }
+
+    @Test func keyPressedMidDragStartsTheBoxAtTheMouseDown() {
+        final class Key: @unchecked Sendable { var down = false }
+        let time = FakeTime(), key = Key()
+        let rec = EventTapRecorder(normalizer: DisplayNormalizer(displays: [DisplayFrame(id: 1, frame: CGRect(x: 0, y: 0, width: 1000, height: 500))]),
+                                   clock: TimelineClock(source: { time.now }))
+        rec.gate = RegionGate(isDictationKeyDown: { key.down })
+        let sink = Sink(); rec.regions.sink = sink
+        rec.handle(.leftMouseDown, Self.ev(.leftMouseDown, 10, 10)); time.now += 0.05
+        rec.handle(.leftMouseDragged, Self.ev(.leftMouseDragged, 30, 30)); time.now += 0.05
+        key.down = true
+        rec.handle(.leftMouseDragged, Self.ev(.leftMouseDragged, 90, 60)); time.now += 0.05
+        key.down = false                                   // released before the mouse: the box stays
+        rec.handle(.leftMouseUp, Self.ev(.leftMouseUp, 90, 60))
+        #expect(sink.ended.count == 1)
+        #expect(sink.ended.first?.rect == CGRect(x: 10, y: 440, width: 80, height: 50))
     }
 
     @Test func startWithoutPermissionThrowsOrStarts() {

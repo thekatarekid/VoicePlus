@@ -195,21 +195,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.presentElicitation(state) }
         }
 
-        hotkey.onAction = { [weak sessionCoordinator, weak container, weak inkOverlay] action in
-            switch action {
-            case .startCapture:
-                container?.deixis.beginCapture()
-                Task { @MainActor in inkOverlay?.show() }
-            case .finalize, .cancelCapture:
-                container?.deixis.endCapture()
-                Task { @MainActor in inkOverlay?.hide() }
-            case .enterLatch:
-                break
-            }
+        // G1–G3 — the dictation key gates deixis. A drag draws a box only while the key is down
+        // (or in latch with "draw without a key"); the overlay is in front only while it is down;
+        // `.enterLatch` releases the tap; a press inside latch that overlaps a drag points instead
+        // of stopping. Each box gets an AX hit-test and AX text, and — with Screen Recording — a
+        // screenshot kept for the turn and OCR when the tree has no text.
+        let deixis = container.deixis
+        deixis.settings = container.settings
+        deixis.isDictationKeyDown = { [weak hotkey = self.hotkey, weak act = self.actHotkey] in
+            (hotkey?.isDictationKeyDown ?? false) || (act?.isGestureKeyHeld ?? false)   // P4: the act key points too
+        }
+        deixis.isLatched = { [weak sessionCoordinator] in sessionCoordinator?.isLatched ?? false }
+        deixis.regionText = LiveAXRegionTextReader()
+        deixis.screen = ScreenTextService(customWords: { [weak container] in
+            container?.adaptation?.loop.lexicon.terms.values.map(\.text) ?? []
+        })
+        deixis.onNotice = { [weak self] line in
+            Task { @MainActor in self?.pill.model.present(.preview(text: line)) }
+        }
+        let deixisKeys = DeixisKeyController(
+            capture: deixis,
+            overlay: { [weak inkOverlay] command in
+                let apply: @MainActor () -> Void = {
+                    switch command {
+                    case .show: inkOverlay?.show()
+                    case .hide(let fading): inkOverlay?.hide(fading: fading)
+                    }
+                }
+                if Thread.isMainThread { MainActor.assumeIsolated(apply) } else { Task { @MainActor in apply() } }
+            },
             // R3.1 — every gesture goes through the one session owner, which arbitrates the
             // microphone and owns the mode before `DictationCoordinator` sees it.
-            sessionCoordinator?.handle(action)
-        }
+            forward: { [weak sessionCoordinator] action in sessionCoordinator?.handle(action) },
+            keyProbe: { [weak hotkey = self.hotkey] in hotkey?.isDictationKeyDown ?? false },
+            sessionLatched: { [weak sessionCoordinator] in sessionCoordinator?.isLatched ?? false },
+            drawWithoutKey: { [weak container] in DeixisSettings.drawsWithoutKey(container?.settings) })
+        deixis.onRegionStarted = { [weak deixisKeys] in deixisKeys?.regionStarted() }
+        hotkey.onAction = { action in deixisKeys.handle(action) }
 
         // P4 — act session behind the second key: consent panels, agent cursor, step chips.
         let panels = ConsentPanelsController()

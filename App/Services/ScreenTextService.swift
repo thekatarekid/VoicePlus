@@ -216,8 +216,12 @@ public final class ScreenTextService: ScreenTextReader, @unchecked Sendable {
     public func capture(_ rect: CGRect, display: CGDirectDisplayID) async throws -> CapturedRegion {
         guard access.preflight() else { throw ScreenTextError.permissionDenied }
         let frame = try await capturer.capture(rect, display: display)
-        lock.lock(); frames[frame.id] = frame; lock.unlock()
+        hold(frame)
         return frame
+    }
+
+    private func hold(_ frame: CapturedRegion) {
+        lock.lock(); frames[frame.id] = frame; lock.unlock()
     }
 
     /// Recognise the text of a captured frame; boxes come back in global points.
@@ -256,6 +260,12 @@ public final class ScreenTextService: ScreenTextReader, @unchecked Sendable {
     /// Turn over: drop every frame. Nothing was ever written.
     public func discardFrames() {
         lock.lock(); frames.removeAll(); lock.unlock()
+    }
+
+    /// Drop one frame: its box's turn is over (a latched segment landed), or the box was cleared
+    /// while its screenshot was still being taken.
+    public func discardFrame(_ id: UUID) {
+        lock.lock(); frames[id] = nil; lock.unlock()
     }
 }
 

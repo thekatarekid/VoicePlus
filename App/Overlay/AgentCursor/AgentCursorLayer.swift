@@ -14,7 +14,7 @@ public protocol ActionAnimating: AnyObject {
 }
 
 /// CALayer tree for the agent cursor: tinted pointer dot + soft glow halo + wisp particle layers,
-/// hosted on an `InkLayerView` of the existing overlay window. Drives `AgentCursorModel` on a
+/// hosted on an `RegionLayerView` of the existing overlay window. Drives `AgentCursorModel` on a
 /// display-link-free 60 Hz timer (CA handles interpolation of the pointer itself; wisps are ours).
 @MainActor
 public final class AgentCursorLayer {
@@ -39,7 +39,7 @@ public final class AgentCursorLayer {
         root.addSublayer(wispHost); root.addSublayer(halo); root.addSublayer(dot)
     }
 
-    /// Attach to a layer-hosting view (the overlay's `InkLayerView`). Idempotent.
+    /// Attach to a layer-hosting view (the overlay's `RegionLayerView`). Idempotent.
     public func attach(to hostLayer: CALayer) {
         guard host !== hostLayer else { return }
         root.removeFromSuperlayer(); hostLayer.addSublayer(root); host = hostLayer
@@ -142,8 +142,8 @@ extension AgentCursorLayer: ActionAnimating {
 @MainActor
 public final class AgentCursorController: ActionAnimating {
     private var layers: [UInt32: AgentCursorLayer] = [:]
-    private let overlay: InkOverlayController
-    public init(overlay: InkOverlayController) { self.overlay = overlay }
+    private let overlay: RegionOverlayController
+    public init(overlay: RegionOverlayController) { self.overlay = overlay }
 
     private func layer(for p: CGPoint) -> (AgentCursorLayer, CGPoint)? {
         overlay.show()
@@ -165,7 +165,7 @@ public final class AgentCursorController: ActionAnimating {
     public func dismiss() { layers.values.forEach { $0.dismiss() } }
 }
 
-extension InkOverlayController {
+extension RegionOverlayController {
     /// Window whose display contains the Cocoa-global point (falls back to the first window).
     func window(containing p: CGPoint) -> OverlayWindow? {
         if windows.isEmpty { rebuildWindows() }
