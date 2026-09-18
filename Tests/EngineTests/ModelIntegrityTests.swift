@@ -179,10 +179,15 @@ struct ModelIntegrityTests {
         // point is the sentence, which must name the model and a way out.
         let thrown = await Self.errorFrom { _ = try await manager.load(.parakeetTDTCTC110m) }
         #expect(thrown is ModelManagerError)
+        // S9: the headline is recovery-catalogue copy (M02/M08); the model's name and the way out
+        // live in the error's own description, which goes to the log and diagnostics.
         let message = EngineMessage.describe(try #require(thrown))
-        #expect(message.contains("Parakeet TDT-CTC 110M"))
+        let detail = EngineMessage.technicalDetail(try #require(thrown))
+        #expect(["The speech model didn’t finish downloading", "The speech model became unavailable"].contains(message))
         #expect(!message.contains(".partial"))
-        #expect(message.lowercased().contains("download"))
+        #expect(detail.contains("Parakeet TDT-CTC 110M"))
+        #expect(!detail.contains(".partial"))
+        #expect(detail.lowercased().contains("download"))
     }
 
     /// The verbatim error from the report, as Cocoa produces it, must never reach a human.
@@ -194,12 +199,14 @@ struct ModelIntegrityTests {
         let message = EngineMessage.describe(raw)
         #expect(!message.contains("weight.bin.partial"))
         #expect(message.contains("didn’t finish downloading"))
-        // Unrelated Cocoa file errors keep their own (already useful) description.
+        // Unrelated Cocoa file errors keep their own description as technical detail; a filename is
+        // never a headline (S9, design §10), so the headline is the catch-all.
         let other = NSError(domain: NSCocoaErrorDomain, code: NSFileNoSuchFileError, userInfo: [
             NSFilePathErrorKey: "/tmp/notes.txt",
             NSLocalizedDescriptionKey: "The file “notes.txt” doesn’t exist.",
         ])
-        #expect(EngineMessage.describe(other).contains("notes.txt"))
+        #expect(EngineMessage.describe(other) == "VoicePlus couldn’t finish this step")
+        #expect(EngineMessage.technicalDetail(other).contains("notes.txt"))
     }
 
     @Test func incompleteErrorNamesTheModelAndTheRecovery() {
@@ -290,7 +297,7 @@ struct ModelIntegrityTests {
         #expect(thrown is ModelManagerError)
         let message = EngineMessage.describe(try #require(thrown))
         #expect(!message.contains("weight.bin.partial"))
-        #expect(message.contains("Parakeet TDT-CTC 110M"))
+        #expect(EngineMessage.technicalDetail(try #require(thrown)).contains("Parakeet TDT-CTC 110M"))
         #expect(ModelIntegrity.scratchFiles(under: folder).isEmpty, "the retry must not trip over the same debris")
         #expect(!ModelIntegrity.isComplete(Self.tiny, at: folder), "an incomplete model must report not installed, so the UI offers a re-download")
         #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("Preprocessor.mlmodelc/coremldata.bin").path),

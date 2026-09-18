@@ -14,43 +14,51 @@ private enum StubASRError: LocalizedError, Equatable {
 /// contentless "The operation couldn't be completed."
 private enum BareError: Error { case somethingSpecific }
 
-@Suite("Engine errors reach the user as sentences, not enum case names")
+/// S9: a headline is recovery-catalogue copy (design_v1 §10). What the error says about itself is a
+/// technical detail for `Log` and diagnostics (`EngineMessage.technicalDetail`), never the headline.
+@Suite("Engine errors reach the user as catalogue headlines, not enum case names")
 struct EngineErrorMessageTests {
     /// The 1.6.6 pill read "⚠︎ invalidAudioData" because `RealEngine` published `"\(error)"`, and
-    /// interpolating a Swift enum prints the case name however good its `errorDescription` is.
-    @Test func aLocalizedErrorContributesItsOwnSentence() {
-        #expect(EngineMessage.describe(StubASRError.invalidAudioData)
+    /// interpolating a Swift enum prints the case name however good its `errorDescription` is. An
+    /// unrecognised error's own sentence is kept for diagnostics; the headline is X08.
+    @Test func aLocalizedErrorsOwnSentenceIsTechnicalDetailNotTheHeadline() {
+        let headline = EngineMessage.describe(StubASRError.invalidAudioData)
+        #expect(headline == "VoicePlus couldn’t finish this step")
+        #expect(!headline.contains("invalidAudioData"))
+        #expect(EngineMessage.technicalDetail(StubASRError.invalidAudioData)
                 == "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")
-        #expect(!EngineMessage.describe(StubASRError.invalidAudioData).contains("invalidAudioData"))
         #expect("\(StubASRError.invalidAudioData)" == "invalidAudioData",
                 "the failing interpolation this replaces")
     }
 
-    @Test func engineErrorsGetPlainLanguageOfTheirOwn() {
-        #expect(EngineMessage.describe(EngineError.modelUnavailable("tdt-v3")) == "No speech model is ready yet (tdt-v3).")
-        #expect(EngineMessage.describe(EngineError.notListening) == "VoicePlus wasn't recording when it was asked to stop.")
+    @Test func engineErrorsGetCatalogueHeadlines() {
+        #expect(EngineMessage.describe(EngineError.modelUnavailable("tdt-v3")) == "Install a speech model")
+        #expect(EngineMessage.describe(EngineError.alreadyListening) == "Finishing your previous dictation")
+        #expect(EngineMessage.describe(EngineError.notListening) == "VoicePlus couldn’t finish this step")
         for error in [EngineError.notListening, .alreadyListening, .modelUnavailable("x"),
                       .fixtureNotFound("y"), .fixtureInvalid("z")] {
             let message = EngineMessage.describe(error)
-            #expect(message.hasSuffix("."), "\(error) has no readable sentence")
             #expect(message.contains(" "), "\(message) is still a bare identifier")
             #expect(message != "\(error)", "\(message) is just the interpolated enum")
+            #expect(!message.contains("tdt-v3") && !message.contains("“"), "\(message) names an internal id")
         }
     }
 
-    /// A Cocoa error keeps its own localized description rather than losing it to `String(describing:)`.
-    @Test func cocoaErrorsKeepTheirLocalizedDescription() {
+    /// The engine's network traffic is model downloads, so a URLError is M04; its Cocoa sentence is
+    /// kept as the technical detail.
+    @Test func cocoaErrorsKeepTheirLocalizedDescriptionAsTechnicalDetail() {
         let url = URLError(.notConnectedToInternet)
-        #expect(EngineMessage.describe(url) == url.localizedDescription)
-        #expect(!EngineMessage.describe(url).isEmpty)
+        #expect(EngineMessage.describe(url) == "Model download paused")
+        #expect(EngineMessage.technicalDetail(url) == url.localizedDescription)
     }
 
-    /// And an error with nothing to say falls back to the case name, which still beats the generic
+    /// An error with nothing to say is X08, never its case name and never the generic
     /// "The operation couldn't be completed" the NSError bridge would produce.
-    @Test func abareErrorFallsBackToTheCaseNameNotAGenericBridgeString() {
+    @Test func aBareErrorIsTheCatchAllNotItsCaseName() {
         let described = EngineMessage.describe(BareError.somethingSpecific)
-        #expect(described == "somethingSpecific")
+        #expect(described == "VoicePlus couldn’t finish this step")
         #expect(!described.contains("couldn't be completed"))
+        #expect(EngineMessage.technicalDetail(BareError.somethingSpecific) == "somethingSpecific")
     }
 }
 
