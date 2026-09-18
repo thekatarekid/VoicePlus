@@ -3,35 +3,43 @@ import Engine
 import Injection
 import Shared
 
-/// The menu-bar item and **the one menu** (R7.3, V3 §9.2–9.3, `DESIGN.md` §10).
+/// The menu-bar item and **the one menu** (design §4 "menu-bar identity", §8.8; `DESIGN.md` §8.4, §10).
 ///
-/// One menu, four ways in: left click and right click on the glyph, left click and ⌃/right click on
-/// the notch presence chin (`PresenceClickRouter` answers `.menu` for every state and every button,
-/// and `AppDelegate` routes the chin's click to `popUpMenu(from:)`). The rows are decided by
-/// `StatusMenuSpec` — pure data, so the menu can be tested without an `NSStatusItem`, an XCTest or a
-/// UI test, none of which exist on this toolchain.
+/// **The glyph.** The status item shows `MenuBarGlyph` — the prototype's black-and-white cassette
+/// outline, a template image at 18 × 16 pt. It is never tinted, never dimmed, never swapped for an SF
+/// symbol or the detailed Spool, and it does not change with state: the state is the menu's first
+/// line ("VoicePlus · Ready" / "Muted" / "Blocked"), and the item's accessibility label says the same.
+///
+/// **One menu, four ways in:** left and right click on the glyph, left and ⌃/right click on the notch
+/// presence chin (`PresenceClickRouter` answers `.menu` for every state and button, and `AppDelegate`
+/// routes the chin's click to `popUpMenu(from:)`). The rows are decided by `StatusMenuSpec` — pure
+/// data, so the menu is tested without an `NSStatusItem`, an XCTest or a UI test.
+///
+/// **Opening the menu never records, and closing it never changes recording.** Building the rows
+/// reads plain properties; nothing on the open or close path calls the session, the engine, the
+/// focus guard or the held queue. Only choosing Start dictation opens the microphone — as explicit
+/// click-to-stop capture through `SessionCoordinator` — and only Stop, Mute or the quit guard close it.
 ///
 /// **Focus.** Opening the menu never activates the app: the status item pops the menu itself, the
-/// chin behind it is a non-activating panel, and building the rows reads no focus and touches no
-/// held text. Dictation still has somewhere to land afterwards (DESIGN §5.3).
-///
-/// **What is deliberately *not* here** (DESIGN §10, "Removed from today's menu"): the Lab, the Data
-/// Panel, feature flags, the two key submenus, "Enroll voice…", the presence-indicator switch,
-/// launch at login, update and permission checks. All of them live in the one window — keeping them
-/// here as well would make two sources of truth. The callbacks below stay so the composition root
-/// keeps compiling while R7.1/R7.2 finish hosting them.
+/// chin behind it is a non-activating panel. Dictation still has somewhere to land afterwards.
 public final class StatusItemController: NSObject, NSMenuDelegate {
-    private let statusItem: NSStatusItem
-    private let menu = NSMenu()
+    /// Nil when built headless (tests), where no status bar is touched.
+    private let statusItem: NSStatusItem?
+    let menu = NSMenu()
     private let flags: FeatureFlagService
     private let database: AppDatabase?
     private let coordinator: DictationCoordinator
     private let hotkey: HotkeyService
     private let updater: UpdaterProtocol
-    /// R7.1 — the one window, at Today. Falls back to `onOpenSettings` until the window exists.
+    /// Drawn once; the same template image for the life of the item.
+    private lazy var glyph = MenuBarGlyph.image()
+
+    /// The one window, at Today. Falls back to `onOpenSettings` until the window exists.
     public var onOpenWindow: (() -> Void)?
     public var onOpenSettings: (() -> Void)?
-    /// Kept for the composition root; no longer menu rows (DESIGN §10 — they live in the window).
+    /// "Review" on the held-dictations row. Nil opens the one window at Today, where held drafts are.
+    public var onReviewHeld: (() -> Void)?
+    /// Kept for the composition root; not menu rows (`DESIGN.md` §10 — they live in the window).
     public var onOpenLab: (() -> Void)?
     public var onOpenDataPanel: (() -> Void)?
     public var onRecheckPermissions: (() -> Void)?
@@ -49,53 +57,67 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     /// R3 — the session owner. Start, Stop and mic arbitration go through it; the engine is never
     /// called directly from here. Nil falls back to `DictationCoordinator` (shell tests).
     public var session: SessionCoordinator?
-    /// R3.1 — latch on/off. Nil uses `session`/`coordinator` directly.
+    /// Kept for the composition root: latch is Settings › Shortcuts, not a menu row (`DESIGN.md` §10).
     public var onToggleLatch: (() -> Void)?
-    /// P5.4 — ambient state glyph + one-gesture hard mute (`MuteController`).
+    /// Kept for the composition root: the glyph no longer changes with the ambient state (S6).
     public var ambientSymbol: (() -> String?)?
+    /// P5.4 — hard mute (`MuteController`).
     public var ambientMuted: (() -> Bool)?
+    /// Nil toggles `session.mute` directly.
     public var onToggleMute: (() -> Void)?
-    /// The chin's state, so the menu's first line says exactly what the chin says. Nil derives a
-    /// conservative one from mute / capabilities / capture.
+    /// The presence reducer's state, when wired: the source of blockers the menu cannot derive
+    /// (hotkey permission, relaunch, a model download).
     public var presenceState: (() -> PresenceState)?
-    /// "Copy last text". Nil reads the most recent dictation out of the database.
+    /// Kept for the composition root: Copy last text is a Today action, not a menu row.
     public var lastCommittedText: (() -> String?)?
-    /// P5.5 — meeting capture opt-in. Toggling it on is what asks for Calendar access.
+    /// Kept for the composition root: meeting start is the Meetings section, not a menu row.
     public var meetingCaptureEnabled: (() -> Bool)?
     public var onToggleMeetingCapture: (() -> Void)?
-    /// R7.3 — an actual meeting recording, and the explicit stop for it.
-    public var meetingRunning: (() -> Bool)?
     public var onStartMeeting: (() -> Void)?
+    /// A meeting recording is open: the status line says so, and the quit guard stops it.
+    public var meetingRunning: (() -> Bool)?
     public var onStopMeeting: (() -> Void)?
     public var frontmostBundleID: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
-    /// R2.4 — committed text with no safe destination (V3 §6). The menu carries the same three
-    /// actions as the held pill row, off the same queue; Quit warns while anything is held.
+    /// R2.4 — committed text with no safe destination (V3 §6). Counted in the menu; saved to history
+    /// before quitting.
     public var heldItems: (() -> [HeldItem])?
+    /// Kept for the composition root: held actions are the pill's and the recovery surface's.
     public var onHeldAction: ((HeldItem, HeldAction) -> Void)?
     /// `Injection`'s own queue, used when the app-side mirror is not wired.
     public var focusGuard: FocusGuard?
     public var capabilities: PermissionPlanner.Capabilities = .init(canCapture: false, canUseGlobalHotkey: false, canInjectText: false)
+    /// Asks the user about a guarded quit; true means confirm. Injectable for tests.
+    public var confirmQuit: (MenuQuit.Prompt) -> Bool = StatusItemController.runQuitAlert
+    /// Ends the process. Injectable for tests.
+    public var terminateApp: () -> Void = { NSApp.terminate(nil) }
     /// Which gesture opened the menu last. Logged, never branched on (V3 §9.3).
     public private(set) var lastEntryPoint: MenuEntryPoint = .glyph
     /// Set by `popUpMenu(from:)` so AppKit's own `menuNeedsUpdate` does not relabel a chin click.
     private var pendingEntryPoint: MenuEntryPoint?
 
-    public init(flags: FeatureFlagService, database: AppDatabase?, coordinator: DictationCoordinator,
-                hotkey: HotkeyService, updater: UpdaterProtocol) {
+    public convenience init(flags: FeatureFlagService, database: AppDatabase?, coordinator: DictationCoordinator,
+                            hotkey: HotkeyService, updater: UpdaterProtocol) {
+        self.init(flags: flags, database: database, coordinator: coordinator, hotkey: hotkey, updater: updater,
+                  statusBar: .system)
+    }
+
+    /// `statusBar: nil` builds the controller headless — no status item — for tests.
+    init(flags: FeatureFlagService, database: AppDatabase?, coordinator: DictationCoordinator,
+         hotkey: HotkeyService, updater: UpdaterProtocol, statusBar: NSStatusBar?) {
         self.flags = flags
         self.database = database
         self.coordinator = coordinator
         self.hotkey = hotkey
         self.updater = updater
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = statusBar?.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         menu.delegate = self
         // Enablement is the spec's answer, not AppKit's guess: an unavailable action stays visible
-        // and disabled with the reason in its title (DESIGN §10).
+        // and disabled with the reason in its title (`DESIGN.md` §10).
         menu.autoenablesItems = false
         // A status item with a menu pops it on **both** buttons, which is half of "one menu".
-        statusItem.menu = menu
-        statusItem.button?.toolTip = "VoicePlus"
+        statusItem?.menu = menu
+        statusItem?.button?.toolTip = "VoicePlus"
         refreshIcon()
     }
 
@@ -108,13 +130,23 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
                          launchAtLogin: LaunchAtLogin.isEnabled)
     }
 
+    /// The glyph is fixed; only the accessibility label follows the state, so VoiceOver hears what
+    /// the menu's first line says without the icon ever changing colour or shape.
     public func refreshIcon() {
-        let m = model()
-        // P5.4 — ambient three-state glyph (listening/muted/processing) wins when latch is wired.
-        let symbol = ambientSymbol?() ?? m.statusSymbol
-        statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "VoicePlus")
-        statusItem.button?.appearsDisabled = m.paused || ambientMuted?() == true
+        guard let button = statusItem?.button else { return }
+        if button.image !== glyph {
+            button.image = glyph
+            button.imagePosition = .imageOnly
+        }
+        button.contentTintColor = nil
+        button.appearsDisabled = false
+        button.setAccessibilityLabel(accessibilityLabel())
     }
+
+    /// "VoicePlus · Ready", "VoicePlus · Muted", "VoicePlus · Blocked" — the status line's title.
+    public func accessibilityLabel() -> String { StatusMenuSpec.status(menuState()).title }
+
+    // MARK: - Opening and closing
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
         lastEntryPoint = pendingEntryPoint ?? .glyph
@@ -122,9 +154,19 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         rebuild()
     }
 
+    /// Opening is a read: the rows were built in `menuNeedsUpdate`; nothing here starts anything.
+    public func menuWillOpen(_ menu: NSMenu) {
+        Log.app.debug("menu open from \(self.lastEntryPoint.rawValue)")
+    }
+
+    /// Closing changes nothing: a capture started from the menu keeps recording until Stop.
+    public func menuDidClose(_ menu: NSMenu) {
+        Log.app.debug("menu closed")
+    }
+
     /// The presence chin pops this same menu — that is the point of the chin: when macOS has culled
-    /// the status item from a crowded menu bar, it is the remaining way into Stop, Mute, recovery
-    /// and Quit. Popping a menu takes no focus from the app being typed into.
+    /// the status item from a crowded menu bar, it is the remaining way into Stop, Mute and Quit.
+    /// Popping a menu takes no focus from the app being typed into.
     public func popUpMenu(at point: NSPoint = NSEvent.mouseLocation, from entryPoint: MenuEntryPoint = .notch) {
         lastEntryPoint = entryPoint
         pendingEntryPoint = entryPoint
@@ -135,90 +177,56 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - The state the menu is a function of
 
-    /// Pure with respect to focus: nothing here reads the frontmost app or dequeues held text.
+    /// Pure with respect to focus and capture: nothing here reads the frontmost app, dequeues held
+    /// text or asks for the microphone.
     public func menuState() -> StatusMenuState {
         let muted = ambientMuted?() ?? session?.isMuted ?? false
-        let capturing = session?.activeRequester != nil || coordinator.engine.state.isActive
-        let latched = session?.isLatched ?? coordinator.latched
-        return StatusMenuState(presence: presenceState?() ?? derivedPresence(muted: muted, capturing: capturing),
-                               micName: micName(), micStatus: coordinator.lastMicQuality?.verdict,
-                               micAvailable: capabilities.canCapture,
-                               isCapturing: capturing, isLatched: latched, isMuted: muted,
-                               hasLastText: lastText() != nil, held: heldSummaries(),
-                               meeting: meetingState())
+        let meeting = meetingRunning?() ?? false
+        let inputs = MenuStatusInputs(muted: muted, paused: coordinator.paused, canCapture: capabilities.canCapture,
+                                      canUseHotkey: capabilities.canUseGlobalHotkey,
+                                      engine: coordinator.engine.state, holder: session?.activeRequester,
+                                      latched: session?.isLatched ?? coordinator.latched,
+                                      meetingRunning: meeting, presence: presenceState?())
+        return StatusMenuState(status: MenuStatus.derive(inputs), micName: micName(),
+                               micStatus: coordinator.lastMicQuality?.verdict, micAvailable: capabilities.canCapture,
+                               isCapturing: inputs.dictationCaptureOpen, isMuted: muted, held: heldDrafts(),
+                               meetingRunning: meeting)
     }
 
     public func menuEntries(from entryPoint: MenuEntryPoint? = nil) -> [MenuEntry] {
         StatusMenuSpec.entries(menuState(), from: entryPoint ?? lastEntryPoint)
     }
 
-    /// Only the microphone can block dictation here: a missing *hotkey* permission must not disable
-    /// "Start dictation", because the menu is exactly the fallback for that case.
-    private func derivedPresence(muted: Bool, capturing: Bool) -> PresenceState {
-        if muted { return .muted }
-        if !capabilities.canCapture { return .blocked(.microphoneDenied) }
-        if coordinator.paused { return .paused }
-        switch coordinator.engine.state {
-        case .listening(let level): return .listening(level: level)
-        case .previewing: return .listening(level: 0)
-        case .finalizing: return .processing
-        default: return capturing ? .listening(level: 0) : .ready
-        }
-    }
-
-    private func heldSummaries() -> [StatusMenuState.Held] {
+    private func heldDrafts() -> [StatusMenuState.Held] {
         if let heldItems { return heldItems().map(StatusMenuState.Held.init) }
         if let focusGuard { return HeldMenuRouter.held(in: focusGuard) }
         return []
-    }
-
-    private func lastText() -> String? {
-        if let lastCommittedText { return lastCommittedText().flatMap { $0.isEmpty ? nil : $0 } }
-        guard let database, let record = (try? database.recentDictations(limit: 1))?.first,
-              !record.finalText.isEmpty else { return nil }
-        return record.finalText
-    }
-
-    private func meetingState() -> StatusMenuState.Meeting {
-        if meetingRunning?() == true { return .running }
-        if let meetingCaptureEnabled, onToggleMeetingCapture != nil, !meetingCaptureEnabled() {
-            return .needsCalendarAccess
-        }
-        return .idle(canStart: onStartMeeting != nil)
     }
 
     // MARK: - Rendering
 
     func rebuild() {
         menu.removeAllItems()
-        render(menuEntries(), into: menu)
+        for entry in menuEntries() {
+            menu.addItem(entry.isSeparator ? .separator() : menuItem(for: entry))
+        }
     }
 
-    private func render(_ entries: [MenuEntry], into menu: NSMenu) {
-        for entry in entries {
-            guard !entry.isSeparator else { menu.addItem(.separator()); continue }
-            let hasAction = entry.action != nil && entry.isEnabled
-            let item = NSMenuItem(title: entry.title,
-                                  action: hasAction ? #selector(performEntry(_:)) : nil,
-                                  keyEquivalent: entry.keyEquivalent)
-            item.target = hasAction ? self : nil
-            item.isEnabled = entry.isEnabled
-            item.state = entry.isOn ? .on : .off
-            item.representedObject = entry.id
-            item.identifier = NSUserInterfaceItemIdentifier(entry.id)
-            // The one red-tinted row (DESIGN §10): mute is a promise about the microphone.
-            if entry.isDestructive {
-                item.attributedTitle = NSAttributedString(string: entry.title,
-                                                          attributes: [.foregroundColor: NSColor.systemRed])
-            }
-            if !entry.children.isEmpty {
-                let submenu = NSMenu()
-                submenu.autoenablesItems = false
-                render(entry.children, into: submenu)
-                item.submenu = submenu
-            }
-            menu.addItem(item)
-        }
+    /// One row as AppKit draws it. The helper line is the item's subtitle; the status line carries
+    /// the glyph and, only when ready, the green dot.
+    func menuItem(for entry: MenuEntry) -> NSMenuItem {
+        let hasAction = entry.action != nil && entry.isEnabled
+        let item = NSMenuItem(title: entry.title,
+                              action: hasAction ? #selector(performEntry(_:)) : nil,
+                              keyEquivalent: entry.keyEquivalent)
+        item.target = hasAction ? self : nil
+        item.isEnabled = entry.isEnabled
+        item.state = entry.isOn ? .on : .off
+        item.representedObject = entry.id
+        item.identifier = NSUserInterfaceItemIdentifier(entry.id)
+        if entry.showsGlyph { item.image = MenuBarGlyph.image(size: MenuBarGlyph.menuHeadingSize) }
+        MenuItemText.apply(title: entry.title, detail: entry.detail, readyDot: entry.showsReadyDot, to: item)
+        return item
     }
 
     @objc private func performEntry(_ sender: NSMenuItem) {
@@ -233,13 +241,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         switch action {
         case .startDictation: startDictation()
         case .stopDictation: stopDictation()
-        case .toggleLatch: toggleLatch()
         case .toggleMute: toggleMute()
-        case .copyLastText: copyLastText()
-        case .held(let id, let heldAction): performHeld(id: id, action: heldAction)
-        case .enableMeetingCapture: onToggleMeetingCapture?()
-        case .startMeeting: onStartMeeting?() ?? onToggleMeetingCapture?()
-        case .stopMeeting: onStopMeeting?()
+        case .reviewHeld: (onReviewHeld ?? onOpenWindow ?? onOpenSettings)?()
         case .openWindow: (onOpenWindow ?? onOpenSettings)?()
         case .openSettings: onOpenSettings?()
         case .quit: quitVoicePlus()
@@ -248,59 +251,63 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         rebuild()
     }
 
-    /// R3 — through the session owner, so mic arbitration and mute are honoured.
+    /// Explicit click-to-stop capture: the `.menu` requester through the session owner, so mic
+    /// arbitration and mute are honoured. There is no key to release; only Stop (or Escape, mute,
+    /// lock) ends it, and a hotkey release cannot stop a session the menu holds.
     private func startDictation() {
         if let session { session.start(.menu, mode: .hold) } else { coordinator.start() }
     }
 
-    /// The explicit Stop V3 §9.3 asks for: it stops whoever holds the microphone, not only the menu.
+    /// The explicit Stop: it stops whoever holds the microphone, not only the menu.
     private func stopDictation() {
         if let session { session.stop(session.activeRequester ?? .menu, reason: .userStopped) }
         else { coordinator.finalize() }
     }
 
-    private func toggleLatch() {
-        if let onToggleLatch { onToggleLatch(); return }
-        if let session {
-            if session.isLatched { session.stop(session.activeRequester ?? .menu, reason: .userStopped) }
-            else { session.start(.menu, mode: .latched) }
-        } else if coordinator.latched {
-            coordinator.endLatch()
-        } else {
-            coordinator.handle(.enterLatch)
-        }
+    private func toggleMute() {
+        if let onToggleMute { onToggleMute() } else { session?.mute.toggleMute() }
     }
 
-    private func toggleMute() { onToggleMute?() }
+    // MARK: - Quit
 
-    private func copyLastText() {
-        guard let text = lastText() else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        Log.app.info("copied the last \(text.count) dictated characters from the menu")
-    }
-
-    private func performHeld(id: UUID, action: HeldAction) {
-        if let onHeldAction, let item = heldItems?().first(where: { $0.id == id }) {
-            onHeldAction(item, action)
-        } else if let focusGuard {
-            HeldMenuRouter.perform(action, on: id, in: focusGuard)
-        }
-    }
-
-    @objc private func quitVoicePlus() {
-        switch QuitGuard.decision(heldCount: heldSummaries().count) {
+    /// Held drafts are saved to history first; then open capture asks Stop and quit / Cancel, and a
+    /// draft that could not be saved gets the unsaved-data warning. Otherwise it simply quits.
+    func quitVoicePlus() {
+        let state = menuState()
+        let held = HeldDrafts.save(state.held, into: database)
+        switch MenuQuit.plan(dictating: state.isCapturing, meeting: state.meetingRunning, held: held) {
         case .quit:
-            NSApp.terminate(nil)
-        case .warn(let title, let message):
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = title
-            alert.informativeText = message
-            alert.addButton(withTitle: QuitGuard.quitAnyway)
-            alert.addButton(withTitle: QuitGuard.keepRunning)
-            if alert.runModal() == .alertFirstButtonReturn { NSApp.terminate(nil) }
+            Log.app.notice("quit from the menu (\(held.count) held dictation(s), all saved)")
+            terminateApp()
+        case .ask(let prompt):
+            guard confirmQuit(prompt) else {
+                Log.app.notice("quit cancelled; capture and held text unchanged")
+                return
+            }
+            if prompt.stopsCapture { stopCaptureForQuit(state) }
+            terminateApp()
         }
+    }
+
+    /// Stop and quit. Dictation is cancelled rather than finalized: the process is about to end, and
+    /// a final pass racing termination could type half a sentence. The prompt said so.
+    private func stopCaptureForQuit(_ state: StatusMenuState) {
+        if state.isCapturing {
+            if let session { session.cancel(session.activeRequester ?? .menu, reason: .userStopped) }
+            else { coordinator.cancel() }
+        }
+        if state.meetingRunning { onStopMeeting?() }
+        Log.app.notice("quit: stopped open capture before quitting")
+    }
+
+    static func runQuitAlert(_ prompt: MenuQuit.Prompt) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = prompt.title
+        alert.informativeText = prompt.message
+        alert.addButton(withTitle: prompt.confirm)
+        alert.addButton(withTitle: prompt.cancel)
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// The one line that says what a binding costs. Pure and static so the copy is unit-testable
@@ -317,5 +324,48 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
         return "Legacy event tap — needs \(permission.title), and a quit & reopen"
+    }
+}
+
+/// Title, helper line and ready dot for one `NSMenuItem`.
+///
+/// The helper is the native subtitle (macOS 14.4+). On macOS 14 an attributed title hides the
+/// subtitle, so where the title needs one (the ready dot) or the subtitle API is missing, the helper
+/// is drawn as a second, secondary-coloured line of the attributed title instead.
+enum MenuItemText {
+    static let dot = "●"
+
+    static func apply(title: String, detail: String?, readyDot: Bool, to item: NSMenuItem) {
+        if #available(macOS 15, *) {
+            item.subtitle = detail
+            if readyDot { item.attributedTitle = attributed(title: title, detail: nil, readyDot: true) }
+        } else if #available(macOS 14.4, *), !readyDot {
+            item.subtitle = detail
+        } else if readyDot || detail != nil {
+            item.attributedTitle = attributed(title: title, detail: detail, readyDot: readyDot)
+        }
+        // The dot is decoration; VoiceOver reads the words, never "black circle".
+        if item.attributedTitle != nil {
+            item.setAccessibilityLabel(detail.map { "\(title), \($0)" } ?? title)
+        }
+    }
+
+    static func attributed(title: String, detail: String?, readyDot: Bool) -> NSAttributedString {
+        let out = NSMutableAttributedString(string: title, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        if readyDot {
+            // Prototype `.dot`: 6 pt, the ready green; never shown for any other state.
+            out.append(NSAttributedString(string: "  \(dot)", attributes: [
+                .font: NSFont.systemFont(ofSize: 7),
+                .foregroundColor: Tokens.Colors.ready,
+                .baselineOffset: 1.5,
+            ]))
+        }
+        if let detail {
+            out.append(NSAttributedString(string: "\n\(detail)", attributes: [
+                .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
+        return out
     }
 }
