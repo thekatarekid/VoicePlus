@@ -74,6 +74,10 @@ public final class AppContainer {
     private var refreshingEngine = false
     private var zeroEditTimer: Timer?
     private var adaptTimer: Timer?
+    /// V4.7 — re-prewarms the capture graph when the input route changes (see `startBackgroundWork`).
+    private var deviceMonitor: AudioDeviceMonitor?
+    private var devicePrewarm: DispatchWorkItem?
+    private var terminateObserver: NSObjectProtocol?
 
     public struct Options {
         public var environment: [String: String] = ProcessInfo.processInfo.environment
@@ -101,7 +105,12 @@ public final class AppContainer {
         let database = options.database ?? (try? AppDatabase.open())
         let flags = options.flags ?? FeatureFlagService.local()
         let settings = options.settings ?? UserDefaultsSettingsStore()
-        let built = await EngineFactory.make(environment: options.environment)
+        // V4.8 — the model store's maintenance pass (layout migration + parked sweep, under a
+        // cross-process lock) is no longer on this path. `.deferred` leaves it for
+        // `startBackgroundWork()`, which the app calls once it is wired and the hotkey is live.
+        let manager = EngineFactory.mockFixtureName(environment: options.environment) == nil
+            ? ModelManager(maintenance: .deferred) : nil
+        let built = await EngineFactory.make(environment: options.environment, manager: manager)
         let gate = EgressGate.shared
         gate.database = database
         let routing = options.discoverProviders
@@ -312,20 +321,100 @@ public final class AppContainer {
                                micVAD: EnergyVAD(), systemVAD: EnergyVAD())
         }
         Log.app.info("container up: engine=\(String(describing: built.kind)) db=\(database != nil) providers=\(routing.allProviders.count)")
-        warmUpEngine()
+        // V4.7 — the kept capture graph is fully released on hard mute and on quit; everything
+        // else only pauses it between turns. Unmuting prepares it again (microphone still closed).
+        // Transitions only: the mute controller also notifies on every processing / directed
+        // change (each turn), and `observe` replays the current state at once.
+        let muteEdge = MuteEdge(muted: latchController.mute.isMuted)
+        latchController.mute.observe { [weak self] model in
+            guard let self, let muted = muteEdge.change(to: model.muted) else { return }
+            if muted {
+                self.releaseCapture(.mute)
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.prewarmCapture() }
+            }
+        }
+        terminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.releaseCapture(.quit) }
     }
 
-    /// Loads the speech model into memory in the background, as soon as there is one.
+    deinit {
+        if let terminateObserver { NotificationCenter.default.removeObserver(terminateObserver) }
+        deviceMonitor?.stop()
+    }
+
+    /// V4.6–V4.8 — the work the launch path must not wait for, started once the app is wired and
+    /// the hotkey is live: the model store's maintenance pass (detached, still under its
+    /// cross-process lock), the model preload and the capture-graph prewarm, and the route watcher
+    /// that prepares the graph again after a device change.
+    public func startBackgroundWork() {
+        modelManager?.startMaintenance()
+        warmUpEngine()
+        guard case .real = engineKind, deviceMonitor == nil else { return }
+        let monitor = AudioDeviceMonitor()
+        monitor.onDefaultInputChanged = { [weak self] _ in self?.scheduleDevicePrewarm() }
+        monitor.onDeviceListChanged = { [weak self] _ in self?.scheduleDevicePrewarm() }
+        monitor.start()
+        deviceMonitor = monitor
+    }
+
+    /// Loads the speech model into memory in the background, as soon as there is one, then prepares
+    /// the capture graph (V4.7): AUHAL pinned, formats synced, tap installed, engine prepared — and
+    /// the microphone still closed, so the first press is one `engine.start()`.
     ///
-    /// Called at launch and again whenever a download lands and the engine is swapped in. Before
-    /// this, the CoreML compile happened lazily inside the user's *first* `start()`: the notch sat on
-    /// "Warming up…" for as long as that took, with no progress and no end in sight. Deliberately
+    /// Called from `startBackgroundWork()` and again whenever a download lands and the engine is
+    /// swapped in. `.userInitiated`, not `.utility`: a cold first press races it (V4.7). Deliberately
     /// silent — it publishes no engine state, so nothing appears on screen for work nobody asked for.
     public func warmUpEngine() {
         guard case .real = engineKind else { return }
         let engine = swappableEngine.current
-        guard let real = engine as? RealEngine, !real.isModelLoaded else { return }
-        Task.detached(priority: .utility) { await real.preloadModel() }
+        guard let real = engine as? RealEngine else { return }
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let loaded = real.isModelLoaded ? true : await real.preloadModel()
+            await MainActor.run { self?.prewarmCapture(engine: real, modelLoaded: loaded) }
+        }
+    }
+
+    /// Builds the capture graph without opening the microphone. Skipped without microphone
+    /// permission (preparing the HAL device must not be what first asks for it), while muted, and
+    /// while somebody holds capture (a prewarm resets the VAD).
+    private func prewarmCapture(engine: RealEngine? = nil, modelLoaded: Bool? = nil) {
+        guard case .real = engineKind, let audio else { return }
+        guard PipelineAudioSource.microphoneAuthorized, !latchController.mute.isMuted, audio.currentOwner == nil else { return }
+        let real = engine ?? (swappableEngine.current as? RealEngine)
+        if let real, modelLoaded ?? real.isModelLoaded {
+            // `engine.prewarm()` with the model already resolved publishes nothing; it only
+            // prewarms the audio behind it.
+            Task.detached(priority: .userInitiated) {
+                do { try await real.prewarm() } catch { Log.engine.warning("capture prewarm failed: \(error)") }
+            }
+        } else {
+            // No model in memory: `engine.prewarm()` would publish "Warming up…" and resolve one.
+            // The graph does not need the model, so prepare it directly.
+            do { try audio.prewarm() } catch { Log.engine.warning("capture prewarm failed: \(error)") }
+        }
+    }
+
+    /// Route changes arrive in bursts (a device appears, then becomes the default).
+    private func scheduleDevicePrewarm() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.devicePrewarm?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.prewarmCapture() }
+            self.devicePrewarm = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+        }
+    }
+
+    /// V4.7 — the full stop of the kept capture graph. Off the caller's thread except at quit.
+    public func releaseCapture(_ reason: CaptureReleaseReason) {
+        guard let source = audio?.pipeline.source else { return }
+        if reason == .quit {
+            source.release(reason: reason)
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async { source.release(reason: reason) }
+        }
     }
 
     /// Called at hotkey-down: refresh the decoder's bias list from the current screen/context.
@@ -392,8 +481,11 @@ public final class AppContainer {
     /// utterance in flight, so nothing half-recognised lands (`SwappableEngine.swap`).
     private func apply(_ built: EngineFactory.Built) async {
         await swappableEngine.swap(to: built.engine)
+        // V4.7 — the outgoing engine's graph is kept between turns; nobody will start it again.
+        let outgoing = audio?.pipeline.source
         engineKind = built.kind
         audio = built.audio
+        if let outgoing, outgoing !== audio?.pipeline.source { outgoing.release(reason: .replaced) }
         audio?.utteranceTap = audioTap
         recognizerProvider = built.provider
         correction.recognizers = built.provider.map { ProviderDualPathRecognizers(provider: $0) }
@@ -468,5 +560,109 @@ public final class AppContainer {
 
     public var connectedProviderNames: [String] {
         routing.allProviders.filter { $0.id != routing.fallback.id }.map(\.id.rawValue)
+    }
+}
+
+/// V4.7 — the hard-mute flag's edges. The mute controller calls its observers synchronously on
+/// whichever thread mutated it, and on far more than the flag, so the release / re-prepare is
+/// keyed on an actual change.
+final class MuteEdge: @unchecked Sendable {
+    private let lock = NSLock()
+    private var muted: Bool
+
+    init(muted: Bool) { self.muted = muted }
+
+    /// The new value when `muted` differs from the last one seen, else nil.
+    func change(to muted: Bool) -> Bool? {
+        lock.withLock {
+            guard muted != self.muted else { return nil }
+            self.muted = muted
+            return muted
+        }
+    }
+}
+
+// MARK: - V4.6 launch order
+
+/// A3 / V4.6 — a press made while the container is still being built.
+///
+/// The hotkey is armed before `AppContainer.build` (which loads the VAD on the ANE and used to run
+/// the model store's maintenance under a file lock), so the first press no longer disappears. Until
+/// the container is wired the gate holds **one** press: the pill says "Starting microphone…"
+/// (`.starting`); if the key is still down — or latched — when the container lands, capture starts
+/// through the real handler; if it was released, nothing lands and the pill goes quietly (K03's
+/// first isolated tap is quiet). Main thread only, like the hotkey callbacks it sits behind.
+final class LaunchPressGate {
+    enum Pending: Equatable {
+        case none
+        /// Key down (or a hold in progress) when the container lands → replay `.startCapture`.
+        case held
+        /// A double-tap latch was made → replay `.startCapture`, `.enterLatch`.
+        case latched
+        /// The press ended before the container landed → nothing.
+        case released
+    }
+
+    private(set) var pending: Pending = .none
+    private(set) var isReady = false
+    private let present: (PillState) -> Void
+    private let dismiss: () -> Void
+
+    init(present: @escaping (PillState) -> Void, dismiss: @escaping () -> Void) {
+        self.present = present
+        self.dismiss = dismiss
+    }
+
+    /// Everything the hotkey sends before the container is ready.
+    func handle(_ action: HotkeyStateMachine.Action) {
+        guard !isReady else { return }
+        // Compared rather than switched on, so a gesture the hotkey learns later is simply not
+        // queued instead of breaking this file's build.
+        if action == .startCapture {
+            // One queued press max: a second down while one is held changes nothing; a new press
+            // after a released one replaces it.
+            guard pending != .held, pending != .latched else { return }
+            pending = .held
+            present(.starting)
+        } else if action == .enterLatch {
+            guard pending == .held else { return }
+            pending = .latched
+        } else if action == .finalize || action == .cancelCapture {
+            guard pending == .held || pending == .latched else { return }
+            pending = .released
+            dismiss()
+        }
+    }
+
+    /// The container is wired: replay the held press (if any) through `forward`, exactly once.
+    func containerReady(forward: (HotkeyStateMachine.Action) -> Void) {
+        guard !isReady else { return }
+        isReady = true
+        let queued = pending
+        pending = .none
+        switch queued {
+        case .held:
+            forward(.startCapture)
+        case .latched:
+            forward(.startCapture)
+            forward(.enterLatch)
+        case .none, .released:
+            break
+        }
+    }
+}
+
+/// A3 — build the container behind an armed hotkey, wire it, then hand the gate's held press to the
+/// real handler. Separate from `AppDelegate` so it can run against a fake container future.
+enum LaunchSequence {
+    @MainActor
+    static func run<Container>(gate: LaunchPressGate,
+                               build: () async -> Container,
+                               wire: (Container) -> Void,
+                               forward: (HotkeyStateMachine.Action) -> Void) async -> Container {
+        let container = await build()
+        wire(container)
+        gate.containerReady(forward: forward)
+        return container
     }
 }
