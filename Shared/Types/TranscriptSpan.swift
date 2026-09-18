@@ -199,8 +199,8 @@ public extension Sequence where Element == TranscriptSpan {
     ///   Indentation right after a line break is kept (code, nested lists).
     ///
     /// Leading/trailing spacing against the destination is the continuation planner's job, never
-    /// this join's. Declared on `Sequence` (not `Array`) so the older `Array` overload in
-    /// `Pipeline` keeps resolving without ambiguity in modules that import both.
+    /// this join's. The one join for every module: `Pipeline`'s older `Array` copy was removed at
+    /// the wave 0 gate. Declared on `Sequence`; a second `Array` overload elsewhere would shadow it.
     var renderedText: String {
         var joined = ""
         for span in self {

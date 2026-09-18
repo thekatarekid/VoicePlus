@@ -11,7 +11,7 @@ import Shared
 ///
 /// Output keeps one span per input span (audioRange/confidence/alternates untouched). Text that
 /// was deleted leaves an empty span; punctuation glues onto the previous word's span. Use
-/// `renderedText` (below) to join the result for injection.
+/// `renderedText` (Shared, G0.1) to join the result for injection.
 public struct ProseListFormatter: PipelineStage {
     public struct Options: Sendable {
         /// Append a period when the utterance ends without terminal punctuation.
@@ -41,19 +41,6 @@ public struct ProseListFormatter: PipelineStage {
         ListDetector.apply(&toks, forceList: register == .list)
         Capitalizer.apply(&toks, addTerminalPeriod: options.addTerminalPeriod)
         return Assembler.assemble(toks, into: spans, stage: id)
-    }
-}
-
-public extension Array where Element == TranscriptSpan {
-    /// Joins span texts for injection: single spaces between words, none around newlines,
-    /// empty spans skipped.
-    var renderedText: String {
-        var out = ""
-        for s in self where !s.text.isEmpty {
-            if !out.isEmpty, !out.hasSuffix("\n"), !s.text.hasPrefix("\n") { out += " " }
-            out += s.text
-        }
-        return out
     }
 }
 
