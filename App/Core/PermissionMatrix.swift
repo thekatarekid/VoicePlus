@@ -19,7 +19,7 @@ public enum Permission: String, CaseIterable, Codable, Sendable, Identifiable {
         case .microphone:
             return "VoicePlus listens only while you hold the key. Audio is transcribed on this Mac and never leaves it unless you turn on a cloud provider."
         case .accessibility:
-            return "Accessibility lets VoicePlus type what you said into the app you're using and read the field you're in so it can match the style. No screenshots, ever."
+            return "Accessibility lets VoicePlus type what you said into the app you're using and read the field you're in so it can match the style. Accessibility never takes screenshots."
         case .inputMonitoring:
             return "Optional. VoicePlus only needs this if you switch it to the legacy event-tap listener; the normal dictation key needs no permission at all. Turning it on also means quitting and reopening VoicePlus, because macOS hands this one service over only at launch."
         }
@@ -341,4 +341,101 @@ public struct RelaunchAdvisor: Equatable, Sendable {
         }
         return newly
     }
+}
+
+// MARK: - G2 · optional permissions (Screen Recording for the deixis box)
+
+/// Permissions VoicePlus can use but never needs. They sit beside `Permission`, not in it, on
+/// purpose: `Permission.allCases` is the *required* walk (onboarding, `PermissionPlanner`,
+/// `RelaunchAdvisor`, the recovery screen), and an optional grant must never block dictation or
+/// appear as something missing. A declined optional permission degrades one feature, quietly.
+public enum OptionalPermission: String, CaseIterable, Codable, Sendable, Identifiable {
+    /// V4.29 / V4.53 — the screenshot of a drawn box and text recognition over it.
+    case screenRecording
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .screenRecording: return "Screen Recording"
+        }
+    }
+
+    /// The one-line explanation shown the first time it is needed (a box was drawn), before the
+    /// system asks.
+    public var rationale: String {
+        switch self {
+        case .screenRecording:
+            return "Optional. Lets VoicePlus read the text inside a box you draw when the app doesn't share it — the image stays in memory for that dictation and is never saved."
+        }
+    }
+
+    /// `CGRequestScreenCaptureAccess()` shows its alert once and returns the current state at
+    /// once; the user flips the switch in System Settings. Same shape as Input Monitoring.
+    public var isPromptable: Bool { false }
+
+    /// `revealElementKeyName` for System Settings › Privacy & Security.
+    public var settingsAnchor: String {
+        switch self {
+        case .screenRecording: return "Privacy_ScreenCapture"
+        }
+    }
+
+    public var settingsURLs: [URL] { PermissionSettingsLink.urls(anchor: settingsAnchor) }
+
+    /// Apple's `PrivacyTCCServices.plist` carries a (hedged, "may not") quit string for screen
+    /// capture, so a mid-session grant is not promised to reach a running app.
+    public var grantReachesRunningApp: Bool { false }
+}
+
+/// G2 — the Screen Recording decision each time a box is drawn, as a pure state machine.
+///
+/// * Granted → capture the box and recognise its text.
+/// * Never asked → show the one-line explanation and ask (once, ever); this box carries AX text
+///   only, because the grant does not reach it in time.
+/// * Asked before, or denied → AX text only, and the pill says "Screen text isn't available".
+public struct ScreenRecordingConsent: Equatable, Sendable {
+    public enum Decision: Equatable, Sendable {
+        /// Take the screenshot; OCR when the tree has no text.
+        case capture
+        /// First box ever without the grant: explain, then call the system request.
+        case explainAndRequest(explanation: String)
+        /// No screenshot, no OCR: the box carries AX text only.
+        case axOnly(notice: String)
+    }
+
+    /// The pill's line whenever a box goes without screen text.
+    public static let unavailableNotice = "Screen text isn't available"
+
+    public private(set) var status: PermissionStatus
+    /// Whether the system request has ever been made (persisted by the caller).
+    public private(set) var hasRequested: Bool
+
+    public init(status: PermissionStatus = .notDetermined, hasRequested: Bool = false) {
+        self.status = status
+        self.hasRequested = hasRequested
+    }
+
+    /// A box was drawn. `preflight` is `CGPreflightScreenCaptureAccess()` read now.
+    public mutating func boxDrawn(preflight granted: Bool) -> Decision {
+        if granted {
+            status = .granted
+            return .capture
+        }
+        if status == .granted { status = .denied }   // revoked since we last looked
+        guard hasRequested else {
+            hasRequested = true
+            status = .awaitingUserAction
+            return .explainAndRequest(explanation: OptionalPermission.screenRecording.rationale)
+        }
+        if status == .notDetermined { status = .denied }
+        return .axOnly(notice: Self.unavailableNotice)
+    }
+
+    /// What `CGRequestScreenCaptureAccess()` returned (true only when already granted).
+    public mutating func requestReturned(granted: Bool) {
+        status = granted ? .granted : .awaitingUserAction
+    }
+
+    /// Screen text can be used for boxes drawn now.
+    public var allowsCapture: Bool { status == .granted }
 }
