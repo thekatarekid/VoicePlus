@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var session: SessionCoordinator?
     /// R3.2 — endpoint-driven segment delivery while latched.
     private var latchRuntime: LatchRuntime?
+    /// H2 — holds feed passive enrollment; latch audio feeds the speaker guard.
+    private var speakerAudio: SpeakerAudioWiring?
     /// R8.1 — held so the ambient store outlives `applicationDidFinishLaunching`.
     private var ambientStore: AmbientTranscriptStore?
     private var orchestrator: PermissionOrchestrator?
@@ -169,10 +171,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // "broken notch animation that appears and disappears" at the end of a dead press.
         coordinator.onStartFailure = { [weak self] _ in self?.hotkey.resetGesture() }
         // A model downloaded mid-session replaces the engine *and* the audio pipeline behind it;
-        // rebind the two things that hang off the pipeline rather than off the engine.
-        container.onEngineChanged = { [weak coordinator] container in
+        // rebind the things that hang off the pipeline rather than off the engine.
+        container.onEngineChanged = { [weak self, weak coordinator] container in
             guard let coordinator, let audio = container.audio else { return }
             coordinator.bindWaveform(to: audio)
+            self?.speakerAudio?.bind(to: audio)
             audio.onMicQuality = { [weak coordinator] q in
                 DispatchQueue.main.async { coordinator?.noteMicQuality(q) }
             }
@@ -200,6 +203,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.latchRuntime = latch
         self.session = sessionCoordinator
+
+        // H2 (V4.49) — every hold-to-talk utterance with ≥ 1.5 s of speech teaches the voice until
+        // ten have; then latch segments go through the speaker filter, fed the latch audio here.
+        let speakerAudio = SpeakerAudioWiring(
+            isLatched: { [weak coordinator] in coordinator?.latched ?? false },
+            wantsHolds: { [weak container] in !(container?.latchController.hasEnrolledVoice ?? true) },
+            observe: SpeakerAudioWiring.observeHolds(on: container.latchController))
+        if let audio = container.audio { speakerAudio.bind(to: audio) }
+        container.latchController.attach(runtime: latch, segmentAudio: { [weak speakerAudio] in speakerAudio?.segmentAudio.take() })
+        container.latchController.onVoiceLearned = { [weak self] _ in
+            DispatchQueue.main.async { self?.pill.model.present(.preview(text: LatchController.voiceLearnedMessage)) }
+        }
+        self.speakerAudio = speakerAudio
 
         // R8.1/R8.2 — ambient capture hangs off the latch runtime's transcript seam, which is the
         // only place ambient text exists. It is read through `gate` on every segment rather than
