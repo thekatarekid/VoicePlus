@@ -17,6 +17,10 @@ public struct SpeakerGate: Sendable {
     public var threshold: Float
     /// Margin by which a "not you" negative must beat the centroid to veto a user verdict.
     public var negativeMargin: Float = 0.05
+    /// H2 — how far "Not you" corrections may lift the threshold above `threshold`. Bounded so a run
+    /// of corrections (or one against a near-identical voice) can never make the user's own voice
+    /// unreachable: WeSpeaker cosine tops out at 0.6 + 0.2 = 0.8.
+    public static let maximumNotYouRaise: Float = 0.2
 
     public init(profile: SpeakerProfile?, threshold: Float = 0.6) {
         self.profile = profile; self.threshold = threshold
@@ -26,10 +30,17 @@ public struct SpeakerGate: Sendable {
         embedder is MFCCEmbedder ? 0.5 : 0.6
     }
 
+    /// The threshold actually applied: `threshold`, lifted by the profile's "Not you" floor
+    /// (`SpeakerProfile.noteNotYou`), never by more than `maximumNotYouRaise`.
+    public var effectiveThreshold: Float {
+        guard let floor = profile?.thresholdFloor else { return threshold }
+        return min(max(threshold, floor), threshold + Self.maximumNotYouRaise)
+    }
+
     public func verdict(for e: SpeakerEmbedding) -> Verdict {
         guard let p = profile, p.centroid.vector.count == e.vector.count else { return .unknown }
         let s = p.centroid.similarity(e)
-        guard s >= threshold else { return .other(similarity: s) }
+        guard s >= effectiveThreshold else { return .other(similarity: s) }
         let bestNeg = p.negatives.map { $0.similarity(e) }.max() ?? -1
         return bestNeg > s + negativeMargin ? .other(similarity: s) : .user(similarity: s)
     }
