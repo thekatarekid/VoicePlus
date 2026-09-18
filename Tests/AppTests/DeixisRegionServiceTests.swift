@@ -42,7 +42,7 @@ struct DeixisRegionServiceTests {
             guard access.preflight() else { throw ScreenTextError.permissionDenied }
             if captureDelay > 0 { try? await Task.sleep(nanoseconds: captureDelay) }
             if holdsCapture {
-                gate.lock(); started = true; gate.unlock()
+                gate.withLock { started = true }
                 while !({ gate.lock(); defer { gate.unlock() }; return released }()) {
                     await Task.yield()
                     usleep(1_000)
@@ -147,7 +147,9 @@ struct DeixisRegionServiceTests {
         service.regionRetention = 0.05
         await service.regionDrawn(Self.drawn()).value
         service.endCapture()
-        try await Self.waitUntil { service.currentRegions.isEmpty }
+        // `endTurn()` empties the regions under its lock and drops the crops just after, off this
+        // thread — wait for the whole turn end, not its first half.
+        try await Self.waitUntil { service.currentRegions.isEmpty && screen.frames.isEmpty }
         #expect(service.currentRegions.isEmpty && screen.frames.isEmpty)
     }
 
@@ -160,7 +162,7 @@ struct DeixisRegionServiceTests {
         let landed = service.augment(spans, StageContext())
         #expect(landed.extra[DeixisService.contextLineKey]?.hasPrefix("region 1 = ") == true)
         #expect(service.currentRegions.count == 1 && screen.frames.count == 1)   // still there for the fade/chip
-        try await Self.waitUntil { service.currentRegions.isEmpty }
+        try await Self.waitUntil { service.currentRegions.isEmpty && screen.frames.isEmpty }
         #expect(service.currentRegions.isEmpty && screen.frames.isEmpty)        // turn over: box and crop gone
 
         // A new key-down inside the grace starts a new turn; its box is not cleared by the old timer.
