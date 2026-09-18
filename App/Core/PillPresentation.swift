@@ -32,6 +32,14 @@ public enum PillDwell {
         // A held row is a notice the user has to act on; it gets the notice minimum, and the same
         // three actions stay reachable in the menu after it retracts.
         case .error, .warning, .unavailable, .held: return notice
+        // G0.4 — the V4 states, slotted into the existing classes until S2 owns this table: live and
+        // in-flight states have no floor, "Cancelled" is an acknowledgement, "Updated · Undo" reads
+        // like a landed row, and a partial insertion is a notice the user has to act on.
+        case .ready, .muted, .starting, .listeningQuiet, .latched, .finishing, .finalPreview, .inserting,
+             .correcting, .editing, .meeting: return 0
+        case .cancelled: return acknowledgement
+        case .undoAvailable: return landedText
+        case .landedPartial: return notice
         }
     }
 

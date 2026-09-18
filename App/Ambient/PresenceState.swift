@@ -212,6 +212,10 @@ public enum PresenceStateReducer {
         case .idle, .landed, .warning, .error: return inputs.ambientProcessing ? .processing : .ready
         // No recognizer at all: the indicator must not read "ready" — nothing can be dictated.
         case .unavailable: return .blocked(.modelMissing)
+        // G0.4 — opening the microphone is not yet listening, and a closed microphone finishing its
+        // final pass is not listening either; a cancelled turn is over, exactly like idle.
+        case .starting, .finishing: return .processing
+        case .cancelled: return inputs.ambientProcessing ? .processing : .ready
         }
     }
 

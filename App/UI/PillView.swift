@@ -236,6 +236,15 @@ public struct PillView: View {
         case .unavailable(let reason): Notice(headline: reason, subtitle: PillState.unavailableSubtitle)
         case .error(let message): Notice(headline: message, subtitle: PillState.errorSubtitle)
         case .warning(let q): Notice(headline: PillState.warningHeadline(q), subtitle: PillState.warningSubtitle)
+        // G0.4 — the V4 states in this row's existing vocabulary until S2 draws the Spool pill:
+        // open capture keeps the waveform, a payload shows its text, the rest their fixed sentences.
+        case .listeningQuiet, .latched: WaveformView(bars: model.waveform.bars)
+        case .finalPreview(let info): Text(info.text).font(.callout).lineLimit(2).truncationMode(.head)
+        case .inserting(let text): Text(text).font(.callout).lineLimit(2).truncationMode(.head)
+        case .ready(let hint): Text(hint).font(.callout).foregroundStyle(.secondary)
+        case .landedPartial(let text): Notice(headline: PillCopy.partialStatus, subtitle: text)
+        case .muted, .starting, .cancelled, .finishing, .correcting, .editing, .undoAvailable, .meeting:
+            Notice(headline: model.state.messageLines.first ?? "", subtitle: model.state.messageLines.dropFirst().last ?? "")
         }
     }
 }

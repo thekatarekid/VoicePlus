@@ -39,9 +39,20 @@ public enum EngineState: Codable, Equatable, Sendable {
     /// value is a short user-facing reason ("No speech model installed").
     case unavailable(String)
 
+    // MARK: V4 turn lifecycle (G0.4, design_v1 §5–§6). Additive: every case above keeps its meaning.
+
+    /// C0 — the key is down and capture is being opened. "Listening" is not claimed until the
+    /// microphone is actually open, so this precedes `listening` in every turn.
+    case starting
+    /// F0 — the microphone is closed and the final pass is running. Nothing has been written yet.
+    case finishing
+    /// C4 — the turn was cancelled before any write began (Escape, a too-short tap). Nothing was
+    /// inserted; terminal for the turn.
+    case cancelled
+
     public var isActive: Bool {
         switch self {
-        case .idle, .landed, .error, .unavailable: return false
+        case .idle, .landed, .error, .unavailable, .cancelled: return false
         default: return true
         }
     }
@@ -58,6 +69,9 @@ public enum EngineState: Codable, Equatable, Sendable {
         case .warning: return "warning"
         case .error: return "error"
         case .unavailable: return "unavailable"
+        case .starting: return "starting"
+        case .finishing: return "finishing"
+        case .cancelled: return "cancelled"
         }
     }
 }

@@ -1,7 +1,8 @@
 import Foundation
 import Shared
 
-/// The five pill states from the Build doc (T2) plus `hidden` for "retracted".
+/// The five pill states from the Build doc (T2) plus `hidden` for "retracted", and (G0.4) every
+/// state of the verified Spool design's inventory (design_v1 §6).
 public enum PillState: Equatable, Sendable {
     case hidden
     case idle
@@ -26,6 +27,42 @@ public enum PillState: Equatable, Sendable {
     /// P2.3 — "talk to your text": tinted pill, "editing N words", then the 5 s ghost / 8 s warm window.
     case transform(TransformPillInfo)
 
+    // MARK: V4 / Spool states (G0.4, design_v1 §6). Additive: every case above keeps its meaning.
+
+    /// I1 — pointer hover over the idle chin. `hint` is already rendered with the *configured* key
+    /// (`PillState.readyHint(key:latchEnabled:)`), never a hard-coded "Right Control".
+    case ready(hint: String)
+    /// I2 — hard mute: microphone closed, no readiness claim. Leaves only on an explicit Unmute.
+    case muted
+    /// C0 — key down, microphone not open yet. "Listening" is not claimed until capture is.
+    case starting
+    /// C2 — capture still open but quiet (VAD idle longer than `quietAfter`). The label says so.
+    case listeningQuiet
+    /// C3 — double-tap latch, with the design's timer only (the V4.38 countdown ring is withdrawn).
+    case latched(elapsed: TimeInterval)
+    /// C4 — cancelled before any write began (Escape, a too-short tap). Nothing was inserted.
+    case cancelled
+    /// F0 — microphone closed, final pass running, nothing written yet. `elapsedWarning` is set once
+    /// `finishingWarningDelay` has passed and swaps the status for "Still finishing your text".
+    case finishing(elapsedWarning: Bool)
+    /// F1 / F2 — the immutable final payload, shown for its dwell before the one insertion.
+    case finalPreview(FinalPreviewInfo)
+    /// D0 — the single insertion attempt of the previewed payload is in flight. No success cue yet.
+    case inserting(text: String)
+    /// D3 — the `.landed` family's third outcome (`LandedOutcome.partial`): only part of `text` may
+    /// have been inserted. The payload is never depicted as lost; the user reviews both versions.
+    /// Its own case because `LandedPillInfo.verified` is a two-way flag; build it with
+    /// `PillState.landed(text:outcome:)`.
+    case landedPartial(text: String)
+    /// R0 — the correction popover owns alternatives and focus.
+    case correcting
+    /// R1 — a selection is being rewritten; microphone closed, original text unchanged.
+    case editing
+    /// R2 — an edit landed and a safe Undo is still possible.
+    case undoAvailable
+    /// Q0 / Q1 / Q2 — meeting capture, paused, or preparing notes. Separate from dictation.
+    case meeting(MeetingPillInfo)
+
     public var isVisible: Bool { self != .hidden }
 
     public var caseName: String {
@@ -41,6 +78,20 @@ public enum PillState: Equatable, Sendable {
         case .unavailable: return "unavailable"
         case .error: return "error"
         case .transform: return "transform"
+        case .ready: return "ready"
+        case .muted: return "muted"
+        case .starting: return "starting"
+        case .listeningQuiet: return "listeningQuiet"
+        case .latched: return "latched"
+        case .cancelled: return "cancelled"
+        case .finishing: return "finishing"
+        case .finalPreview: return "finalPreview"
+        case .inserting: return "inserting"
+        case .landedPartial: return "landedPartial"
+        case .correcting: return "correcting"
+        case .editing: return "editing"
+        case .undoAvailable: return "undoAvailable"
+        case .meeting: return "meeting"
         }
     }
 
@@ -61,6 +112,25 @@ public enum PillState: Equatable, Sendable {
         case .unavailable(let reason): return [reason, PillState.unavailableSubtitle]
         case .error(let message): return [message, PillState.errorSubtitle]
         case .warning(let quality): return [PillState.warningHeadline(quality), PillState.warningSubtitle]
+        // V4 states: the fixed sentences of each, verbatim from the verified prototype. Transcript
+        // text, the destination-bearing "Inserting in Mail…" / "Updated in Mail" statuses and the
+        // hotkey-bearing helpers are absent for the same reason `.preview` is: they are runtime
+        // values this state does not carry.
+        case .ready(let hint): return [hint]
+        case .muted: return [PillCopy.mutedStatus, PillCopy.mutedWords, PillCopy.mutedHelper]
+        case .starting: return [PillCopy.startingStatus, PillCopy.startingWords, PillCopy.startingHelper]
+        case .listeningQuiet: return [PillCopy.quietStatus, PillCopy.quietHelper]
+        case .latched: return [PillCopy.latchedStatus]
+        case .cancelled: return [PillCopy.cancelledStatus, PillCopy.cancelledWords, PillCopy.cancelledHelper]
+        case .finishing(let slow):
+            return [slow ? PillCopy.finishingSlowStatus : PillCopy.finishingStatus, PillCopy.finishingHelper]
+        case .finalPreview(let info): return [info.status, info.helper].compactMap { $0 }
+        case .inserting: return [PillCopy.insertingHelper]
+        case .landedPartial: return [PillCopy.partialStatus, PillCopy.partialHelper]
+        case .correcting: return [PillCopy.correctingStatus, PillCopy.correctingHelper]
+        case .editing: return [PillCopy.editingHelper]
+        case .undoAvailable: return [PillCopy.undoHelper]
+        case .meeting(let info): return [info.headline, info.detail, info.helper]
         }
     }
 
@@ -75,6 +145,263 @@ public enum PillState: Equatable, Sendable {
         if q.clipping > 0.05 { return "Mic is clipping" }
         return "Noisy mic — \(Int(q.snr)) dB SNR"
     }
+
+    // MARK: V4 timing that defines the states above (design_v1 §5, build doc S3)
+
+    /// After this long in `.finishing`, `elapsedWarning` is set ("Still finishing your text").
+    public static let finishingWarningDelay: TimeInterval = 2
+    /// VAD silence while the key is held after which `.listening` reads `.listeningQuiet`.
+    public static let quietAfter: TimeInterval = 1.5
+
+    /// The I1 hover hint for the configured key. With the double-tap latch off the design drops the
+    /// "or Double Tap" half (design_v1 §5).
+    public static func readyHint(key: String, latchEnabled: Bool = true) -> String {
+        latchEnabled ? "Hold or Double Tap \(key) to dictate" : "Hold \(key) to dictate"
+    }
+
+    /// Owner decision (build doc §0): every prototype string naming "Right Control" is rendered with
+    /// the configured key label instead; nothing else in the string changes.
+    public static func withHotkey(_ prototypeCopy: String, key: String) -> String {
+        prototypeCopy.replacingOccurrences(of: PillCopy.prototypeHotkey, with: key)
+    }
+
+    // MARK: The landed family (verified · unverified · partial)
+
+    /// One constructor for all three landed outcomes, so a caller holding a delivery result never
+    /// has to know that `.partial` lives in its own case.
+    public static func landed(text: String, outcome: LandedOutcome) -> PillState {
+        switch outcome {
+        case .verified: return .landed(LandedPillInfo(text: text, verified: true))
+        case .unverified: return .landed(LandedPillInfo(text: text, verified: false))
+        case .partial: return .landedPartial(text: text)
+        }
+    }
+
+    /// Which landed outcome this state shows; `nil` outside the landed family.
+    public var landedOutcome: LandedOutcome? {
+        switch self {
+        case .landed(let info): return info.verified ? .verified : .unverified
+        case .landedPartial: return .partial
+        default: return nil
+        }
+    }
+
+    // MARK: Design inventory
+
+    /// The verified design's state key (`Fixtures/design/design_copy.json` → `states`, `pill`) this
+    /// state is drawn as. Pre-V4 cases map to their nearest design row until S2 redraws them.
+    /// The design's E1 "blocked" row has no case of its own: it is a named blocker, which the
+    /// recovery catalogue (S9) routes to `.unavailable` / `.error`.
+    public var designStateKey: String {
+        switch self {
+        case .hidden: return "idle"
+        case .idle, .starting: return "starting"
+        case .listening, .preview: return "listening"
+        case .landing, .finishing: return "finishing"
+        case .landed(let info): return info.verified ? "inserted" : "unconfirmed"
+        case .held: return "held"
+        case .warning: return "warning"
+        case .unavailable: return "unavailable"
+        case .error: return "error"
+        case .transform, .editing: return "editing"
+        case .ready: return "ready"
+        case .muted: return "muted"
+        case .listeningQuiet: return "quiet"
+        case .latched: return "latched"
+        case .cancelled: return "cancelled"
+        case .finalPreview(let info): return info.needsReview ? "uncertain" : "preview"
+        case .inserting: return "inserting"
+        case .landedPartial: return "partial"
+        case .correcting: return "correcting"
+        case .undoAvailable: return "undo"
+        case .meeting(let info): return info.phase.designStateKey
+        }
+    }
+}
+
+/// The three landed outcomes (build doc §2 "Delivery outcome": delivered verified / unverified,
+/// partial). `held` and `failed` have their own states.
+public enum LandedOutcome: String, CaseIterable, Equatable, Sendable {
+    case verified, unverified, partial
+}
+
+/// F1 / F2 — what the final preview shows while it dwells. The payload is immutable (`let`): only
+/// the dwell bookkeeping around it changes; a different text is a different payload.
+public struct FinalPreviewInfo: Equatable, Sendable {
+    /// The final payload's rendered text — exactly what will be inserted.
+    public let text: String
+    /// Low-confidence words (`TranscriptSpan.isLowConfidence`). Any > 0 draws F2 and the long dwell.
+    public var uncertainCount: Int
+    /// Seconds left before insertion. Meaningless while `manual`.
+    public var dwellRemaining: TimeInterval
+    /// Hover, focus, selection or Review has frozen the dwell.
+    public var paused: Bool
+    /// Manual review: nothing is inserted until the Insert action.
+    public var manual: Bool
+    /// The destination's display name ("Mail") from the key-down snapshot, when one is known.
+    public var destination: String?
+
+    public init(text: String, uncertainCount: Int = 0, dwellRemaining: TimeInterval, paused: Bool = false,
+                manual: Bool = false, destination: String? = nil) {
+        self.text = text
+        self.uncertainCount = max(0, uncertainCount)
+        self.dwellRemaining = max(0, dwellRemaining)
+        self.paused = paused
+        self.manual = manual
+        self.destination = destination
+    }
+
+    public var needsReview: Bool { uncertainCount > 0 }
+
+    /// "Ready for Mail" / "Ready for Mail · 1 word to review". `nil` without a destination name:
+    /// the design has no destination-less wording, and none is invented here.
+    public var status: String? {
+        guard let name = destination?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        let ready = PillCopy.readyFor(name)
+        return needsReview ? ready + PillCopy.statusSeparator + PillCopy.wordsToReview(uncertainCount) : ready
+    }
+
+    public var helper: String {
+        switch (needsReview, manual) {
+        case (false, false): return PillCopy.previewHelperAuto
+        case (false, true): return PillCopy.previewHelperManual
+        case (true, false): return PillCopy.reviewHelperAuto
+        case (true, true): return PillCopy.reviewHelperManual
+        }
+    }
+}
+
+/// Q0 / Q1 / Q2 — the meeting pill. Capture is separate from dictation; reels move only while
+/// capture is actually open (`phase == .recording`).
+public struct MeetingPillInfo: Equatable, Sendable {
+    public enum Phase: String, CaseIterable, Equatable, Sendable {
+        case recording, paused, preparingNotes
+
+        /// Design inventory key: Q0 "meeting", Q1 "paused", Q2 "notes".
+        public var designStateKey: String {
+            switch self {
+            case .recording: return "meeting"
+            case .paused: return "paused"
+            case .preparingNotes: return "notes"
+            }
+        }
+    }
+
+    public var phase: Phase
+    public var elapsed: TimeInterval
+    /// False when system audio was denied and capture fell back to the microphone alone (design §8.2:
+    /// a visible missing-track notice).
+    public var capturesSystemAudio: Bool
+
+    public init(phase: Phase, elapsed: TimeInterval, capturesSystemAudio: Bool = true) {
+        self.phase = phase
+        self.elapsed = max(0, elapsed)
+        self.capturesSystemAudio = capturesSystemAudio
+    }
+
+    public var headline: String {
+        switch phase {
+        case .recording: return PillCopy.meetingRecordingStatus
+        case .paused: return PillCopy.meetingPausedStatus
+        case .preparingNotes: return PillCopy.meetingNotesStatus
+        }
+    }
+
+    public var detail: String {
+        let clock = PillTimer.text(elapsed: elapsed)
+        switch phase {
+        case .recording:
+            let tracks = capturesSystemAudio ? PillCopy.meetingTracksBoth : PillCopy.meetingTracksMicrophoneOnly
+            return tracks + PillCopy.statusSeparator + clock
+        case .paused: return PillCopy.meetingPausedDetail + PillCopy.statusSeparator + clock
+        case .preparingNotes: return PillCopy.meetingNotesDetail
+        }
+    }
+
+    public var helper: String {
+        switch phase {
+        case .recording: return PillCopy.meetingRecordingHelper
+        case .paused: return PillCopy.meetingPausedHelper
+        case .preparingNotes: return PillCopy.meetingNotesHelper
+        }
+    }
+}
+
+/// The pill's clock: "0:06", "12:04", "1:02:03". Negative or non-finite input reads "0:00".
+public enum PillTimer {
+    public static func text(elapsed: TimeInterval) -> String {
+        let total = elapsed.isFinite ? max(0, Int(elapsed.rounded(.down))) : 0
+        let hours = total / 3600, minutes = (total % 3600) / 60, seconds = total % 60
+        return hours > 0
+            ? "\(hours):" + twoDigits(minutes) + ":" + twoDigits(seconds)
+            : "\(minutes):" + twoDigits(seconds)
+    }
+
+    private static func twoDigits(_ n: Int) -> String { n < 10 ? "0\(n)" : "\(n)" }
+}
+
+/// Fixed sentences of the V4 pill states, verbatim from the verified prototype
+/// (`Fixtures/design/design_copy.json` → `pill`, asserted by `PillStateV4Tests`). Copy voice and
+/// the "Right Control" → configured-key rule are the design's (build doc §0).
+public enum PillCopy {
+    /// The key the prototype's copy names; replaced by the configured key (`PillState.withHotkey`).
+    public static let prototypeHotkey = "Right Control"
+    public static let statusSeparator = " · "
+
+    public static let mutedStatus = "⊘ VoicePlus is muted"
+    public static let mutedWords = "Microphone closed"
+    public static let mutedHelper = "Unmute when you are ready"
+
+    public static let startingStatus = "Starting microphone…"
+    public static let startingWords = "Ready for your words"
+    public static let startingHelper = "Recording starts when the microphone is open"
+
+    public static let quietStatus = "Listening · quiet"
+    public static let quietHelper = "Still listening while you hold"
+
+    public static let latchedStatus = "Latched · hands-free"
+
+    public static let cancelledStatus = "Cancelled"
+    public static let cancelledWords = "Nothing inserted"
+    public static let cancelledHelper = "You can start a new dictation"
+
+    public static let finishingStatus = "Finishing…"
+    /// design_v1 §5: said once finalization has taken `PillState.finishingWarningDelay`.
+    public static let finishingSlowStatus = "Still finishing your text"
+    public static let finishingHelper = "Microphone closed · nothing inserted yet"
+
+    public static let previewHelperAuto = "Final text · inserts after the preview"
+    public static let previewHelperManual = "Final text · insert when ready"
+    public static let reviewHelperAuto = "Final preview · hover to pause"
+    public static let reviewHelperManual = "Review mode · insert when ready"
+    public static func readyFor(_ destination: String) -> String { "Ready for \(destination)" }
+    public static func wordsToReview(_ count: Int) -> String {
+        "\(count) word\(count == 1 ? "" : "s") to review"
+    }
+
+    public static let insertingHelper = "Same text · one insertion attempt"
+
+    public static let partialStatus = "⚠ Only part may have been inserted"
+    public static let partialHelper = "Review both versions to avoid duplicate text"
+
+    public static let correctingStatus = "Review one word"
+    public static let correctingHelper = "Keep the spelling or replace the verified word"
+
+    public static let editingHelper = "Microphone closed · original text unchanged"
+
+    public static let undoHelper = "Undo only while the edited range still matches"
+
+    public static let meetingRecordingStatus = "Meeting · recording"
+    public static let meetingTracksBoth = "Microphone + system audio"
+    /// design_v1 §8.2: system-audio denial falls back to microphone-only capture, labelled as such.
+    public static let meetingTracksMicrophoneOnly = "Microphone only"
+    public static let meetingRecordingHelper = "Capture is separate from dictation"
+    public static let meetingPausedStatus = "Meeting paused"
+    public static let meetingPausedDetail = "Capture is paused"
+    public static let meetingPausedHelper = "Resume when you are ready"
+    public static let meetingNotesStatus = "Preparing meeting notes"
+    public static let meetingNotesDetail = "Your transcript is already available"
+    public static let meetingNotesHelper = "No microphone is recording"
 }
 
 /// What the transform-tinted pill shows (P2.3). Additive; the engine reducer never produces it.
@@ -137,6 +464,17 @@ public struct PillStateReducer: Equatable, Sendable {
         case .unavailable(let reason):
             stickyWarning = nil
             state = .unavailable(reason: reason)
+        // G0.4 — the V4 turn lifecycle, 1:1. A new turn never inherits the last one's warning, and
+        // neither a closed microphone nor a cancelled turn keeps showing a live-capture warning.
+        case .starting:
+            stickyWarning = nil
+            state = .starting
+        case .finishing:
+            stickyWarning = nil
+            state = .finishing(elapsedWarning: false)
+        case .cancelled:
+            stickyWarning = nil
+            state = .cancelled
         }
         return state
     }
