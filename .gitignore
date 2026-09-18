@@ -7,3 +7,6 @@ Models/
 
 # Real-room recordings: audio stays local, transcripts and manifests are committed
 Fixtures/real-room/**/*.wav
+
+# full Spool golden dump, regenerate with: node Scripts/spool_golden.mjs --full
+Fixtures/spool/*.local.json

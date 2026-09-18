@@ -1,0 +1,432 @@
+{
+  "source": "design/design_v1.html (Spool module, lines 850–1000)",
+  "character": {
+    "id": 25,
+    "color": "#D6A07D"
+  },
+  "tape": {
+    "face": "#AD714F",
+    "back": "#704A36",
+    "edge": "#D3A582",
+    "shadow": "#573A2B"
+  },
+  "housingShades": {
+    "gradientTop": "#e6c4ae",
+    "gradientMid": "#D6A07D",
+    "gradientBottom": "#ab8064",
+    "dark": "#a1785e",
+    "light": "#ebd0be",
+    "ink": "#34372f",
+    "cream": "#fff0d2"
+  },
+  "statePoses": {
+    "idle": "ready",
+    "ready": "ready",
+    "starting": "ready",
+    "listening": "listen",
+    "quiet": "ready",
+    "latched": "listen",
+    "finishing": "finish",
+    "preview": "preview",
+    "uncertain": "review",
+    "correcting": "review",
+    "inserting": "insert",
+    "inserted": "preview",
+    "held": "error",
+    "unconfirmed": "error",
+    "partial": "error",
+    "warning": "listen",
+    "cancelled": "ready",
+    "muted": "ready",
+    "unavailable": "ready",
+    "blocked": "ready",
+    "editing": "finish",
+    "undo": "preview",
+    "meeting": "listen",
+    "paused": "ready",
+    "notes": "ready",
+    "error": "error"
+  },
+  "liveStates": [
+    "listening",
+    "latched",
+    "warning",
+    "meeting"
+  ],
+  "stillTimes": {
+    "default": 1.4,
+    "finishing": 0.55,
+    "inserting": 0.4,
+    "cancelled": 0.8
+  },
+  "sceneGeometry": {
+    "viewBoxHeight": 164,
+    "wide": {
+      "scale": 1,
+      "cxFromRight": 78,
+      "cy": 80
+    },
+    "narrow": {
+      "below": 460,
+      "scale": 0.69,
+      "cxFromRight": 54,
+      "cy": 74
+    },
+    "tapeStart": [
+      16,
+      104
+    ],
+    "tapeSamples": 97,
+    "tapeWidth": 8,
+    "cameoViewBox": [
+      -76,
+      -72,
+      152,
+      132
+    ]
+  },
+  "reelAngleRules": {
+    "note": "Angle is external state, accumulated per frame by the host loop (drawWave), never reset between states.",
+    "live": "angle -= 150 * dt   (states in liveStates)",
+    "finishing": "angle -= 150 * (1 - t/0.55) * dt   while t < 0.55",
+    "inserting": "angle += 440 * dt   while t < 1.05",
+    "otherwise": "angle unchanged",
+    "dtClamp": 0.05,
+    "reducedMotion": "no accumulation; still frames only"
+  },
+  "timeRemap": {
+    "finishing": "min(t * 1.5 / 0.55, 1.5)",
+    "inserting": "min(t, 1.2)",
+    "editing": "1.5 (fixed)",
+    "other": "t"
+  },
+  "loopStops": "animate while state is live, editing or notes, inserting before 1.1 s, or within 0.8 s of a state change; stop when hidden or reduced",
+  "errorPoses": {
+    "P01": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "P02": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "P03": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "P04": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "K01": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "K02": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "K03": {
+      "pose": "Quiet return",
+      "key": "cancelled",
+      "description": "No transport; neutral mouth and brief accurate hint. Nothing inserted, then idle."
+    },
+    "K04": {
+      "pose": "Keep current turn",
+      "key": "finishing",
+      "description": "Keep the current turn’s true pose; do not start a second set of spinning reels."
+    },
+    "K05": {
+      "pose": "Closed shutters",
+      "key": "muted",
+      "description": "Shutters closed, tape parked, mic closed. Prior ordinary drafts remain separate."
+    },
+    "A01": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "A02": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "A03": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "A04": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "A05": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "A06": {
+      "pose": "Quiet return",
+      "key": "cancelled",
+      "description": "No transport; neutral mouth and brief accurate hint. Nothing inserted, then idle."
+    },
+    "A07": {
+      "pose": "Quiet return",
+      "key": "cancelled",
+      "description": "No transport; neutral mouth and brief accurate hint. Nothing inserted, then idle."
+    },
+    "A08": {
+      "pose": "Live warning",
+      "key": "warning",
+      "description": "Capture continues: counterclockwise reels and audio-driven tape; concerned brow, words preserved."
+    },
+    "A09": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M01": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M02": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M03": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M04": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M05": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M06": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M07": {
+      "pose": "Setup latch",
+      "key": "blocked",
+      "description": "Reels parked and setup latch closed; no green-ready or recording claim. Keep working-model fallback when available."
+    },
+    "M08": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "T01": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "T02": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "T03": {
+      "pose": "Attentive review",
+      "key": "correcting",
+      "description": "Taut tape and still asymmetric eyes; preserve original or reliably mapped text for review."
+    },
+    "T04": {
+      "pose": "Attentive review",
+      "key": "correcting",
+      "description": "Taut tape and still asymmetric eyes; preserve original or reliably mapped text for review."
+    },
+    "T05": {
+      "pose": "Attentive review",
+      "key": "correcting",
+      "description": "Taut tape and still asymmetric eyes; preserve original or reliably mapped text for review."
+    },
+    "D01": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "D02": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "D03": {
+      "pose": "Closed shutters",
+      "key": "muted",
+      "description": "Shutters closed, tape parked, mic closed. Prior ordinary drafts remain separate."
+    },
+    "D04": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "D05": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "D06": {
+      "pose": "Unconfirmed hold",
+      "key": "unconfirmed",
+      "description": "Stop reels and engage brake; no success smile or repeated clockwise feed. Inspect actual destination."
+    },
+    "D07": {
+      "pose": "Unconfirmed hold",
+      "key": "unconfirmed",
+      "description": "Stop reels and engage brake; no success smile or repeated clockwise feed. Inspect actual destination."
+    },
+    "D08": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "D09": {
+      "pose": "Attentive review",
+      "key": "correcting",
+      "description": "Taut tape and still asymmetric eyes; preserve original or reliably mapped text for review."
+    },
+    "D10": {
+      "pose": "Attentive review",
+      "key": "correcting",
+      "description": "Taut tape and still asymmetric eyes; preserve original or reliably mapped text for review."
+    },
+    "D11": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "S01": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "S02": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "S03": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "S04": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "S05": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "N01": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "N02": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "N03": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "N04": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "X01": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "X02": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    },
+    "X03": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "X04": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "X05": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "X06": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "X07": {
+      "pose": "Scoped screen notice",
+      "key": "ready",
+      "description": "Static cameo in this screen. Leave an unrelated working capture and its mascot state unchanged."
+    },
+    "X08": {
+      "pose": "Held tape",
+      "key": "held",
+      "description": "Brake holds intact tape and stopped reel eyes; gentle concern. Show retained text only if it exists."
+    }
+  },
+  "menuGlyph": {
+    "viewBox": [
+      0,
+      0,
+      32,
+      24
+    ],
+    "rect": {
+      "x": 1,
+      "y": 2,
+      "w": 30,
+      "h": 21,
+      "rx": 4,
+      "stroke": 1.5
+    },
+    "eyes": [
+      {
+        "cx": 10,
+        "cy": 10,
+        "r": 4
+      },
+      {
+        "cx": 22,
+        "cy": 10,
+        "r": 4
+      }
+    ],
+    "mouth": "M11 17q5 4 10 0",
+    "template": true
+  },
+  "numberFormat": "JS Number(x.toFixed(2)) then String(): at most 2 decimals, trailing zeros and \"-0\" removed"
+}

@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoicePlus Signature Pill</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#141417;--bg2:#1c1c21;--bg3:#232329;--line:#2a2a31;--line2:#3a3a43;
+  --text:#ecebe6;--muted:#9c9ca6;--dim:#66666f;
+  --accent:#e6b357;--low:#4fb877;--high:#e0644f;
+  --serif:"Instrument Serif","Iowan Old Style","Palatino",Georgia,serif;
+  --sans:"Instrument Sans",-apple-system,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+  --mono:"IBM Plex Mono","SF Mono",Menlo,Consolas,monospace;
+  --pillfont:-apple-system,"SF Pro Text","Helvetica Neue","Segoe UI",Roboto,system-ui,sans-serif;
+  --wall:radial-gradient(130% 100% at 85% -10%,#4a5670 0%,#2a3243 40%,#1b202b 100%);
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    --bg:#f1f1ef;--bg2:#ffffff;--bg3:#e8e8e5;--line:#dcdcd8;--line2:#c9c9c4;
+    --text:#1b1b20;--muted:#5e5e68;--dim:#8f8f98;--accent:#9e6a0e;--low:#2c8a55;--high:#c2432f;color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f1f1ef;--bg2:#ffffff;--bg3:#e8e8e5;--line:#dcdcd8;--line2:#c9c9c4;
+  --text:#1b1b20;--muted:#5e5e68;--dim:#8f8f98;--accent:#9e6a0e;--low:#2c8a55;--high:#c2432f;color-scheme:light;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.55;padding-inline:16px;padding-block:0;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1280px;margin:0 auto}
+
+/* ---------- masthead ---------- */
+.masthead{padding-block:52px 36px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:32px 56px;align-items:end;border-bottom:1px solid var(--line)}
+@media (max-width:820px){.masthead{grid-template-columns:minmax(0,1fr)}}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:0 0 20px}
+h1{font:400 clamp(46px,7.2vw,88px)/.94 var(--serif);letter-spacing:-.015em;margin:0;text-wrap:balance}
+h1 em{font-style:italic;color:var(--muted)}
+.deck{max-width:58ch;margin:22px 0 0;font-size:17px;color:var(--muted)}
+.deck b{color:var(--text);font-weight:500}
+.asis{display:flex;flex-wrap:wrap;gap:16px}
+.asis .stage{width:300px}
+
+/* ---------- criteria + legend ---------- */
+.criteria{padding-block:30px 34px;border-bottom:1px solid var(--line)}
+.criteria h2,.section h2{font:400 26px/1.1 var(--serif);margin:0 0 16px;letter-spacing:-.01em}
+.crit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:6px 40px;margin:0;padding:0;list-style:none}
+.crit{display:grid;grid-template-columns:24px 1fr;gap:12px;align-items:baseline;padding-block:7px;border-bottom:1px solid var(--line)}
+.crit .n{font:500 13px var(--mono);color:var(--accent)}
+.crit .why{display:block;font:400 12.5px/1.5 var(--mono);color:var(--muted);margin-top:1px}
+.legend{margin:22px 0 0;display:flex;flex-wrap:wrap;gap:8px 28px;font:400 13px/1.6 var(--mono);color:var(--muted)}
+.legend code{font-family:var(--mono);color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+
+/* ---------- layout: rail + board ---------- */
+.layout{display:grid;grid-template-columns:minmax(0,1fr);gap:0 56px}
+.rail{position:sticky;top:0;z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap;display:flex;gap:0 22px;scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.rail .grp{display:inline-flex;gap:0 2px;align-items:baseline}
+.rail .gl{font:italic 20px/1 var(--serif);color:var(--accent);margin-right:8px}
+.rail a{text-decoration:none;color:var(--muted);font-size:13px;padding:4px 7px;border-radius:5px;display:inline-flex;gap:7px;align-items:baseline}
+.rail a .k{font:400 11px/1 var(--mono);color:var(--dim)}
+.rail a.on,.rail a:hover{color:var(--text);background:var(--bg2)}
+.rail a.on .k{color:var(--accent)}
+.rail .misc{margin-left:auto}
+@media (min-width:1100px){
+  .layout{grid-template-columns:200px minmax(0,1fr)}
+  .rail{align-self:start;top:0;max-height:100vh;overflow:auto;white-space:normal;display:block;border:0;padding-block:40px 40px;background:none}
+  .rail .grp{display:block;margin-bottom:16px}
+  .rail .gl{display:block;margin:0 0 4px 7px}
+  .rail a{display:flex;padding:3px 7px}
+  .rail a .k{width:16px}
+  .rail .misc{margin-left:0;margin-top:8px;border-top:1px solid var(--line);padding-top:12px}
+}
+
+/* ---------- categories + concepts ---------- */
+.cat{display:flex;align-items:baseline;gap:14px;margin:0;padding-block:56px 0;font:400 22px/1 var(--sans);letter-spacing:.01em;color:var(--muted)}
+.cat .cl{font:italic 44px/1 var(--serif);color:var(--accent)}
+.cat .cn{font:400 13px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-left:auto}
+.concept{padding-block:36px 44px;border-bottom:1px solid var(--line);scroll-margin-top:56px}
+.c-head{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 16px;align-items:baseline}
+.c-num{font:500 13px var(--mono);color:var(--accent);letter-spacing:.04em}
+.c-name{font:400 42px/1 var(--serif);margin:0;letter-spacing:-.01em}
+.c-name i{font-style:italic;color:var(--muted);font-size:.6em;margin-left:10px}
+.c-thesis{grid-column:2;margin:2px 0 0;max-width:64ch;font-size:16px;color:var(--muted)}
+.stages{display:grid;grid-template-columns:repeat(auto-fill,300px);gap:24px 18px;margin-top:26px}
+.stage{margin:0;display:flex;flex-direction:column;gap:9px;min-width:0}
+.st-label{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--text);display:flex;gap:10px;align-items:center;min-height:14px}
+.st-label .lm{color:var(--accent);letter-spacing:0}
+.st-label .hear{margin-left:auto;font:500 11px var(--mono);letter-spacing:.06em;text-transform:none;color:var(--text);background:var(--bg2);border:1px solid var(--line2);border-radius:999px;padding:3px 9px;cursor:pointer}
+.st-label .hear:hover{border-color:var(--accent);color:var(--accent)}
+.stage figcaption{font-size:13px;line-height:1.45;color:var(--muted);max-width:300px}
+.c-meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;margin:26px 0 0;max-width:72ch;font-size:14px}
+.c-meta dt{font:500 11px/1.9 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.c-meta dd{margin:0;color:var(--muted)}
+.c-meta dd b{color:var(--text);font-weight:500}
+
+/* ---------- the screen: menu bar, notch, pill, field ---------- */
+.screen{position:relative;width:300px;max-width:100%;height:168px;border-radius:10px;overflow:hidden;background:var(--wall);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);font-family:var(--pillfont);color:#fff;font-size:12px;isolation:isolate}
+.menubar{position:absolute;left:0;right:0;top:0;height:24px;background:rgba(14,14,18,.86);display:flex;justify-content:space-between;align-items:center;padding:0 11px;font:500 8px var(--pillfont);color:rgba(255,255,255,.42);letter-spacing:.03em}
+.notch{position:absolute;top:0;left:50%;width:92px;height:24px;margin-left:-46px;background:#000;border-radius:0 0 11px 11px;z-index:2}
+.notch::after{content:"";position:absolute;left:50%;top:8px;width:7px;height:7px;margin-left:-3.5px;border-radius:50%;background:#0a0e13;box-shadow:inset 0 0 0 1px #1c222b,inset 2px -1px 3px rgba(60,90,120,.35)}
+.pill{position:absolute;top:24px;left:50%;transform:translateX(-50%);height:34px;min-width:52px;padding:0 13px;display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.92);border-radius:0 0 14px 14px;box-shadow:0 8px 22px rgba(0,0,0,.38);white-space:nowrap;z-index:3;transition:width .3s cubic-bezier(.2,.7,.2,1),padding .3s,background .35s;font-size:12px;letter-spacing:-.005em}
+.pill.hide{display:none}
+.pill.bare{background:transparent;box-shadow:none}
+.pill.glass{background:rgba(255,255,255,.10);backdrop-filter:blur(7px) saturate(1.2);-webkit-backdrop-filter:blur(7px) saturate(1.2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 8px 22px rgba(0,0,0,.25)}
+.pill.accent{background:rgba(10,132,255,.92)}
+.field{position:absolute;left:34px;right:34px;top:108px;height:40px;background:rgba(251,251,253,.96);border-radius:6px;padding:0 12px;display:flex;align-items:center;font-size:11.5px;color:#1c1c22;box-shadow:0 6px 16px rgba(0,0,0,.28);opacity:0;transition:opacity .3s;z-index:1;white-space:nowrap;overflow:hidden}
+.field.on{opacity:1}
+.field.big{top:54px;height:auto;padding:12px 14px 14px;align-items:flex-start;flex-direction:column;gap:4px;font-size:12px;line-height:1.5}
+.field .fh{font-size:9.5px;color:#8a8a93;letter-spacing:.02em}
+.field.big .ft{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.field.big>.caret{display:none}
+.caret{display:inline-block;width:1.5px;height:13px;background:#1c1c22;margin-left:1px;vertical-align:-2px;animation:blink 1.05s steps(1) infinite;border-radius:1px}
+.caret.glow{background:#1a56d6;box-shadow:0 0 6px 2px rgba(26,86,214,.55);animation:none;width:2px}
+@keyframes blink{50%{opacity:0}}
+.new{display:inline-block;animation:landin .35s cubic-bezier(.2,.7,.2,1) both}
+@keyframes landin{from{opacity:.15;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.fu{text-decoration:none;background-image:linear-gradient(#1c1c22,#1c1c22);background-repeat:no-repeat;background-position:0 100%;background-size:100% 1.2px;animation:ulfade 1.4s .35s ease both}
+.fu.dot{background-image:repeating-linear-gradient(90deg,#1c1c22 0 2px,transparent 2px 4px);animation:none}
+@keyframes ulfade{to{background-size:0% 1.2px}}
+.ringspan{position:relative;display:inline-block;width:0;height:0}
+.ringspan i{position:absolute;left:-2px;top:-9px;width:4px;height:4px;border-radius:50%;border:1px solid #1c1c22;animation:ringout .75s ease-out both}
+@keyframes ringout{from{transform:scale(1);opacity:1}to{transform:scale(9);opacity:0}}
+.ringspan i.blot{border:0;background:#1c1c22;filter:blur(.6px);animation:blot .55s ease-out both}
+@keyframes blot{from{transform:scale(.4);opacity:1}to{transform:scale(3.2);opacity:0}}
+.seam{animation:seam .65s ease-in both}
+@keyframes seam{from{transform:translateY(0);opacity:1}to{transform:translateY(46px);opacity:0}}
+.stitch{position:relative}
+.stitch::after{content:"";position:absolute;left:0;right:0;bottom:-2px;border-bottom:1.4px dashed #1c1c22;clip-path:inset(0 100% 0 0);animation:stitch .7s linear both,stitchfade .7s 1.6s ease both}
+@keyframes stitch{to{clip-path:inset(0 0 0 0)}}
+@keyframes stitchfade{to{opacity:0}}
+.fogtx{transition:filter .25s,opacity .25s}
+/* content atoms */
+.gl{font:500 24px/1 var(--pillfont);color:#fff;transform:translateY(-3px);display:inline-block}
+.gl.q{font-size:26px;transform:translateY(2px)}
+.gl.lo{transform:translateY(4px)}
+.gl.sm{font-size:16px;transform:none}
+.tx{font-size:12px;color:#fff}
+.pc{display:inline-block;width:1.5px;height:12px;background:#fff;margin-left:1px;vertical-align:-2px;animation:blink 1.05s steps(1) infinite}
+.wave{display:flex;align-items:center;gap:1.6px;height:22px}
+.wave i{display:block;width:2.6px;height:3px;border-radius:2px;background:rgba(255,255,255,.9)}
+.wave.faint i{background:rgba(255,255,255,.28)}
+.drop{transition:transform .5s cubic-bezier(.55,0,.85,.35),opacity .45s ease-in;display:inline-flex;align-items:center;gap:8px}
+.drop.down{transform:translateY(78px) scale(.9);opacity:0}
+.pop{animation:pop .3s cubic-bezier(.2,.8,.3,1.4) both;display:inline-block}
+@keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+.mic{width:11px;height:15px;flex:none}
+.chin{position:absolute;top:24px;left:50%;transform:translateX(-50%);height:10px;width:54px;background:rgba(0,0,0,.72);border-radius:0 0 6px 6px;display:flex;align-items:center;justify-content:center;z-index:3}
+.chin i{width:5px;height:5px;border-radius:50%;background:rgba(48,209,88,.95)}
+/* bracket pill */
+.br{font:400 26px/1 var(--pillfont);color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6);transform:translateY(-1px)}
+.pill.brk{gap:0;transition:gap .18s cubic-bezier(.3,1.4,.5,1),width .3s}
+/* keycap */
+.key{width:16px;height:16px;border-radius:4px;background:#e9e9ee;box-shadow:0 2.5px 0 #9a9aa6,0 3px 3px rgba(0,0,0,.45);transition:transform .12s,box-shadow .12s;position:relative;flex:none}
+.key.down{transform:translateY(2px);box-shadow:0 .5px 0 #9a9aa6,0 1px 2px rgba(0,0,0,.45);background:#d6d6dd}
+.key.led::after{content:"";position:absolute;right:3px;top:3px;width:3px;height:3px;border-radius:50%;background:#30d158;box-shadow:0 0 3px #30d158}
+/* fold */
+.sheet{perspective:140px;height:22px;display:flex;align-items:center}
+.edge{width:26px;height:1.5px;background:#fff;border-radius:1px;transition:width .35s}
+.face{position:absolute;left:0;top:50%;height:16px;padding:0 6px 0 4px;background:#f4f4f6;color:#1c1c22;border-radius:2px;transform-origin:50% 0;transform:rotateX(-92deg);transition:transform .5s cubic-bezier(.3,.8,.3,1);font-size:11px;line-height:16px;white-space:nowrap;box-shadow:0 3px 6px rgba(0,0,0,.4)}
+.face.open{transform:rotateX(0)}
+/* fog */
+.fog{position:absolute;inset:0;clip-path:inset(0 round 0 0 14px 14px);background:rgba(255,255,255,.55);filter:blur(7px);opacity:0;pointer-events:none}
+.fog.solid{opacity:.92;background:rgba(235,235,240,.7)}
+.wipe{position:absolute;top:-6px;bottom:-6px;left:-40px;width:34px;background:linear-gradient(90deg,transparent,rgba(0,0,0,.35),transparent);opacity:0}
+.wipe.go{animation:wipe .6s ease-in-out both}
+@keyframes wipe{from{transform:translateX(0);opacity:1}to{transform:translateX(220px);opacity:1}}
+/* firefly + wren + creature + ghost */
+.ff{position:absolute;width:6px;height:6px;border-radius:50%;background:#fff4da;box-shadow:0 0 7px 2px rgba(255,212,130,.55);margin:-3px 0 0 -3px;top:50%;left:50%;z-index:4}
+.ff.dim{opacity:.5;box-shadow:0 0 3px 1px rgba(255,212,130,.25)}
+.ff.bright{box-shadow:0 0 10px 4px rgba(255,212,130,.75),0 0 2px 1px #fff}
+.ff.hollow{background:transparent;box-shadow:none;border:1.2px solid rgba(255,255,255,.55)}
+.ff.spring{transition:left .38s cubic-bezier(.2,1.2,.3,1),opacity .3s,box-shadow .3s}
+.eyes{display:flex;gap:9px;align-items:center;transition:transform .45s cubic-bezier(.3,.8,.3,1),opacity .4s}
+.eye{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.92);position:relative;transition:height .12s,transform .3s,opacity .3s}
+.eye.open{background:transparent;border:1.6px solid rgba(255,255,255,.92);width:10px;height:10px}
+.eye.open::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:#fff;transform:scale(var(--p,1)) translate(var(--px,0),0)}
+.eye.blink{animation:blink6 6s infinite}
+@keyframes blink6{0%,3%{transform:scaleY(1)}4.5%{transform:scaleY(.08)}6%{transform:scaleY(1)}100%{transform:scaleY(1)}}
+.eye.shut{height:2px;border-radius:1px;width:9px}
+.eyes.away{opacity:.5}
+.eyes.tilt{transform:rotate(-13deg) translateY(1px)}
+.wisp{width:16px;height:11px;border-radius:60% 40% 55% 45%/55% 60% 40% 45%;background:radial-gradient(circle at 40% 45%,rgba(255,255,255,.95),rgba(255,255,255,.35) 60%,transparent 75%);filter:blur(1.2px);opacity:.35;transition:opacity .5s,transform .5s,filter .5s;flex:none}
+.wisp.gather{opacity:.95;transform:scale(.85);filter:blur(.6px)}
+.wisp.gone{opacity:0;transform:scale(1.8);filter:blur(5px)}
+.wisp.dot{width:4px;height:4px;border-radius:50%;filter:none;opacity:.45;background:#fff}
+/* runway */
+.rw{display:flex;gap:7px;align-items:center;margin-right:4px}
+.rw i{width:3.5px;height:3.5px;border-radius:50%;background:rgba(255,255,255,.28);transition:background .12s,box-shadow .12s}
+.rw i.lit{background:#fff;box-shadow:0 0 4px 1px rgba(255,255,255,.7)}
+.rollin{animation:rollin .55s cubic-bezier(.2,.7,.2,1) both}
+@keyframes rollin{from{transform:translateX(38px);opacity:0}to{transform:none;opacity:1}}
+/* tick */
+.score{display:flex;align-items:flex-end;gap:5px;height:18px;border-bottom:1px solid rgba(255,255,255,.25);padding:0 2px}
+.score i{width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.35);transition:background .1s,box-shadow .1s,transform .1s}
+.score i.on{background:#fff;box-shadow:0 0 5px 1px rgba(255,255,255,.7);transform:scale(1.3)}
+.pad{position:absolute;left:50%;top:70px;width:44px;height:28px;margin-left:-22px;border-radius:4px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.06);z-index:1}
+.pad.buzz{animation:buzz .28s linear}
+@keyframes buzz{0%,100%{transform:none}20%{transform:translateX(-1.5px)}40%{transform:translateX(1.5px)}60%{transform:translateX(-1px)}80%{transform:translateX(1px)}}
+.quiet{font:400 9px var(--mono);letter-spacing:.08em;color:rgba(255,255,255,.4)}
+
+/* ---------- comparison + shortlist ---------- */
+.section{padding-block:52px 0;scroll-margin-top:56px}
+.section p.lead{max-width:62ch;color:var(--muted);margin:0 0 20px}
+.cmp{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--bg2)}
+table{border-collapse:collapse;min-width:760px;width:100%;font-size:13.5px}
+th{font:500 11px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--dim);text-align:left;padding:12px 12px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.n{font:400 12px var(--mono);color:var(--dim)}
+td.c a{text-decoration:none;font-weight:500}
+td.c a:hover{color:var(--accent)}
+tr.pick td.c a{color:var(--accent)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;border:1px solid var(--dim);margin-right:3px;vertical-align:1px}
+.dot.f{background:var(--text);border-color:var(--text)}
+.na{font:400 11px var(--mono);color:var(--dim)}
+.risk{font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--muted)}
+.risk.low{color:var(--low);border-color:var(--low)}
+.risk.high{color:var(--high);border-color:var(--high)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:36px 56px;margin-top:44px}
+.short{list-style:none;margin:0;padding:0}
+.short li{display:grid;grid-template-columns:130px minmax(0,1fr);gap:14px;padding:10px 0;border-bottom:1px solid var(--line);align-items:baseline}
+.short li a{font:400 22px/1.1 var(--serif);text-decoration:none}
+.short li a:hover{color:var(--accent)}
+.short li span{color:var(--muted);font-size:14px}
+.pairs td:first-child{font-weight:500}
+.pairs td:last-child{color:var(--muted);white-space:normal}
+.pairs table{min-width:0}
+.open{margin:0;padding:0 0 0 22px;color:var(--muted)}
+.open li{padding-block:5px}
+.open li::marker{font-family:var(--mono);color:var(--accent);font-size:13px}
+.layers{font:400 13px/1.7 var(--mono);color:var(--muted);margin:0 0 6px}
+footer{padding-block:48px 56px;font:400 12.5px/1.7 var(--mono);color:var(--dim);border-top:1px solid var(--line);margin-top:56px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <div>
+    <p class="eyebrow">VoicePlus · signature mark + pill · working doc V1</p>
+    <h1>Signature mark <em>+</em> pill <em>— 22 concepts</em></h1>
+    <p class="deck">The product name is tentative, so nothing here depends on it. Each concept is a <b>mark</b> (app icon, menu-bar glyph) and a <b>pill behaviour</b> (the same mark, alive). Every stage below is live: the pill hangs under the notch exactly where it does today, and the field beneath it is the app the words land in. Pick one, then DESIGN.md specifies it.</p>
+  </div>
+  <div class="asis" id="asis"></div>
+</header>
+
+<section class="criteria" id="criteria">
+  <h2>What a winner has to do</h2>
+  <ol class="crit-grid">
+    <li class="crit"><span class="n">1</span><span>say “listening” vs “not listening”<span class="why">at a glance, from 2 m away</span></span></li>
+    <li class="crit"><span class="n">2</span><span>say “this one is for ME”<span class="why">ambient’s hardest question</span></span></li>
+    <li class="crit"><span class="n">3</span><span>make EOU visible<span class="why">our real technical edge</span></span></li>
+    <li class="crit"><span class="n">4</span><span>make landing feel like landing<span class="why">the copy already says “release to land”</span></span></li>
+    <li class="crit"><span class="n">5</span><span>make mute feel physical and final<span class="why">shape, never colour</span></span></li>
+    <li class="crit"><span class="n">6</span><span>survive as a 16 px static icon<span class="why">menu bar + Dock + DMG</span></span></li>
+    <li class="crit"><span class="n">7</span><span>idle at 0 % CPU<span class="why">no perpetual animation</span></span></li>
+  </ol>
+  <p class="legend"><span><code>▂[ … ]▂</code> the pill under the notch</span><span><code>──▼</code> the land: content leaves the pill for the field</span><span>idle states are deliberately still (criterion 7)</span><span>stages animate only while on screen</span></p>
+</section>
+
+<div class="layout">
+  <nav class="rail" id="rail" aria-label="Concepts"></nav>
+  <main id="board"></main>
+</div>
+
+<section class="section" id="comparison">
+  <h2>Comparison</h2>
+  <p class="lead">One dot is weak, four is strong. Rows in amber are the shortlist.</p>
+  <div class="cmp"><table id="cmp"></table></div>
+  <div class="two">
+    <div>
+      <h2>Shortlist</h2>
+      <ul class="short">
+        <li><a href="#c17">Wren</a><span>grounded, warm, answers “for me?” best, mute = empty wire</span></li>
+        <li><a href="#c4">Beam</a><span>the only one that renders the brand <b>in</b> the user’s app, at the pixel</span></li>
+        <li><a href="#c21">Voiceprint</a><span>the only one where privacy and identity are the same image</span></li>
+        <li><a href="#c18">Creature</a><span>highest ceiling, highest chance of being embarrassing</span></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Pairings</h2>
+      <p class="layers">layers combine: a <b>container</b> (Halo) · an <b>actor</b> (Wren / Firefly) · a <b>land</b> (Underline / Ripple) · a <b>sound</b> (Tick)</p>
+      <div class="cmp pairs"><table>
+        <tr><th>Pairing</th><th>Reads as</th></tr>
+        <tr><td>Halo + Wren + Tick</td><td>the rim is the room, the bird is attention, the tick is the land</td></tr>
+        <tr><td>Beam + Tick</td><td>precise — “it goes exactly here”</td></tr>
+        <tr><td>Underline + Quote</td><td>typographic, calm, safest</td></tr>
+        <tr><td>Voiceprint + Halo</td><td>private, personal, hardware-native</td></tr>
+        <tr><td>Creature + Tick</td><td>a character with a voice of its own — swing hardest</td></tr>
+      </table></div>
+    </div>
+  </div>
+  <div class="two">
+    <div>
+      <h2>Open</h2>
+      <ol class="open">
+        <li>Container, actor, or typographic as the primary layer?</li>
+        <li>Is a character (18/19) on or off the table? It changes everything downstream.</li>
+        <li>Does the mark need to be one static shape (App Store, DMG, Dock), or can it be generative (21)?</li>
+        <li>Sound on by default, or opt-in?</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<footer>Source: VoicePlus_SignaturePill_V1.md. Pill geometry follows DESIGN.md §8 as-is: black 0.92, white content, top edge on the bottom of the top band, bottom corners only. Stages are a ~2.4× crop of the top-centre of the display. With “reduce motion” on, every stage freezes on one representative frame.</footer>
+</div>
+
+<script>
+/* ============ framework ============ */
+const REDUCED=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const NS='http://www.w3.org/2000/svg';
+const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+const svg=(w,h,c)=>{const s=document.createElementNS(NS,'svg');s.setAttribute('viewBox',`0 0 ${w} ${h}`);s.setAttribute('width',w);s.setAttribute('height',h);if(c)s.setAttribute('class',c);s.style.flex='none';s.style.overflow='visible';return s;};
+const sv=(t,a)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,k)=>a+(b-a)*k;
+const W='rgba(255,255,255,.9)';
+
+/* one simulated voice for every stage: speech() is a syllabic envelope, env() adds pauses */
+const Voice=(()=>{const subs=new Set();let raf=0;
+  const speech=t=>{const s=Math.pow(Math.max(0,Math.sin(t*Math.PI*3.4)),1.5);const n=0.55+0.45*Math.sin(t*1.7)*Math.sin(t*0.53+1);return clamp(0.12+0.88*s*n+0.05*Math.sin(t*41),0,1);};
+  const env=t=>{const ph=t%3.4;return ph>2.5?0.03+0.02*Math.sin(t*9):speech(t);};
+  const frame=now=>{const t=now/1000;subs.forEach(f=>f(t));raf=requestAnimationFrame(frame);};
+  return{speech,env,on(f){if(REDUCED){f(1.37);return()=>{};}subs.add(f);if(!raf)raf=requestAnimationFrame(frame);return()=>{subs.delete(f);if(!subs.size){cancelAnimationFrame(raf);raf=0;}};}};})();
+
+/* scripted loops: steps are [durationMs, fn]; fn runs at the start of its step; loops forever */
+function seq(steps){if(REDUCED){steps[0][1]();return()=>{};}let alive=true,timers=[];const total=steps.reduce((a,s)=>a+s[0],0);
+  const run=()=>{if(!alive)return;let acc=0;timers=[];steps.forEach(([d,f])=>{timers.push(setTimeout(()=>alive&&f(),acc));acc+=d;});timers.push(setTimeout(run,total));};
+  run();return()=>{alive=false;timers.forEach(clearTimeout);};}
+const all=(...stops)=>()=>stops.forEach(s=>s&&s());
+
+/* atoms */
+const glyph=(ch,cls='')=>el('span','gl '+cls,ch);
+function wave(n=18,h=20,cls=''){const w=el('div','wave '+cls);const bars=[];for(let i=0;i<n;i++){const b=el('i');w.append(b);bars.push({b,h:3,s:Math.random()*6.3});}
+  w.tick=(lv,t)=>{bars.forEach((o,i)=>{const tg=3+(h-3)*clamp(lv*(0.4+0.6*Math.abs(Math.sin(t*7.3+o.s+i*0.7))),0,1);o.h+=(tg-o.h)*0.35;o.b.style.height=o.h.toFixed(1)+'px';});};
+  w.flat=()=>bars.forEach(o=>{o.h=3;o.b.style.height='3px';});return w;}
+function vline(w=70,h=20,amp=8,stroke=W){const s=svg(w,h);const p=sv('polyline',{fill:'none',stroke,'stroke-width':1.6,'stroke-linecap':'round','stroke-linejoin':'round'});s.append(p);const N=Math.round(w/2);
+  s.tick=(lv,t,len=1)=>{const m=Math.max(1,Math.round(N*clamp(len,0,1)));const pts=[];for(let i=0;i<=m;i++){const y=h/2+Math.sin(i*0.6+t*15)*amp*lv*Math.sin(i/Math.max(m,2)*Math.PI+0.25);pts.push((i*2)+','+y.toFixed(1));}p.setAttribute('points',pts.join(' '));};
+  s.tick(0,0);return s;}
+function typer(elm,text,cps=17,caret=true){let i=0,alive=false,tm;const c=caret?el('span','pc'):null;const show=n=>{elm.textContent=text.slice(0,n);if(c)elm.append(c);};
+  return{start(){alive=true;i=0;const step=()=>{if(!alive)return;show(i);i++;if(i<=text.length)tm=setTimeout(step,1000/cps);};step();},stop(){alive=false;clearTimeout(tm);},full(){alive=false;clearTimeout(tm);show(text.length);},clear(){alive=false;clearTimeout(tm);show(0);}};}
+const micSVG=(color='#ff453a')=>`<svg class="mic" viewBox="0 0 11 15"><rect x="3" y="0.5" width="5" height="8.5" rx="2.5" fill="${color}"/><path d="M1 6.5v1a4.5 4.5 0 0 0 9 0v-1" fill="none" stroke="${color}" stroke-width="1.3" stroke-linecap="round"/><path d="M5.5 12v2.3M3.5 14.3h4" stroke="${color}" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+
+/* a stage: menu bar + notch + pill + field, one state of one concept */
+const io=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting?e.target._start():e.target._stop()),{rootMargin:'120px'});
+function makeStage(st){const fig=el('figure','stage');
+  const lab=el('div','st-label');lab.append(el('span','',st.label));if(st.land)lab.append(el('span','lm','──▼'));if(st.hear){const b=el('button','hear',st.hearLabel||'▶ hear it');b.type='button';b.onclick=()=>playNotes(st.hear);lab.append(b);}
+  const screen=el('div','screen');screen.append(el('div','menubar','<span>Mail&nbsp;&nbsp;&nbsp;File&nbsp;&nbsp;&nbsp;Edit&nbsp;&nbsp;&nbsp;View</span><span>Tue 9:41</span>'),el('div','notch'));
+  const pill=el('div','pill'),field=el('div','field');const ft=el('span','ft'),caret=el('span','caret');field.append(ft,caret);screen.append(pill,field);
+  fig.append(lab,screen,el('figcaption','',st.caption));
+  const c={fig,lab,screen,pill,field,ft,caret,
+    setField(html,on=true){ft.innerHTML=html;field.classList.toggle('on',on);},
+    land(html){ft.innerHTML=`<span class="new">${html}</span>`;field.classList.add('on');},
+    noPill(){pill.classList.add('hide');},
+    width(w){pill.style.width=w+'px';}};
+  const start=st.build(c)||(()=>()=>{});let stop=null;
+  fig._start=()=>{if(!stop)stop=start()||(()=>{});};fig._stop=()=>{if(stop){stop();stop=null;}};
+  io.observe(fig);return fig;}
+
+const CATS={A:'Typographic',B:'Instrument',C:'Motion / natural',D:'Material / craft',E:'Living',F:'Concept'};
+const CONCEPTS=[];const concept=d=>CONCEPTS.push(d);
+</script>
+<script>
+/* ============ A · Typographic ============ */
+concept({n:1,cat:'A',name:'Comma',thesis:'Voice is breath, a comma is a pause, a period means done.',
+ signature:'the period appearing = EOU made visible.',risk:'quiet; reads as a font demo without great motion.',names:'Comma, Period',
+ states:[
+  {label:'idle',caption:'rests',build:c=>{c.pill.append(glyph(','));}},
+  {label:'listening',caption:'stretches into the voice line',build:c=>{const v=vline(72,20);c.pill.append(glyph(','),v);
+    return()=>{let len=0;return Voice.on(t=>{len=Math.min(1,len+0.02);v.tick(Voice.speech(t),t,len);});};}},
+  {label:'EOU',caption:'a period appears the instant it knows you’re done',build:c=>{const v=vline(64,20),dw=el('span');dw.style.opacity=0;dw.append(glyph('.'));c.pill.append(glyph(','),v,dw);
+    return()=>{let ph='speak';const off=Voice.on(t=>v.tick(ph==='speak'?Voice.speech(t):0,t));
+      const s=seq([[2200,()=>{ph='speak';dw.classList.remove('pop');dw.style.opacity=0;}],[320,()=>{ph='done';}],[1300,()=>{dw.style.opacity=1;dw.classList.add('pop');}]]);return all(off,s);};}},
+  {label:'land',land:true,caption:'the period drops into the field',build:c=>{const d=glyph('.','drop');c.pill.append(d);c.setField('send the deck to Priya');
+    return()=>seq([[1000,()=>{d.classList.remove('down');c.setField('send the deck to Priya');}],[550,()=>d.classList.add('down')],[1700,()=>c.setField('send the deck to Priya<span class="new">.</span>')]]);}},
+  {label:'muted',caption:'paused, not ended',build:c=>{c.pill.append(glyph(';'));}}
+ ]});
+
+concept({n:2,cat:'A',name:'Quote',thesis:'Listening opens a quotation; landing closes it. Your words, quoted back exactly.',
+ signature:'the close-quote as the commit.',risk:'no life between utterances.',names:'Quote',
+ states:[
+  {label:'idle',caption:'open quote waits',build:c=>{c.pill.append(glyph('“','q'));}},
+  {label:'listening',caption:'text fills the quote',build:c=>{const tx=el('span','tx');c.pill.append(glyph('“','q'),tx);const ty=typer(tx,'send the deck to');ty.clear();
+    return()=>{const s=seq([[400,()=>ty.clear()],[3000,()=>ty.start()]]);return all(s,()=>ty.stop());};}},
+  {label:'land',land:true,caption:'close-quote appears, both drop together',build:c=>{const g=el('span','drop'),cw=el('span');cw.style.opacity=0;cw.append(glyph('”','q'));g.append(glyph('“','q'),el('span','tx','send the deck to Priya'),cw);c.pill.append(g);c.setField('');
+    return()=>seq([[900,()=>{g.classList.remove('down');cw.style.opacity=0;cw.classList.remove('pop');c.setField('');}],[500,()=>{cw.style.opacity=1;cw.classList.add('pop');}],[600,()=>g.classList.add('down')],[1800,()=>c.land('send the deck to Priya')]]);}},
+  {label:'muted',caption:'low quote: grounded, silent',build:c=>{c.pill.append(glyph('„','q lo'));}}
+ ]});
+
+concept({n:3,cat:'A',name:'Underline',thesis:'One line follows the words from mouth to page: waveform → underline → gone.',
+ signature:'confidence is a property of the line, not a colour.',risk:'some fields can’t host an overlay underline.',names:'Line, Underscore',
+ states:[
+  {label:'listening',caption:'the line is voice',build:c=>{const v=vline(84,22,10);c.pill.append(v);return()=>Voice.on(t=>v.tick(Voice.speech(t),t));}},
+  {label:'land',land:true,caption:'flattens, drops',build:c=>{const g=el('span','drop'),v=vline(84,22,10);g.append(v);c.pill.append(g);c.setField('send the deck to Priya');
+    return()=>{let lv=0,ph='speak';const off=Voice.on(t=>{const tg=ph==='speak'?Voice.speech(t):0;lv+=(tg-lv)*(ph==='speak'?0.6:0.12);v.tick(lv,t);});
+      const s=seq([[1800,()=>{ph='speak';g.classList.remove('down');c.setField('send the deck to Priya');}],[700,()=>{ph='flat';}],[550,()=>g.classList.add('down')],[1900,()=>c.setField('<span class="fu">send the deck to Priya</span>')]]);return all(off,s);};}},
+  {label:'in the app, 1 s later',caption:'same line, now under the words, fading out',build:c=>{c.noPill();c.field.classList.add('big');const h='<span class="fh">To: Priya</span><span><span class="fu">send the deck to Priya.</span><span class="caret"></span></span>';c.setField(h);
+    return()=>seq([[3000,()=>c.setField(h)]]);}},
+  {label:'low confidence',caption:'the underline stays, dotted, under that word only',build:c=>{c.noPill();c.field.classList.add('big');c.setField('<span class="fh">To: Priya</span><span>send the deck to <span class="fu dot">Priya</span>.<span class="caret"></span></span>');}}
+ ]});
+
+concept({n:4,cat:'A',name:'Beam',thesis:'No mark in the pill. The brand is the real caret in the user’s app waking up.',
+ signature:'answers “where will this go?” at the exact pixel, before you speak. Nothing in the category renders at the cursor.',risk:'needs AX caret geometry per app; pill fallback = two behaviours to maintain.',names:'Beam, Cursor',
+ states:[
+  {label:'in Mail, before',caption:'plain caret',build:c=>{c.noPill();c.field.classList.add('big');c.setField('<span class="fh">To: Priya</span><span>Hi Priya, <span class="caret"></span></span>');}},
+  {label:'hold the key',caption:'caret glows, voice line grows out of it, in place',build:c=>{c.noPill();c.field.classList.add('big');c.setField('<span class="fh">To: Priya</span>');
+    const body=el('span'),cr=el('span','caret glow'),v=vline(60,16,6,'rgba(28,28,34,.85)');v.style.verticalAlign='middle';body.append('Hi Priya, ',cr,v);c.ft.append(body);
+    return()=>{let len=0;return Voice.on(t=>{len=Math.min(1,len+0.025);v.tick(Voice.speech(t),t,len);});};}},
+  {label:'release',land:true,caption:'glow collapses into the landed text',build:c=>{c.noPill();c.field.classList.add('big');c.setField('<span class="fh">To: Priya</span>');
+    const body=el('span'),cr=el('span','caret glow'),v=vline(60,16,6,'rgba(28,28,34,.85)'),ld=el('span');v.style.verticalAlign='middle';body.append('Hi Priya, ',cr,v,ld);c.ft.append(body);
+    return()=>{let len=0,ph='speak';const off=Voice.on(t=>{len=ph==='speak'?Math.min(1,len+0.03):Math.max(0,len-0.14);v.tick(ph==='speak'?Voice.speech(t):0,t,len);});
+      const s=seq([[1700,()=>{ph='speak';len=0;cr.className='caret glow';v.style.display='';ld.innerHTML='';body.insertBefore(cr,v);}],[350,()=>{ph='collapse';}],[250,()=>{v.style.display='none';cr.className='caret';ld.innerHTML='<span class="new">the deck is attached.</span>';body.append(cr);}],[2100,()=>{}]]);return all(off,s);};}}
+ ]});
+
+/* ============ B · Instrument ============ */
+concept({n:5,cat:'B',name:'Brackets',thesis:'The pill is the mark. Brackets open as words arrive, snap shut on land.',
+ signature:'zero decoration; the container is the identity.',risk:'cold; hard to be delightful with two glyphs.',names:'Bracket',
+ states:[
+  {label:'idle',caption:'closed',build:c=>{c.pill.classList.add('bare','brk');c.pill.style.gap='10px';c.pill.append(el('span','br','['),el('span','br',']'));}},
+  {label:'listening',caption:'widen with the text',build:c=>{c.pill.classList.add('bare','brk');c.pill.style.gap='8px';const tx=el('span','tx');c.pill.append(el('span','br','['),tx,el('span','br',']'));const ty=typer(tx,'send the deck to Pri');ty.clear();
+    return()=>{const s=seq([[500,()=>ty.clear()],[3200,()=>ty.start()]]);return all(s,()=>ty.stop());};}},
+  {label:'land',land:true,caption:'snap shut, contents drop',build:c=>{c.pill.classList.add('bare','brk');c.pill.style.gap='8px';const slot=el('span');slot.style.cssText='display:inline-block;transition:width .2s cubic-bezier(.3,1.5,.5,1);white-space:nowrap';const tx=el('span','tx drop','send the deck to Priya');slot.append(tx);c.pill.append(el('span','br','['),slot,el('span','br',']'));c.setField('');
+    return()=>seq([[1200,()=>{tx.classList.remove('down');slot.style.width='auto';c.setField('');requestAnimationFrame(()=>slot.style.width=tx.offsetWidth+'px');}],[500,()=>tx.classList.add('down')],[350,()=>{slot.style.width='0px';c.land('send the deck to Priya');}],[1800,()=>{}]]);}},
+  {label:'muted',caption:'welded shut',build:c=>{c.pill.classList.add('bare','brk');c.pill.style.gap='0px';c.pill.append(el('span','br','['),el('span','br',']'));}}
+ ]});
+
+function needle(){const s=svg(40,24);s.append(sv('path',{d:'M4.5 15.5 A18 18 0 0 1 35.5 15.5',fill:'none',stroke:'rgba(255,255,255,.22)','stroke-width':1}));
+  [-40,-20,0,20,40].forEach(a=>{const r=a*Math.PI/180;s.append(sv('line',{x1:20+16*Math.sin(r),y1:22-16*Math.cos(r),x2:20+18.5*Math.sin(r),y2:22-18.5*Math.cos(r),stroke:'rgba(255,255,255,.4)','stroke-width':1}));});
+  const n=sv('line',{x1:20,y1:22,x2:20,y2:4,stroke:'#fff','stroke-width':1.8,'stroke-linecap':'round'});s.append(n,sv('circle',{cx:20,cy:22,r:1.8,fill:'#fff'}));
+  s.set=a=>{const r=a*Math.PI/180;n.setAttribute('x2',(20+18*Math.sin(r)).toFixed(2));n.setAttribute('y2',(22-18*Math.cos(r)).toFixed(2));};return s;}
+concept({n:6,cat:'B',name:'Needle',thesis:'An analog VU needle. Endpointing = a needle coming to rest.',
+ signature:'instrument-panel honesty; “this thing measures.”',risk:'retro; slow if physically damped, fake if not.',names:'Meter, Needle, Gauge',
+ states:[
+  {label:'idle',caption:'rests left',build:c=>{const n=needle();n.set(-40);c.pill.append(n);}},
+  {label:'listening',caption:'swings with level',build:c=>{const n=needle();n.set(-40);c.pill.append(n);return()=>{let a=-40;return Voice.on(t=>{a+=(lerp(-40,40,Voice.speech(t))-a)*0.22;n.set(a);});};}},
+  {label:'EOU',land:true,caption:'stops dead upright: done',build:c=>{const n=needle();n.set(-40);c.pill.append(n);c.setField('send the deck to Priya');
+    return()=>{let a=-40,ph='speak';const off=Voice.on(t=>{a+=((ph==='speak'?lerp(-40,40,Voice.speech(t)):0)-a)*(ph==='speak'?0.22:0.5);n.set(a);});
+      const s=seq([[2000,()=>{ph='speak';c.setField('send the deck to Priya');}],[700,()=>{ph='done';}],[300,()=>c.setField('send the deck to Priya<span class="new">.</span>')],[1400,()=>{}]]);return all(off,s);};}},
+  {label:'muted',caption:'pinned flat',build:c=>{c.pill.append(glyph('═','sm'));}}
+ ]});
+
+function pendulum(){const s=svg(44,28);s.append(sv('line',{x1:8,y1:26.5,x2:36,y2:26.5,stroke:'rgba(255,255,255,.22)','stroke-width':1}));const rod=sv('line',{x1:22,y1:4,x2:22,y2:24,stroke:'#fff','stroke-width':1.6,'stroke-linecap':'round'});const bob=sv('circle',{cx:22,cy:23,r:2.6,fill:'#fff'});s.append(rod,bob,sv('circle',{cx:22,cy:4,r:1.4,fill:'rgba(255,255,255,.7)'}));
+  s.set=a=>{const r=a*Math.PI/180,x=22+20*Math.sin(r),y=4+20*Math.cos(r);rod.setAttribute('x2',x.toFixed(2));rod.setAttribute('y2',y.toFixed(2));bob.setAttribute('cx',(22+19*Math.sin(r)).toFixed(2));bob.setAttribute('cy',(4+19*Math.cos(r)).toFixed(2));};return s;}
+concept({n:7,cat:'B',name:'Metronome',thesis:'A pendulum on the rhythm of your speech; rests on EOU. Turn-taking as identity.',
+ signature:'the thing we’re technically best at becomes the identity.',risk:'abstract; users may not decode it.',names:'Tempo, Beat, Cadence',
+ states:[
+  {label:'ambient',caption:'still',build:c=>{c.pill.append(pendulum());}},
+  {label:'you speak',caption:'swings with cadence',build:c=>{const p=pendulum();c.pill.append(p);return()=>{let act=0;return Voice.on(t=>{act+=((Voice.speech(t)>0.3?1:0)-act)*0.08;p.set(27*Math.sin(t*Math.PI*2*1.5)*(0.3+0.7*act));});};}},
+  {label:'pause (thinking)',caption:'holds off-centre: “I’ll wait”',build:c=>{const p=pendulum();p.set(-24);c.pill.append(p);return()=>Voice.on(t=>p.set(-24+1.2*Math.sin(t*2.2)));}},
+  {label:'done',land:true,caption:'settles centre: land',build:c=>{const p=pendulum();c.pill.append(p);c.setField('send the deck to Priya');
+    return()=>{let ph='swing',a=0,v=0;const off=Voice.on(t=>{if(ph==='swing')a=27*Math.sin(t*Math.PI*2*1.5);else if(ph==='hold')a+=(-24-a)*0.2;else{v+=(0-a)*0.16;v*=0.76;a+=v;}p.set(a);});
+      const s=seq([[1700,()=>{ph='swing';c.setField('send the deck to Priya');}],[900,()=>{ph='hold';}],[700,()=>{ph='settle';v=0;}],[300,()=>c.setField('send the deck to Priya<span class="new">.</span>')],[1500,()=>{}]]);return all(off,s);};}}
+ ]});
+
+concept({n:8,cat:'B',name:'Keycap',thesis:'The mark is the key you hold. The pop is the land.',
+ signature:'latch reads as caps-lock, which everyone already understands.',risk:'it’s about the input method, not the outcome; says little in ambient.',names:'Hold, Key',
+ states:[
+  {label:'idle',caption:'at rest',build:c=>{c.pill.append(el('span','key'));}},
+  {label:'holding',caption:'pressed in, text beside',build:c=>{const k=el('span','key down'),w=wave(10,18),tx=el('span','tx');c.pill.append(k,w,tx);const ty=typer(tx,'send the…');ty.clear();
+    return()=>{const off=Voice.on(t=>w.tick(Voice.speech(t),t));const s=seq([[400,()=>ty.clear()],[2600,()=>ty.start()]]);return all(off,s,()=>ty.stop());};}},
+  {label:'release',land:true,caption:'pops up, text drops',build:c=>{const k=el('span','key down'),g=el('span','drop'),w=wave(10,18),tx=el('span','tx','send the deck to Priya');g.append(w,tx);c.pill.append(k,g);c.setField('');
+    return()=>{let ph='speak';const off=Voice.on(t=>w.tick(ph==='speak'?Voice.speech(t):0,t));
+      const s=seq([[1500,()=>{ph='speak';k.classList.add('down');g.classList.remove('down');c.setField('');}],[80,()=>{k.classList.remove('down');ph='off';}],[520,()=>g.classList.add('down')],[1900,()=>c.land('send the deck to Priya')]]);return all(off,s);};}},
+  {label:'latched',caption:'pinned, like caps lock',build:c=>{c.pill.append(el('span','key down led'));}}
+ ]});
+</script>
+<script>
+/* ============ C · Motion / natural ============ */
+const dotSVG=()=>{const s=svg(12,24);s.append(sv('circle',{cx:6,cy:12,r:2,fill:'#fff'}));return s;};
+function rings(){const s=svg(60,24);const id='rc'+Math.random().toString(36).slice(2,8);const defs=sv('defs',{}),cp=sv('clipPath',{id});cp.append(sv('rect',{x:0,y:-12,width:44,height:48}));defs.append(cp);s.append(defs);
+  const g=sv('g',{'clip-path':`url(#${id})`});const cs=[0,1,2].map(()=>{const c=sv('circle',{cx:44,cy:12,r:10,fill:'none',stroke:'#fff','stroke-width':1.2,opacity:0});g.append(c);return c;});s.append(g,sv('circle',{cx:44,cy:12,r:2,fill:'#fff'}));
+  s.tick=(lv,t)=>{cs.forEach((c,i)=>{const ph=(t*0.9+i/3)%1;c.setAttribute('r',(22-ph*19).toFixed(2));c.setAttribute('opacity',(clamp(lv*1.5,0,1)*Math.sin(ph*Math.PI)*0.9).toFixed(2));});};return s;}
+concept({n:9,cat:'C',name:'Ripple',thesis:'Sound arrives as rings coming in; landed text is one ring going out from your cursor.',
+ signature:'the out-ring happens outside our UI — in Mail, in Slack.',risk:'sonar is familiar; all differentiation is execution.',names:'Ripple, Echo',
+ states:[
+  {label:'idle',caption:'a dot',build:c=>{c.pill.append(dotSVG());}},
+  {label:'listening',caption:'rings converge on the dot',build:c=>{const r=rings();c.pill.append(r);return()=>Voice.on(t=>r.tick(Voice.speech(t),t));}},
+  {label:'land',land:true,caption:'in the app: one ring expands from the caret, once',build:c=>{c.pill.append(dotSVG());c.setField('send the deck to');
+    return()=>seq([[1300,()=>c.setField('send the deck to')],[10,()=>c.setField('send the deck to<span class="ringspan"><i></i></span>')],[420,()=>c.setField('send the deck to <span class="new">Priya.</span>')],[1900,()=>{}]]);}},
+  {label:'ambient',caption:'slow, faint, breathing',build:c=>{const s=svg(40,24);const g=sv('g',{});g.append(sv('path',{d:'M14 6 A8 8 0 0 0 14 18',fill:'none',stroke:'#fff','stroke-width':1.2}),sv('path',{d:'M26 6 A8 8 0 0 1 26 18',fill:'none',stroke:'#fff','stroke-width':1.2}));s.append(g,sv('circle',{cx:20,cy:12,r:1.8,fill:'#fff'}));c.pill.append(s);
+    return()=>Voice.on(t=>{const k=1+0.12*Math.sin(t*1.3);g.setAttribute('transform',`translate(20 12) scale(${k.toFixed(3)}) translate(-20 -12)`);g.setAttribute('opacity',(0.3+0.22*Math.sin(t*1.3)).toFixed(2));});}},
+  {label:'muted',caption:'flat line, no rings',build:c=>{const s=svg(24,24);s.append(sv('line',{x1:2,y1:12,x2:22,y2:12,stroke:'#fff','stroke-width':1.6,'stroke-linecap':'round'}));c.pill.append(s);}}
+ ]});
+
+function tide(){const s=svg(84,26);const water=sv('path',{fill:'rgba(255,255,255,.26)'}),surf=sv('path',{fill:'none',stroke:'#fff','stroke-width':1.5,'stroke-linecap':'round'});s.append(water,surf);
+  s.draw=(h,amp,t,crest=0)=>{const y0=24-h*20;let d='';for(let x=0;x<=84;x+=3){const y=y0+Math.sin(x*0.18+t*4)*amp-crest*Math.exp(-Math.pow((x-42)/9,2))*9;d+=(x?'L':'M')+x+' '+y.toFixed(1)+' ';}surf.setAttribute('d',d);water.setAttribute('d',d+'L84 26 L0 26 Z');};return s;}
+concept({n:10,cat:'C',name:'Tide',thesis:'A waterline that rises while you speak and breaks with a crest when you’re done.',
+ signature:'calming, motion-first, unlike anything in the category.',risk:'abstract; hard to reduce to a static icon.',names:'Tide, Swell',
+ states:[
+  {label:'idle',caption:'still water',build:c=>{const s=tide();s.draw(0.18,0,0);c.pill.append(s);}},
+  {label:'listening',caption:'rises',build:c=>{const s=tide();c.pill.append(s);return()=>{let h=0.18;return Voice.on(t=>{const lv=Voice.speech(t),tg=0.18+0.72*lv;h+=(tg-h)*(tg>h?0.18:0.05);s.draw(h,1.2+2.2*lv,t);});};}},
+  {label:'EOU / land',land:true,caption:'crest breaks, drains into field',build:c=>{const s=tide();c.pill.append(s);c.setField('send the deck to Priya');
+    return()=>{let h=0.18,ph='rise',cr=0;const off=Voice.on(t=>{const lv=ph==='rise'?Voice.speech(t):0;if(ph==='rise'){h+=((0.18+0.72*lv)-h)*0.15;cr*=0.8;}else if(ph==='crest'){h+=(0.8-h)*0.2;cr+=(1-cr)*0.25;}else{h+=(0-h)*0.16;cr*=0.7;}s.draw(h,ph==='crest'?2.5:1.2+2.2*lv,t,cr);});
+      const s2=seq([[1900,()=>{ph='rise';c.setField('send the deck to Priya');}],[450,()=>{ph='crest';}],[500,()=>{ph='drain';}],[250,()=>c.setField('send the deck to Priya<span class="new">.</span>')],[1500,()=>{}]]);return all(off,s2);};}},
+  {label:'ambient',caption:'slow swell, never still',build:c=>{const s=tide();c.pill.append(s);return()=>Voice.on(t=>s.draw(0.42+0.07*Math.sin(t*0.8),1.4,t*0.35));}},
+  {label:'muted',caption:'frozen',build:c=>{const s=svg(84,26);[10,14].forEach(y=>s.append(sv('line',{x1:2,y1:y,x2:82,y2:y,stroke:'#fff','stroke-width':1.4,'stroke-linecap':'round'})));c.pill.append(s);}}
+ ]});
+
+function halo(c){c.noPill();const s=svg(300,72);s.style.cssText='position:absolute;left:0;top:0;z-index:4;pointer-events:none';const d='M104 0 V13 A11 11 0 0 0 115 24 H185 A11 11 0 0 0 196 13 V0';
+  const glow=sv('path',{d,fill:'none',stroke:'#fff','stroke-width':4,opacity:0});glow.style.filter='blur(3px)';const rim=sv('path',{d,fill:'none',stroke:'#fff','stroke-width':1,opacity:.14});const seam=sv('rect',{x:149.4,y:24,width:1.2,height:9,fill:'#fff',opacity:0});s.append(glow,rim,seam);c.screen.append(s);return{rim,glow,seam};}
+concept({n:11,cat:'C',name:'Halo',thesis:'No pill mark. The mark is the notch itself — a hairline tracing the camera housing.',
+ signature:'the most Mac-native idea here; the hardware feels like yours (the old breathing sleep LED). Notchless Macs get a top-edge hairline.',risk:'invisible on bright wallpapers; icon must be invented separately.',names:'Halo, Rim',
+ states:[
+  {label:'idle',caption:'dark',build:c=>{halo(c);}},
+  {label:'listening',caption:'edge brightens with level',build:c=>{const h=halo(c);return()=>{let lv=0;return Voice.on(t=>{lv+=(Voice.speech(t)-lv)*0.3;h.rim.setAttribute('opacity',(0.16+0.84*lv).toFixed(2));h.glow.setAttribute('opacity',(0.55*lv).toFixed(2));});};}},
+  {label:'land',land:true,caption:'one pulse runs down the seam',build:c=>{const h=halo(c);c.setField('send the deck to Priya');
+    return()=>seq([[1500,()=>{h.rim.setAttribute('opacity',.6);h.glow.setAttribute('opacity',.2);h.seam.classList.remove('seam');h.seam.setAttribute('opacity',0);c.setField('send the deck to Priya');}],[220,()=>{h.rim.setAttribute('opacity',1);h.glow.setAttribute('opacity',.7);}],[120,()=>{h.rim.setAttribute('opacity',.35);h.glow.setAttribute('opacity',0);h.seam.setAttribute('opacity',1);h.seam.classList.add('seam');}],[600,()=>c.setField('send the deck to Priya<span class="new">.</span>')],[1500,()=>{}]]);}},
+  {label:'muted',caption:'dashed',build:c=>{const h=halo(c);h.rim.setAttribute('stroke-dasharray','3 3');h.rim.setAttribute('opacity',.55);}}
+ ]});
+</script>
+<script>
+/* ============ D · Material / craft ============ */
+const DROP_D='M10 24 C4.5 17.5 3 12.5 3 9.5 A7 7 0 0 1 17 9.5 C17 12.5 15.5 17.5 10 24 Z';
+function inkDrop(){const s=svg(20,26);const id='ic'+Math.random().toString(36).slice(2,8);const defs=sv('defs',{}),cp=sv('clipPath',{id}),rect=sv('rect',{x:0,y:26,width:20,height:0});cp.append(rect);defs.append(cp);
+  s.append(defs,sv('path',{d:DROP_D,fill:'#fff','clip-path':`url(#${id})`}),sv('path',{d:DROP_D,fill:'none',stroke:'#fff','stroke-width':1.3}));
+  s.level=h=>{const hh=clamp(h,0,1)*24;rect.setAttribute('y',(26-hh).toFixed(1));rect.setAttribute('height',hh.toFixed(1));};return s;}
+concept({n:12,cat:'D',name:'Ink Drop',thesis:'Speech fills a drop at the nib; release lets it fall; it blots into words.',
+ signature:'“writing,” not “transcribing.”',risk:'old-fashioned; fights a dark-instrument posture.',names:'Nib, Blot',
+ states:[
+  {label:'idle',caption:'empty',build:c=>{c.pill.append(inkDrop());}},
+  {label:'listening',caption:'fills as you speak (level = volume)',build:c=>{const d=inkDrop();c.pill.append(d);return()=>{let h=0;return Voice.on(t=>{const lv=Voice.speech(t);h+=(lv-h)*(lv>h?0.25:0.06);d.level(h);});};}},
+  {label:'land',land:true,caption:'drop falls, blots into text',build:c=>{const box=el('span');box.style.cssText='position:relative;display:inline-block;width:20px;height:26px';const d=inkDrop();d.style.cssText+=';position:absolute;left:0;top:0';const fw=el('span','drop');fw.style.cssText='position:absolute;left:0;top:0;visibility:hidden';const fs=svg(20,26);fs.append(sv('path',{d:DROP_D,fill:'#fff'}));fw.append(fs);box.append(d,fw);c.pill.append(box);c.setField('send the deck to');
+    return()=>{let h=0,ph='fill';const off=Voice.on(t=>{if(ph==='fill')h=Math.min(1,h+0.011+0.02*Voice.speech(t));else h=0;d.level(h);});
+      const s=seq([[1600,()=>{ph='fill';h=0;fw.style.visibility='hidden';fw.classList.remove('down');c.setField('send the deck to');}],[10,()=>{ph='fall';fw.style.visibility='visible';fw.classList.add('down');}],[470,()=>c.setField('send the deck to<span class="ringspan"><i class="blot"></i></span>')],[300,()=>c.setField('send the deck to <span class="new">Priya.</span>')],[1500,()=>{}]]);return all(off,s);};}},
+  {label:'muted',caption:'capped',build:c=>{const d=inkDrop();d.append(sv('line',{x1:2,y1:2.2,x2:18,y2:2.2,stroke:'#fff','stroke-width':1.6,'stroke-linecap':'round'}));c.pill.append(d);}}
+ ]});
+
+concept({n:13,cat:'D',name:'Stitch',thesis:'Voice is thread. Words are sewn. Mute is a snip.',
+ signature:'“stitched” implies care, not automation.',risk:'craft aesthetic fights instrument posture — pick one.',names:'Stitch, Thread, Seam',
+ states:[
+  {label:'listening',caption:'thread pays out as you speak',build:c=>{const v=vline(92,20,3);c.pill.append(v);return()=>{let t0=null;return Voice.on(t=>{if(t0==null)t0=t;const len=Math.min(1,((t-t0)%3.4)/2.4);v.tick(Voice.speech(t)*0.7,t,len);});};}},
+  {label:'land',land:true,caption:'in the app: a running stitch under the words, one beat',build:c=>{const g=el('span','drop'),v=vline(92,20,3);g.append(v);c.pill.append(g);c.setField('send the deck to Priya');
+    return()=>{const off=Voice.on(t=>v.tick(0.5,t,1));const s=seq([[1400,()=>{g.classList.remove('down');c.setField('send the deck to Priya');}],[500,()=>g.classList.add('down')],[10,()=>c.setField('<span class="stitch">send the deck to Priya</span>')],[2600,()=>{}]]);return all(off,s);};}},
+  {label:'muted',caption:'cut. nothing passes.',build:c=>{const s=svg(34,20);s.append(sv('line',{x1:2,y1:10,x2:12,y2:10,stroke:'#fff','stroke-width':1.5,'stroke-linecap':'round'}),sv('line',{x1:22,y1:10,x2:32,y2:10,stroke:'#fff','stroke-width':1.5,'stroke-linecap':'round'}));c.pill.append(glyph('✂','sm'),s);}}
+ ]});
+
+function foldSheet(c,w){const sh=el('span','sheet');sh.style.cssText=`position:relative;width:${w}px`;const edge=el('span','edge');sh.append(edge);c.pill.append(sh);return{sh,edge};}
+concept({n:14,cat:'D',name:'Fold',thesis:'Text unfolds out of the pill like paper, folds flat on land.',
+ signature:'satisfying physicality; a fold is a clean container.',risk:'skeuomorphic, easy to overdo.',names:'Fold, Crease',
+ states:[
+  {label:'idle',caption:'flat sheet',build:c=>{foldSheet(c,26);}},
+  {label:'listening',caption:'creases open, text on the revealed face',build:c=>{const {sh,edge}=foldSheet(c,128);const face=el('span','face');sh.append(face);const ty=typer(face,'send the deck to Pr…',17,false);ty.clear();
+    return()=>{const s=seq([[500,()=>{face.classList.remove('open');edge.style.width='26px';ty.clear();}],[450,()=>{face.classList.add('open');edge.style.width='128px';}],[2900,()=>ty.start()]]);return all(s,()=>ty.stop());};}},
+  {label:'land',land:true,caption:'folds shut, contents drop into the field',build:c=>{const {sh,edge}=foldSheet(c,128);const face=el('span','face open','send the deck to Priya');const ds=el('span','drop tx','send the deck to Priya');ds.style.cssText='position:absolute;left:4px;top:50%;visibility:hidden';sh.append(face,ds);edge.style.width='128px';c.setField('');
+    return()=>seq([[1300,()=>{face.classList.add('open');edge.style.width='128px';ds.style.visibility='hidden';ds.classList.remove('down');c.setField('');}],[420,()=>{face.classList.remove('open');edge.style.width='26px';ds.style.visibility='visible';ds.classList.add('down');}],[520,()=>c.land('send the deck to Priya')],[1800,()=>{}]]);}}
+ ]});
+
+function fogPill(c){c.pill.classList.add('glass');c.pill.style.minWidth='100px';const fog=el('div','fog');c.pill.append(fog);return fog;}
+concept({n:15,cat:'D',name:'Fog',thesis:'Speaking fogs the glass. Words appear written on it. Landing wipes it clear.',
+ signature:'a material brand; breath is voice.',risk:'blur costs GPU; legibility over light wallpapers.',names:'Hush, Breath, Frost',
+ states:[
+  {label:'idle',caption:'clear glass',build:c=>{fogPill(c);}},
+  {label:'listening',caption:'breath fogs the glass, text emerges through it',build:c=>{const fog=fogPill(c);const tx=el('span','tx fogtx','send the deck');tx.style.cssText='opacity:0;filter:blur(4px);position:relative;z-index:1';c.pill.append(tx);
+    return()=>{const st={acc:0};const off=Voice.on(t=>{st.acc=clamp(st.acc+(Voice.speech(t)-0.1)*0.012,0,1);fog.style.opacity=(st.acc*0.85).toFixed(2);tx.style.opacity=st.acc.toFixed(2);tx.style.filter=`blur(${(4*(1-st.acc)).toFixed(1)}px)`;});const s=seq([[4200,()=>{st.acc=0;}]]);return all(off,s);};}},
+  {label:'land',land:true,caption:'one wipe, text drops',build:c=>{const fog=fogPill(c);fog.style.opacity=.85;const g=el('span','drop');g.style.cssText='position:relative;z-index:1';g.append(el('span','tx','send the deck to Priya'));const wipe=el('span','wipe');wipe.style.cssText='top:0;bottom:0;z-index:2';c.pill.append(g,wipe);c.setField('');
+    return()=>seq([[1600,()=>{fog.style.transition='none';fog.style.opacity=.85;g.classList.remove('down');wipe.classList.remove('go');c.setField('');}],[10,()=>{wipe.classList.add('go');fog.style.transition='opacity .5s .15s';fog.style.opacity=0;g.classList.add('down');}],[600,()=>c.land('send the deck to Priya')],[1800,()=>{}]]);}},
+  {label:'muted',caption:'frosted solid',build:c=>{fogPill(c).classList.add('solid');}}
+ ]});
+</script>
+<script>
+/* ============ E · Living ============ */
+const ease=k=>k<0.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+const now=()=>performance.now()/1000;
+function fireflyPill(c,w=140){c.width(w);const f=el('span','ff');c.pill.append(f);return f;}
+concept({n:16,cat:'E',name:'Firefly',thesis:'A point of light in the pill. Its position is attention.',
+ signature:'answers “is it listening to me?” at a glance. A light sealed inside a pill is the privacy story with no words.',risk:'if the fly centres late, it lies — needs sub-100 ms directed-speech feedback.',names:'Firefly, Lumen, Mote',
+ states:[
+  {label:'ambient (drifting)',caption:'wandering, dim',build:c=>{const f=fireflyPill(c);f.classList.add('dim');return()=>Voice.on(t=>{f.style.left=(50+38*Math.sin(t*0.45)*Math.cos(t*0.19+1)).toFixed(1)+'%';f.style.top=(50+14*Math.sin(t*0.7)).toFixed(1)+'%';});}},
+  {label:'colleague speaks',caption:'stays off-centre: “not for me”',build:c=>{const f=fireflyPill(c);f.classList.add('dim');const w=wave(12,14,'faint');w.style.marginLeft='auto';c.pill.append(w);return()=>Voice.on(t=>{f.style.left=(22+1.5*Math.sin(t*3)).toFixed(1)+'%';w.tick(Voice.speech(t),t);});}},
+  {label:'you say “type reply…”',caption:'snaps to centre, brightens: “for me”',build:c=>{const f=fireflyPill(c);f.className='ff dim';f.style.left='22%';
+    return()=>seq([[1300,()=>{f.style.transition='none';f.className='ff dim';f.style.left='22%';}],[1500,()=>{f.style.transition='';f.className='ff bright spring';f.style.left='50%';}]]);}},
+  {label:'listening',caption:'glows with voice',build:c=>{const f=fireflyPill(c);f.className='ff bright';f.style.left='30%';const v=vline(64,20,7);v.style.cssText+=';position:absolute;left:42%;top:50%;transform:translateY(-50%)';c.pill.append(v);
+    return()=>{let lv=0;return Voice.on(t=>{lv+=(Voice.speech(t)-lv)*0.3;v.tick(lv,t);f.style.boxShadow=`0 0 ${(5+10*lv).toFixed(1)}px ${(1.5+3*lv).toFixed(1)}px rgba(255,212,130,${(0.4+0.5*lv).toFixed(2)}),0 0 2px 1px #fff`;});};}},
+  {label:'land',land:true,caption:'flies down to the caret, blinks, returns',build:c=>{c.width(140);const f=el('span','ff bright');f.style.cssText='left:150px;top:41px';c.screen.append(f);c.setField('send the deck to');const A={x:150,y:41},B={x:139,y:127};
+    return()=>{let ph='rest',t0=0;const off=Voice.on(t=>{const e=now()-t0;let x=A.x,y=A.y,op=1;if(ph==='fly'){const k=ease(clamp(e/0.6,0,1));x=lerp(A.x,B.x,k)+18*Math.sin(k*Math.PI);y=lerp(A.y,B.y,k);}else if(ph==='blink'){x=B.x;y=B.y;op=Math.floor(e/0.1)%2?0.15:1;}else if(ph==='return'){const k=ease(clamp(e/0.55,0,1));x=lerp(B.x,A.x,k)-16*Math.sin(k*Math.PI);y=lerp(B.y,A.y,k);}f.style.left=x.toFixed(1)+'px';f.style.top=y.toFixed(1)+'px';f.style.opacity=op;});
+      const s=seq([[1200,()=>{ph='rest';c.setField('send the deck to');}],[600,()=>{ph='fly';t0=now();}],[420,()=>{ph='blink';t0=now();}],[10,()=>c.setField('send the deck to <span class="new">Priya.</span>')],[560,()=>{ph='return';t0=now();}],[1300,()=>{ph='rest';}]]);return all(off,s);};}},
+  {label:'muted',caption:'dark, hollow, doesn’t move',build:c=>{const f=fireflyPill(c);f.className='ff hollow';}}
+ ]});
+
+function wire(){const s=svg(110,26);const p=sv('polyline',{fill:'none',stroke:'rgba(255,255,255,.85)','stroke-width':1.3,'stroke-linecap':'round'});s.append(p);
+  s.tick=(amp,t)=>{const pts=[];for(let x=0;x<=110;x+=3){pts.push(x+','+(14+amp*Math.sin(x*0.25+t*40)*Math.sin(x/110*Math.PI)).toFixed(1));}p.setAttribute('points',pts.join(' '));};s.tick(0,0);return s;}
+function bird(screen,x,y){const b=svg(13,10,'bird');b.style.cssText='position:absolute;z-index:4;margin:-9px 0 0 -6px';b.append(sv('ellipse',{cx:5,cy:6.5,rx:3.4,ry:2.7,fill:'#fff'}),sv('circle',{cx:8.6,cy:3.6,r:1.9,fill:'#fff'}),sv('line',{x1:2,y1:6.5,x2:-0.5,y2:4.2,stroke:'#fff','stroke-width':1.2,'stroke-linecap':'round'}),sv('line',{x1:10.3,y1:3.6,x2:12.5,y2:3.9,stroke:'#fff','stroke-width':1,'stroke-linecap':'round'}));b.at=(px,py)=>{b.style.left=px.toFixed(1)+'px';b.style.top=py.toFixed(1)+'px';};b.at(x,y);screen.append(b);return b;}
+const hop=(P,Q,k,h)=>({x:lerp(P.x,Q.x,ease(k)),y:lerp(P.y,Q.y,ease(k))-h*Math.sin(k*Math.PI)});
+concept({n:17,cat:'E',name:'Wren',thesis:'Firefly, grounded: a bird on a wire. The wire is the voice line.',
+ signature:'never floats in space; mute as an empty wire is disarming.',risk:'same latency honesty problem as Firefly.',names:'Wren, Perch, Wire',
+ states:[
+  {label:'idle',caption:'perched',build:c=>{c.pill.append(wire());bird(c.screen,150,41);}},
+  {label:'listening',caption:'wire vibrates, bird stays put',build:c=>{const w=wire();c.pill.append(w);const b=bird(c.screen,150,41);return()=>{let lv=0;return Voice.on(t=>{lv+=(Voice.speech(t)-lv)*0.3;w.tick(3.2*lv,t);b.at(150,41+2.6*lv*Math.sin(55*0.25+t*40));});};}},
+  {label:'land',land:true,caption:'hops down',build:c=>{c.pill.append(wire());const b=bird(c.screen,150,41);c.setField('send the deck to');const A={x:150,y:41},B={x:139,y:126};
+    return()=>{let ph='rest',t0=0;const off=Voice.on(()=>{const e=now()-t0;let p=A;if(ph==='down')p=hop(A,B,clamp(e/0.55,0,1),22);else if(ph==='there')p=B;else if(ph==='up')p=hop(B,A,clamp(e/0.5,0,1),22);b.at(p.x,p.y);});
+      const s=seq([[1300,()=>{ph='rest';c.setField('send the deck to');}],[560,()=>{ph='down';t0=now();}],[150,()=>{ph='there';}],[10,()=>c.setField('send the deck to <span class="new">Priya.</span>')],[520,()=>{ph='up';t0=now();}],[1400,()=>{ph='rest';}]]);return all(off,s);};}},
+  {label:'not you',caption:'hops to the far end: “not mine”',build:c=>{const w=wire();c.pill.append(w);const b=bird(c.screen,150,41);const A={x:150,y:41},B={x:201,y:41};
+    return()=>{let ph='centre',t0=0;const off=Voice.on(t=>{const e=now()-t0;let p=A;if(ph==='out')p=hop(A,B,clamp(e/0.4,0,1),12);else if(ph==='far')p=B;else if(ph==='back')p=hop(B,A,clamp(e/0.4,0,1),12);b.at(p.x,p.y);w.tick(ph==='far'||ph==='out'?1.3:0,t);});
+      const s=seq([[1500,()=>{ph='centre';}],[420,()=>{ph='out';t0=now();}],[1900,()=>{ph='far';}],[420,()=>{ph='back';t0=now();}]]);return all(off,s);};}},
+  {label:'muted',caption:'flown. empty wire.',build:c=>{c.pill.append(wire());}}
+ ]});
+
+function eyes(c,cls){const e=el('span','eyes');const l=el('span','eye '+cls),r=el('span','eye '+cls);e.append(l,r);c.pill.append(e);return{e,l,r};}
+concept({n:18,cat:'E',name:'Creature',thesis:'Two dots in the notch. It’s a face. The camera housing already looks like a head.',
+ signature:'highest recall here. People name it, screenshot it. Mute = it closes its eyes, the most legible mute possible.',risk:'Clippy. Works only if it never talks, never has a mouth, never asks for anything.',names:'—',
+ states:[
+  {label:'idle',caption:'blinks /6 s',build:c=>{eyes(c,'blink');}},
+  {label:'listening',caption:'open, track level',build:c=>{const {l,r}=eyes(c,'open');return()=>{let lv=0;return Voice.on(t=>{lv+=(Voice.speech(t)-lv)*0.3;const p=(0.75+0.75*lv).toFixed(2);l.style.setProperty('--p',p);r.style.setProperty('--p',p);});};}},
+  {label:'latched',caption:'stays awake',build:c=>{const {l,r}=eyes(c,'open');return()=>Voice.on(t=>{const px=(1.1*Math.sin(t*0.9)).toFixed(2)+'px';l.style.setProperty('--px',px);r.style.setProperty('--px',px);});}},
+  {label:'not you',caption:'looks away, dims',build:c=>{const {e,l,r}=eyes(c,'open');return()=>seq([[1300,()=>{e.classList.remove('away');l.style.setProperty('--px','0px');r.style.setProperty('--px','0px');}],[2000,()=>{e.classList.add('away');l.style.setProperty('--px','2.2px');r.style.setProperty('--px','2.2px');}]]);}},
+  {label:'which one?',caption:'tilts',build:c=>{const {e}=eyes(c,'open');return()=>seq([[1300,()=>e.classList.remove('tilt')],[1700,()=>e.classList.add('tilt')]]);}},
+  {label:'muted',caption:'eyes shut (persists)',build:c=>{eyes(c,'shut');}}
+ ]});
+
+concept({n:19,cat:'E',name:'Ghost',thesis:'A faceless wisp: a ghostwriter.',
+ signature:'“ghostwriter” is a concept people already hold; no face dodges Clippy.',risk:'“ghost” + “always listening” is a headline we don’t want.',names:'Ghost, Wisp, Scribe',
+ states:[
+  {label:'ambient',caption:'faint wisp',build:c=>{const w=el('span','wisp');w.style.transition='none';c.pill.append(w);return()=>Voice.on(t=>{w.style.transform=`translate(${(6*Math.sin(t*0.6)).toFixed(1)}px,${(3*Math.sin(t*0.9+1)).toFixed(1)}px) rotate(${(8*Math.sin(t*0.4)).toFixed(1)}deg)`;});}},
+  {label:'addressed',caption:'gathers, brightens',build:c=>{const w=el('span','wisp');c.pill.append(w);return()=>seq([[1300,()=>w.className='wisp'],[1700,()=>w.className='wisp gather']]);}},
+  {label:'listening',caption:'writes beside itself',build:c=>{const w=el('span','wisp gather'),tx=el('span','tx');c.pill.append(w,tx);const ty=typer(tx,'send the…');ty.clear();return()=>{const s=seq([[500,()=>ty.clear()],[2600,()=>ty.start()]]);return all(s,()=>ty.stop());};}},
+  {label:'land',land:true,caption:'dissolves; only the words remain',build:c=>{const w=el('span','wisp gather'),g=el('span','drop');g.append(el('span','tx','send the deck to Priya'));c.pill.append(w,g);c.setField('');
+    return()=>seq([[1400,()=>{w.className='wisp gather';g.classList.remove('down');c.setField('');}],[10,()=>{w.className='wisp gone';g.classList.add('down');}],[600,()=>c.land('send the deck to Priya')],[1800,()=>{}]]);}},
+  {label:'muted',caption:'a dot. asleep.',build:c=>{c.pill.append(el('span','wisp dot'));}}
+ ]});
+</script>
+<script>
+/* ============ F · Concept ============ */
+function runway(n=5){const r=el('span','rw');const ls=[];for(let i=0;i<n;i++){const l=el('i');r.append(l);ls.push(l);}r.set=fn=>ls.forEach((l,i)=>l.classList.toggle('lit',!!fn(i)));return r;}
+concept({n:20,cat:'F',name:'Runway',thesis:'The pill is a landing strip. Words taxi in and touch down.',
+ signature:'makes “release to land” literal, with humour.',risk:'joke brands age; can read as an airline.',names:'Land, Runway, Touchdown',
+ states:[
+  {label:'listening',caption:'runway lights, text rolls in',build:c=>{const r=runway(),tx=el('span','tx');c.pill.append(r,tx);const ty=typer(tx,'send the deck to Pr');ty.clear();
+    return()=>{const off=Voice.on(t=>r.set(i=>Math.floor(t*7)%5===i));const s=seq([[500,()=>{ty.clear();tx.classList.remove('rollin');}],[3200,()=>{tx.classList.add('rollin');ty.start();}]]);return all(off,s,()=>ty.stop());};}},
+  {label:'land',land:true,caption:'lights blink once, text touches down',build:c=>{const r=runway(),g=el('span','drop');g.append(el('span','tx','send the deck to Priya'));c.pill.append(r,g);c.setField('');
+    return()=>{let ph='chase';const off=Voice.on(t=>{if(ph==='chase')r.set(i=>Math.floor(t*7)%5===i);else if(ph==='flash')r.set(()=>true);else r.set(()=>false);});
+      const s=seq([[1500,()=>{ph='chase';g.classList.remove('down');c.setField('');}],[10,()=>{ph='flash';}],[170,()=>{ph='off';g.classList.add('down');}],[520,()=>c.land('send the deck to Priya')],[1700,()=>{}]]);return all(off,s);};}},
+  {label:'latched',caption:'lights stay on',build:c=>{const r=runway();r.set(()=>true);c.pill.append(r);}},
+  {label:'muted',caption:'runway closed',build:c=>{const x=el('span','tx','✕&nbsp;&nbsp;&nbsp;✕&nbsp;&nbsp;&nbsp;✕');x.style.cssText='font-size:11px;letter-spacing:.02em';c.pill.append(x);}}
+ ]});
+
+function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function ridges(seed,color='#fff'){const s=svg(36,24);const rnd=mulberry(seed);const L=[];for(let i=0;i<6;i++){const p=sv('polyline',{fill:'none',stroke:color,'stroke-width':1.1,'stroke-linecap':'round','stroke-linejoin':'round'});s.append(p);L.push({p,base:3+i*3.6,a1:0.6+rnd()*1.1,f1:0.25+rnd()*0.35,p1:rnd()*6.3,a2:0.3+rnd()*0.5,f2:0.6+rnd()*0.6,p2:rnd()*6.3});}
+  s.draw=(lv=0,t=0,len=1)=>{const m=Math.round(36*clamp(len,0,1));L.forEach((r,i)=>{const pts=[];for(let x=0;x<=m;x+=2)pts.push(x+','+(r.base+r.a1*Math.sin(x*r.f1+r.p1)+r.a2*Math.sin(x*r.f2+r.p2)+lv*2.2*Math.sin(x*0.5+t*12+i)).toFixed(1));r.p.setAttribute('points',pts.join(' '));});};s.draw();return s;}
+concept({n:21,cat:'F',name:'Voiceprint',thesis:'Enrollment generates a ridge pattern from your voice. That pattern is your mark. Every user’s icon differs.',
+ signature:'privacy and personalisation are the same picture.',risk:'generated marks vary in beauty; a bad one is stuck in someone’s menu bar. Needs a curated generator.',names:'Print, Timbre, Grain',
+ states:[
+  {label:'enrollment',caption:'“this is how I talk…” — ridges form from your spectrum',build:c=>{const w=wave(12,18),tx=el('span','tx'),r=ridges(7);r.draw(0,0,0);c.pill.append(w,tx,r);const ty=typer(tx,'this is how I talk…',14);ty.clear();
+    return()=>{let ph='speak',len=0;const off=Voice.on(t=>{if(ph==='speak'){w.tick(Voice.speech(t),t);}else{w.tick(0,t);len=Math.min(1,len+0.02);r.draw(0,t,len);}});
+      const s=seq([[400,()=>{ph='speak';len=0;r.draw(0,0,0);ty.clear();}],[2400,()=>ty.start()],[2000,()=>{ph='form';}]]);return all(off,s,()=>ty.stop());};}},
+  {label:'your mark, forever',caption:'a thumbprint made of sound; yours only',build:c=>{c.pill.append(ridges(7));}},
+  {label:'listening',caption:'the ridges you made, alive',build:c=>{const r=ridges(7);c.pill.append(r);return()=>{let lv=0;return Voice.on(t=>{lv+=(Voice.speech(t)-lv)*0.3;r.draw(lv,t);});};}},
+  {label:'not you',caption:'a different, grey pattern flashes — “that wasn’t you”',build:c=>{const box=el('span');box.style.cssText='position:relative;display:inline-block;width:36px;height:24px';const mine=ridges(7),other=ridges(31,'rgba(255,255,255,.45)');mine.style.cssText+=';position:absolute;left:0;top:0';other.style.cssText+=';position:absolute;left:0;top:0;opacity:0';box.append(mine,other);c.pill.append(box);
+    const show=o=>{mine.style.opacity=o?0:1;other.style.opacity=o?1:0;};return()=>seq([[1500,()=>show(false)],[220,()=>show(true)],[160,()=>show(false)],[220,()=>show(true)],[1600,()=>show(false)]]);}}
+ ]});
+
+let AC=null;
+function playNotes(notes){if(!notes||!notes.length)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const t=AC.currentTime+0.02;let s=t;notes.forEach(([f,d])=>{const o=AC.createOscillator(),g=AC.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0.0001,s);g.gain.exponentialRampToValueAtTime(0.28,s+0.01);g.gain.exponentialRampToValueAtTime(0.0001,s+d);o.connect(g).connect(AC.destination);o.start(s);o.stop(s+d+0.02);s+=d+0.05;});}catch(e){}}
+function score(heights){const s=el('span','score');const dots=heights.map(h=>{const d=el('i');d.style.marginBottom=h+'px';s.append(d);return d;});s.dots=dots;s.off=()=>dots.forEach(d=>d.classList.remove('on'));return s;}
+concept({n:22,cat:'F',name:'Tick',tag:'a layer, not a mark',thesis:'The brand is a sound. Visual mark deliberately minimal (a dot).',
+ signature:'for a voice product, recall through the ear is honest; the Mac startup chime is the precedent.',risk:'easy to hate; must be off in meetings and killable in one click.',names:'Combines with any visual above.',
+ states:[
+  {label:'land ♪ tick-tock (rising)',land:true,hear:[[880,.08],[1175,.1]],caption:'the sentence is yours — plus a trackpad haptic on land',build:c=>{const sc=score([2,9]);c.pill.append(dotSVG(),sc);const pad=el('span','pad');c.screen.append(pad);c.setField('send the deck to Priya');
+    return()=>seq([[1300,()=>{sc.off();pad.classList.remove('buzz');c.setField('send the deck to Priya');}],[160,()=>sc.dots[0].classList.add('on')],[160,()=>{sc.dots[1].classList.add('on');pad.classList.add('buzz');c.setField('send the deck to Priya<span class="new">.</span>');}],[1700,()=>{}]]);}},
+  {label:'mute ♪ tock (falling)',hear:[[523,.14]],caption:'it stopped hearing',build:c=>{const sc=score([9,2]);sc.dots[0].style.opacity=.35;c.pill.append(dotSVG(),sc);return()=>seq([[1300,()=>sc.off()],[200,()=>sc.dots[1].classList.add('on')],[1500,()=>{}]]);}},
+  {label:'learn ♪ a third note',hear:[[880,.08],[1175,.08],[1568,.12]],caption:'“I’ll remember Kothari” — once, ever',build:c=>{const sc=score([2,8,14]);c.pill.append(dotSVG(),sc);c.setField('send it to');
+    return()=>seq([[1300,()=>{sc.off();c.setField('send it to');}],[150,()=>sc.dots[0].classList.add('on')],[150,()=>sc.dots[1].classList.add('on')],[150,()=>{sc.dots[2].classList.add('on');c.setField('send it to <span class="new">Kothari</span>');}],[1800,()=>{}]]);}},
+  {label:'error ♪ nothing',hear:[],hearLabel:'▶ nothing',caption:'silence is the alarm',build:c=>{const sc=score([]);sc.style.width='34px';c.pill.append(dotSVG(),sc,el('span','quiet','silence'));}}
+ ]});
+</script>
+<script>
+/* ============ render ============ */
+const board=document.getElementById('board'),rail=document.getElementById('rail');
+const pad2=n=>String(n).padStart(2,'0');
+let lastCat=null;
+CONCEPTS.forEach(k=>{
+  if(k.cat!==lastCat){lastCat=k.cat;const n=CONCEPTS.filter(x=>x.cat===k.cat).length;board.append(el('h2','cat',`<span class="cl">${k.cat}</span><span>${CATS[k.cat]}</span><span class="cn">${n} concept${n>1?'s':''}</span>`));}
+  const s=el('section','concept');s.id='c'+k.n;
+  const head=el('div','c-head');head.append(el('span','c-num',pad2(k.n)),el('h3','c-name',k.name+(k.tag?`<i>${k.tag}</i>`:'')),el('p','c-thesis',k.thesis));
+  const st=el('div','stages');k.states.forEach(x=>st.append(makeStage(x)));
+  s.append(head,st,el('dl','c-meta',`<dt>Signature</dt><dd>${k.signature}</dd><dt>Risk</dt><dd>${k.risk}</dd><dt>Names</dt><dd>${k.names}</dd>`));
+  board.append(s);
+});
+Object.keys(CATS).forEach(cat=>{const g=el('div','grp');g.append(el('span','gl',cat));CONCEPTS.filter(k=>k.cat===cat).forEach(k=>{const a=el('a','',`<span class="k">${pad2(k.n)}</span><span>${k.name}</span>`);a.href='#c'+k.n;a.dataset.id='c'+k.n;g.append(a);});rail.append(g);});
+const misc=el('div','grp misc');const ca=el('a','','<span>Comparison</span>');ca.href='#comparison';ca.dataset.id='comparison';misc.append(ca);rail.append(misc);
+const spy=new IntersectionObserver(es=>{es.forEach(e=>{if(!e.isIntersecting)return;rail.querySelectorAll('a').forEach(a=>a.classList.toggle('on',a.dataset.id===e.target.id));});},{rootMargin:'-30% 0px -60% 0px'});
+document.querySelectorAll('.concept,#comparison').forEach(s=>spy.observe(s));
+
+/* as-is, from DESIGN.md §8 */
+const asis=document.getElementById('asis');
+asis.append(makeStage({label:'as-is · pill · listening',caption:'today: mic.fill red, 24 capsule bars, black 0.92, radius 18, bottom corners only',build:c=>{c.pill.insertAdjacentHTML('beforeend',micSVG());const w=wave(24,22);c.pill.append(w);return()=>Voice.on(t=>w.tick(Voice.env(t),t));}}));
+asis.append(makeStage({label:'as-is · notch chin · ready',caption:'today: the presence chin, one static green dot — deliberately not pulsing',build:c=>{c.noPill();const ch=el('div','chin');ch.append(el('i'));c.screen.append(ch);}}));
+
+/* comparison */
+const ROWS=[[1,'Comma',1,2,1,2,1,4,'low'],[2,'Quote',1,2,0,3,1,4,'low'],[3,'Underline',2,2,0,3,1,2,'low'],[4,'Beam',3,3,1,4,2,2,'med'],[5,'Brackets',2,1,0,2,2,3,'low'],[6,'Needle',2,2,1,2,1,3,'low'],[7,'Metronome',2,2,2,2,1,3,'med'],[8,'Keycap',2,2,0,3,1,4,'low'],[9,'Ripple',1,2,1,3,1,3,'low'],[10,'Tide',2,3,1,2,1,1,'med'],[11,'Halo',3,3,2,2,2,0,'med'],[12,'Ink Drop',2,2,0,3,1,3,'low'],[13,'Stitch',2,3,0,3,2,2,'med'],[14,'Fold',2,2,0,3,1,2,'low'],[15,'Fog',3,3,1,2,2,1,'med'],[16,'Firefly',3,3,4,3,3,3,'med'],[17,'Wren',3,4,4,3,3,3,'med'],[18,'Creature',4,4,3,1,2,4,'high'],[19,'Ghost',3,3,3,2,1,3,'high'],[20,'Runway',3,3,0,4,1,2,'med'],[21,'Voiceprint',3,3,3,1,4,3,'med'],[22,'Tick',3,3,1,4,1,null,'med']];
+const PICK=new Set([17,4,21,18]);
+const dots=n=>n==null?'<span class="na">n/a</span>':[0,1,2,3].map(i=>`<span class="dot${i<n?' f':''}"></span>`).join('');
+const cmp=document.getElementById('cmp');
+cmp.innerHTML='<thead><tr><th>#</th><th>Concept</th><th>Recall</th><th>Delight</th><th>“for me?”</th><th>“it landed”</th><th>Privacy</th><th>16 px icon</th><th>Risk</th></tr></thead><tbody>'+
+  ROWS.map(r=>`<tr${PICK.has(r[0])?' class="pick"':''}><td class="n">${pad2(r[0])}</td><td class="c"><a href="#c${r[0]}">${r[1]}</a></td>${r.slice(2,8).map(v=>`<td>${dots(v)}</td>`).join('')}<td><span class="risk ${r[8]}">${r[8]}</span></td></tr>`).join('')+'</tbody>';
+</script>
+</body>
+</html>

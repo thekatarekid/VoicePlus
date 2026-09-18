@@ -1,0 +1,1311 @@
+{
+  "source": "design/design_v1.html",
+  "pill": {
+    "idle": {
+      "text": "<span class=\"dot\"></span>",
+      "layout": "idle"
+    },
+    "ready": {
+      "text": "Hold or Double Tap Right Control to dictate",
+      "layout": "ready"
+    },
+    "starting": {
+      "status": "Starting microphone…",
+      "strings": [
+        "Starting microphone…",
+        "Ready for your words",
+        "Recording starts when the microphone is open"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "listening": {
+      "status": "Listening",
+      "strings": [
+        "Listening",
+        "um can we meet with Mira on friday",
+        "Listening…",
+        "Release Right Control to finish"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "quiet": {
+      "status": "Listening · quiet",
+      "strings": [
+        "Listening · quiet",
+        "Can we meet with Mira",
+        "Still listening while you hold"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "latched": {
+      "status": "Latched · hands-free",
+      "strings": [
+        "Latched · hands-free",
+        "Can we meet with Mira on Friday",
+        "Tap Right Control to finish"
+      ],
+      "buttons": [
+        {
+          "label": "Finish",
+          "action": "finish",
+          "primary": false
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "finishing": {
+      "status": "Finishing…",
+      "strings": [
+        "Finishing…",
+        "um can we meet with Mira on friday",
+        "Microphone closed · nothing inserted yet"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "preview": {
+      "status": "Ready for Mail",
+      "strings": [
+        "Ready for Mail",
+        "#manualReview",
+        "Final text · insert when ready",
+        "Final text · inserts after the preview",
+        "#manualReview",
+        ""
+      ],
+      "buttons": [
+        {
+          "label": "Insert text",
+          "action": "commit",
+          "primary": true
+        },
+        {
+          "label": "Cancel",
+          "action": "cancel",
+          "primary": false
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "uncertain": {
+      "status": "Ready for Mail · ",
+      "strings": [
+        "Ready for Mail · ",
+        "reviewed",
+        "1 word to review",
+        "Click the dotted word to review",
+        "#manualReview",
+        "Review mode · insert when ready",
+        "Final preview · hover to pause",
+        "#manualReview",
+        ""
+      ],
+      "buttons": [
+        {
+          "label": "Insert text",
+          "action": "commit",
+          "primary": true
+        },
+        {
+          "label": "Cancel",
+          "action": "cancel",
+          "primary": false
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "inserting": {
+      "status": "Inserting in Mail…",
+      "strings": [
+        "Inserting in Mail…",
+        "Looping tape-feed study · no text is inserted",
+        "Same text · one insertion attempt"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "inserted": {
+      "status": "✓ Inserted in Mail",
+      "strings": [
+        "✓ Inserted in Mail",
+        "Spelling reviewed",
+        "1 word to review in the field"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "held": {
+      "status": "⚠ Destination changed · text held",
+      "strings": [
+        "⚠ Destination changed · text held",
+        "Nothing was typed into the new field"
+      ],
+      "buttons": [
+        {
+          "label": "Insert here",
+          "action": "insert",
+          "primary": true
+        },
+        {
+          "label": "Copy text",
+          "action": "copy",
+          "primary": false
+        },
+        {
+          "label": "Discard…",
+          "action": "discard",
+          "primary": false
+        }
+      ],
+      "notice": true,
+      "tone": "warn"
+    },
+    "unconfirmed": {
+      "status": "⚠ Inserted · not confirmed",
+      "strings": [
+        "⚠ Inserted · not confirmed",
+        "Check the field before trying again"
+      ],
+      "buttons": [
+        {
+          "label": "Check text",
+          "action": "check",
+          "primary": true
+        },
+        {
+          "label": "Dismiss",
+          "action": "dismiss",
+          "primary": false
+        }
+      ],
+      "notice": true,
+      "tone": "warn"
+    },
+    "partial": {
+      "status": "⚠ Only part may have been inserted",
+      "strings": [
+        "⚠ Only part may have been inserted",
+        "Review both versions to avoid duplicate text"
+      ],
+      "buttons": [
+        {
+          "label": "Review result",
+          "action": "check",
+          "primary": true
+        }
+      ],
+      "notice": true,
+      "tone": "warn"
+    },
+    "warning": {
+      "status": "⚠ Microphone sounds unclear",
+      "strings": [
+        "⚠ Microphone sounds unclear",
+        "Can we meet with Mira on Friday",
+        "Keep speaking, or check your microphone"
+      ],
+      "buttons": [
+        {
+          "label": "Check microphone",
+          "action": "voice",
+          "primary": false
+        }
+      ],
+      "notice": false,
+      "tone": "warn"
+    },
+    "cancelled": {
+      "status": "Cancelled",
+      "strings": [
+        "Cancelled",
+        "Nothing inserted",
+        "You can start a new dictation"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "muted": {
+      "status": "⊘ VoicePlus is muted",
+      "strings": [
+        "⊘ VoicePlus is muted",
+        "Microphone closed",
+        "Unmute when you are ready"
+      ],
+      "buttons": [
+        {
+          "label": "Unmute",
+          "action": "unmute",
+          "primary": true
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "unavailable": {
+      "status": "⚠ Dictation is unavailable",
+      "strings": [
+        "⚠ Dictation is unavailable",
+        "Install a speech model",
+        "No usable recognizer is ready"
+      ],
+      "buttons": [
+        {
+          "label": "Open Models",
+          "action": "models",
+          "primary": true
+        }
+      ],
+      "notice": true,
+      "tone": "warn"
+    },
+    "editing": {
+      "status": "Editing 18 words…",
+      "strings": [
+        "Editing 18 words…",
+        "Make the selected text more concise",
+        "Microphone closed · original text unchanged"
+      ],
+      "buttons": [],
+      "notice": false,
+      "tone": null
+    },
+    "undo": {
+      "status": "✓ Updated in Mail",
+      "strings": [
+        "✓ Updated in Mail",
+        "Can we meet on Friday?",
+        "Undo only while the edited range still matches"
+      ],
+      "buttons": [
+        {
+          "label": "Undo",
+          "action": "undo",
+          "primary": true
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "meeting": {
+      "status": "Meeting · recording",
+      "strings": [
+        "Meeting · recording",
+        "Microphone + system audio · 12:04",
+        "Capture is separate from dictation"
+      ],
+      "buttons": [
+        {
+          "label": "Pause",
+          "action": "pause",
+          "primary": false
+        },
+        {
+          "label": "Stop",
+          "action": "stop",
+          "primary": false
+        },
+        {
+          "label": "Expand",
+          "action": "meeting",
+          "primary": false
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "paused": {
+      "status": "Meeting paused",
+      "strings": [
+        "Meeting paused",
+        "Capture is paused · 12:04",
+        "Resume when you are ready"
+      ],
+      "buttons": [
+        {
+          "label": "Resume",
+          "action": "resume",
+          "primary": true
+        },
+        {
+          "label": "Stop",
+          "action": "stop",
+          "primary": false
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "notes": {
+      "status": "Preparing meeting notes",
+      "strings": [
+        "Preparing meeting notes",
+        "Your transcript is already available",
+        "No microphone is recording"
+      ],
+      "buttons": [
+        {
+          "label": "Open meeting",
+          "action": "meeting",
+          "primary": true
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "correcting": {
+      "status": "Review one word",
+      "strings": [
+        "Review one word",
+        "Keep the spelling or replace the verified word"
+      ],
+      "buttons": [
+        {
+          "label": "Review word",
+          "action": "review",
+          "primary": true
+        }
+      ],
+      "notice": false,
+      "tone": null
+    },
+    "blocked": {
+      "status": "Microphone access is off",
+      "strings": [
+        "Microphone access is off",
+        "Recording cannot start",
+        "Nothing was recorded or typed"
+      ],
+      "buttons": [
+        {
+          "label": "Review permissions",
+          "action": "permissions",
+          "primary": true
+        }
+      ],
+      "notice": true,
+      "tone": "warn"
+    },
+    "error": {
+      "status": "⚠ Couldn’t finish this dictation",
+      "strings": [
+        "⚠ Couldn’t finish this dictation",
+        "These words were recovered. Nothing inserted."
+      ],
+      "buttons": [
+        {
+          "label": "Review text",
+          "action": "review",
+          "primary": true
+        },
+        {
+          "label": "Copy text",
+          "action": "copy",
+          "primary": false
+        }
+      ],
+      "notice": true,
+      "tone": "warn"
+    }
+  },
+  "screens": {
+    "today": {
+      "title": "Today",
+      "subtitle": "Your words, right where you left them."
+    },
+    "turn": {
+      "title": "Friday check-in",
+      "subtitle": "Mail · Today, 12:42 · 9 words"
+    },
+    "meetings": {
+      "title": "Meetings",
+      "subtitle": "Thoughts worth coming back to."
+    },
+    "dictionary": {
+      "title": "Dictionary & Apps",
+      "subtitle": "Your spellings. Your way of writing."
+    },
+    "voice": {
+      "title": "Voice",
+      "subtitle": "Make sure we hear you clearly."
+    },
+    "privacy": {
+      "title": "Privacy",
+      "subtitle": "Know what is kept, and what leaves this Mac."
+    },
+    "settings": {
+      "title": "Settings",
+      "subtitle": "Small adjustments. A familiar flow."
+    },
+    "shortcuts": {
+      "title": "Shortcuts",
+      "subtitle": "One key. A clear beginning and end."
+    },
+    "models": {
+      "title": "Models",
+      "subtitle": "Ready means verified and loaded."
+    },
+    "services": {
+      "title": "Providers & Sync",
+      "subtitle": "Local first. Connections when you choose."
+    },
+    "menu": {
+      "title": "A small, useful menu",
+      "subtitle": "Status and direct actions, one click away."
+    },
+    "recovery": {
+      "title": "Your text is still here.",
+      "subtitle": "Destination changed · held for Mail"
+    }
+  },
+  "emptyCopy": {
+    "today": [
+      "Nothing dictated yet",
+      "Hold Right Control and say something. Your recent words will appear here.",
+      "Try dictation"
+    ],
+    "turn": [
+      "No saved text here",
+      "History may be off or this turn may have been deleted.",
+      "Open Today"
+    ],
+    "meetings": [
+      "No meetings yet",
+      "Start a recording whenever you need notes. Calendar connection is optional.",
+      "Start recording"
+    ],
+    "meeting-detail": [
+      "No speech captured",
+      "Check the microphone and system-audio tracks before your next meeting.",
+      "Check capture"
+    ],
+    "dictionary": [
+      "Make it sound like you",
+      "Add a word VoicePlus keeps getting wrong.",
+      "Add a word"
+    ],
+    "voice": [
+      "No voice enrolled",
+      "Enrollment is optional. Hold-to-talk works without it.",
+      "Set up my voice"
+    ],
+    "privacy": [
+      "Nothing is saved",
+      "Your history is off. Recovery text has its own clearly labelled retention policy.",
+      "Review retention"
+    ],
+    "settings": [
+      "Using your defaults",
+      "Personalize your shortcut and preview when you are ready.",
+      "Open shortcuts"
+    ],
+    "shortcuts": [
+      "No custom shortcuts",
+      "Right Control is your default hold-to-talk key.",
+      "Try default shortcut"
+    ],
+    "models": [
+      "Install a speech model",
+      "Dictation becomes available when a compatible model has been verified and loaded.",
+      "Choose a model"
+    ],
+    "services": [
+      "Nothing connected",
+      "Local transcription works without a connected service or paired device.",
+      "Explore options"
+    ],
+    "onboarding": [
+      "Welcome to VoicePlus",
+      "A few short steps, then hold a key and let your words arrive.",
+      "Begin setup"
+    ],
+    "menu": [
+      "VoicePlus is ready",
+      "The menu is available even before your first dictation.",
+      "Open VoicePlus"
+    ],
+    "recovery": [
+      "No text waiting",
+      "Every completed turn has been resolved.",
+      "Back to Today"
+    ]
+  },
+  "screenError": {
+    "today": "S01",
+    "turn": "S03",
+    "meetings": "X02",
+    "meeting-detail": "N01",
+    "dictionary": "S02",
+    "voice": "A02",
+    "privacy": "S04",
+    "settings": "S02",
+    "shortcuts": "K01",
+    "models": "M02",
+    "services": "N02",
+    "onboarding": "P01",
+    "menu": "K05",
+    "recovery": "S03"
+  },
+  "states": [
+    [
+      "idle",
+      "I0",
+      "Idle",
+      "64 × 14 pt black chin, centered 6 pt green dot; Spool and tape absent. Microphone closed."
+    ],
+    [
+      "ready",
+      "I1",
+      "Ready",
+      "Only on pointer hover over idle: “Hold or Double Tap <hotkey> to dictate”. Text only; no green dot, brand prefix, Ready label, or cassette."
+    ],
+    [
+      "starting",
+      "C0",
+      "Starting",
+      "Attentive still cassette; tape lies flat; “Starting microphone…”."
+    ],
+    [
+      "listening",
+      "C1",
+      "Listening",
+      "Live words above flat ribbon faces with audio-reactive waves/twists; reel eyes turn counterclockwise; oval mouth and occasional blink."
+    ],
+    [
+      "quiet",
+      "C2",
+      "Quiet",
+      "Last words / Listening; flat tape, parked reels, patient open eyes. Label confirms capture is still open."
+    ],
+    [
+      "latched",
+      "C3",
+      "Latched",
+      "Same live tape and counterclockwise reels; persistent “Latched · tap to finish” plus timer."
+    ],
+    [
+      "finishing",
+      "F0",
+      "Finishing",
+      "Microphone closed; damp ribbon twists, decelerate reels counterclockwise, purse mouth. No new live-wave oscillation."
+    ],
+    [
+      "preview",
+      "F1",
+      "Final preview",
+      "Final modified text above flat taut tape; stationary reels, relaxed shutters and pressure-pad smile."
+    ],
+    [
+      "uncertain",
+      "F2",
+      "Word review",
+      "Same final text and taut tape; asymmetric shutter/brow looks toward red dotted word; no reel spin."
+    ],
+    [
+      "inserting",
+      "D0",
+      "Inserting",
+      "Same immutable payload; pinch roller engages, reels turn clockwise, mouth feeds a continuous wavy/twisting tape ribbon to the verified destination caret. No success cue yet."
+    ],
+    [
+      "inserted",
+      "D1",
+      "Inserted",
+      "Small satisfied mouth; reels parked; verified text label and destination cue. Tape withdraws only after known outcome."
+    ],
+    [
+      "held",
+      "H0",
+      "Text held",
+      "Final words above taut tape; visible guide brake; “Destination changed · text held”."
+    ],
+    [
+      "unconfirmed",
+      "D2",
+      "Unconfirmed",
+      "Reels stop, brake holds tape; level concerned mouth. No smile/check/success flourish."
+    ],
+    [
+      "partial",
+      "D3",
+      "Partial insertion",
+      "Tape held intact, eyes attend to destination, small concern. Never depict a snapped tape or lost payload."
+    ],
+    [
+      "warning",
+      "C5",
+      "Mic warning",
+      "Capture continues: moving tape and counterclockwise reels, concerned brow; warning never replaces live words."
+    ],
+    [
+      "cancelled",
+      "C4",
+      "Cancelled",
+      "Reels brake without reversing; exposed tape retracts into guide; neutral mouth; “Cancelled · nothing inserted”."
+    ],
+    [
+      "muted",
+      "I2",
+      "Muted",
+      "Closed eye shutters, flat mouth, no tape motion; label “Muted”. No green ready."
+    ],
+    [
+      "unavailable",
+      "I3",
+      "Unavailable",
+      "Parked reels, setup latch, “Install a speech model” or named blocker."
+    ],
+    [
+      "editing",
+      "R1",
+      "Editing text",
+      "Stationary reel eyes; small progress marker on taut ribbon, thoughtful pursed mouth. No recording motion."
+    ],
+    [
+      "undo",
+      "R2",
+      "Undo available",
+      "Parked reels, calm mouth, explicit “Updated · Undo”. No rewind until safe undo is confirmed."
+    ],
+    [
+      "meeting",
+      "Q0",
+      "Meeting",
+      "Counterclockwise reels and audio-reactive tape only for actual open capture; “Meeting”, timer, track status."
+    ],
+    [
+      "paused",
+      "Q1",
+      "Meeting paused",
+      "Stationary reels, flat tape, visible pause bars on latch; “Meeting paused”."
+    ],
+    [
+      "notes",
+      "Q2",
+      "Preparing notes",
+      "Parked reel eyes and thoughtful mouth; small labelled progress marker, no tape transport or capture motion."
+    ],
+    [
+      "error",
+      "E0",
+      "Recoverable error",
+      "Tape guide brake, stopped reels, gentle concern plus exact problem/consequence/recovery."
+    ],
+    [
+      "correcting",
+      "R0",
+      "Correcting",
+      "Stationary tape, asymmetric eye shutter; correction popover owns alternatives and focus."
+    ],
+    [
+      "blocked",
+      "E1",
+      "Blocking error",
+      "Closed shutters and setup latch; no recording or readiness claim."
+    ]
+  ],
+  "errors": [
+    {
+      "id": "P01",
+      "family": "Permissions",
+      "trigger": "Microphone denied or revoked",
+      "headline": "Microphone access is off",
+      "consequence": "Recording cannot start. Nothing was typed.",
+      "action": "Open Microphone settings",
+      "data": "No new audio",
+      "evidence": "PermissionMatrix; AudioCaptureSource"
+    },
+    {
+      "id": "P02",
+      "family": "Permissions",
+      "trigger": "Accessibility denied or revoked",
+      "headline": "Allow VoicePlus to type",
+      "consequence": "Dictation can be reviewed here; automatic insertion is unavailable.",
+      "action": "Open Accessibility settings",
+      "data": "Keep completed text in recovery",
+      "evidence": "PermissionMatrix; SystemAccess"
+    },
+    {
+      "id": "P03",
+      "family": "Permissions",
+      "trigger": "Legacy event tap lacks Input Monitoring",
+      "headline": "The shortcut needs permission",
+      "consequence": "Only the selected legacy listener needs this grant.",
+      "action": "Open Input Monitoring",
+      "data": "Keep existing drafts; request relaunch after grant",
+      "evidence": "HotkeyStateMachine; PermissionMatrix"
+    },
+    {
+      "id": "P04",
+      "family": "Permissions",
+      "trigger": "Permission granted but process has stale grant",
+      "headline": "Reopen VoicePlus to finish setup",
+      "consequence": "Save held text before relaunch.",
+      "action": "Reopen VoicePlus",
+      "data": "Persist recovery first; block relaunch if save fails",
+      "evidence": "PermissionMatrix"
+    },
+    {
+      "id": "K01",
+      "family": "Shortcut",
+      "trigger": "Hotkey collision or registration failure",
+      "headline": "This shortcut is already in use",
+      "consequence": "Your previous shortcut stays active.",
+      "action": "Choose another shortcut",
+      "data": "Preserve prior binding",
+      "evidence": "SettingsView; HotkeyStateMachine"
+    },
+    {
+      "id": "K02",
+      "family": "Shortcut",
+      "trigger": "Missing key-up, lock, sleep or listener interruption",
+      "headline": "Dictation stopped",
+      "consequence": "Recording is closed. Start again when ready.",
+      "action": "Review recovered text",
+      "data": "Keep completed segments; label incomplete segment",
+      "evidence": "SessionCoordinator"
+    },
+    {
+      "id": "K03",
+      "family": "Shortcut",
+      "trigger": "Press shorter than 250 ms",
+      "headline": "Hold Right Control a little longer",
+      "consequence": "Nothing was typed. First isolated tap is quiet; teach only after repeated misses.",
+      "action": "Try again",
+      "data": "Discard sub-threshold capture",
+      "evidence": "HotkeyStateMachine"
+    },
+    {
+      "id": "K04",
+      "family": "Shortcut",
+      "trigger": "Start while processing or session owned elsewhere",
+      "headline": "Finishing your previous dictation",
+      "consequence": "A second session has not started.",
+      "action": "Wait or cancel",
+      "data": "Keep active turn",
+      "evidence": "SessionCoordinator"
+    },
+    {
+      "id": "K05",
+      "family": "Shortcut",
+      "trigger": "Hard mute is enabled",
+      "headline": "VoicePlus is muted",
+      "consequence": "The microphone stays closed until you unmute.",
+      "action": "Unmute",
+      "data": "No capture",
+      "evidence": "SessionCoordinator; MuteController"
+    },
+    {
+      "id": "A01",
+      "family": "Audio",
+      "trigger": "No input device",
+      "headline": "No microphone found",
+      "consequence": "Recording has not started.",
+      "action": "Choose microphone",
+      "data": "No new audio",
+      "evidence": "AudioCaptureSource"
+    },
+    {
+      "id": "A02",
+      "family": "Audio",
+      "trigger": "Device disappears during capture",
+      "headline": "Microphone disconnected",
+      "consequence": "Recording stopped. Review any words already captured.",
+      "action": "Choose microphone",
+      "data": "Keep decoded partial text; recover audio only if available",
+      "evidence": "AudioCaptureSource; DeliveryCopy"
+    },
+    {
+      "id": "A03",
+      "family": "Audio",
+      "trigger": "Input source cannot be selected or opened",
+      "headline": "Couldn’t start this microphone",
+      "consequence": "Nothing was recorded.",
+      "action": "Choose microphone",
+      "data": "No new audio",
+      "evidence": "AudioCaptureSource"
+    },
+    {
+      "id": "A04",
+      "family": "Audio",
+      "trigger": "Sample-rate or device-format mismatch",
+      "headline": "This microphone needs reconnecting",
+      "consequence": "Recording could not start with this audio format.",
+      "action": "Choose microphone",
+      "data": "Keep previous drafts",
+      "evidence": "AudioCaptureSource.formatMismatch"
+    },
+    {
+      "id": "A05",
+      "family": "Audio",
+      "trigger": "Recorder opens but receives no samples",
+      "headline": "No audio is reaching VoicePlus",
+      "consequence": "Check the selected input and its mute switch.",
+      "action": "Test microphone",
+      "data": "Do not invent transcript",
+      "evidence": "AudioCaptureSource.noAudio"
+    },
+    {
+      "id": "A06",
+      "family": "Audio",
+      "trigger": "Samples arrive but no speech is detected",
+      "headline": "No speech detected",
+      "consequence": "Nothing was typed.",
+      "action": "Try again",
+      "data": "Discard silence; retain no fake transcript",
+      "evidence": "DeliveryCopy"
+    },
+    {
+      "id": "A07",
+      "family": "Audio",
+      "trigger": "Too little usable audio for decoder",
+      "headline": "That was too short to transcribe",
+      "consequence": "Nothing was typed. Hold the key through the sentence.",
+      "action": "Try again",
+      "data": "No usable text",
+      "evidence": "EngineErrorMessage; invalidAudioData regression"
+    },
+    {
+      "id": "A08",
+      "family": "Audio",
+      "trigger": "Quiet, clipped or noisy input",
+      "headline": "Your microphone sounds unclear",
+      "consequence": "Keep live words visible with a small quality warning.",
+      "action": "Check microphone",
+      "data": "Capture continues; do not hide transcript",
+      "evidence": "PillState.warning"
+    },
+    {
+      "id": "A09",
+      "family": "Audio",
+      "trigger": "Another internal recorder owns input",
+      "headline": "Microphone is in use",
+      "consequence": "Do not start a second conflicting audio session.",
+      "action": "Open active session",
+      "data": "Keep active recording",
+      "evidence": "SessionCoordinator.busy"
+    },
+    {
+      "id": "M01",
+      "family": "Models",
+      "trigger": "No usable recognizer installed",
+      "headline": "Install a speech model",
+      "consequence": "Dictation is off until a model is ready.",
+      "action": "Open Models",
+      "data": "No capture advertised as ready",
+      "evidence": "EngineFactory; ModelManager"
+    },
+    {
+      "id": "M02",
+      "family": "Models",
+      "trigger": "Download incomplete or scratch file missing",
+      "headline": "The speech model didn’t finish downloading",
+      "consequence": "Dictation needs a complete model.",
+      "action": "Download again",
+      "data": "Keep a previously working model",
+      "evidence": "ModelManager.incomplete; EngineErrorMessage"
+    },
+    {
+      "id": "M03",
+      "family": "Models",
+      "trigger": "Checksum or size verification fails",
+      "headline": "The model download couldn’t be verified",
+      "consequence": "The incomplete model will not be loaded.",
+      "action": "Download again",
+      "data": "Quarantine invalid model; preserve working model",
+      "evidence": "HFDownloader; ModelManager"
+    },
+    {
+      "id": "M04",
+      "family": "Models",
+      "trigger": "Network or HTTP download failure",
+      "headline": "Model download paused",
+      "consequence": "Your connection interrupted the download.",
+      "action": "Retry download",
+      "data": "Resume only verified resumable data",
+      "evidence": "HFDownloader.httpStatus"
+    },
+    {
+      "id": "M05",
+      "family": "Models",
+      "trigger": "Disk is full or files cannot be written",
+      "headline": "Not enough space to finish setup",
+      "consequence": "The current working model stays available.",
+      "action": "Manage storage",
+      "data": "Keep existing usable files",
+      "evidence": "Defensive coverage: filesystem failures"
+    },
+    {
+      "id": "M06",
+      "family": "Models",
+      "trigger": "Model unsupported on this Mac",
+      "headline": "This model can’t run on this Mac",
+      "consequence": "Choose a model compatible with this system.",
+      "action": "Choose another model",
+      "data": "Preserve current selection until replacement works",
+      "evidence": "ModelManager.unsupported; RefinementError"
+    },
+    {
+      "id": "M07",
+      "family": "Models",
+      "trigger": "Warm-up slow or loading fails",
+      "headline": "The speech model isn’t ready",
+      "consequence": "After 2 seconds name the wait; after failure offer recovery.",
+      "action": "Retry loading",
+      "data": "Hold partial text only if it exists",
+      "evidence": "EngineState.prewarming; EngineFactory"
+    },
+    {
+      "id": "M08",
+      "family": "Models",
+      "trigger": "Model disappears during active use",
+      "headline": "The speech model became unavailable",
+      "consequence": "Recording has stopped. Your completed words are kept.",
+      "action": "Open Models",
+      "data": "Keep completed text; no silent model switch",
+      "evidence": "ModelManager.notPresent"
+    },
+    {
+      "id": "T01",
+      "family": "Transcription",
+      "trigger": "Decoder throws or returns invalid output",
+      "headline": "Couldn’t finish this dictation",
+      "consequence": "Review the words recovered so far, if any.",
+      "action": "Review recovered text",
+      "data": "Keep valid partial text; Try again if none",
+      "evidence": "EngineErrorMessage; defensive partial recovery"
+    },
+    {
+      "id": "T02",
+      "family": "Transcription",
+      "trigger": "Final recognition exceeds deadline",
+      "headline": "This is taking longer than usual",
+      "consequence": "Recording has stopped. Nothing has been inserted yet.",
+      "action": "Use available text",
+      "data": "Offer available text after 10 s; never insert late result twice",
+      "evidence": "Proposed timeout policy"
+    },
+    {
+      "id": "T03",
+      "family": "Transcription",
+      "trigger": "Rewrite or provider refinement fails",
+      "headline": "Cleanup is unavailable",
+      "consequence": "The original transcript is still ready to review.",
+      "action": "Use original text",
+      "data": "Preserve original and discard invalid rewrite",
+      "evidence": "RefinementSession; RefinementGate"
+    },
+    {
+      "id": "T04",
+      "family": "Transcription",
+      "trigger": "Confidence metadata unavailable",
+      "headline": "Confidence isn’t available for this result",
+      "consequence": "Do not claim that unmarked words were checked.",
+      "action": "Review text",
+      "data": "Preserve transcript; no invented confidence",
+      "evidence": "Defensive coverage: backend capabilities"
+    },
+    {
+      "id": "T05",
+      "family": "Transcription",
+      "trigger": "Rewrite changes uncertain word alignment",
+      "headline": "Review this phrase",
+      "consequence": "Uncertainty belongs to the smallest reliably aligned phrase.",
+      "action": "Review phrase",
+      "data": "Keep source-to-final provenance",
+      "evidence": "WordConfidence; WordAligner"
+    },
+    {
+      "id": "D01",
+      "family": "Delivery",
+      "trigger": "Focus, selection or target content changes",
+      "headline": "Destination changed — text held",
+      "consequence": "Nothing was typed into the new destination.",
+      "action": "Insert here",
+      "data": "Keep final text and uncertainty spans",
+      "evidence": "PillDelivery; UtteranceLander"
+    },
+    {
+      "id": "D02",
+      "family": "Delivery",
+      "trigger": "No editable target or read-only field",
+      "headline": "Choose a text field",
+      "consequence": "Your words are ready here.",
+      "action": "Copy text",
+      "data": "Keep final text; explicit insertion only",
+      "evidence": "DeliveryCopy; SystemAccess"
+    },
+    {
+      "id": "D03",
+      "family": "Delivery",
+      "trigger": "Password or secure field",
+      "headline": "VoicePlus is paused in this field",
+      "consequence": "No dictation is inserted into secure fields.",
+      "action": "Dismiss",
+      "data": "No new secure-field capture; prior draft remains private",
+      "evidence": "DeliveryCopy; defensive preflight"
+    },
+    {
+      "id": "D04",
+      "family": "Delivery",
+      "trigger": "App excluded by user or never-inject policy",
+      "headline": "Dictation is off in this app",
+      "consequence": "Your app rule prevents insertion.",
+      "action": "Review app rule",
+      "data": "Keep already-completed ordinary dictation",
+      "evidence": "PillDelivery; app rules"
+    },
+    {
+      "id": "D05",
+      "family": "Delivery",
+      "trigger": "All insertion methods fail before writing",
+      "headline": "Couldn’t insert your text",
+      "consequence": "Your text is kept here.",
+      "action": "Copy text",
+      "data": "Keep final text; retry only after safe target check",
+      "evidence": "DeliveryCopy; proposed preserved-failure recovery"
+    },
+    {
+      "id": "D06",
+      "family": "Delivery",
+      "trigger": "Readback unavailable after insertion attempt",
+      "headline": "Inserted · not confirmed",
+      "consequence": "Check the field before trying again.",
+      "action": "Check text",
+      "data": "Keep record marked unconfirmed; never auto-retry",
+      "evidence": "LandedPillInfo.verified"
+    },
+    {
+      "id": "D07",
+      "family": "Delivery",
+      "trigger": "Readback shows partial or mismatched insertion",
+      "headline": "Only part may have been inserted",
+      "consequence": "Check the destination to avoid duplicate text.",
+      "action": "Review result",
+      "data": "Keep original and readback separately",
+      "evidence": "AppAdapter verification; defensive mismatch handling"
+    },
+    {
+      "id": "D08",
+      "family": "Delivery",
+      "trigger": "Clipboard fallback blocked or clipboard changes",
+      "headline": "Couldn’t copy your text",
+      "consequence": "Your words are still available for manual selection.",
+      "action": "Select text",
+      "data": "Keep draft; restore clipboard only if still owned",
+      "evidence": "Defensive clipboard coverage"
+    },
+    {
+      "id": "D09",
+      "family": "Delivery",
+      "trigger": "Cannot locate trustworthy word rectangles",
+      "headline": "Word marks aren’t available in this app",
+      "consequence": "The text can be inserted, but review marks stay in VoicePlus.",
+      "action": "Review words",
+      "data": "Preserve spans in history; no floating inaccurate marks",
+      "evidence": "Inherited destination-overlay risk; proposed capability fallback"
+    },
+    {
+      "id": "D10",
+      "family": "Delivery",
+      "trigger": "Destination changes before correction or undo",
+      "headline": "The text has changed",
+      "consequence": "Your correction has not replaced anything.",
+      "action": "Copy correction",
+      "data": "Keep proposed correction; invalidate stale range",
+      "evidence": "ReplaceRange; TransformReplace"
+    },
+    {
+      "id": "D11",
+      "family": "Delivery",
+      "trigger": "New hotkey while text is held",
+      "headline": "You have text waiting",
+      "consequence": "Resolve or save this draft before a new dictation.",
+      "action": "Review held text",
+      "data": "Never overwrite held draft",
+      "evidence": "HeldTextStore; proposed arbitration"
+    },
+    {
+      "id": "S01",
+      "family": "Storage",
+      "trigger": "History or timeline read fails",
+      "headline": "History can’t be read",
+      "consequence": "Other working sections remain available.",
+      "action": "Try again",
+      "data": "Do not clear store or claim it is empty",
+      "evidence": "SectionCopy.timelineUnreadable"
+    },
+    {
+      "id": "S02",
+      "family": "Storage",
+      "trigger": "Setting, dictionary or app rule save fails",
+      "headline": "Changes weren’t saved",
+      "consequence": "Your previous setting is still active.",
+      "action": "Try again",
+      "data": "Keep entered value and indicate unsaved state",
+      "evidence": "SectionCopy.notSaved"
+    },
+    {
+      "id": "S03",
+      "family": "Storage",
+      "trigger": "Draft or transcript persistence fails",
+      "headline": "This text hasn’t been saved",
+      "consequence": "Keep this window open until you copy it.",
+      "action": "Copy text",
+      "data": "Keep in memory; do not claim crash-safe recovery",
+      "evidence": "Defensive storage coverage"
+    },
+    {
+      "id": "S04",
+      "family": "Storage",
+      "trigger": "Deletion succeeds only for some items",
+      "headline": "Some items couldn’t be deleted",
+      "consequence": "Show precisely which items remain.",
+      "action": "Retry deletion",
+      "data": "Preserve accurate count and failure list",
+      "evidence": "SectionCopy.deleteAllPartial"
+    },
+    {
+      "id": "S05",
+      "family": "Storage",
+      "trigger": "App quits or crashes during capture",
+      "headline": "An unfinished recording was found",
+      "consequence": "Recover only audio or text that is actually on disk.",
+      "action": "Recover",
+      "data": "Show retained duration and location; never imply missing audio exists",
+      "evidence": "Recording reference at ~320 s; proposed recovery"
+    },
+    {
+      "id": "N01",
+      "family": "Services",
+      "trigger": "Remote provider offline or timeout",
+      "headline": "The service isn’t responding",
+      "consequence": "Local transcription still works when its model is ready.",
+      "action": "Retry service",
+      "data": "Keep local result; no silent cloud fallback",
+      "evidence": "ProviderError.unavailable/timeout"
+    },
+    {
+      "id": "N02",
+      "family": "Services",
+      "trigger": "Credentials rejected",
+      "headline": "Reconnect this service",
+      "consequence": "The current request was not completed.",
+      "action": "Reconnect",
+      "data": "Keep local drafts; never show API key in error",
+      "evidence": "ProviderError.unauthorized"
+    },
+    {
+      "id": "N03",
+      "family": "Services",
+      "trigger": "Rate limit, quota or billing rejection",
+      "headline": "This service is temporarily unavailable",
+      "consequence": "Show retry time when the provider supplies one.",
+      "action": "Use local option",
+      "data": "Keep local transcript; no automatic paid upgrade",
+      "evidence": "ProviderError.http; defensive classification"
+    },
+    {
+      "id": "N04",
+      "family": "Services",
+      "trigger": "Malformed, unsupported or disabled provider response",
+      "headline": "This service couldn’t complete the request",
+      "consequence": "The original text has been preserved.",
+      "action": "Review service settings",
+      "data": "No partial rewrite replaces original",
+      "evidence": "ProviderError.malformedResponse/capabilityMissing/flagDisabled"
+    },
+    {
+      "id": "X01",
+      "family": "Meetings",
+      "trigger": "System audio or Calendar permission absent",
+      "headline": "Meeting setup needs attention",
+      "consequence": "Name the missing permission; microphone-only capture may still work.",
+      "action": "Review permissions",
+      "data": "Keep available mic track; label missing track",
+      "evidence": "Meetings SectionCopy; DualCapture"
+    },
+    {
+      "id": "X02",
+      "family": "Meetings",
+      "trigger": "Recording interrupted or transcript unreadable",
+      "headline": "This meeting needs recovery",
+      "consequence": "Keep other meetings visible and isolate the affected row.",
+      "action": "Recover meeting",
+      "data": "Preserve saved audio/text; never fabricate speaker turns",
+      "evidence": "SectionCopy.meetingUnreadableRow; recording reference"
+    },
+    {
+      "id": "X03",
+      "family": "Voice",
+      "trigger": "Enrollment too short or speaker model unavailable",
+      "headline": "Couldn’t finish voice setup",
+      "consequence": "Hold-to-talk still works; speaker filtering stays off.",
+      "action": "Try voice setup again",
+      "data": "Keep prior enrollment until replacement succeeds",
+      "evidence": "SpeakerError; SpeakerFilter"
+    },
+    {
+      "id": "X04",
+      "family": "Dictionary",
+      "trigger": "Contacts denied or import malformed",
+      "headline": "Couldn’t import these words",
+      "consequence": "Existing dictionary entries are unchanged.",
+      "action": "Review import",
+      "data": "Preview valid entries and list rejected rows",
+      "evidence": "SectionCopy.contactsDenied; BiasVocabulary.LoadError"
+    },
+    {
+      "id": "X05",
+      "family": "Sync",
+      "trigger": "Pairing mismatch, bad key or tampered payload",
+      "headline": "Devices couldn’t be paired safely",
+      "consequence": "Nothing from this transfer was applied.",
+      "action": "Pair again",
+      "data": "Keep local data; do not weaken verification",
+      "evidence": "PairingError; SyncCryptoError"
+    },
+    {
+      "id": "X06",
+      "family": "Sync",
+      "trigger": "Peer offline or concurrent edits conflict",
+      "headline": "Sync needs attention",
+      "consequence": "Local dictation continues. Review conflicting edits.",
+      "action": "Review sync",
+      "data": "Keep both versions until resolved",
+      "evidence": "SyncEngine; defensive conflict coverage"
+    },
+    {
+      "id": "X07",
+      "family": "System",
+      "trigger": "Update fails or is interrupted",
+      "headline": "The update didn’t finish",
+      "consequence": "Keep using the installed version.",
+      "action": "Retry update",
+      "data": "Do not discard drafts or replace working app early",
+      "evidence": "SettingsView Updates; defensive coverage"
+    },
+    {
+      "id": "X08",
+      "family": "System",
+      "trigger": "Unexpected unmapped error",
+      "headline": "VoicePlus couldn’t finish this step",
+      "consequence": "Say whether text exists and whether anything may have been inserted.",
+      "action": "Open recovery",
+      "data": "Preserve available data; technical details in diagnostics",
+      "evidence": "EngineErrorMessage; proposed catch-all"
+    }
+  ]
+}
