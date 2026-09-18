@@ -12,7 +12,9 @@ public enum AudioPipelineEvent: Equatable, Sendable {
     case vad(VADEvent)
     /// 3–5 s chunk ready for ASR.
     case chunk(AudioChunk)
-    /// Latched-mode endpoint decision (only when `AudioPipeline.Options.latched`).
+    /// Latched-mode endpoint decision. Emitted only while the pipeline is latched (`isLatched`,
+    /// set by `Options.latched` at init and by `setLatched(_:)` live). While latched the endpointer
+    /// re-arms after every decision, so one capture yields one decision per segment.
     case endpoint(Endpointer.Decision)
     case deviceChanged(from: AudioDeviceInfo?, to: AudioDeviceInfo?)
     /// Ring-buffer overrun: `dropped` samples lost since last report.
@@ -31,7 +33,10 @@ public final class AudioPipeline: @unchecked Sendable {
         public var chunkMax: TimeInterval = 5.0
         /// Latch mode (V3 §4.7): drive `Endpointer` so a session can close a segment and keep
         /// listening. Off for a plain hold, where the key release ends the utterance.
+        /// The initial value only — `AudioPipeline.setLatched(_:)` changes it live.
         public var latched = false
+        /// Bounds for latched endpointing. Its no-speech and segment bounds count from the last
+        /// decision, not from `start()`. The initial value only — `setEndpointer(_:)` changes it live.
         public var endpointer = Endpointer()
         /// Ring capacity in seconds of 16 kHz audio.
         public var ringSeconds: Double = 30
@@ -44,7 +49,19 @@ public final class AudioPipeline: @unchecked Sendable {
 
     public let source: any AudioCaptureSource
     public let vad: any VADProtocol
-    public let options: Options
+    /// The options as they stand **now**: `latched` and `endpointer` are the live values
+    /// (`setLatched(_:)`, `setEndpointer(_:)`), everything else is what the pipeline was built with.
+    /// B1 reconciles the two answers G0.2 left behind (`options.latched` used to keep returning the
+    /// initial value while `isLatched` had moved on).
+    public var options: Options {
+        stateLock.withLock {
+            var live = initialOptions
+            live.latched = latched
+            live.endpointer = endpointerConfig
+            return live
+        }
+    }
+    private let initialOptions: Options
     private let ring: RingBuffer
     private let broadcaster = Broadcaster()
     private let semaphore = DispatchSemaphore(value: 0)
@@ -56,8 +73,13 @@ public final class AudioPipeline: @unchecked Sendable {
     private var lastOverruns = 0
     private var sawAudio = false
     private var watchdog: DispatchWorkItem?
-    /// Live latch flag (guarded by `stateLock`). `options.latched` is only its initial value.
+    /// Live latch flag (guarded by `stateLock`). `Options.latched` is only its initial value.
     private var latched: Bool
+    /// Live endpointer configuration (guarded by `stateLock`); the worker adopts it at the next block.
+    private var endpointerConfig: Endpointer
+    private var endpointerConfigPending = false
+    /// Set when latch is left: the worker re-arms the endpointer at the next block (guarded by `stateLock`).
+    private var endpointerRearmPending = false
 
     /// Whether the endpointer is currently driven (`.endpoint` events emitted).
     public var isLatched: Bool { stateLock.withLock { latched } }
@@ -65,11 +87,33 @@ public final class AudioPipeline: @unchecked Sendable {
     /// G0.2 — flips `Options.latched` on a live pipeline, without restarting capture. Takes effect
     /// from the next processed audio block. The endpointer's speech/silence bookkeeping runs
     /// regardless, so latching mid-utterance endpoints from the real speech history.
-    public func setLatched(_ on: Bool) { stateLock.withLock { latched = on } }
+    ///
+    /// B1 — leaving latch (`true` → `false`) also re-arms the endpointer from the next block, so a
+    /// later latch in the same capture starts from a clean segment rather than a spent decision.
+    public func setLatched(_ on: Bool) {
+        stateLock.withLock {
+            if latched && !on { endpointerRearmPending = true }
+            latched = on
+        }
+    }
+
+    /// B2 — replaces the latched endpointer's bounds (trailing silence, no-speech timeout, segment
+    /// bound) on a live pipeline. Adopted at the next processed block; the speech heard so far is
+    /// kept, so changing the pause mid-segment re-times that segment instead of dropping it.
+    public func setEndpointer(_ endpointer: Endpointer) {
+        stateLock.withLock {
+            endpointerConfig = endpointer
+            endpointerConfigPending = true
+        }
+    }
 
     // processing state (touched only by the worker task)
     private var chunker: Chunker
     private var endpointer: Endpointer
+    /// Stream time the endpointer's no-speech and segment bounds count from (worker only).
+    private var endpointArmedAt: TimeInterval = 0
+    /// A `.noSpeech` was reported; the endpointer re-arms when speech is next heard (worker only).
+    private var endpointAwaitingSpeech = false
     private let micQuality = MicQualityAnalyzer()
     private var vadPending: [Float] = []
     private var position = 0          // 16k samples delivered
@@ -80,11 +124,12 @@ public final class AudioPipeline: @unchecked Sendable {
     public init(source: any AudioCaptureSource, vad: any VADProtocol, options: Options = Options()) {
         self.source = source
         self.vad = vad
-        self.options = options
+        self.initialOptions = options
         self.ring = RingBuffer(capacity: Int(options.ringSeconds * 16_000))
         self.chunker = Chunker(minDuration: options.chunkMin, maxDuration: options.chunkMax)
         self.endpointer = options.endpointer
         self.latched = options.latched
+        self.endpointerConfig = options.endpointer
     }
 
     /// Fresh stream per call; every event after subscribing is delivered in order.
@@ -114,6 +159,12 @@ public final class AudioPipeline: @unchecked Sendable {
     public func start() async throws {
         guard setRunning(true) else { return }
         resetProcessing()
+        // Stream time restarts at 0: the endpointer's bounds count from here, with the live config.
+        rearmEndpointer(stateLock.withLock { () -> Endpointer in
+            endpointerConfigPending = false
+            endpointerRearmPending = false
+            return endpointerConfig
+        }, at: 0)
         await vad.reset()
         ring.clear()
 
@@ -301,7 +352,53 @@ public final class AudioPipeline: @unchecked Sendable {
             await runVAD(frame)
         }
         let now = Double(position) / 16_000
-        if isLatched, let d = endpointer.tick(now: now) { broadcaster.send(.endpoint(d)) }
+        if let d = latchedEndpoint(now: now) { broadcaster.send(.endpoint(d)) }
+    }
+
+    // MARK: latched endpointing (B1/B2, worker only)
+
+    /// Adopts a configuration or re-arm requested from another thread, then ticks the endpointer if
+    /// latched. Every latched decision re-arms it from `now`, which is what turns "one decision per
+    /// `start()`" into "one decision per segment":
+    /// * `.endpoint` — re-armed at once; the next segment starts in silence.
+    /// * `.maxDuration` — re-armed at once, still in speech if the speaker is; the words carry on.
+    /// * `.noSpeech` — reported once, then re-armed when speech is next heard (not every timeout).
+    private func latchedEndpoint(now: TimeInterval) -> Endpointer.Decision? {
+        let (on, config, reconfigure, rearm) = stateLock.withLock { () -> (Bool, Endpointer, Bool, Bool) in
+            defer { endpointerConfigPending = false; endpointerRearmPending = false }
+            return (latched, endpointerConfig, endpointerConfigPending, endpointerRearmPending)
+        }
+        if rearm {
+            rearmEndpointer(config, at: now)
+        } else if reconfigure {
+            endpointer.trailingSilence = config.trailingSilence
+            endpointer.noSpeechTimeout = endpointArmedAt + config.noSpeechTimeout
+            endpointer.maxUtterance = endpointArmedAt + config.maxUtterance
+        }
+        if endpointAwaitingSpeech, endpointer.speechHeard {
+            rearmEndpointer(config, at: now, continuingSpeech: endpointer.inSpeech)
+        }
+        guard on, let decision = endpointer.tick(now: now) else { return nil }
+        switch decision {
+        case .endpoint: rearmEndpointer(config, at: now)
+        case .maxDuration: rearmEndpointer(config, at: now, continuingSpeech: endpointer.inSpeech)
+        case .noSpeech: endpointAwaitingSpeech = true
+        }
+        return decision
+    }
+
+    /// A fresh endpointer whose no-speech and segment bounds count from `t`. `Endpointer` compares
+    /// its bounds with absolute stream time, so the bounds move rather than the clock — which keeps
+    /// `.endpoint(at:)` in stream seconds, as every consumer already reads it.
+    private func rearmEndpointer(_ config: Endpointer, at t: TimeInterval, continuingSpeech: Bool = false) {
+        var fresh = config
+        fresh.reset()
+        fresh.noSpeechTimeout = t + config.noSpeechTimeout
+        fresh.maxUtterance = t + config.maxUtterance
+        if continuingSpeech { fresh.speechStarted(at: t) }
+        endpointer = fresh
+        endpointArmedAt = t
+        endpointAwaitingSpeech = false
     }
 
     private func runVAD(_ frame: [Float]) async {
