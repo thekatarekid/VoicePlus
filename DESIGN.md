@@ -1,196 +1,326 @@
-# VoicePlus — DESIGN.md
+# VoicePlus — DESIGN.md (v2 · Spool)
 
-Design source of truth for **the one window, the menu, and onboarding**. Item R0.1.
+Design source of truth for **the pill and its presence, Spool, the one window, the menu, and
+onboarding**. Item R0.1, rewritten for V4 Wave 1 by G0.3 (release 1.11.0).
 
-Two kinds of statement appear here, and they are always labelled:
+v1 of this file documented the 1.10.0 pill "as-is" and forbade redesigning it. That is over: the
+owner has verified a complete redesign — **Spool** — in `design/design_v1.md` and its prototype
+`design/design_v1.html`. This file restates that design in the terms the Swift code uses, records the
+few decisions the owner made on top of it, and keeps the v1 rules that still hold (§5 focus, §7.1 copy
+voice, and most of §12). Section numbers are unchanged from v1 so existing code comments still point at
+the right place.
 
-- **As-is** — a description of what the shipped code already draws, read out of the source. Nothing
-  in an as-is section is a proposal. Do not "fix" it while implementing something else.
-- **Spec** — what R2.4 (additive pill rows), R6.2 (onboarding) and R7 (one window, one menu) must
-  build. Spec sections are the only place a decision is being made.
+---
 
-Authority order: `PRODUCT-SPEC.md` (why) → `VoicePlus_Improvements_V3.md` (what) →
-`VoicePlus_Improvements_V3_Build.md` (tasks) → this file (how it looks and how it behaves per
-state). Where this file and V3 §9 disagree, V3 §9 wins and this file is wrong and should be fixed.
+## 0. Authority, sources and owner decisions
 
-**The pill is not redesigned.** See §8. §12 is the list of things that are out of bounds.
+**Order of authority for anything visible:** prototype code → `design/design_v1.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`.
+
+- Where this file disagrees with the prototype or `design_v1.md`, this file is wrong and gets fixed.
+- Where the prototype *simulates* something that `design_v1.md` specifies for the real product (live
+  audio driving the tape, real insertion, real permissions), the markdown's real-product rule applies.
+  That is the design, not a deviation.
+- For *why* the product exists and behaves as it does: `PRODUCT-SPEC.md`, then
+  `VoicePlus_Improvements_V4.md`. `VoicePlus_Improvements_V3.md` §1 rules still apply.
+
+**Sources that are data, not prose.** Copy and art are never retyped by hand. `node
+Scripts/spool_golden.mjs` reads `design/design_v1.html` and writes:
+
+| Fixture | Holds | Checked by |
+|---|---|---|
+| `Fixtures/spool/spool_spec.json` | Spool material colours, state → pose map, reel-angle rules, scene geometry, menu-bar glyph, 59 error → pose mappings | S1, S6, `DesignTokenTests` |
+| `Fixtures/spool/spool_golden.json` | Golden SVG frames of every pose and the tape flight | S1, S4 |
+| `Fixtures/design/design_copy.json` | Pill copy for 26 states, 12 screen titles/subtitles, 14 empty states, per-screen error mapping, the 26-row state inventory, the 59-entry recovery catalogue | S2, S7, S9, `DesignTokenTests` |
+
+Re-run the script whenever `design_v1.html` changes. Every colour, type size, spacing step and radius
+in the app comes from `App/Core/DesignTokens.swift` (`enum Tokens`), which `DesignTokenTests` compares
+with the prototype's CSS, `design_v1.md` §3/§3.1 and `spool_spec.json` on every run.
+
+### 0.1 Owner decisions (the only permitted differences from the verified design)
+
+| Topic | Verified design | Owner decision | How it is applied |
+|---|---|---|---|
+| Default key | Right Control | **fn / 🌐** | Every string containing "Right Control" in the copy fixture is rendered with the configured key's label instead; nothing else in the string changes. "Hold or Double Tap Right Control to dictate" → "Hold or Double Tap fn / 🌐 to dictate". |
+| Voice enrollment | optional, in the Voice section | **also a step in onboarding**, skippable | Inserted after "Try dictation", before "Ready" (§11); uses the Voice section's enrollment view and copy. |
+| Deixis box | not in the design | **box + screenshot, thumbnail in the pill** | Drawn in the pill's text lane under the transcript and above the tape lane, never in the character bay, never over Spool; uses the design's chip (tag) styling (§8.5). |
+| V4 settings (latch pause, spacing, unknown-caret style, draw-without-key, recordings retention, screen text) | not in the design | required by V4 Wave 1 | Added as ordinary rows in the design's existing subpages with the design's row, toggle and select components; no new subpage (§9.6). |
+
+Everything else follows the design exactly. In particular: hold lands once on release; Escape cancels
+during a turn; readback that cannot confirm is always **⚠ Inserted · not confirmed** (V4.20 is
+withdrawn); error and held notices stay until the user acts (no timed dismissal); the latch pill shows
+the design's timer only (the V4.38 countdown ring is withdrawn); the Settings subnav has exactly the
+design's seven subpages.
 
 ---
 
 ## 1. Typography
 
-One family for prose and UI, one for machine text. No third face, no downloaded webfont, no icon
-font (SF Symbols only).
+The product uses the **system sans-serif** (SF Pro) for everything a person reads as language —
+including transcripts, in the pill and in the window (design §4 "Use natural-language text, not
+monospace"). **SF Mono** appears only where the prototype uses `--mono`: key caps, tags, and machine
+identifiers (bundle IDs, hosts, model IDs, paths, byte counts, raw diagnostics). Serif type appears
+only in the design document's editorial introduction, never in the product. No third face, no
+downloaded font, no icon font.
 
-- **SF Pro Text / SF Pro Display** — everything a person reads as language. In code this is the
-  system font: `Font.body`, `.callout`, `.caption`, `.title2`, or `.system(size:weight:)`. Do not
-  name "SF Pro" in code; ask for the system font and let macOS pick Text vs Display by size.
-- **SF Mono** — only where character identity or column alignment carries meaning: bundle IDs,
-  file paths, model IDs, hosts, byte counts, raw diagnostics, transcript text shown for inspection
-  (Timeline, Meetings, Benchmark output). In code: `.font(.caption.monospaced())` /
-  `.monospacedDigit()`. This matches what the app already does
-  (`SettingsView.swift:132`, `SnippetsSettings.swift:102`, `LabWiring.swift:132`,
-  `OnboardingView.swift:151`).
+### 1.1 Roles (`Tokens.Typography`)
 
-### 1.1 Roles
-
-| Role | Face | Token | Size / weight | Where |
+| Role | Token | Size / line height | Weight | Where |
 |---|---|---|---|---|
-| Window title | SF Pro Display | `.title2.weight(.semibold)` | 17 pt semibold | Detail-pane header, one per section |
-| Section heading | SF Pro Text | `.headline` | 13 pt semibold | `Section(...)` headers, card titles |
-| Body | SF Pro Text | `.body` | 13 pt regular | Prose, list rows, settings labels |
-| Control label | SF Pro Text | `.body` | 13 pt regular | Toggles, pickers, buttons |
-| Secondary / helper | SF Pro Text | `.caption` + `.secondary` | 11 pt regular | The sentence under a control that explains it |
-| Fine print | SF Pro Text | `.caption2` + `.secondary` | 10 pt regular | Counts, timestamps, "overridden" flags |
-| Sidebar item | SF Pro Text | `.body` | 13 pt regular; selected row `.weight(.medium)` | Sidebar |
-| Numeric readout | SF Mono | `.body.monospacedDigit()` | 13 pt regular | Latency, WER, bytes, level dB |
-| Code / identifier | SF Mono | `.caption.monospaced()` | 11 pt regular | Bundle IDs, hosts, model IDs, paths |
-| Transcript | SF Mono | `.callout.monospaced()` | 12 pt regular | Timeline / Meetings / Benchmark transcript bodies |
-| Error headline | SF Pro Text | `.callout.weight(.semibold)` | 12 pt semibold | §7 |
-| Error detail | SF Pro Text | `.caption` + `.secondary` | 11 pt regular | §7 |
+| Page title | `title` | 24 / 30 pt | semibold | One per window page |
+| Section title | `section` | 17 / 24 pt | semibold | Group and section headings |
+| Body | `body` | 13 / 20 pt | regular | Prose, rows, controls, sidebar |
+| Compact metadata | `meta` | 11 / 16 pt | regular | Helper sentences, timestamps, counts |
+| Pill transcript | `pillTranscript` | 14 / 20 pt | medium | Live and final words in the pill |
+| Pill status | `pillStatus` | 11 / 16 pt | regular | The pill's status and helper lines |
+| Key label | `key` | 11 / 16 pt, SF Mono | regular | Key caps ("fn / 🌐", "Esc"), tags |
+| Durations | `duration` / `pillTimer` | as `meta` / `pillStatus` | regular | **Tabular digits** for timers, durations and counts that tick |
 
-Rules: never more than three type sizes visible in one pane at once; never bold a whole paragraph;
-never use italics for emphasis (macOS does not); never centre a paragraph of prose; sizes are
-Dynamic-Type-relative tokens, never hard-coded points, except inside the pill and the notch chin,
-which are fixed-geometry surfaces (§8).
+- Line heights are exact: `TypeRole.lineSpacing()` / `paragraphStyle()` add the leading that brings
+  the face's natural line up to the role's line height.
+- **Text scaling.** Window text scales with Settings › Appearance › Larger Text
+  (`TypeRole.nsFont(scale:)`). The pill never shrinks or scales its text; overflowing notices move to a
+  readable detail surface (Review, the recovery sheet) instead (design §3).
+- The prototype's browser CSS draws the pill status at 10 px and the helper at 9 px inside a scaled
+  mock-up. The native pill uses the typography roles above (11 / 16 pt), which `design_v1.md` §3 names
+  as the product roles; copy and geometry parity with the prototype are unaffected.
+- Rules kept from v1: never more than three type sizes visible in one pane; never bold a whole
+  paragraph; no italics for emphasis; never centre a paragraph of prose.
 
 ---
 
 ## 2. Colour
 
-**Dark-first, native macOS.** Every surface is drawn with system materials and semantic colours so
-that Dark Mode, Light Mode, Increase Contrast, Reduce Transparency and the user's own accent choice
-all work without a second palette. There is no hand-authored hex value anywhere in the window,
-settings or onboarding.
+**Dark-first, warm, quiet.** Warm charcoal and brown-black surfaces, subtle borders, warm white text,
+peach/orange selection and primary actions drawn from the cassette housing, a green idle indicator,
+amber interruption, coral-red uncertainty (design §3). Spool and its tape are the signature; the chrome
+stays restrained so the mascot never competes with the words.
 
-### 2.1 One accent
+Window colours are dynamic `NSColor(name:dynamicProvider:)` values that follow the window's appearance
+(Settings › Appearance: follow system / light / dark) and the system's Increase Contrast. The pill is
+always dark and never follows the window theme. **No hex value appears anywhere in the app outside
+`App/Core/DesignTokens.swift`.**
 
-The accent is **the system accent colour** — `Color.accentColor` / `NSColor.controlAccentColor`.
-The app ships **no `AccentColor` asset** and must not add one: the user's chosen accent is the
-brand. As-is, the accent appears in exactly four places
-(`PillView.swift:135`, `ConsentPanels.swift:138`, `CorrectionOverlay.swift:142`,
-`RepairFanoutPanel.swift:122`).
+### 2.1 Window tokens (`Tokens.Role`, `Tokens.Colors`)
 
-Accent budget for the window: **one accented element per pane** — the selected sidebar row, or the
-one default button, or the one live progress bar. Never accent two things a user must choose
-between. Never use the accent to mean "danger", "warning" or "recording".
+| Token | Code | Dark | Light | Use |
+|---|---|---|---|---|
+| Canvas | `canvas` | #181310 | #FFF6EE | App background |
+| Sidebar | `sidebar` | #211914 | #F4E3D5 | Navigation |
+| Surface | `surface` | #2B211B | #FFFBF7 | Group / reading pane |
+| Elevated | `elevated` | #382A21 | #F8EADC | Popover / control |
+| Primary ink | `ink` | #FFF0E3 | #35251C | Text |
+| Secondary ink | `secondaryInk` | #C3AA97 | #786050 | Helper text |
+| Separator | `separator` | #554035 | #DFC3AD | 1 px rules between regions (decorative, §3.3) |
+| Control border | `controlBorder` | #8A7364 | #967C6B | A line that identifies a control or a state (adjusted, §3.3) |
+| Accent | `accent` | #E9AD83 | #984B23 | Selection, primary action, focus ring |
+| On accent | `onAccent` | #352014 | #FFFFFF | Text on an accent fill (prototype `--accent-ink`) |
+| Ready | `ready` | #69D58B | #21753D | Idle dot, verified icon — never in the hover hint |
+| Attention | `attention` | #F0C181 | #86540C | Recoverable interruption (held, unconfirmed, partial, mic warning) |
+| Uncertainty | `uncertainty` | #FF8F95 | #B72F40 | Dotted word underline |
+| Pill | `pill` | #080A09 | #080A09 | Always dark against the menu-bar edge |
 
-### 2.2 Semantic roles
+Increase Contrast changes exactly two roles (§3.3): `secondaryInk` becomes #CDB6A4 (dark) / #5A4539
+(light), and `separator` becomes `controlBorder`.
 
-| Role | Token | Means |
+### 2.2 Pill tokens (`Tokens.Pill`, fixed; prototype `.notch` rules)
+
+| Token | Value | Use |
 |---|---|---|
-| Window background | `.windowBackgroundColor` | The detail pane |
-| Sidebar background | `.sidebar` material (`List` + `.listStyle(.sidebar)`) | The sidebar, vibrant by default |
-| Card / grouped background | `.controlBackgroundColor` | Inset groups, tables, code blocks |
-| Primary text | `.primary` / `.labelColor` | Body, headings |
-| Secondary text | `.secondary` / `.secondaryLabelColor` | Helper sentences, timestamps |
-| Tertiary text | `.tertiaryLabelColor` | Disabled rows, placeholder |
-| Separator | `.separatorColor` | Hairlines. 1 device pixel, never a 1 pt grey box |
-| Accent / selection | `.accentColor` | Selection, default button, determinate progress |
-| Ready / verified | `.green` (system) | Delivered-verified, mic level good, permission granted |
-| Attention / unverified | `.yellow` (system) | Landed-not-confirmed, mic quality warning, still installing |
-| Error / failed | `.orange` (system) | Failed delivery, model integrity failure, error notices |
-| Hard-mute / destructive | `.red` (system) | Hard mute, Discard, Delete all |
-| Live microphone | `.red` (system) | The mic glyph while capture is open — the one thing red also means |
+| `background` | #080A09 | Pill and presence chin fill |
+| `ink` | #FFF0E3 | Transcript words |
+| `secondaryInk` | #C3AA97 | Status and helper lines |
+| `ready` | #69D58B | Idle dot, verified mark |
+| `attention` | #F0C181 | ⚠ notices |
+| `uncertainty` | #FF8F95 | Dotted underline in the pill |
+| `control` | #382A21 | Action button fill |
+| `controlBorder` | #634B3A | Action button border (decorative; the fill and label identify the button) |
+| `primary` | #E9AD83 | Primary action fill |
+| `onPrimary` | #352014 | Primary action label |
 
-Rules: colour is never the only carrier of meaning — every coloured state also carries a glyph and
-a word (§6 covers Differentiate Without Colour). Red means exactly two things (mic-is-open,
-destructive) and nothing else. Green never means "network" and never means "premium".
+### 2.3 Spool material (`Tokens.SpoolMaterial`, design §3.1, `spool_spec.json`)
+
+| Material | Value | Exact application |
+|---|---|---|
+| `tapeFace` — tape oxide face | #AD714F | Outside ribbon face, visible internal tape face, wound reel pack fill |
+| `tapeReverse` — tape reverse | #704A36 | Reverse surface exposed by a twist; not a different outside tape colour |
+| `tapeEdge` — tape cut edge | #D3A582 | Thin edge reflection on the strip and reel rim |
+| `tapeShadow` — tape shadow / grain | #573A2B | Fine longitudinal grain, underside edge and subtle winding rings |
+| `housing` — cassette housing | #D6A07D | Warm shell with restrained light/shadow |
+| `hub` — hub / pressure pad | #FFF0D2 | Cream hardware, clearly different from the tape itself |
+
+The shell's shading steps (`housingShades` in `spool_spec.json`) belong to the Spool art (S1) and are
+read from the fixture, not duplicated here.
+
+### 2.4 Rules
+
+- **The accent is the cassette peach**, not the system accent. This replaces v1 §2.1: the design's
+  palette is an explicit change from the old system-accent-only document. Accent budget is kept: one
+  accented element per pane (the selected row, or the one primary button, or the focus ring).
+- **Meaning of colour.** Green = ready / verified only. Amber = a recoverable interruption the user
+  can act on. Coral-red = an uncertain word only — never "recording", never "destructive". Tape copper
+  is never substituted for uncertainty dots. Destructive actions are words with an ellipsis and a
+  confirmation ("Discard…", "Delete all…"), not a colour.
+- **Colour is never the only carrier of meaning** (kept from v1): every coloured state also carries a
+  glyph (✓, ⚠, ⊘) and a word, and uncertainty is a *dotted* line plus "N words to review".
+- Appearance setting changes windows only; the pill stays dark and top-centred in every mode.
 
 ---
 
 ## 3. Spacing, radii, contrast
 
-### 3.1 Spacing scale
+### 3.1 Spacing (`Tokens.Spacing`, `Tokens.ControlSize`)
 
-`2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32` pt. Nothing off-scale. The existing pill and chin already
-sit on it (`10` HStack spacing, `14` horizontal padding, `9`/`6`/`4` chin paddings, `8` edge
-margin).
+Scale: **4, 8, 12, 16, 24, 32 pt.** Nothing off-scale in the window.
 
 | Use | Value |
 |---|---|
-| Icon-to-label | 6 |
-| Inside a control row | 8 |
+| Page outer padding | 24 |
+| Between sections / groups | 24 (the design's 20–24 range, on-scale) |
 | Between rows in a group | 8 |
-| Between controls and their helper sentence | 4 |
-| Between groups / sections | 20 |
-| Detail pane padding | 20 (16 on a window at minimum width) |
-| Sidebar row inset | 8 vertical, 10 horizontal |
+| Between a control and its helper sentence | 4 |
 | Between a heading and its first row | 12 |
-| Toolbar / header height | 52 |
+| Compact control minimum height | 28 |
+| Main control minimum height | 32 |
+| Touch target (companion mobile surfaces) | 44 |
 
-### 3.2 Corner radii
+One hairline per boundary. No border around every line of content. Pill insets and lanes are pill
+geometry, in §8.3.
+
+### 3.2 Corner radii (`Tokens.Radius`)
 
 | Surface | Radius |
 |---|---|
-| Sheet / dialog | 12 |
-| Card, inset group, code block | 8 |
-| Button, text field, popup | 6 (system default; do not override) |
-| Badge / capsule | full capsule |
-| Pill (as-is) | 18 on a notched display, 12 otherwise, **bottom corners only** |
-| Notch chin (as-is) | 10 when the row is expanded, otherwise `min(6, height/2)`, bottom corners only |
+| Window | 16 |
+| Group | 10 |
+| Input / button | 7 |
+| Pill, floating (external display, standalone) | 18, all four corners |
+| Pill, attached under the notch / menu-bar band | 18 on the lower corners; upper corners square |
+| Idle presence chin (64 × 14) | 6, lower corners only |
+| Hover hint (360 × 38) | 10, lower corners only |
+| Key cap, tag | 4 |
 
-### 3.3 Contrast targets (WCAG 2.1 AA, stated numerically)
+### 3.3 Contrast (WCAG 2.x, computed by `DesignTokenTests`)
 
-| Content | Required ratio |
+| Content | Required |
 |---|---|
-| Text below 18 pt regular / 14 pt bold | **≥ 4.5 : 1** against its own background |
-| Text at or above 18 pt regular / 14 pt bold | **≥ 3.0 : 1** |
-| Glyphs, level bars, focus rings, chart strokes, toggle tracks | **≥ 3.0 : 1** |
-| Text over a vibrant material | **≥ 4.5 : 1** measured against the *lightest* backdrop the material can sit on |
-| Increased-contrast variant, all text | **≥ 7.0 : 1** (AAA) where the system material allows |
-| Disabled text | exempt from the ratio, but must still differ from enabled text by more than colour |
+| Text and meaningful glyphs, every theme | **≥ 4.5 : 1** on every background it can sit on |
+| Lines that identify a control or a state (control outlines, focus ring, uncertainty underline, idle dot) | **≥ 3 : 1** |
+| Increase Contrast: primary and secondary ink | **≥ 7 : 1** |
+| Increase Contrast: every line, including separators | **≥ 3 : 1** |
+| Decorative 1 px rules between regions already told apart by space and fill | exempt (WCAG 1.4.11 does not apply) |
 
-Computed against today's build:
+**Adjusted and recorded pairs.** The audit found exactly one sub-threshold pair family: the design's
+**`separator` (1.34–1.91 : 1)** on every background, both themes. It is kept exactly as verified
+because it is a decorative hairline — the design's "subtle borders", and the platform's own separator
+convention. Three adjustments make that honest:
 
-- White on the pill (`black.opacity(0.92)`) computes to **≈ 18.5 : 1** over a white backdrop and
-  21 : 1 over black. Passes with room.
-- White on the ready chin (`black.opacity(0.72)`) computes to **≈ 8 : 1** over a white menu bar.
-  Passes.
-- `MUTED`, white on `red.opacity(0.88)`, computes to **≈ 3.5 : 1** — above the 3 : 1 glyph bar, but
-  **below 4.5 : 1** for a 9 pt bold label. This is recorded as-is and **is not changed here** (§12:
-  no pill redesign); §6.2 specifies the increased-contrast variant that fixes it.
-- Any new window text must be checked against 4.5 : 1 *before* it ships; system semantic colours on
-  system backgrounds satisfy it by construction, hand-tinted text does not.
+1. **`controlBorder`** (new; #8A7364 dark, #967C6B light) is the separator mixed toward secondary ink
+   until it reaches 3 : 1 on every background (min 3.10 / 3.11). Any line a user must see to find or
+   read a control — a text-field outline, an unselected segment, a toggle or checkbox outline — uses
+   `controlBorder` or a native control, never `separator`. The prototype draws its inputs with `--line`;
+   the native build uses `controlBorder` there because design §11 requires control contrast ≥ 3 : 1.
+2. Under **Increase Contrast**, `separator` resolves to `controlBorder`: hairlines become real lines.
+3. Under **Increase Contrast**, `secondaryInk` is mixed toward primary ink until it reaches 7 : 1
+   (#CDB6A4 dark, #5A4539 light). Primary ink already exceeds 11 : 1 in both themes.
+
+The pill's action-button border (#634B3A, 2.46 : 1) is likewise decorative: the button is identified by
+its fill and its label (≥ 12 : 1).
+
+Measured ratios, window tokens on canvas / sidebar / surface / elevated (generated; the test fails if a
+row here is missing or stale):
+
+| Theme · contrast | Token | canvas | sidebar | surface | elevated | Needs |
+|---|---|---|---|---|---|---|
+| dark · standard | `ink` #FFF0E3 | 16.52 | 15.51 | 14.09 | 12.37 | ≥ 4.5 |
+| dark · standard | `secondaryInk` #C3AA97 | 8.35 | 7.84 | 7.12 | 6.26 | ≥ 4.5 |
+| dark · standard | `separator` #554035 | 1.91 | 1.79 | 1.62 | 1.43 | decorative |
+| dark · standard | `controlBorder` #8A7364 | 4.14 | 3.89 | 3.53 | 3.10 | ≥ 3 |
+| dark · standard | `accent` #E9AD83 | 9.45 | 8.87 | 8.06 | 7.08 | ≥ 4.5 |
+| dark · standard | `ready` #69D58B | 10.08 | 9.47 | 8.60 | 7.55 | ≥ 4.5 |
+| dark · standard | `attention` #F0C181 | 11.10 | 10.42 | 9.47 | 8.32 | ≥ 4.5 |
+| dark · standard | `uncertainty` #FF8F95 | 8.44 | 7.92 | 7.20 | 6.32 | ≥ 4.5 |
+| light · standard | `ink` #35251C | 13.73 | 11.72 | 14.23 | 12.42 | ≥ 4.5 |
+| light · standard | `secondaryInk` #786050 | 5.48 | 4.68 | 5.68 | 4.96 | ≥ 4.5 |
+| light · standard | `separator` #DFC3AD | 1.57 | 1.34 | 1.63 | 1.42 | decorative |
+| light · standard | `controlBorder` #967C6B | 3.65 | 3.11 | 3.78 | 3.30 | ≥ 3 |
+| light · standard | `accent` #984B23 | 5.84 | 4.99 | 6.06 | 5.29 | ≥ 4.5 |
+| light · standard | `ready` #21753D | 5.35 | 4.57 | 5.55 | 4.84 | ≥ 4.5 |
+| light · standard | `attention` #86540C | 5.98 | 5.11 | 6.20 | 5.41 | ≥ 4.5 |
+| light · standard | `uncertainty` #B72F40 | 5.63 | 4.81 | 5.84 | 5.09 | ≥ 4.5 |
+| dark · increased | `secondaryInk` #CDB6A4 | 9.50 | 8.92 | 8.10 | 7.11 | ≥ 7 |
+| dark · increased | `separator` #8A7364 | 4.14 | 3.89 | 3.53 | 3.10 | ≥ 3 |
+| light · increased | `secondaryInk` #5A4539 | 8.39 | 7.16 | 8.70 | 7.59 | ≥ 7 |
+| light · increased | `separator` #967C6B | 3.65 | 3.11 | 3.78 | 3.30 | ≥ 3 |
+
+Rows not listed under "increased" do not change with Increase Contrast; their standard ratios apply.
+
+Text on fills, and the always-dark pill:
+
+| Where | Pair | Ratio | Needs |
+|---|---|---|---|
+| dark · on accent | `onAccent` #352014 on `accent` #E9AD83 | 7.87 | ≥ 4.5 |
+| light · on accent | `onAccent` #FFFFFF on `accent` #984B23 | 6.24 | ≥ 4.5 |
+| pill | `ink` #FFF0E3 on `background` #080A09 | 17.80 | ≥ 4.5 |
+| pill | `secondaryInk` #C3AA97 on `background` #080A09 | 9.00 | ≥ 4.5 |
+| pill | `attention` #F0C181 on `background` #080A09 | 11.96 | ≥ 4.5 |
+| pill | `ready` #69D58B on `background` #080A09 | 10.86 | ≥ 3 |
+| pill | `uncertainty` #FF8F95 on `background` #080A09 | 9.09 | ≥ 3 |
+| pill | `ink` #FFF0E3 on `control` #382A21 | 12.37 | ≥ 4.5 |
+| pill | `onPrimary` #352014 on `primary` #E9AD83 | 7.87 | ≥ 4.5 |
+| pill | `primary` #E9AD83 on `background` #080A09 | 10.18 | ≥ 3 |
+| pill | `controlBorder` #634B3A on `background` #080A09 | 2.46 | decorative |
+
+These are sRGB token values. Test both themes and high contrast on real displays too (design §11);
+that is hardware verification, not something this table proves.
 
 ---
 
 ## 4. State vocabulary
 
-The words on screen and the identifiers in code, from V3 §4.7. **The user-facing word is the only
-word allowed in UI copy.** The code name is the only name allowed in identifiers, log lines and
-test names. No third synonym gets invented in either place.
+The words on screen and the identifiers in code. **The user-facing words are the verified design's
+words** (`design_copy.json`); the code name is the only name allowed in identifiers, log lines and test
+names.
 
-| User-facing | Meaning | Code name | Renamed from |
-|---|---|---|---|
-| **Hold** | Push-to-talk while the key is down | `hold` | — (unchanged) |
-| **Latch** | Double-tap; listening continues across endpoints | `latched` | `handsFree` |
-| **Mute** | Persistent hard mute; survives relaunch, never auto-clears | `muted`, `MuteController` | comments calling it the "mute latch" |
-| **Timeline** | Ambient transcript history in the window | `AmbientTimeline` | — (new) |
-| **Held** | Committed text waiting for a destination | `held` | the `FocusGuard` queue, under a new delivery rule |
+| User-facing | Meaning | Code name |
+|---|---|---|
+| **Hold** | Push-to-talk while the key is down; lands once on release | `hold` |
+| **Latched · hands-free** (pill status), "Tap <key> to finish" | Double-tap; listening continues across pauses, one landing per segment | `latched` |
+| **Muted** ("⊘ VoicePlus is muted") | Persistent hard mute; survives relaunch, never auto-clears | `muted`, `MuteController` |
+| **Held** ("⚠ Destination changed · text held") | Committed text waiting for an explicit destination | `held` |
+| **Recent dictations** (Today) | Retained dictation turns, newest first | `TurnRecord` / `TurnStore` |
+| **Timeline** | Ambient transcript history (kept from v1; the verified design has no separate word for it) | `AmbientTimeline` |
 
-Consequences that are not optional:
+**"Hands-free" in UI copy.** v1 forbade the words "hands-free" anywhere in UI copy. That rule is
+replaced by the verified latched copy: the latched pill status is **Latched · hands-free**, its helper
+is "Tap <key> to finish", and Settings › Shortcuts reads "Double-tap to latch — Tap twice, speak
+hands-free, then tap to finish." Those are the only places the phrase appears. Identifiers stay
+`latched`; never add a `handsFree` symbol.
 
-- `InputTimeline` **keeps its name in code** and is **never** shown to a user as "Timeline". It is
-  an internal deixis structure, not history. The window's Timeline is `AmbientTimeline`.
-- Never write "hands-free" in UI copy or in new code. It is **Latch**.
-- Never write "paused" where the state is `muted`, and never write "muted" where the state is
-  `paused`. Pause is a soft, forgettable state; Mute is a promise about the microphone.
-- Held text is **held**, never "queued", "pending", "buffered" or "saved".
-- Delivery outcomes read as: **Landed** (`delivered(verified: true)`), **Landed · not confirmed**
-  (`delivered(verified: false)`), **Held** (`held`), **Didn't land** (`failed`).
+Delivery outcomes read as the design's pill statuses:
+
+| Outcome | Pill status | Today tag |
+|---|---|---|
+| `delivered(verified: true)` | ✓ Inserted in <app> | Inserted |
+| `delivered(verified: false)` — readback showed nothing *or could not run* | ⚠ Inserted · not confirmed | Unconfirmed |
+| `partial` | ⚠ Only part may have been inserted | Unconfirmed |
+| `held` | ⚠ Destination changed · text held | Held |
+| `failed` | ⚠ Couldn't finish this dictation | — (recovery row) |
+
+Kept from v1: `InputTimeline` is an internal deixis structure and is never shown to a user as history.
+Never write "paused" where the state is `muted`, or "muted" where it is `paused` (a meeting pause).
+Held text is **held**, never "queued", "pending", "buffered" or "saved".
 
 ---
 
-## 5. Focus and keyboard navigation
+## 5. Focus and keyboard navigation (kept from v1)
 
 ### 5.1 One window
 
 There is one window (`R7.1`). It is a `NavigationSplitView`: sidebar + detail. It is resizable,
 remembers its frame and its selected section, and is **not** a modal or a panel. No standalone
 Settings window, no standalone Data Panel, no standalone Lab window, no standalone enrollment
-window (`R7.2`). Onboarding is the one exception: a separate, non-resizable window that exists only
-until it is finished (§11).
+window (`R7.2`). Onboarding is the one exception: a separate, normal closable window that exists only
+until it is finished (§11; design §8.7 "never a full-screen input trap").
 
 ### 5.2 Keyboard map
 
@@ -200,20 +330,20 @@ until it is finished (§11).
 | `⌘1` … `⌘6` | Jump to sidebar section 1–6 in the order listed in §9 |
 | `⇥` / `⇧⇥` | Move focus through focusable controls in reading order: header → sidebar → detail |
 | `⌃⇥` | Move focus between the two panes (sidebar ⇄ detail) without walking every control |
-| `↑` / `↓` | Move the selection within the focused list (sidebar, Timeline, Meetings, Dictionary) |
+| `↑` / `↓` | Move the selection within the focused list (sidebar, Today, Meetings, Dictionary) |
 | `↩` | Activate the focused row's primary action, or the pane's default button |
-| `Space` | Toggle the focused checkbox/switch; preview the focused Timeline row |
-| `⌘F` | Focus the search field of the section that has one (Timeline, Meetings, Dictionary) |
-| `⎋` | Close a sheet; clear a search field; never closes the window while a sheet is open |
+| `Space` | Toggle the focused checkbox/switch; preview the focused Today row |
+| `⌘F` | Focus the search field of the section that has one (Today, Meetings, Dictionary) |
+| `⎋` | Close a popover before a sheet, a sheet before anything else; clear a search field; never closes the window while a sheet is open. During a dictation turn, before the write begins, `⎋` cancels the turn (§8.7) |
 | `⌘W` | Close the window (the app keeps running; it is a menu-bar app) |
-| `⌫` | Delete the selected row in Timeline / Meetings / Dictionary, with confirmation for destructive scope |
+| `⌫` | Delete the selected row in Today / Meetings / Dictionary, with confirmation for destructive scope |
 
 ### 5.3 Focus rules
 
 - **Full Keyboard Access must work.** Every actionable thing is reachable by `⇥` with no dead ends.
   Nothing is click-only. Nothing depends on hover to be discoverable — hover may only *reveal
-  affordances that are also reachable by keyboard* (this is why the chin's hover row is a
-  convenience and the click always opens the menu).
+  affordances that are also reachable by keyboard* (the presence hint is a convenience; the same
+  shortcut instruction is the chin's accessible description, and a click always opens the menu).
 - The focus ring is the **system** ring (`.focusEffectDisabled()` is banned). Never draw a custom
   ring; never suppress it because it "looks noisy".
 - On opening a section, initial focus is the detail pane's **first interactive control**, not the
@@ -223,74 +353,78 @@ until it is finished (§11).
   finished. A late-arriving result may update content; it may not steal focus.
 - **Dictation focus is sacred.** Neither the window nor the menu may take keyboard focus away from
   the user's destination app during capture. The menu is opened from a non-activating panel/status
-  item; the pill panel is `nonactivatingPanel` and `ignoresMouseEvents` (as-is, §8). Any new
-  affordance that could activate the app during capture is a bug.
-- Sheets are used only for a genuine either/or (delete-all confirmation, model integrity failure).
-  Everything else is inline in the detail pane.
+  item; the pill panel is a non-activating panel that ignores the pointer except for its hover-pause
+  area and its action row (§8.9). Recovery and correction controls take focus only on explicit
+  interaction. Any new affordance that could activate the app during capture is a bug.
+- Sheets are used only for a genuine either/or (delete-all confirmation, model integrity failure) and
+  for the recovery sheet the design specifies. Everything else is inline in the detail pane.
 - VoiceOver: every section has a `.accessibilityLabel`; every state row carries the state word in
-  its label, not only a colour; the Timeline list is a table with a rotor-navigable row label of
-  "time, source, first words".
+  its label, not only a colour; list rows are rotor-navigable with a label of
+  "time, destination, first words". Spool artwork is `accessibilityHidden`; the semantic state and the
+  real outcome are announced, never the animation.
 
 ---
 
 ## 6. Reduced motion and increased contrast — every state
 
 Two system settings drive these: `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` /
-SwiftUI `@Environment(\.accessibilityReduceMotion)`, and
-`accessibilityDisplayShouldIncreaseContrast` / `@Environment(\.colorSchemeContrast)`. Neither is
-read anywhere in the app today — wiring them is part of the work that consumes this document.
+`@Environment(\.accessibilityReduceMotion)` (plus Settings › Appearance › Reduce Motion), and
+`accessibilityDisplayShouldIncreaseContrast` / `@Environment(\.colorSchemeContrast)` (the token
+provider resolves the high-contrast appearances itself, §3.3).
 
-**Rule for reduced motion:** no state may *require* motion to be understood. Every animation
-listed below degrades to an instant change of the same end state. Nothing cross-fades, nothing
-slides, nothing repeats forever. Duration 0 is always a legal rendering.
+**Normal motion** (design §11): 160–220 ms ease-out geometry transitions, small mechanical
+anticipation, no elastic bounce. Tape amplitude is bounded to 12 pt and never enters the transcript
+lane. Listening reels turn counterclockwise at about 150°/s, modulated by real speech activity;
+insertion is a finite clockwise turn. Reel angle is accumulated state that persists across states and
+transcript updates — never snapped back. Idle never animates. The frame loop stops when the pill is
+hidden or reduced (`spool_spec.json` › `loopStops`). An animation freeze never freezes capture or
+blocks recovery controls.
 
-**Rule for increased contrast:** materials become opaque, hairlines become 1 pt solid separators,
-every text/background pair is re-checked at **≥ 7 : 1**, glyph strokes gain weight (`.semibold` →
-`.bold`), and every state that leans on colour gains a text label if it did not have one.
+**Reduce Motion:** static flat tape and representative still Spool expressions; no reel rotation,
+twist, tape flight, spring, grain shimmer or animated progress on the tape. A numeric level readout may
+replace capture motion. Every state label, the dwell and the order of events stay exactly the same.
 
-### 6.1 Pill states (existing; behaviour only, never look)
+**Increase Contrast:** `separator` becomes `controlBorder`, `secondaryInk` rises to ≥ 7 : 1 (§3.3),
+materials become opaque, and every state that leans on colour already carries a glyph and a word.
 
-| State | Motion as-is | Reduced motion | Increased contrast |
+### 6.1 Pill states (Spool; design §11.1)
+
+| States | Tape | Reels | Mouth | Reduce Motion |
+|---|---|---|---|---|
+| C0 Starting | flat, no feed | still | attentive | unchanged (already still) |
+| C1 Listening, C3 Latched, C5 Mic warning, Q0 Meeting | broad face → twist → face, audio-driven | counterclockwise | oval, subtle pulse, occasional blink | flat still tape, still reels; numeric level readout |
+| C2 Listening, quiet | flat, connected | still (parked) | neutral | unchanged |
+| F0 Finishing | twists unwind, slack taken up | decelerate counterclockwise, never reverse | purse | still pose; label "Finishing…" |
+| F1 Final preview, F2 Review | flat, taut, full width | still | small smile / attentive review | unchanged |
+| D0 Inserting | twisting ribbon feeds from the mouth to the caret (tape flight) | clockwise, finite | tape emerges | no flight, still Spool; insertion label and outcome unchanged |
+| D1 Inserted, R2 Undo available | returns to rest | still | satisfied / calm | unchanged |
+| H0 Held, E0 Error, D2 Unconfirmed, D3 Partial | brake secures intact tape | still | concerned | unchanged |
+| C4 Cancelled | exposed tape retracts into the guide | brake without reversing | neutral | still pose |
+| I2 Muted, E1 Blocking, I3 Unavailable | parked, no feed | covered / still | closed | unchanged |
+| R0 Correcting, R1 Editing, Q1 Meeting paused, Q2 Preparing notes | stationary; labelled progress marker where the design shows one | still | thoughtful / asymmetric shutter | progress marker static, progress as text |
+| I0 Idle, I1 Ready hint | none (Spool withdrawn) | — | — | hint expands instantly |
+
+### 6.2 Presence (idle chin and hover hint)
+
+| State | Motion | Reduce Motion | Increase Contrast |
 |---|---|---|---|
-| `hidden` → visible | Panel slides from retracted to shown, 0.14 s ease-out | No slide: order in directly at the shown frame | unchanged (nothing drawn) |
-| visible → `hidden` | Slide back to retracted, then order out | Order out directly, after the same `PillDwell` minimum | unchanged |
-| `idle` ("Warming up…") | `.easeOut(0.12)` content change | Instant | Text at `.primary`, no `.secondary` |
-| `listening` | Waveform bars animate `.linear(0.05)` per push | Bars still update per level, no interpolation (`.animation(nil)`) | Bar fill white 1.0 instead of 0.9; bar width unchanged |
-| `preview` | 0.12 s content change as text grows | Instant text replacement | unchanged (already white on near-black) |
-| `landing` | 0.12 s swap to the check glyph | Instant | Check glyph `.bold` |
-| `warning` | 0.12 s swap | Instant | Yellow → the highest-contrast system yellow; headline stays `.semibold` |
-| `unavailable` | 0.12 s swap | Instant | as warning |
-| `error` | 0.12 s swap | Instant | Orange glyph `.bold`; subtitle at `.primary` |
-| `transform` | Morph preview collapse/expand over `model.beat`; ghost row fades in | **No morph**: draw the final token row immediately; ghost row appears without a transition | Accent background at full opacity; ghost buttons get a visible border |
-| Dwell (`PillDwell`) | notice 4.0 s, acknowledgement 0.6 s | **Unchanged** — dwell is legibility, not motion, and reduced motion must not shorten a message | Unchanged |
+| I0 Idle — 64 × 14 chin, 6 pt green dot | none; never pulses | none | dot unchanged; chin already opaque |
+| I1 Ready hint on pointer hover | 160–220 ms ease-out expand to 360 × 38; collapse on exit | expand / collapse instantly | text is `Pill.ink` on the pill fill (17.8 : 1) |
+| Muted, blocked, capture, held | take priority over hover; the pill shows the state (§8.6) | unchanged | unchanged |
 
-### 6.2 Notch chin (presence) states (existing)
-
-| State | Motion as-is | Reduced motion | Increased contrast |
-|---|---|---|---|
-| `off` | none | none | none |
-| `ready` | Static green dot; `.easeOut(0.12)` on hover expand | Expand instantly | Chin opacity 0.72 → 1.0; dot 5 pt → 6 pt |
-| `listening` | Level bar `.linear(0.08)` | Bar jumps to each level, no interpolation | Bar white 0.85 → 1.0; chin fully opaque |
-| `processing` | Indeterminate shimmer, `.easeInOut(0.9).repeatForever(autoreverses:)` | **No repeating animation.** Draw a static bar at a fixed 50 % width — an indeterminate state must not become a perpetual motion source | Static bar white 1.0 |
-| `muted` | Static red badge | unchanged | Badge label 9 pt bold → 10 pt bold, and the red darkens until white-on-red reaches 4.5 : 1 (this is the fix for the 3.5 : 1 computed in §3.3) |
-| `paused` | Static badge | unchanged | Chin fully opaque; badge `.bold` |
-| `blocked` | Static orange badge | unchanged | Orange darkened to reach 4.5 : 1 for the badge text |
-| Hover row expand | `.easeOut(0.12)` size + corner change | Instant resize | Row background fully opaque; 1 pt separator above the row |
-
-### 6.3 Window and onboarding states (spec)
+### 6.3 Window and onboarding states
 
 | State | Motion | Reduced motion | Increased contrast |
 |---|---|---|---|
-| Sidebar selection change | Detail content replaces with no transition (already instant) | unchanged | Selected row: accent fill **plus** a leading 3 pt accent bar, so selection is not colour-only |
-| Loading a section | Indeterminate `ProgressView` (spins) | Replace with a static "Loading…" label plus a determinate bar when a fraction is known | Text at `.primary`, bar track ≥ 3 : 1 |
-| Determinate progress (model install, enrollment, benchmark) | Bar animates to each new value | Bar jumps to each new value | Bar track and fill differ by ≥ 3 : 1; percentage always shown as text |
-| Empty state appearing | No animation | unchanged | Illustration glyph `.bold`; body at `.primary` |
-| Error banner appearing | No animation; it is simply there | unchanged | 1 pt orange border + glyph + word "Didn't land"/reason |
-| Held row appearing (R2.4) | Enters with the pill's existing 0.12 s content change | Instant | as pill error row |
-| Row insert in Timeline / Meetings | List insert, system default | `.animation(nil)` on the list | Alternating row backgrounds off; 1 pt separators on |
-| Mic level meter (onboarding) | Continuous level, `.linear(0.08)` | Level updates without interpolation; **the numeric dB readout is always present**, so the meter is never the only signal | Meter fill ≥ 3 : 1 against its track |
-| Onboarding step change | No slide, no cross-fade — content replaces | unchanged | Step indicator shows "Step 3 of 5" as text, not only as dots |
-| Practice-field landing (onboarding) | Text appears in the field; landed row per §8.3 | Instant | as pill landed row |
+| Sidebar selection change | Detail content replaces with no transition | unchanged | Selected row: accent fill **plus** a leading accent bar, so selection is not colour-only |
+| Loading a section | Static "Loading <section>…" text; determinate bar only with a true denominator | unchanged (never a spinner that is the only signal) | Text at `ink` |
+| Determinate progress (model install, enrollment, benchmark) | Bar animates to each new value | Bar jumps to each new value | Track uses `controlBorder`; percentage always shown as text |
+| Empty state appearing | No animation; still Spool cameo | unchanged | Body at `ink` |
+| Scoped error banner appearing | No animation | unchanged | Amber glyph + words; 1 pt `controlBorder` outline |
+| Row insert in Today / Meetings | List insert, system default | `.animation(nil)` | 1 pt separators on (`controlBorder`) |
+| Mic level meter (Voice, onboarding) | Continuous level | Updates without interpolation; the numeric dB readout is always present | Meter fill ≥ 3 : 1 against its track |
+| Voice test / enrollment Spool | Moves only during real capture; parks while analyzing | Still | unchanged |
+| Onboarding step change | Content replaces; no slide | unchanged | "Setup · N of 7" as text, not only a bar |
 
 If a state is added later and does not appear in one of these three tables, it is not finished.
 
@@ -298,457 +432,454 @@ If a state is added later and does not appear in one of these three tables, it i
 
 ## 7. Errors: sizing and copy voice
 
-### 7.1 Copy voice
+### 7.1 Copy voice (kept from v1)
 
-- **Name what happened, then name the action.** `Problem — Action`, em-dash separated, action in
-  the imperative and matching a control the user can actually reach.
-- Plain English. No jargon, no error codes, no exception text, no bundle IDs, no "unexpected".
+- **Name what happened, then name the action.** `Problem — Action`, action in the imperative and
+  matching a control the user can actually reach.
+- Plain English. No jargon, no error codes, no exception text, no bundle IDs, no "unexpected". No raw
+  enum tokens (`invalidAudioData`) or filenames (`weight.bin.partial`) in a headline.
 - Never blame the user; never blame "the system". Say what the app observed.
 - One sentence for the headline, one for the detail. No paragraphs.
 - No exclamation marks. No "Oops". No apologies. No "please".
-- Never claim success that was not verified — this is why **Landed · not confirmed** exists.
-- Never claim zero network bytes (V3 §9.6); say what left the Mac.
+- Never claim success that was not verified — this is why **⚠ Inserted · not confirmed** exists.
+- Never claim zero network bytes; say what left the Mac.
 - Sentence case. Serial commas. No trailing period on a headline; a period on the detail sentence.
 
-The three canonical strings (V3 §6, required verbatim by R2.4):
+**How the voice renders in the verified design.** The recovery catalogue (design §10;
+`design_copy.json` › `errors`, 59 entries) gives every error a **headline** (the problem), a
+**consequence**, one **primary recovery** (the action, rendered as the primary button), and a **data
+policy**. Where headline and action share one line (a row error, the menu), they are joined as
+`Problem — Action`. Headlines, consequences and actions are used verbatim from the fixture, with the
+one owner substitution (§0.1). The three canonical V3 strings map to catalogue entries:
 
-```
-Destination changed — Copy text
-Microphone disconnected — Choose microphone
-No speech detected — Try again
-```
+| V3 string | Catalogue | Headline · consequence · action |
+|---|---|---|
+| Destination changed — Copy text | D01 | "Destination changed — text held" · "Nothing was typed into the new destination." · **Insert here** (with Copy text, Discard…) |
+| Microphone disconnected — Choose microphone | A02 | "Microphone disconnected" · "Recording stopped. Review any words already captured." · **Choose microphone** |
+| No speech detected — Try again | A06 | "No speech detected" · "Nothing was typed." · **Try again** |
 
-Each is a headline whose action word matches a real control: "Copy text" is the held row's Copy
-action, "Choose microphone" opens Voice › Microphone, "Try again" is the dictation key.
+Further rules from design §10: "Nothing was typed" is only valid when no write attempt could have
+changed the field. Unconfirmed and partial writes never auto-retry and never offer a universal Retry.
+Error, held and blocking notices stay until the user acts; dismissed retained text remains in Today.
+Only transient cancellation / too-short hints fade, after 800–1600 ms. Error strings never masquerade
+as transcript text.
 
 ### 7.2 Error sizing
 
 | Surface | Sizing rule |
 |---|---|
-| Pill notice (as-is) | Headline `.callout.weight(.semibold)`, **max 2 lines**, tail-truncated; subtitle `.caption`, **max 1 line**, tail-truncated. The panel is widened to the exact strings by `NotchGeometry.size(for:on:measure:)` up to `absoluteMaximumSize` (560 × 96). **Never** `fixedSize(vertical:)` inside pill content — that is the 1.7.9 black-slab bug (`PillView.swift`, `PillPanelController.swift`). Every fixed sentence a state can draw must be listed in `PillState.messageLines` so the pill can never be narrower than its own text. |
-| Window inline banner | Full detail-pane width, glyph + headline (`.callout.semibold`) + detail (`.caption`, `.secondary`) + up to two buttons. Grows vertically; never scrolls internally; never truncates. |
-| Row-level error | One line, `.caption`, orange glyph, inline in the row; the full text is the row's accessibility label and its tooltip. |
-| Onboarding step error | Inline under the control that failed, `.caption`, with the action as a button beside it. Never a sheet, never a dead end (§11). |
-| Sheet | Only for a destructive confirmation or an integrity failure that blocks use. Title ≤ 6 words, body ≤ 2 sentences, two buttons max. |
+| Pill notice | The 560 × 204 actionable layout (§8.3): status line, helper line, full-width action row below the character bay. Text keeps its size; anything that does not fit opens in Review / the recovery sheet. The panel's frame is placement math, never content: `NSHostingView.sizingOptions = []`, and **never** `fixedSize(vertical:)` inside pill content (the 1.7.9 black-slab bug). |
+| Window scoped banner | Full detail-pane width, glyph + headline + consequence + up to two actions; grows vertically, never scrolls internally, never truncates. Partial data stays readable under it. |
+| Row-level error | One line in the row; the full text is the row's accessibility label and tooltip. |
+| Onboarding step error | Inline under the control that failed; stay on the failed step, keep completed steps (§11). |
+| Sheet | Recovery sheet, destructive confirmation, or an integrity failure that blocks use. Title ≤ 6 words, body ≤ 2 sentences, two buttons max (the recovery sheet's three actions excepted). |
 
-Raw errors (`Error.localizedDescription`, OSStatus, AX error codes) go to `Log` and to Voice ›
-Benchmark diagnostics. They never reach a user-facing string.
+Raw errors (`Error.localizedDescription`, OSStatus, AX codes) go to `Log` and to diagnostics behind a
+Copy action. They never reach a user-facing sentence.
 
 ---
 
-## 8. The existing pill and notch chin — documented as-is
+## 8. Spool and the pill
 
-**This section proposes nothing.** It records what the code draws so that R7 and R2.4 can be built
-around it without touching it. Sources: `App/UI/PillView.swift`,
-`App/UI/PillPanelController.swift`, `App/UI/PresenceIndicatorView.swift`,
-`App/UI/PresenceIndicatorController.swift`, `App/Core/PillState.swift`,
-`App/Core/PillPresentation.swift`, `App/Core/NotchGeometry.swift`,
-`App/Core/NotchPresenceGeometry.swift`, `App/Ambient/PresenceState.swift`,
-`App/Core/PresenceClick.swift`.
+Replaces v1 §8 ("the existing pill and notch chin — documented as-is"). Sources: design §3.1, §4, §5,
+§6, §11.1; prototype `function art / face / lens / rig / limb / tapeRibbon` (ported by S1, not
+redrawn).
 
-### 8.1 The pill — container
+### 8.1 Spool anatomy and material
 
-- A borderless, non-activating `NSPanel` at `.statusBar + 1`, transparent background, shadow on,
-  `ignoresMouseEvents = true`, `canJoinAllSpaces + stationary + fullScreenAuxiliary + ignoresCycle`,
-  `animationBehavior = .none`.
-- `NSHostingView.sizingOptions = []` deliberately: the default `.standardBounds` publishes SwiftUI's
-  minimum size as the window's `contentMinSize`, which is what produced the 1.7.9 black slab
-  (measured 1187 pt for a short error, 4727 pt for a long one). **The pill's frame is placement
-  math, never content.**
-- Geometry: `defaultSize` 320 × 44; `expandedSize` 420 × 64 (used by `preview`, `warning`,
-  `unavailable`, `error`, `transform`); `absoluteMaximumSize` 560 × 96; per-display ceiling is
-  `min(560, max(420, screenWidth × 0.6))` and the room under the top band.
-- Placement: the pill's **top edge is the bottom of the display's forbidden top band**
-  (`ScreenMetrics.topBand = max(topInset, menuBarHeight)`), so it is never drawn under the camera
-  housing. It slides between a `retracted` and a `shown` frame. Corner radius 18 with a notch, 12
-  without, **bottom corners only** (`UnevenRoundedRectangle`).
-- Body: `HStack(spacing: 10)` of icon, content, spacer, optional script badge; `.padding(.horizontal, 14)`;
-  background `black.opacity(0.92)` (or `accentColor.opacity(0.92)` for `transform`); `foregroundStyle(.white)`;
-  `.animation(.easeOut(duration: 0.12), value: state)`. Panel frame animations run 0.14 s ease-out
-  and are interruptible.
-- Accessibility identifier: `pill.<caseName>`.
-- Re-placed on `didChangeScreenParametersNotification` while visible, without replaying the slide.
+Spool is a cassette body with two large tape packs as eyes. The rotating cream hubs are mechanical eye
+centres; small dark pupils can look toward the phrase independently of rotation. Shutter eyelids and
+two small brows express attention. The pressure-pad opening below is the mouth: oval while listening,
+pursed during finalization, smiling in final preview, opening into a tape feed slot during insertion,
+and restrained concern when text needs help. Screws, the Side A label, guide roller, top tabs and feet
+are secondary details, omitted at cameo scale. Materials are §2.3.
 
-### 8.2 The pill — rows, exactly as they are
+- The strip is a **filled flat ribbon**, not a stroked curve. A twist turns it edge-on and briefly
+  shows the darker reverse; the edge highlight stays at the cut edge. No sprocket holes. The same face
+  token is used inside, outside and on the wound packs; the width at the cassette inlet is continuous.
+- **Reel direction, as viewed from the front:** counterclockwise while listening, clockwise while
+  inserting; both reels turn the same way. Finishing decelerates in the listening direction and never
+  reverses before commit. Preview, held, paused, mute, blocked, notes, unconfirmed and error poses do
+  not spin.
+- **The cassette is always on the right.** Text stays on the left above the tape lane. Never draw a
+  face under readable words, never put tape across confidence dots, never let an expression imply a
+  capture or delivery outcome that did not happen.
+- Spool is the only mascot: no alternates, no plain-wave theme, no picker, no skins, no pet mechanics.
 
-| State | Icon | Content |
+### 8.2 Placement
+
+Directly below the physical notch / menu-bar safe band, centred horizontally — the v1 rule is kept:
+**the pill's top edge is the bottom of the display's forbidden top band** (`ScreenMetrics.topBand`),
+so nothing is drawn behind the camera housing. Use the display's real safe area, not a fixed offset.
+The working display is chosen at key-down and pinned for the turn; if it disappears, recovery moves to
+the remaining display and the destination is revalidated.
+
+```text
+NOTCHED DISPLAY                         EXTERNAL DISPLAY
++------------[camera]-------------+     +-------------------------------+
+|                                 |     | Apple   App   File ...        |
++-----------+---------+-----------+     +-------------------------------+
+            |    •    |                          [    •    ]
+            +---------+                    8 pt below menu-bar band
+
+ACTIVE ATTACHED PILL — nominal 560 x 164 pt
++------------------------------------------------------------+
+| Listening · Mail               |  +---------------------+  |
+|                                |  | SIDE A              |  |
+| Can we meet with Mira          |  |  ((O))       ((O))  |  |
+| on Friday?                     |  |   reel eyes  ↺ ↺    |  |
+|   .... confidence word dots    |  |                     |  |
+| ======\___/====\___/============[guide]====== tape     |  |
+|                                |  |     [mouth]         |  |
+| Release fn / 🌐   Esc          |  +---------------------+  |
++------------------------------------------------------------+
+  16 pt inset    readable text       132 pt character bay
+                 lane ~390 pt        top inset ~12–18 pt
+```
+
+### 8.3 Geometry (design §4; replaces `NotchGeometry.absoluteMaximumSize` 560 × 96)
+
+| State geometry | Nominal size | Boundary |
 |---|---|---|
-| `hidden` | — | nothing; panel ordered out |
-| `idle` | `mic`, `.secondary` | "Warming up…", `.callout`, `.secondary` |
-| `listening(level:)` | `mic.fill` red — or `mic.badge.plus` red when latched | `WaveformView`: 24 capsule bars, white 0.9, bar width `w × 0.65`, gap `w × 0.35`, min height 3, frame height 24, `.linear(0.05)`; levels smoothed at 0.35 |
-| `preview(text:)` | `mic.fill` red / `mic.badge.plus` red | the text, `.callout`, **2 lines max, head-truncated** (newest words win). Deliberately absent from `messageLines`: sizing to live text would make the pill twitch per syllable |
-| `landing` | `checkmark.circle.fill` green | "Landing…", `.callout` |
-| `warning(MicQuality)` | `exclamationmark.triangle.fill` yellow | `Notice` — headline "Mic level is very low" / "Mic is clipping" / "Noisy mic — N dB SNR"; subtitle "Check your input device before you speak" |
-| `unavailable(reason:)` | `mic.slash.fill` yellow | `Notice` — headline is the reason; subtitle "Dictation is off until a speech model is installed" |
-| `error(message:)` | `exclamationmark.circle.fill` orange | `Notice` — headline is the message; subtitle "Nothing was typed — press the key again to try that turn" |
-| `transform(TransformPillInfo)` | `wand.and.stars`, or a small `ProgressView` while `.editing` | accent-tinted pill: headline ("editing N words" / "changed N words" / "no change" / "say more… (Ns)"), optional `MorphPreview`, and the ghost row `↩ undo` / `try again` / the quoted instruction |
+| Idle presence | 64 × 14 pt | 6 pt green dot centred in a black chin, lower radius 6; Spool fully withdrawn |
+| Ready hint | 360 × 38 pt | Hover-only text "Hold or Double Tap <key> to dictate"; no dot, brand prefix, Ready label or mascot; lower radius 10 |
+| Starting / listening / preview | 560 × 164 pt | Stable dimensions throughout the turn; Spool ~126 × 115 pt in a 132 pt right bay |
+| Actionable held / error | 560 × 204 pt | Same character bay; actions in a separate full-width row below it |
+| Compact ceiling | min(560 pt, usable width − 32 pt) × 204 pt | No controls behind the character; full payload opens in Review |
+| Narrow review viewport | text lane + 84 pt cameo bay, then action row | Below 460 pt keep 14 pt text, reduce ornament scale (0.69); never shrink the product to illegible type |
+| Meeting expanded panel | 560 × 360 pt preferred | Explicit expansion; static compact cassette in the header, readable transcript below |
 
-- `Notice` is bounded on purpose: 2 headline lines + 1 subtitle line, so no message length can grow
-  the pill past the reserved size.
-- Script badge (optional, right-aligned): `.caption2.bold()`, capsule `white.opacity(0.18)`,
-  padding 5 × 2, identifier `pill.script`.
-- **Click behaviour:** the pill is not clickable. `ignoresMouseEvents = true` in every state except
-  `transform` with a visible ghost row, which is the one clickable thing on the pill
-  (`pill.ghost.undo`, `pill.ghost.tryAgain`).
-- **Dwell (`PillDwell`)**: only a *retraction* is ever delayed. Any visible state replaces whatever
-  is showing immediately. `.hidden` waits out the current state's minimum: 0 for
-  `hidden/idle/listening/preview/transform`, **0.6 s** for `landing`, **4.0 s** for
-  `error/warning/unavailable`. This exists because `RealEngine.stop()` emits `.landed` then `.idle`
-  in the same run-loop pass.
-- **Reducer:** engine → pill is pure (`PillStateReducer`). A mic-quality warning is *sticky for the
-  utterance*, so it renders before speech starts and is not blown away by the first `listening` tick.
+Upper corners square when attached, all four rounded when floating below an external display's menu
+bar (§3.2). Content inset 16 pt; the status and words lanes are the content width minus 144 pt
+(≈ 384 pt at 560), so no text reaches the character bay; the tape lane starts at (16, 104) in the
+164 pt scene and is 8 pt wide (`spool_spec.json` › `sceneGeometry`).
+Very narrow displays use a detached review panel. The v1 panel rules that prevented the black slab are
+kept: borderless non-activating `NSPanel` above the status bar, `sizingOptions = []`, frame is
+placement math.
 
-### 8.3 The notch chin (presence indicator), exactly as it is
+### 8.4 Hover presence and menu-bar identity
 
-Same one rule as the pill: **top edge = bottom of the top band**, asserted by
-`NotchPresenceTests.sharesTheTopBoundaryWithThePill`. One thing under the notch at a time — the
-chin hides while the pill is visible.
+- **Idle (I0)** is the default between turns: the 64 × 14 chin with the 6 pt green dot. A green dot
+  never means the microphone is open.
+- **Pointer entry** expands to the 360 × 38 text-only hint: **Hold or Double Tap <key> to dictate**
+  ("Hold <key> to dictate" when latch is off). No dot, no Spool, no brand prefix, no "Ready". Pointer
+  exit collapses it. Keyboard focus does not open the hover presentation; the chin's accessible
+  description carries the same instruction. Capture, errors and held text take priority over hover.
+- **Menu-bar glyph:** the black-and-white cassette-face outline (`spool_spec.json` › `menuGlyph`:
+  32 × 24 viewBox, rounded rect, two eye circles, smiling mouth) at 18 × 16 pt, template image, system
+  monochrome. Never tinted peach, never replaced by the detailed mascot. Clicking it opens the menu (§10).
 
-| State | Size | Background | Body |
-|---|---|---|---|
-| `off` | zero | clear | nothing ordered in |
-| `ready` | 54 × 10 | `black.opacity(0.72)` (0.92 hovered) | one static 5 pt green dot at 0.95 — deliberately not pulsing |
-| `listening(level:)` | 120 × 10 | `black.opacity(0.9)` | white 0.85 capsule level bar, min width 4, `.linear(0.08)` |
-| `processing` | 120 × 10 | `black.opacity(0.9)` | indeterminate bar, `.easeInOut(0.9).repeatForever(autoreverses:)`, phase 0.25 → 0.85 |
-| `muted` | 84 × 16 | `red.opacity(0.88)` | glyph + `MUTED`, 9 pt bold. Never shrunk, never suppressed — including in full screen |
-| `paused` | 132 × 16 | `black.opacity(0.75)` | glyph + `Paused` |
-| `blocked(reason)` | 132 × 16 | `orange.opacity(0.9)` | glyph + short badge; reasons: `microphoneDenied`, `hotkeyUnavailable`, `relaunchNeeded`, `modelDownloading`, `modelMissing` |
-| hovered / introducing (any visible state) | ≥ 190 × 24, fitted to the text by `PresenceRow.fit`, capped at screen width − 16 | as the state | glyph (10 pt semibold) + one row of 11 pt medium text, padding 9. **No tail truncation** — `PresenceRow` shortens at a word boundary instead, because a fixed 190 pt is what produced "— hold R…" |
+### 8.5 Text lane, confidence marks, tape lane, deixis chip
 
-- Row sentences: "VoicePlus · Ready", "VoicePlus · Listening", "VoicePlus · Working…",
-  "VoicePlus · Muted — the mic stays closed", "VoicePlus · Paused", plus the block reason's own
-  detail. The hotkey hint ("hold Right ⌥") is appended by the controller when it fits.
-- Precedence: `muted > paused > blocked > listening > processing > ready`. The indicator must never
-  show something less alarming than reality.
-- `isQuiet` states (`off`, `ready`, `paused`, `blocked`) may be hidden in a full-screen Space.
-  `listening`, `processing` and `muted` are **never** hidden there.
-- Corner radius 10 when expanded, else `min(6, height/2)`, bottom corners only. Edge margin 8,
-  hover slop 8; the hover rect is the union of the resting chin, the expanded row and the camera
-  housing itself — pointing at the notch reveals it.
-- Hover polling: 0.2 s timer. `.easeOut(0.12)` on hover change.
-- **Click: `PresenceClickRouter` returns `.menu` for every state and every button.** Left, right and
-  control-click on the chin *and* on the status-item glyph open the same menu (V3 §9.3).
-- Accessibility: identifier `presence.<caseName>`, label = the state's `detail` sentence.
+- Natural-language text (`pillTranscript`), never monospace. Live text shows the newest two lines with a
+  leading fade; stable words stay put and only the provisional suffix changes. Long final text shows the
+  last two lines plus "N words · Review all"; the full payload is always retained and inserted.
+- Uncertain words: 2 px dotted underline in `uncertainty`, 3 px below the baseline, on every wrapped
+  fragment; word text stays normal foreground; "N words to review" plus an accessible label. The tape
+  lane sits at least 8 pt below the marks.
+- **Deixis chip (owner decision §0.1):** the box-and-screenshot thumbnail sits in the text lane, under
+  the transcript and above the tape lane, styled as the design's tag/chip (`Radius.keyCap`, `key` type,
+  `Pill.controlBorder` outline). Never in the character bay, never over Spool.
+- Key-hint row: "Release <key> to finish · Esc" in `pillStatus`; key names in `key` type.
 
-### 8.4 What R2.4 may add — and only this
+### 8.6 State inventory (I0–Q2)
 
-All three additions are expressed in the **existing** visual language: the same `Notice`/row layout,
-the same fonts, the same near-black background, the same glyph vocabulary, the same
-`expandedSize`/`messageLines` sizing path, the same `PillDwell` table. **No new mark, no sound, no
-new animation, no new colour** (V3 §9.1).
+Every visible pill/presence state, with the fixture key (`design_copy.json` › `states`), the design's
+Spool treatment (design §6), and the status line and actions from `design_copy.json` › `pill`
+("<key>" is the configured key, "<app>" the destination, counts and timers are real).
 
-1. **Final text on land.** On a delivered outcome, the pill replaces the preview with the
-   *committed* text for ≈1.2 s, then returns to ready/hidden. Same row as `preview` — `.callout`,
-   2 lines, head-truncated — with the `landing` state's green `checkmark.circle.fill`. Dwell for
-   this state is the existing `acknowledgement`-class minimum, raised to the 1.2 s the task
-   specifies; it is a legibility minimum, so reduced motion does not shorten it.
-2. **Unverified variant of landed.** Same row, headline **"Landed · not confirmed"**, glyph
-   `checkmark.circle` (unfilled) in yellow — the existing attention colour, not a new one — and the
-   existing subtitle slot naming the recovery action. It must be visibly different from verified
-   *without* relying on the colour alone, hence the unfilled glyph and the words.
-3. **Held row.** `Notice` layout: headline names the destination
-   ("Held for Notes" / "Destination changed — Copy text"), subtitle is the first words of the held
-   text, and three actions in the ghost row's existing style and position:
-   **Insert here · Copy · Discard**. This is the second state in which the pill accepts clicks, so
-   `panel.ignoresMouseEvents` becomes `false` for it exactly as it already does for `transform`'s
-   ghost row. Identifiers: `pill.held.insertHere`, `pill.held.copy`, `pill.held.discard`. Every
-   held-row string must be added to `PillState.messageLines` so the panel is sized to it.
-   The same three actions appear in the menu (§10), and a quit with held text present warns first.
+| ID | Key | State | Spool, tape and pill content | Status (fixture) · actions | Exit |
+|---|---|---|---|---|---|
+| I0 | `idle` | Idle | 64 × 14 pt black chin, centred 6 pt green dot; Spool and tape absent. Microphone closed. | — | Pointer hover → I1; key → C0 |
+| I1 | `ready` | Ready | Only on pointer hover over idle. Text only; no green dot, brand prefix, Ready label or cassette. | Hold or Double Tap <key> to dictate | Leave → I0; hold → C0 |
+| I2 | `muted` | Muted | Closed eye shutters, flat mouth, no tape motion. No green ready. | ⊘ VoicePlus is muted · **Unmute** | Explicit Unmute only |
+| I3 | `unavailable` | Unavailable | Parked reels, setup latch, "Install a speech model" or the named blocker. | ⚠ Dictation is unavailable · **Open Models** | Open the named setup pane |
+| C0 | `starting` | Starting | Attentive still cassette; tape lies flat. | Starting microphone… | Capture actually open → C1; failure → E0/E1 |
+| C1 | `listening` | Listening | Live words above flat ribbon faces with audio-reactive waves/twists; reels counterclockwise; oval mouth, occasional blink. | Listening · helper "Release <key> to finish" | Key release → F0; Esc → C4 |
+| C2 | `quiet` | Listening, quiet | Last words; flat tape, parked reels, patient open eyes. Label confirms capture is still open. | Listening · quiet | Speech → C1; release → F0 |
+| C3 | `latched` | Latched | Same live tape and counterclockwise reels; persistent latched label plus timer. | Latched · hands-free · helper "Tap <key> to finish" · Finish | Tap stop; Esc cancel; lock stop |
+| C4 | `cancelled` | Cancelled | Reels brake without reversing; exposed tape retracts into the guide; neutral mouth. | Cancelled · "Nothing inserted" | 800 ms → idle |
+| C5 | `warning` | Mic quality warning | Capture continues: moving tape, counterclockwise reels, concerned brow; never replaces live words. | ⚠ Microphone sounds unclear · Check microphone | Continue / Check microphone / Cancel |
+| F0 | `finishing` | Finishing | Microphone closed; twists damp, reels decelerate counterclockwise, mouth purses. No new live-wave motion. | Finishing… · "Microphone closed · nothing inserted yet" | Final payload → F1; 2 s "Still finishing your text"; 10 s "Use available text" / "Cancel" |
+| F1 | `preview` | Final preview | Final modified text above flat taut tape; stationary reels, relaxed shutters, pressure-pad smile. | Ready for <app> · manual review: **Insert text**, Cancel | 900 ms dwell; hover/focus pause; Review; Esc |
+| F2 | `uncertain` | Review uncertain words | Same text and taut tape; asymmetric shutter/brow looks toward the dotted word; no spin. | Ready for <app> · N words to review · manual review: **Insert text**, Cancel | 1800 ms dwell or manual review; correction resets dwell |
+| D0 | `inserting` | Inserting | Same immutable payload; reels clockwise; the mouth feeds a continuous twisting ribbon to the verified caret. No success cue yet. | Inserting in <app>… | Verification → D1/D2/D3; no automatic retry |
+| D1 | `inserted` | Verified | Small satisfied mouth; reels parked; destination cue. Tape withdraws only after the known outcome. | ✓ Inserted in <app> | 650 ms → idle; field uncertainty survives |
+| D2 | `unconfirmed` | Unconfirmed | Reels stop, brake holds tape; level concerned mouth. No smile, check or flourish. | ⚠ Inserted · not confirmed · **Check text**, Dismiss | Check field; dismiss; never auto-reinsert |
+| D3 | `partial` | Partial insertion | Tape held intact, eyes attend to destination, small concern. Never a snapped tape. | ⚠ Only part may have been inserted · **Review result** | Review; manual reconciliation |
+| H0 | `held` | Held | Final words above taut tape; visible guide brake. | ⚠ Destination changed · text held · **Insert here**, Copy text, Discard… | Persists until the user acts |
+| R0 | `correcting` | Correcting | Stationary tape, asymmetric shutter; the correction popover owns alternatives and focus. | Review one word · **Review word** | Replace verified range / Keep / Dismiss |
+| R1 | `editing` | Editing selection | Stationary reels; small progress marker on the taut ribbon; thoughtful pursed mouth. | Editing N words… | Edited final preview before replacement |
+| R2 | `undo` | Undo available | Parked reels, calm mouth. No rewind until safe undo is confirmed. | ✓ Updated in <app> · **Undo** | Safe undo 5 s; stale range → recovery |
+| E0 | `error` | Recoverable error | Tape guide brake, stopped reels, gentle concern, exact problem / consequence / recovery. | ⚠ Couldn't finish this dictation · **Review text**, Copy text | Stays until action/dismissal; drafts remain |
+| E1 | `blocked` | Blocking error | Closed shutters and setup latch; no recording or readiness claim. | Microphone access is off (or the named blocker) · **Review permissions** | Named setup action; recheck capability |
+| Q0 | `meeting` | Meeting capture | Counterclockwise reels and audio-reactive tape only while capture is really open; timer, track status. | Meeting · recording · Pause, Stop, Expand | Pause / Stop / Expand |
+| Q1 | `paused` | Meeting paused | Stationary reels, flat tape, pause bars on the latch. | Meeting paused · **Resume**, Stop | Explicit Resume / Stop |
+| Q2 | `notes` | Meeting processing | Parked reels, thoughtful mouth, small labelled progress marker; no transport motion. | Preparing meeting notes · **Open meeting** | Open transcript; retry Notes independently |
 
-Anything beyond these three is out of scope for R2.4 and for this document.
+**State priority:** secure-field / mute > permission / device interruption > capture status > final /
+commit outcome > held recovery > ready / idle. Warnings annotate live transcription rather than
+replacing the words. Durable recovery is queued in Today when a higher-priority state needs the pill.
+
+### 8.7 The turn contract (design §5; S3 implements)
+
+Key down acknowledges within an 80 ms target and opens capture immediately; "Listening" appears only
+when capture is actually open. Key up closes the microphone immediately. One immutable final payload
+is shown above the flat, taut tape for the **dwell** — 900 ms default from the first rendered final
+frame; 1800 ms when any word is uncertain; 600 / 900 / 1500 ms or manual in Settings; hover, focus,
+selection or Review freezes it — then the target is revalidated and the payload is inserted **exactly
+once**, guarded by turn ID. Animation completion is never a write trigger. Escape before the write
+cancels with nothing inserted; Escape after the write resolves the outcome truthfully, then offers a
+range-safe Undo. Latch: every segment passes the same preview gate, serialized; hold never inserts
+intermediate segments. Nothing revises text after it lands.
+
+### 8.8 Mouth-to-caret tape flight (design §4; S4 implements)
+
+A separate transparent, pointer-transparent overlay draws the ribbon from Spool's mouth slot to the
+verified pre-insertion caret rectangle while the reels turn clockwise. It is suppressed — normal label
+and outcome, no flight — when the caret rect is unavailable, the target changed or became secure, the
+target is on another display, or Reduce Motion is on. It clears immediately on interruption and never
+delays or triggers the write.
+
+### 8.9 What the pill never does
+
+- Never takes keyboard focus during capture; it is a non-activating panel that ignores the pointer
+  except the hover-pause area during dwell and its action row.
+- Never shows diagnostics: no model names, latency, thermal state or raw errors (they live in Voice ›
+  benchmarks and the Privacy diagnostics disclosure).
+- Never draws behind the camera housing, never shows a green success claim for an unverified write,
+  never loops a canned ribbon or spinning reels when no audio is arriving.
 
 ---
 
-## 9. The one window (spec for R7)
+## 9. The one window (amended with design §8)
 
-`NavigationSplitView`. Sidebar width 200–260 pt, detail minimum 560 pt, window minimum 820 × 560.
-Six sections, in this order, `⌘1`–`⌘6`:
+`NavigationSplitView`, preferred **1080 × 720 pt**, minimum **820 × 560 pt**, sidebar **208–240 pt**,
+detail takes the rest. One clear page title (`title`), 24 pt outer padding, 24 pt section gaps.
+The toolbar holds only relevant actions. Scroll position and selection are preserved per section.
+`⌘1`–`⌘6` select the six sections in this order; `⌘,` opens Settings; `⌘F` focuses local search. The
+sidebar footer reads "• On this Mac"; the page foot shows "Hold <key> to speak." with a still Spool
+cameo.
 
-1. Today / Timeline
+1. Today
 2. Meetings
-3. Dictionary / Apps
+3. Dictionary & Apps
 4. Voice
 5. Privacy
 6. Settings
 
-Every section follows the same shape: a title, an optional single-line subtitle, content, and
-exactly one of four renderings at a time — **content**, **empty**, **loading**, **error**. No
-section may show a spinner and content simultaneously; a section that has partial data shows the
-data and puts the failure in a row-level or banner error.
+**Titles and subtitles** (`design_copy.json` › `screens`, verbatim):
 
-### 9.1 Today / Timeline
+| Screen | Title | Subtitle |
+|---|---|---|
+| Today | Today | Your words, right where you left them. |
+| Turn detail | <turn title> | <app> · <day>, <time> · N words |
+| Meetings | Meetings | Thoughts worth coming back to. |
+| Dictionary & Apps | Dictionary & Apps | Your spellings. Your way of writing. |
+| Voice | Voice | Make sure we hear you clearly. |
+| Privacy | Privacy | Know what is kept, and what leaves this Mac. |
+| Settings | Settings | Small adjustments. A familiar flow. |
+| Shortcuts | Shortcuts | One key. A clear beginning and end. |
+| Models | Models | Ready means verified and loaded. |
+| Providers & Sync | Providers & Sync | Local first. Connections when you choose. |
+| Menu (review surface) | A small, useful menu | Status and direct actions, one click away. |
+| Recovery sheet | Your text is still here. | Destination changed · held for <app> |
 
-- **Purpose.** What the app is ready to do right now, what still needs a hand, and what was said
-  recently. Readiness and pending recovery come first (V3 §9.4).
-- **Content.** Top: a readiness strip — dictation key, microphone name and quality, model state,
-  mute state — each a single row with a glyph, a word and, where it is not ready, one action.
-  Below it: **Needs you** — every `held` item, each with destination, first words, and
-  Insert here / Copy / Discard. Below that: the **Timeline** (`AmbientTimeline`), newest first,
-  grouped by day, with search (`⌘F`), source filters, per-row delete, and Delete all. Rows show
-  time, source, and the transcript in SF Mono.
-- **Empty.** Two distinct empties. Nothing dictated yet: "Nothing dictated yet" + the dictation key
-  name + "Hold it and say something." Ambient off: "Timeline is off" + "Turn on ambient capture in
-  Privacy" — never an empty list with no explanation.
-- **Loading.** Readiness strip renders immediately from cached state (it is never blank). The
-  Timeline list shows a static "Loading…" row; with reduced motion, no spinner.
-- **Error.** Timeline store unreadable: inline banner "Timeline can't be read — Open Privacy",
-  readiness strip still shown. A held item that fails to re-insert keeps its row and gains a
-  one-line row error.
+**Four renderings.** Every screen shows exactly one base rendering — **content**, **empty**,
+**loading** or **error** — plus a scoped banner for partial data (design §9). Loading never
+masquerades as empty ("Loading <section>…"; no empty-state claim while data is still loading).
+Progress is determinate only with a true denominator. Retry affects the failed scope and is disabled
+while retrying. Success appears only after verification. A failed save keeps the entered value and the
+previous active value. Empty and loading states carry the still `ready` Spool cameo.
+
+**Empty states** (`design_copy.json` › `emptyCopy`: headline · body · action; "Right Control" rendered
+as the configured key):
+
+| Screen | Headline | Body | Action |
+|---|---|---|---|
+| Today | Nothing dictated yet | Hold <key> and say something. Your recent words will appear here. | Try dictation |
+| Turn detail | No saved text here | History may be off or this turn may have been deleted. | Open Today |
+| Meetings | No meetings yet | Start a recording whenever you need notes. Calendar connection is optional. | Start recording |
+| Meeting detail | No speech captured | Check the microphone and system-audio tracks before your next meeting. | Check capture |
+| Dictionary | Make it sound like you | Add a word VoicePlus keeps getting wrong. | Add a word |
+| Voice | No voice enrolled | Enrollment is optional. Hold-to-talk works without it. | Set up my voice |
+| Privacy | Nothing is saved | Your history is off. Recovery text has its own clearly labelled retention policy. | Review retention |
+| Settings | Using your defaults | Personalize your shortcut and preview when you are ready. | Open shortcuts |
+| Shortcuts | No custom shortcuts | <key> is your default hold-to-talk key. | Try default shortcut |
+| Models | Install a speech model | Dictation becomes available when a compatible model has been verified and loaded. | Choose a model |
+| Providers & Sync | Nothing connected | Local transcription works without a connected service or paired device. | Explore options |
+| Onboarding | Welcome to VoicePlus | A few short steps, then hold a key and let your words arrive. | Begin setup |
+| Menu | VoicePlus is ready | The menu is available even before your first dictation. | Open VoicePlus |
+| Recovery | No text waiting | Every completed turn has been resolved. | Back to Today |
+
+**Each screen's error example** is a catalogue entry (`design_copy.json` › `screenError`): Today S01,
+Turn detail S03, Meetings X02, Meeting detail N01, Dictionary S02, Voice A02, Privacy S04, Settings
+S02, Shortcuts K01, Models M02, Providers & Sync N02, Onboarding P01, Menu K05, Recovery S03.
+
+### 9.1 Today and turn detail
+
+- Held / recoverable text first ("Text waiting for <app>", with **Review text** and Copy), then recent
+  dictations in time order. Each row: destination, time, short excerpt, and an explicit **Inserted /
+  Held / Unconfirmed / "1 to review"** tag. No vanity counters as the default home.
+- Search works on retained history only. History off is its own explanatory empty state, not
+  "No results".
+- Turn detail: final text (selectable), uncertainty count, optional original transcript (segmented
+  Final text / Original transcript), destination, delivery evidence, Copy / Review / Delete; still
+  held-tape Spool beside the delivery status.
+- Recovery sheet: the complete payload and current destination preview; **Insert here** is an explicit
+  re-target that revalidates after a field is selected; Copy is acknowledged only when the copy is
+  verified; Discard… confirms when it destroys the only saved copy; closing keeps the draft. History
+  off → "Kept until resolved"; persistence prohibited → "Kept for this session only".
+- Loading: "Loading recent dictations…". Error: "History can't be read" + Retry, with held drafts still
+  shown.
 
 ### 9.2 Meetings
 
-- **Purpose.** Meeting transcripts, and the switch that decides whether they are captured.
-- **Content.** List of meetings (title, start, duration, source) → detail with the transcript in SF
-  Mono, per-speaker where enrollment identified one, plus Copy, Export, Delete. Capture switch and
-  the Calendar-permission state live at the top.
-- **Empty.** Capture on, nothing recorded: "No meetings captured yet." Capture off: "Meeting
-  capture is off" + a switch. Calendar denied: "Calendar access is off — Open System Settings".
-- **Loading.** List placeholder rows (no shimmer); transcript pane shows "Loading transcript…".
-- **Error.** Per-meeting: "This transcript can't be read" in the row with a Delete action. Whole
-  store: inline banner, list hidden.
+- List / detail only where it aids browsing. Detail header: title · date · duration · Local. Tabs:
+  **Notes** (Summary, Decisions, Action items) / **Transcript** (speaker labels, timestamps, search,
+  uncertainty marks; audio seeking only when audio is retained) / **Ask** (only with a configured
+  service or local model, route disclosed before use).
+- Expanded capture panel (560 × 360): Transcript / Notes / Ask, Pause, Stop, timer, explicit microphone
+  and system-audio track indicators; paused and partial captures are labelled; system-audio denial
+  offers microphone-only capture with a visible missing-track notice. Calendar is optional and never
+  blocks manual recording.
+- An unfinished-recording banner sits above the affected list with retained duration and
+  Recover / Discard…; recovery never hides unaffected records; a Notes failure keeps the transcript.
+- Loading: "Loading meetings…", "Preparing transcript…".
 
-### 9.3 Dictionary / Apps
+### 9.3 Dictionary & Apps
 
-- **Purpose.** The words this Mac gets wrong, and the per-app behaviour (personas, snippets,
-  never-inject list).
-- **Content.** Two panes' worth in one section. **Dictionary**: term, spoken forms, add / edit /
-  delete, Contacts import. **Apps**: one row per app — bundle ID in SF Mono, its persona, its
-  snippets, and its injection policy including the **never-inject** switch (R2.3). Never-inject is
-  a red-tinted switch with a one-line consequence sentence ("Dictation is held here, never typed").
-- **Empty.** Dictionary: "No terms yet" + "Add a word VoicePlus keeps getting wrong" + Import from
-  Contacts. Apps: "No app-specific settings" + "Every app uses your defaults."
-- **Loading.** Static "Loading…" row; both lists are local, so this state should be a single frame.
-- **Error.** Contacts denied: "Contacts access was denied — Open System Settings" (the existing
-  string is kept). Store write failure: banner "Changes weren't saved — Try again".
+- Two segmented subviews. **Dictionary:** search, term, spoken variant, language, source, add/edit,
+  import preview; duplicate or conflicting terms resolve inline; Contacts import is optional with a
+  permission explanation, preview and explicit commit. Snippets and personas live here as rows.
+- **Apps:** inherited default plus per-app style, insertion eligibility (never-insert), the
+  contextual-reading switch (screen text) and an overlay capability badge. "Uses default" is shown
+  distinctly from an override. The code/terminal profile is verbatim and never auto-sends Return.
+- A failed save is inline; the prior value stays active; no silent policy change.
 
 ### 9.4 Voice
 
-- **Purpose.** The microphone, the voice enrolled on this Mac, and the measurements. Folds in the
-  standalone enrollment window and the whole Lab UI (R7.2).
-- **Content.** Three groups.
-  **Microphone** — device picker (Automatic + devices), a live level meter with a numeric dB
-  readout, quality verdict in the same words the pill uses (§8.2).
-  **Enrollment** — enrolled / not enrolled, re-enroll, delete; enrollment runs inline in this pane,
-  never in its own window. Enrollment is optional and says so.
-  **Benchmark** — model stack, latency (p50/p95), WER against `Fixtures/`, thermal state, and the
-  run button. Numbers in `.monospacedDigit()`. This is where model names, latency and thermal
-  diagnostics live — **not** the pill (V3 §9.1).
-- **Empty.** No enrollment: "No voice enrolled" + "Enrollment is optional. It helps ambient capture
-  tell you apart." No benchmark run: "No measurements yet" + Run benchmark.
-- **Loading.** Microphone list enumerating: picker disabled with "Looking for microphones…".
-  Benchmark running: determinate progress with a percentage as text, a Cancel button, and partial
-  results as they land.
-- **Error.** Mic permission denied: "Microphone access is off — Open System Settings" with the meter
-  greyed. Device vanished mid-session: "Microphone disconnected — Choose microphone" (§7.1, verbatim).
-  Benchmark failure: inline banner naming the stage, with the raw detail behind a Copy diagnostics
-  button, never in the sentence.
+- Input selector, real level meter with a numeric readout, test sentence and quality guidance. Test
+  states: idle, capturing, analyzing, result, no samples, too short, device removed; Stop testing
+  releases the microphone. Spool moves only during a real test or enrollment capture and parks while
+  analyzing.
+- Optional speaker enrollment (the same view onboarding reuses, §11); failure never blocks hold
+  dictation. Language choice with a model-capability explanation and mixed-script preview; never promise
+  unsupported languages.
+- Advanced benchmarks live in a disclosure (stage, result, diagnostics). This is where model names,
+  latency and thermal diagnostics live — never the pill or the menu.
+- "No voice enrolled" and "No microphones found" are distinct; loading "Looking for microphones…".
 
 ### 9.5 Privacy
 
-- **Purpose.** State what is captured, what is saved, and what is transmitted — and let the user
-  turn each off and delete what exists. Folds in the Data Panel (R7.2).
-- **Content.** Three groups.
-  **Captured** — ambient capture switch (default off), enrolled-speaker-only note, retention
-  (7-day default), audio-retention as a separate switch.
-  **Saved** — where transcripts live, how much, Delete all with a confirmation sheet that names
-  what is deleted.
-  **Transmitted** — the egress log: when, stage, provider, host, bytes out, bytes in, purpose, in a
-  `Table` with SF Mono host and byte columns, plus today's total. Copy states what left the Mac.
-  **It never claims literal zero network bytes** (V3 §9.6): the empty case reads "Nothing has left
-  this Mac in the last 30 days", scoped and dated, never "zero bytes, ever".
-- **Empty.** Egress log empty: the scoped sentence above. Nothing saved: "Nothing is saved" + what
-  would be if history were on.
-- **Loading.** Table shows "Loading…"; the switches render immediately from settings.
-- **Error.** Log unreadable: banner "The egress log can't be read — Copy diagnostics", switches
-  still usable. Delete-all partial failure: banner naming what remains, with Try again.
+- Rows: microphone, typing access, optional context from other apps (**screen text**, Screen Recording
+  permission), history retention, audio retention, **recordings retention** (keep the last 100 / keep
+  all; folder size; Reveal in Finder; Delete all…), meeting capture, optional sync.
+- Show what stays on device and what a selected service may send. A dated network-activity list shows
+  destination, purpose, time and allowed / blocked status. If the log cannot be read, show an error —
+  never "Nothing left this Mac". Never claim literal zero network bytes; the empty result is scoped and
+  dated.
+- Delete controls state scope and count; partial deletion lists what remains. Hard mute closes all
+  capture and clears latch, with the closed-shutter Spool beside it; it never resumes on wake.
+- A **Diagnostics** disclosure hosts feature flags and the data panel; diagnostics omit transcript and
+  audio by default and preview anything an export includes.
 
 ### 9.6 Settings
 
-- **Purpose.** Everything that is a preference and not a state. Replaces the nine-tab `TabView`
-  (`SettingsTab.general/models/personas/dictionary/snippets/flags/connectors/sync/data`).
-  **Every setting that exists today stays reachable** (R7.2); the tabs that had a better home move
-  there — Data → Privacy, Dictionary/Snippets/Personas → Dictionary / Apps — and the rest become
-  groups in this section.
-- **Content.** Groups, in order: **Keys** (dictation key, act key, and the honest note about Input
-  Monitoring requiring a relaunch); **Behaviour** (hold vs latch, mute, launch at login);
-  **Presence** (chin on/off, hide-in-full-screen, with the existing sentence that the quiet states
-  hide and listening/working/muted never do); **Models** (per-stage routing; the single stack is not
-  a picker — see R6.1); **Providers / Services**; **Sync**; **Feature flags** (with the "risky bets
-  ship behind flags the Lab measures" framing and an "overridden" marker); **Updates**.
-- **Empty.** No providers connected: "Nothing connected" + what that means (transcription is local
-  either way). No flags overridden: the list with none marked, not an empty pane.
-- **Loading.** Settings are local: render immediately. Any control awaiting a system answer
-  (permission, login item) shows itself disabled with a one-line reason, never a spinner.
-- **Error.** A setting that could not be written keeps the user's value on screen with a row error
-  "Not saved — Try again". A permission the app cannot obtain shows the honest path to System
-  Settings and never pretends a relaunch is unnecessary when it is.
+Subnavigation, exactly the design's seven: **General, Shortcuts, Appearance, Models, Providers, Sync,
+Updates.** No other subpage; existing subpages are re-homed — `benchmark` → Voice › benchmarks
+disclosure; `flags`, `data` → Privacy › Diagnostics; `snippets`, `personas` → Dictionary & Apps. Every
+setting that exists today stays reachable.
+
+| Subpage | Rows (design §8.6) | V4 rows added here (owner decision §0.1) |
+|---|---|---|
+| General | Launch at login; sound cues (off by default; no success sound before verified insertion); final preview 900 ms default / 600 / 1500 / manual review; low-confidence preview ≥ 1800 ms | Spacing: automatic / always / never (D6); unknown-caret style (D3) |
+| Shortcuts | Key recorder with conflict result; hold explanation; "Double-tap to latch" (Tap twice, speak hands-free, then tap to finish); shortcut test | **Latch pause** 1–5 s (B2); fn system-action prompt + "Open Keyboard settings" (I1); draw-without-key while latched (G1) |
+| Appearance | Follow system / light / dark (windows only; the pill stays dark); Reduce Motion; presence visibility; Larger Text. No mascot picker | — |
+| Models | Compatible model, installed size, real byte progress → Verifying → Loading → Ready, retry / cancel, last working model. Never Ready before verification and loading | Speaker-embedding model row (H3) |
+| Providers | Selected route, connectivity, credentials in a secure control; secrets never in errors | — |
+| Sync | Pairing comparison, connected devices, paused / offline, conflict review | — |
+| Updates | Installed version, checking, available, downloading, install-ready, failure; protects capture and unsaved drafts before restart | — |
+
+Recordings retention and screen text are Privacy rows (§9.5), per the same owner decision.
+
+### 9.7 Spool across app surfaces (design §8.9)
+
+| Surface | Spool treatment |
+|---|---|
+| Today / empty history | One small still cameo beside the hold hint; never spins for loading |
+| Turn detail / recovery sheet | Still held-tape pose beside delivery status; text stays selectable |
+| Meetings library, detail, Notes, Ask | Static mark; progress uses labelled UI |
+| Meeting capture / expanded panel | Reels and tape mirror actual capture only |
+| Dictionary & Apps, Settings, Models, Providers, Sync, Updates | Static identity; native progress; no spinning tape |
+| Voice test / enrollment | Moves only during real capture; parks while analyzing |
+| Privacy / mute | Closed-shutter pose may accompany hard mute; the text stays authoritative |
+| Onboarding | Still welcoming cameo; the sample capture follows the real live → preview → insert sequence |
+| Status menu | The monochrome cassette glyph and explicit status text; opening the menu does not record |
+| Correction popover | Optional still attentive cameo; alternatives, Edit and Keep keep priority |
+
+Spool never plays continuously beside long-form reading.
 
 ---
 
-## 10. The menu (spec for R7.3, per V3 §9.2–9.3)
+## 10. The menu (amended with design §8.8)
 
-One menu. Left-click, right-click and control-click, on **either** the status-item glyph **or** the
-idle notch chin, open the same menu — `PresenceClickRouter` already returns `.menu` unconditionally.
-Opening it must not take focus from the destination app.
-
-Order and states:
+One menu. Left-, right- and control-click on the **menu-bar glyph** (§8.4) or the idle chin open the
+same menu (`PresenceClickRouter` returns `.menu`). Opening it never takes focus from the destination
+app and never records; closing it never changes recording.
 
 | Item | States |
 |---|---|
-| Status line | Ready / Listening / Working… / Muted / Paused / one blocked reason — the same words as the chin's `detail` |
-| Microphone line | Device name + verdict (`✓` good, warning, or "off") |
-| — | separator |
-| **Dictate** | "Start dictation" ⌘D when idle; **"Stop"** while capture is open (explicit, per V3 §9.3) |
-| **Latch** | Off / On; disabled while muted |
-| **Mute** | "Mute microphone (hard)" ⌘M / "Unmute microphone"; the one item that is red-tinted; never auto-unmutes |
-| — | separator |
-| **Copy last text** | Enabled only when there is a last committed segment |
-| **Recover text** | A submenu of `held` items, each with **Insert here / Copy / Discard**; hidden entirely when nothing is held; shows a count when there is ("Recover text (2)") |
-| **Start meeting** | "Start meeting" / "Stop meeting"; when Calendar access is missing, the title says so ("Start meeting (asks for Calendar access)") |
-| — | separator |
+| Status line | Glyph + "VoicePlus · Ready" / Muted / the blocked reason; detail "Microphone is closed." when idle |
+| Microphone line | Current input device and its state |
+| **Start dictation** | Explicit click-to-stop capture ("Stop" while menu capture is open); it cannot imply a held key |
+| **Mute microphone** | Toggle; closes every active capture; never auto-unmutes |
+| **Held dictations** | "N held dictation(s)" with **Review** (opens the recovery sheet / Today); hidden when nothing is held |
 | **Open VoicePlus** | Opens the one window at Today |
-| **Settings…** | ⌘, — opens the one window at Settings |
-| **Quit VoicePlus** | ⌘Q — **warns first when held text exists**, naming how many items would be lost |
+| **Settings…** | `⌘,` — opens the one window at Settings |
+| **Quit VoicePlus** | During capture asks **Stop and quit** / Cancel; held drafts are saved or an unsaved-data warning names what would be lost |
 
-Rules: no item is ever removed to hide a problem — an unavailable action stays visible and disabled
-with the reason in its title. Nothing in the menu opens a standalone window; everything lands in the
-one window. Diagnostics are not in the menu; they are in Voice › Benchmark. The menu carries no
-model name, latency or thermal readout.
-
-**Removed from today's menu** (all reachable in the window): Open the Lab… → Voice › Benchmark;
-Data Panel… → Privacy; Feature flags → Settings › Feature flags; Dictation key / Act key submenus →
-Settings › Keys; Enroll voice… → Voice; Show indicator under the notch, Launch at login,
-Check for updates…, Check permissions… → Settings. Keeping them here as well would make two sources
-of truth.
+Rules kept from v1: no item is removed to hide a problem — an unavailable action stays visible and
+disabled with the reason in its title. Nothing in the menu opens a standalone window. The menu carries
+no model name, latency or thermal readout. Latch, meeting start and Copy last text are not menu items
+in the verified design; they live in Settings › Shortcuts, Meetings and Today.
 
 ---
 
-## 11. Onboarding (spec for R6.2, per V3 §9.5)
+## 11. Onboarding (amended with design §8.7 and the owner's Voice step)
 
-Five steps, in this order, and nothing else:
+**Welcome → Microphone → Typing access → Model → Try dictation → Voice → Ready**
 
-**Welcome → Microphone → Accessibility → Try the key → Done**
+A normal closable window, never a full-screen input trap. "Setup · N of 7" as text plus a progress
+bar; Back, Continue, and **Set up later** wherever safe; setup resumes at the unfinished step, and a
+failed step keeps the user there with completed steps preserved. No mandatory name / email. Explain each
+permission just before requesting it and use the real macOS prompt. Ask only for the selected
+backend's permissions: the default bare-modifier monitor does not justify Input Monitoring. Still
+Spool cameo on Welcome and Try; motion only during the real dictation test.
 
-No model picker, no provider setup, no mandatory enrollment, no ambient gate. Target: under two
-minutes on a clean account, ending in a dictation that actually landed.
+| Step | Heading (prototype) | Body | Primary |
+|---|---|---|---|
+| Welcome | Your voice, a little closer. | Hold a key. Speak naturally. See the sentence before it reaches your app. | Begin setup |
+| Microphone | Let VoicePlus hear you. | Microphone access is needed only to capture your voice. (Real prompt; real level meter.) | Allow microphone |
+| Typing access | Let your words reach the page. | Accessibility lets VoicePlus insert text into your focused field. You can set this up later and use Copy. | Allow typing access |
+| Model | Bring speech recognition on device. | Choose a compatible model. Dictation is ready only after download, verification and loading. | Install model |
+| Try dictation | Try your first sentence. | Hold <key>: words appear above Spool's tape while the reels turn counterclockwise; release, review, then a clockwise feed places the sentence in a safe test field. One uncertain word is demonstrated and corrected. | Try dictation |
+| **Voice** (owner addition, skippable) | The Voice section's enrollment copy ("No voice enrolled — Enrollment is optional. Hold-to-talk works without it.") | Read four lines (~30 s) with the Voice section's enrollment view; skipping leaves hold dictation fully working | Set up my voice · Skip |
+| Ready | You're ready. | A small green dot means VoicePlus is available. The microphone opens when you start dictating. | Open VoicePlus |
 
-Shape: one non-resizable window, one step at a time, "Step N of 5" as **text** (not only dots), a
-single default button bottom-right, Back where going back is meaningful. `↩` activates the default
-button on every step. `⎋` never closes onboarding — it is dismissed only by Done or by an explicit
-"Set this up later".
+Rules kept from v1 (they do not conflict with the design):
 
-**Dead-end rule, applied on every step:** a step may never present a state whose only outgoing edge
-requires something the user cannot do from that screen. Every blocked state carries (a) the exact
-system path, (b) a button that opens it, (c) a way to continue anyway, and (d) an honest sentence
-about what will not work until it is granted. A denied permission must never trap the user, and must
-never be re-requested in a loop — after the first denial the copy switches from "Allow" to "Open
-System Settings", which is what macOS actually requires.
-
-Today's flow is `welcome, permissions, micCheck, modelChoice, firstDictation, done`
-(`OnboardingStateMachine.Step`). `modelChoice` is removed by R6.1; `permissions` splits into
-Microphone and Accessibility so each denial has its own honest screen.
-
-### 11.1 Welcome
-
-- **Purpose.** Say what the app does in one sentence and start.
-- **Default.** Title, one sentence ("Hold a key, say something, and it lands where you're typing."),
-  the dictation-key name it will use, and **Get started**.
-- **Permission-denied.** n/a (nothing requested yet).
-- **Model still installing.** A single quiet line: "Setting up the speech model — you can keep
-  going." Never a blocking progress screen.
-- **Success.** → Microphone.
-- **Dead-end avoidance.** No prerequisites, so no dead end. There is no "Skip everything" here,
-  because the next two steps are what make the app work.
-
-### 11.2 Microphone (real level meter)
-
-- **Purpose.** Get microphone permission and prove the mic actually hears the user.
-- **Default.** Device picker (Automatic + devices), a **live level meter driven by real captured
-  audio** with a numeric dB readout beside it, and the same verdict words the pill uses. The step's
-  own states, which exist in the code today (`waiting`, `noAudio`, `tooQuiet`, `good`, `clipping`,
-  `unavailable(reason)`, `permissionRequired`), map to: "Say something", "No audio from this
-  microphone", "Mic level is very low", "Sounds good", "Mic is clipping", the honest reason, and the
-  permission ask.
-- **Permission-denied.** Meter greyed, headline "Microphone access is off", detail naming
-  System Settings › Privacy & Security › Microphone, buttons **Open System Settings** and
-  **Continue anyway**, plus "Dictation can't hear anything until this is on."
-- **Model still installing.** The meter works regardless (it is capture, not recognition). Footer
-  line: "Speech model still installing — N%."
-- **Success.** `good` for a sustained moment enables **Continue**. Continue is also always enabled
-  after a denial, so the step is never a wall.
-- **Dead-end avoidance.** Device disconnected mid-step falls back to Automatic and says
-  "Microphone disconnected — Choose microphone" (§7.1) rather than freezing on a dead meter.
-
-### 11.3 Accessibility
-
-- **Purpose.** Get the permission that lets text land in other apps, and be honest about the
-  relaunch macOS requires.
-- **Default.** What it is for in one sentence ("This is how words get typed into other apps"), the
-  current state with a glyph, **Open System Settings**, and **Continue**. The sub-states already in
-  the code (`explain`, `requesting`, `needsSystemSettings(attempts)`) keep their meaning; after the
-  first attempt the copy stops saying "Allow" and starts saying "Open System Settings", and after
-  repeated attempts it adds the exact toggle name rather than repeating itself.
-- **Permission-denied.** "Accessibility access is off" + the path + Open System Settings +
-  **Continue anyway** + "Text will be held for you to paste until this is on." That sentence is
-  true — held text is the real fallback (R2.3) — so this is not a threat, it is the plan.
-- **Relaunch needed.** When the granted permission needs a relaunch to take effect, say exactly
-  that and offer **Relaunch VoicePlus**. Never claim it is active when it is not.
-- **Model still installing.** Footer line only.
-- **Success.** Granted → glyph and word change, Continue becomes the default button.
-- **Dead-end avoidance.** Continue is enabled in every state, including denied. No loop of repeated
-  system prompts.
-
-### 11.4 Try the key
-
-- **Purpose.** Choose the dictation key and land one real dictation, through the real commit path.
-- **Default.** Key picker (the same list as Settings › Keys, with each option's honest permission
-  note), a **practice text field** with focus, and the instruction "Hold <key> and say something."
-  The landing uses the **R2 commit path** — the same ordered commit queue, destination check,
-  readback rule and `DeliveryOutcome` as the rest of the app. Nothing is simulated.
-- **Model still installing.** The step says so plainly and does not pretend, and — this is the part
-  amended in R7 (gap **G7**) — it *still lets the user try*. What decides the practice field is not
-  "is the stack installed" but "can anything on this Mac transcribe right now", which is
-  `RecognizerReadiness` and the pure decision in `GuidedDictationGate.decide`:
-  - `ready(name)` — the field is live; the line reads "Using <name>."
-  - `fallback(name, awaiting)` — the field is **live**, and the line names both halves: "Using
-    <name> for now — <awaiting> is still downloading (N%)." A finished-but-failed download reads
-    "Using <name>. The download didn't finish (<why>) — retry it from Settings › Models."
-  - `unavailable(reason)` — the field is **disabled**, with the reason, because nothing could
-    transcribe what was said into it.
-  There is no fake success and no indefinite spinner, and a 900 MB download is never a wall in front
-  of the step: disabling the field while a stand-in recogniser is sitting right there would be the
-  soft dead end the rule at the top of §11 forbids, and the honest banner is what keeps "Landed"
-  truthful. The key picker is live throughout.
-- **Permission-denied (carried from 11.2 / 11.3).** If microphone is denied, the practice field is
-  disabled with "Microphone access is off — Open System Settings". If Accessibility is denied, the
-  practice attempt still runs and its result is a **held** row inside the step, with Copy — proving
-  the fallback rather than hiding it.
-- **Outcomes**, which mirror the code's existing `landed(app)` / `heard(recognizer)` / `noSpeech` /
-  `failed`:
-  - **Landed** — the words appear in the practice field, and the step shows the landed row in the
-    pill's language (§8.4).
-  - **Landed · not confirmed** — the unverified variant, with Copy offered.
-  - **Held** — "Held for the practice field" with Insert here / Copy / Discard.
-  - **No speech detected — Try again** (§7.1, verbatim).
-  - **Didn't land** — the reason plus one action; never a raw error.
-- **Success.** One landed (verified or unverified) enables **Finish** as the default button. A user
-  who cannot land can still Finish, with a one-line note in Done about what to fix.
-- **Dead-end avoidance.** Every key option shows its permission cost before it is chosen; a chosen
-  key that cannot be armed says so and offers another; the step is completable in every state.
-
-### 11.5 Done
-
-- **Purpose.** Say what is ready, what is not, and where to go next.
-- **Default.** "You're set." + the key + "Hold it anywhere and talk." Two secondary links: Open
-  VoicePlus (the window, at Today) and Settings.
-- **Anything still missing.** A short list of what is not ready — permission off, model still
-  installing, no landing achieved — each with the one action that fixes it, and each phrased as a
-  consequence, not a scolding.
-- **Model still installing.** "The speech model is still installing (N%). Dictation starts working
-  when it finishes."
-- **Success.** **Close** dismisses the window. Onboarding never reappears unless the user asks for
-  it from Settings.
-- **Dead-end avoidance.** Close is always enabled.
+- **Dead-end rule on every step:** a blocked state carries the exact system path, a button that opens
+  it, a way to continue anyway, and an honest sentence about what will not work until it is granted.
+  After the first denial the copy switches from "Allow" to "Open System Settings"; never loop prompts.
+- Typing access denied: "Text will be held for you to paste until this is on" — held text is the real
+  fallback. A permission that needs a relaunch says so and offers the relaunch; never claim it is active
+  when it is not.
+- The trial dictation uses the real turn path (§8.7) — nothing simulated. "Ready" requires a working
+  recognizer and capture path; a copy-only setup is labelled as such.
+- fn key: the system-action conflict prompt ("Open Keyboard settings") comes before the key test; if no
+  fn event arrives in three presses, offer Right ⌥ (I1).
+- Optional later steps: meeting / system audio, Calendar.
 
 ---
 
@@ -756,24 +887,27 @@ Microphone and Accessibility so each denial has its own honest screen.
 
 Non-negotiable for anything built from this document.
 
-1. **No web views.** No `WKWebView`, no `SFSafariViewController`, no HTML, no CSS, no JavaScript, no
-   bundled web assets, no Electron, no React Native, anywhere in the app. Every surface is AppKit or
-   SwiftUI. This includes onboarding, release notes, privacy copy and help.
-2. **No pill redesign.** §8.1–8.3 are a record, not a starting point. Do not change the pill's or
-   the chin's geometry, colours, fonts, glyphs, animations, dwell table or click behaviour. R2.4 adds
-   the three rows in §8.4 and nothing else.
-3. **No new mark, sound or animation** (V3 §9.1). No app icon variants, no new glyph vocabulary
-   outside SF Symbols already in use, no audio feedback of any kind, no new motion work. Existing
-   animations keep their existing durations.
-4. **No third font, no hex colours, no custom controls** where a system control exists. No custom
-   focus ring, no `.focusEffectDisabled()`.
-5. **No standalone windows** after R7.2: one window, one menu, plus onboarding until it is finished.
-6. **No diagnostics in the pill or the menu.** Model names, latency, thermal state and raw errors
-   live in Voice › Benchmark.
-7. **No dishonest copy.** Never claim literal zero network bytes; never say "Landed" for an
-   unverified delivery; never say a permission is active before it is; never label a model available
-   until it works.
+1. **No web views.** No `WKWebView`, no `SFSafariViewController`, no HTML, CSS or JavaScript at
+   runtime, no bundled web assets, no Electron, no React Native. Every surface is AppKit or SwiftUI.
+   The HTML prototype is a design reference only.
+2. **The pill is the Spool pill (§8)**, built from the prototype's geometry, the copy fixture and the
+   Spool port. It is not "improved" beyond the design; changes go through the design first.
+3. **One mark.** Spool is the only mascot, the cassette outline the only menu-bar glyph; everything
+   else is SF Symbols already in use. No sound by default (earcons are opt-in; no success sound before a
+   verified insertion). Motion only where §6 and §8 specify it.
+4. **No hex colour outside `App/Core/DesignTokens.swift`**, no third font, no custom control where a
+   system control exists, no custom focus ring, no `.focusEffectDisabled()`.
+5. **No standalone windows**: the one window, the menu and onboarding — plus the design's own
+   transient surfaces (the pill, the meeting capture panel, the correction popover, the recovery sheet,
+   the tape-flight overlay).
+6. **No diagnostics in the pill or the menu.** Model names, latency, thermal state and raw errors live
+   in Voice › benchmarks and Privacy › Diagnostics.
+7. **No dishonest copy.** Never claim literal zero network bytes; never show ✓ or "Inserted" for an
+   unverified write; never say "Ready" before a model is verified and loaded; never say a permission is
+   active before it is.
 8. **No telemetry, no plaintext secrets**, and no design element that requires either.
-9. **Colour is never the only signal** — every state carries a glyph and a word, in all three
-   renderings (default, reduced motion, increased contrast).
+9. **Colour is never the only signal** — every state carries a glyph and a word, in default, reduced
+   motion and increased contrast.
 10. **Focus is never stolen** from the user's destination app by any surface described here.
+11. **Nothing revises text after it lands.** Insertion is once per turn, guarded by turn ID; animation
+    is never a write trigger.
