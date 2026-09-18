@@ -1545,3 +1545,9 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Remaining work is the owner hardware session (build doc §5) — it cannot be done on this machine:
   no microphone, no window server, no TCC grants.
 
+
+### V4 Wave 1 + Spool design → 1.11.0
+
+#### Wave 0
+
+- G0.4 done · 6c57b64..4d139a9 · PillState/EngineState V4 additive cases, reducer table verification · SharedTests 84 passed, AppTests 771 passed

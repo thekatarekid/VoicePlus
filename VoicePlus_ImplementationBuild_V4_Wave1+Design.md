@@ -210,7 +210,7 @@ waves. Agents in wave 1 have no dependency on each other except the file-ownersh
   - `App/Core/DesignTokens.swift`: `enum Tokens` — colours as `NSColor(name:dynamicProvider:)` with the dark/light pairs from design §3 (canvas, sidebar, surface, elevated, ink, secondary ink, separator, accent, ready, attention, uncertainty, pill), the six Spool material tokens, typography roles (title 24/30, section 17/24, body 13/20, meta 11/16, pill transcript 14/20 medium, pill status 11/16, key 11/16, tabular digits), spacing scale, radii (window 16, group 10, control 7, pill 18 standalone / lower-only when attached).
   - Tests: `AppTests` contrast test computing WCAG ratios for every ink/surface pair in both themes (≥ 4.5:1 text, ≥ 3:1 lines). Acceptance: all pairs pass or the failing pair is adjusted and recorded in DESIGN.md.
 
-- [ ] **G0.4 State cases · [P]**
+- [x] **G0.4 State cases · [P]**
   - `App/Core/PillState.swift`: add `.ready(hint: String)`, `.muted`, `.starting`, `.listeningQuiet`, `.latched(elapsed: TimeInterval)`, `.cancelled`, `.finishing(elapsedWarning: Bool)`, `.finalPreview(FinalPreviewInfo)` (text, uncertainCount, dwellRemaining, paused, manual), `.inserting(text:)`, `.landed` gains `.partial`, `.correcting`, `.editing`, `.undoAvailable`, `.meeting(MeetingPillInfo)`; keep every existing case. `messageLines` and `caseName` extended. `PillStateReducer` maps the new `EngineState` cases (below) 1:1; nothing else changes.
   - `Shared/Types/EngineState.swift`: add `.starting`, `.finishing`, `.cancelled` (additive).
   - Tests: `AppTests` reducer table for every case. Acceptance: builds; existing `PillTests` unchanged.
@@ -840,7 +840,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 0 | G0.1 | [ ] | | | | |
 | 0 | G0.2 | [ ] | | | | |
 | 0 | G0.3 | [ ] | | | | |
-| 0 | G0.4 | [ ] | | | | |
+| 0 | G0.4 | [x] | 6c57b64..4d139a9 | SharedTests 84 passed; AppTests 771 passed (7 new) | build clean, scratch .build-slot3 | deviation: compiler-forced edits to PillPresentation/PillView/PresenceState; S6/S2/S2 gaps reported not fixed |
 | 1 | A1–A5 | [ ] | | | | |
 | 1 | B1–B4 | [ ] | | | | |
 | 1 | C1–C3 | [ ] | | | | |
