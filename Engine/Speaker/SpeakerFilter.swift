@@ -10,12 +10,12 @@ import Foundation
 ///    that is the right default for a machine with no enrolled profile and no filtering asked for.
 ///    Once the user has asked for filtering, "I could not tell" must not type another person's
 ///    speech into their editor.
-/// 2. **No weights, no identification.** On this machine the WeSpeaker embedding backend has no
-///    weights (V3 §2.3), so `SpeakerEmbedderFactory.make()` falls back to `MFCCEmbedder`. That
-///    fallback was validated on synthetic audio only. Reporting "speaker verified" from it would be
-///    a claim the app cannot support, so filtering-on + no weights is
-///    `.suppress(.modelUnavailable)` and the user is told **"Speaker model unavailable"** — not
-///    "that wasn't you", and not a silent pass.
+/// 2. **No weights, no identification.** Without the WeSpeaker weights (V3 §2.3; since H3 they are
+///    a required download with the speech stack, `ModelID.speakerEmbedding`)
+///    `SpeakerEmbedderFactory.make()` falls back to `MFCCEmbedder`. That fallback was validated on
+///    synthetic audio only. Reporting "speaker verified" from it would be a claim the app cannot
+///    support, so filtering-on + no weights is `.suppress(.modelUnavailable)` and the user is told
+///    **"Voice filtering unavailable"** (X03) — not "that wasn't you", and not a silent pass.
 ///
 /// Nothing here stores audio or embeddings.
 public struct SpeakerFilter: Sendable {
@@ -41,11 +41,23 @@ public struct SpeakerFilter: Sendable {
 
         /// True only when a verdict from this filter is evidence about who spoke.
         public var identifies: Bool { self == .active }
+
+        /// The recovery-catalogue entry for this state, if it is one: no identifying model is
+        /// `X03` ("Couldn’t finish voice setup" — hold-to-talk still works, filtering stays off).
+        public var recoveryID: RecoveryID? { self == .modelUnavailable ? SpeakerFilter.unavailableRecovery : nil }
     }
 
-    /// The sentence to show when the embedding weights are missing. Says what is missing; never
-    /// implies a voice was checked.
-    public static let modelUnavailableMessage = "Speaker model unavailable — VoicePlus can't tell voices apart"
+    /// H3 — the label for the MFCC fallback: it keeps the pipeline working without weights, and it
+    /// cannot tell voices apart, so filtering by voice is unavailable. Says what is missing; never
+    /// implies a voice was checked. The recovery that goes with it is `unavailableRecovery`.
+    public static let unavailableLabel = "Voice filtering unavailable"
+    /// X03 in the design's recovery catalogue (`Fixtures/design/design_copy.json` › errors):
+    /// "Couldn’t finish voice setup" / "Hold-to-talk still works; speaker filtering stays off." /
+    /// "Try voice setup again". `EngineMessage.headline(for:)` has the headline.
+    public static let unavailableRecovery: RecoveryID = .X03
+    /// The sentence to show when the embedding weights are missing (kept under its R3.3 name; it is
+    /// `unavailableLabel` since H3).
+    public static let modelUnavailableMessage = unavailableLabel
     public static let notEnrolledMessage = "No enrolled voice — record one to filter by speaker"
 
     /// Why insertion was suppressed. The raw values are what the pill and the log show.
@@ -105,6 +117,22 @@ public struct SpeakerFilter: Sendable {
         guard isOn else { return .off }
         guard canIdentify else { return .modelUnavailable }
         return gate.profile == nil ? .notEnrolled : .active
+    }
+
+    /// H3 — can voice filtering work at all with this embedder, whether or not it is switched on?
+    /// Settings › Models and Voice read this; the MFCC fallback is `.unavailable`.
+    public enum Availability: Equatable, Sendable {
+        case available
+        case unavailable(label: String, recovery: RecoveryID)
+
+        public var label: String? {
+            if case .unavailable(let label, _) = self { return label }
+            return nil
+        }
+    }
+
+    public static func availability(of embedder: any SpeakerEmbedder) -> Availability {
+        embedder.identifiesSpeakers ? .available : .unavailable(label: unavailableLabel, recovery: unavailableRecovery)
     }
 
     /// The decision for one already-embedded utterance.

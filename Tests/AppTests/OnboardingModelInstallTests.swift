@@ -41,7 +41,7 @@ struct OnboardingModelInstallTests {
         var m = M()
         // Nothing to choose, nothing to press: one event starts the one install.
         #expect(m.handle(.installModels) == [.checkModelPresence, .startDownload, .checkRecognizerReadiness])
-        #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160])
+        #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding])
         #expect(m.installRequested)
         // A second ask while it is running fetches nothing a second time — it still re-checks
         // presence and readiness (cheap, and always safe), but never starts a second download.
@@ -117,13 +117,15 @@ struct OnboardingModelInstallTests {
     /// quoted.
     @Test func onlyTheMissingHalfIsFetched() async throws {
         let (vm, models) = installViewModel(installed: [.parakeetTDTv3])
+        // H3: the speaker-embedding weights are part of the missing half.
         let eou = ModelCatalog.descriptor(.parakeetEOU160).approxBytes
+            + ModelCatalog.descriptor(.speakerEmbedding).approxBytes
         #expect(models.remainingStackBytes == eou,
                 "the Parakeet TDT v3 already on disk must not be counted again")
         #expect(vm.remainingLabel == ByteText.short(eou))
         #expect(vm.isPartialDownload)
         try await waitUntil { models.isStackInstalled }
-        #expect(models.fetched == [[.parakeetEOU160]])
+        #expect(models.fetched == [[.parakeetEOU160, .speakerEmbedding]])
         vm.teardown()
     }
 

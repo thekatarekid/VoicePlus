@@ -16,8 +16,19 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     case parakeetTDTCTC110m = "parakeet-tdt-ctc-110m-coreml"
     /// Intel fallback. Placeholder entry: no runtime in Phase 1 (documented deviation).
     case whisperSmall = "whisper-small"
+    /// H3 (V4.50) — the speaker-embedding weights: FluidAudio's diarizer repo, whose WeSpeaker v2
+    /// model is the only backend that can tell voices apart (`FluidSpeakerEmbedder`). It needs the
+    /// pyannote segmentation model beside it (the embedder sizes its mask from that model's output
+    /// shape). ~14 MB. Declared last so `RealEngine.revision()`'s bit positions for the speech
+    /// models do not move.
+    case speakerEmbedding = "speaker-diarization-coreml"
 }
 
+/// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
+///
+/// There is no speaker-embedding kind yet: adding one means a case in `ModelManager`'s exhaustive
+/// loader switch and its default fetcher table, which H3 left to the owner of that file. Until then
+/// `ModelID.speakerEmbedding` rides `.streamingEOU` — see its catalog entry for why that is safe.
 public enum ModelKind: String, Codable, Sendable {
     case finalTDT, streamingEOU, whisper
 }
@@ -135,6 +146,31 @@ public enum ModelCatalog {
             remoteFiles: [RemoteFile(path: "ggml-small.bin", size: 487_601_967)],
             approxBytes: 488_000_000, displayName: "Whisper small (Intel fallback, placeholder)", license: "MIT",
             role: .fallback),
+        // H3 (V4.50) — the speaker-embedding weights, a required part of the stack so the MFCC
+        // fallback ("Voice filtering unavailable") is never what a real user gets.
+        //
+        // Verified against the repo (HF tree, main @ 1ed7a66, 2026-03-14) and against what FluidAudio
+        // itself fetched on this machine, byte for byte: FluidAudio's `Repo.diarizer`
+        // ("FluidInference/speaker-diarization-coreml"), which `ModelHub` fetches as exactly
+        // `ModelNames.Diarizer.requiredModels` — pyannote_segmentation.mlmodelc (5,766,532 bytes) and
+        // wespeaker_v2.mlmodelc (7,954,144 bytes). Card license CC-BY-4.0.
+        //
+        // `folderName` = `Repo.diarizer.folderName`, like the Parakeet entries, so the folder we fill
+        // is the one FluidAudio's own tooling would resolve to.
+        //
+        // `kind: .streamingEOU` is a borrowed kind (see `ModelKind`). What it buys is the right
+        // fetcher: `FluidAudioFetcher`, which resolves `hfRepo` to `Repo.diarizer`, stages, verifies
+        // with `ModelIntegrity` and publishes atomically. What it would cost, were anything to ask
+        // `ModelManager.load` for this id, is a clean failure: the EOU loader opens
+        // `streaming_encoder.mlmodelc` in this folder, finds none, and throws — no network, no
+        // wrong model. (`.finalTDT`'s loader re-resolves through `ModelHub` and could fetch Parakeet.)
+        // Nothing does ask: `FluidSpeakerEmbedder.load(from:)` is this model's loader.
+        .speakerEmbedding: ModelDescriptor(
+            id: .speakerEmbedding, kind: .streamingEOU,
+            folderName: "speaker-diarization",
+            hfRepo: "FluidInference/speaker-diarization-coreml",
+            requiredPaths: ["pyannote_segmentation.mlmodelc", "wespeaker_v2.mlmodelc"],
+            approxBytes: 13_720_676, displayName: "WeSpeaker v2 speaker embedding", license: "CC-BY-4.0"),
     ]
 
     /// Models Settings › Models may list, in catalog order.
@@ -177,8 +213,10 @@ public enum ModelCatalog {
 /// and the fallbacks stay in the catalog as fallbacks (`ModelRole.fallback`).
 public enum ModelStack {
     /// Install order: the final model first, because it is what makes dictation work at all; the
-    /// streaming preview second.
-    public static let models: [ModelID] = [.parakeetTDTv3, .parakeetEOU160]
+    /// streaming preview second; the speaker-embedding weights last (H3, V4.50). They are small
+    /// (~14 MB) and required, but nothing about dictating waits on them, so a failed fetch of them
+    /// can never hold up either speech model.
+    public static let models: [ModelID] = [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding]
 
     /// The flag that turns Qwen refinement on. Read by *id* on purpose: the flag itself is declared
     /// in `Shared/Types/FeatureFlag.swift` by the refinement work (V3 R5), and `isEnabled(id:)`

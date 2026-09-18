@@ -57,10 +57,10 @@ struct ModelStackInstallTests {
 
     // MARK: The stack itself
 
-    @Test("the stack is TDT v3 + EOU, and nothing else")
+    @Test("the stack is TDT v3 + EOU + the speaker-embedding weights (H3), and nothing else")
     func theStackIsTwoModels() {
-        #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160])
-        #expect(ModelStack.approximateBytes == 900_000_000)
+        #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding])
+        #expect(ModelStack.approximateBytes == 900_000_000 + 13_720_676)
         // The two entries that used to be tiers of their own are fallbacks now: still in the
         // catalog (the recognizer walks down to them), never offered in the UI.
         #expect(ModelCatalog.descriptor(.parakeetTDTCTC110m).role == .fallback)
@@ -157,10 +157,11 @@ struct ModelStackInstallTests {
         let manifestBefore = try Data(contentsOf: ModelManifest.url(in: folder))
 
         let manager = Self.manager(root: root, fetcher: fetcher)
-        #expect(await ModelStack.missing(in: manager) == [.parakeetEOU160])
+        // H3: the speaker-embedding weights are part of the stack, so they are topped up too.
+        #expect(await ModelStack.missing(in: manager) == [.parakeetEOU160, .speakerEmbedding])
         let fetched = try await ModelStack.install(manager: manager)
-        #expect(fetched == [.parakeetEOU160])
-        #expect(fetcher.fetched == [.parakeetEOU160])
+        #expect(fetched == [.parakeetEOU160, .speakerEmbedding])
+        #expect(fetcher.fetched == [.parakeetEOU160, .speakerEmbedding])
         #expect(try Data(contentsOf: ModelManifest.url(in: folder)) == manifestBefore)
         #expect(await ModelStack.isInstalled(in: manager))
     }

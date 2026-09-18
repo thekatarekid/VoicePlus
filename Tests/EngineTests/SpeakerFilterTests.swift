@@ -51,13 +51,14 @@ struct SpeakerFilterTests {
         #expect(filter.decide(.unknown).allowsInsertion)
     }
 
-    @Test("filtering on with no embedding weights is 'speaker model unavailable', not a verdict")
+    @Test("filtering on with no embedding weights is 'Voice filtering unavailable', not a verdict")
     func absentWeightsAreReportedHonestly() {
         let filter = SpeakerFilter(isOn: true,
                                    gate: SpeakerGate(profile: Self.profile([1, 0])),
                                    canIdentify: false)
         #expect(filter.status == .modelUnavailable)
-        #expect(filter.status.message == "Speaker model unavailable — VoicePlus can't tell voices apart")
+        // H3: the fallback's label is the design's X03 wording.
+        #expect(filter.status.message == "Voice filtering unavailable")
         #expect(!filter.status.identifies, "an unavailable model must never count as identification")
         // Even a verdict that *looks* like a match cannot be trusted from a backend that does not
         // identify speakers, so the decision is the same either way — and it never says "not you".

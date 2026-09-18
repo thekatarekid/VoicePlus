@@ -411,9 +411,15 @@ struct RecognizerReadinessTests {
         await installer.refresh()
         #expect(installer.stackReadiness == .fallback(name: "Parakeet TDT-CTC 110M (tiny)", awaiting: "Parakeet TDT 0.6B v3"))
 
-        // The stack lands: it is now genuinely ready and named as itself.
+        // The speech models land; the stack's last piece (H3: the speaker-embedding weights) is
+        // what is still awaited.
         try stubModel(.parakeetTDTv3, under: root)
         try stubModel(.parakeetEOU160, under: root)
+        await installer.refresh()
+        #expect(installer.stackReadiness == .fallback(name: "Parakeet TDT 0.6B v3", awaiting: "WeSpeaker v2 speaker embedding"))
+
+        // The stack lands: it is now genuinely ready and named as itself.
+        try stubModel(.speakerEmbedding, under: root)
         await installer.refresh()
         #expect(installer.stackReadiness == .ready(name: "Parakeet TDT 0.6B v3"))
     }
@@ -484,7 +490,8 @@ struct DownloadProgressTextTests {
         try await waitUntil { vm.machine.download.isInFlight }
         let line = try #require(vm.downloadLine)
         #expect(line.contains("Parakeet TDT 0.6B v3"))
-        #expect(line.contains("900 MB"), "the denominator is the stack's real total, not a bare percentage")
+        #expect(line.contains(ByteText.short(ModelStack.approximateBytes)),
+                "the denominator is the stack's real total, not a bare percentage")
         #expect(vm.downloadStartedAt != nil)
         gate.open()
         vm.teardown()
@@ -498,9 +505,11 @@ struct DownloadProgressTextTests {
 @Suite("R6.1 — the install names the real models, at their real size")
 struct ModelStackNamingTests {
     @Test func namesAndSizesComeFromTheCatalog() {
-        #expect(ModelStack.displayNames == ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)"])
-        #expect(ModelStack.approximateBytes == 900_000_000)
-        #expect(ByteText.short(ModelStack.approximateBytes) == "900 MB")
+        // H3: the speaker-embedding weights install with the speech models.
+        #expect(ModelStack.displayNames == ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)",
+                                            "WeSpeaker v2 speaker embedding"])
+        #expect(ModelStack.approximateBytes == 913_720_676)
+        #expect(ByteText.short(ModelStack.approximateBytes) == "914 MB")
         #expect(ModelStack.approximateBytes == ModelStack.descriptors.reduce(0) { $0 + $1.approxBytes },
                 "the size is a sum over the catalog, so it cannot drift")
     }

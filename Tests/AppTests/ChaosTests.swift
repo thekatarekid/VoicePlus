@@ -183,13 +183,13 @@ struct ChaosTests {
         #expect(installer.isStackInstalled)
         #expect(await manager.isPresent(.parakeetTDTv3))
         #expect(await manager.isPresent(.parakeetEOU160))
-        // One retry of the torn model, plus the second model of the stack.
-        #expect(fetcher.calls == 3)
+        // One retry of the torn model, plus the rest of the stack (EOU, and since H3 the speaker weights).
+        #expect(fetcher.calls == 4)
         #expect(progress.last == 1)
         // P3: progress now carries bytes and the model's real name, not a bare fraction — that is
         // what lets the screen say "412 MB of 900 MB" instead of an unanchored percentage.
         let last = try #require(sink.reports.last)
-        #expect(last.modelName == "Parakeet Realtime EOU 120M (160 ms)", "the last model of the stack")
+        #expect(last.modelName == ModelCatalog.descriptor(ModelStack.models.last!).displayName, "the last model of the stack")
         #expect(last.bytesExpected == ModelStack.approximateBytes, "the whole stack is the denominator")
         #expect(last.bytesReceived == last.bytesExpected)
         try? FileManager.default.removeItem(at: root)

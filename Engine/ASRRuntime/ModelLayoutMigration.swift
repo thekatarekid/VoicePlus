@@ -14,6 +14,8 @@ extension ModelCatalog {
         switch id {
         case .parakeetTDTv3: return Repo.parakeetV3.folderName
         case .parakeetTDTCTC110m: return Repo.parakeetTdtCtc110m.folderName
+        // H3: fetched through `ModelHub` (`FluidAudioFetcher`), so stored under upstream's name too.
+        case .speakerEmbedding: return Repo.diarizer.folderName
         // Loaded file-by-file out of the directory we pass (`StreamingEouAsrManager.loadModels(from:)`
         // / no FluidAudio runtime at all), so no name to agree with.
         case .parakeetEOU160, .whisperSmall: return nil
