@@ -108,7 +108,8 @@ public enum CaptureRecoveryCopy {
 
 extension AudioCaptureError: LocalizedError {
     /// Only the cases with a design sentence of their own. Everything else returns nil, so every
-    /// other case keeps its `description` wording wherever the error's own text is shown.
+    /// other case keeps its `description` wording wherever the error's own text is read (since S9
+    /// the UI shows the recovery catalogue's headline; this text goes to the log).
     public var errorDescription: String? {
         switch self {
         case .startTimedOut(let device, let seconds):

@@ -30,7 +30,8 @@ public enum ModelManagerError: Error, Equatable {
 /// Plain language, because these reach the notch. Until 1.7.10 an incomplete model surfaced as
 /// whatever Cocoa error the failing move threw — the user's screenshot read `The file
 /// "weight.bin.partial" doesn't exist.`, which names an internal scratch file, explains nothing and
-/// offers no way out. `EngineMessage.describe` prefers `errorDescription`, so this is what shows.
+/// offers no way out. Since S9 `EngineMessage.describe` shows the recovery catalogue's headline and
+/// this sentence goes to the log; it is still what any other `localizedDescription` reader gets.
 extension ModelManagerError: LocalizedError {
     public var errorDescription: String? {
         switch self {

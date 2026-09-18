@@ -135,7 +135,7 @@ public enum MicSelfTest {
         do { try audio.start() } catch { startError = error }
         let elapsed = Date().timeIntervalSince(began)
         emit("mic-selftest: capture graph — \(vp?.diagnostics.summary ?? core.diagnostics.summary)")
-        emit("mic-selftest: start took \(String(format: "%.2f", elapsed))s (production startTimeout is 3s)"
+        emit("mic-selftest: start took \(String(format: "%.2f", elapsed))s (production budget: 3 s built-in, 5 s USB, 8 s Bluetooth/Continuity/virtual)"
              + " engine.isRunning=\(vp?.isRunning ?? core.isRunning)"
              + " startThrew=\(startError.map { String(describing: $0) } ?? "no")")
         if let vp {

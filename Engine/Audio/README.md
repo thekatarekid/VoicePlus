@@ -23,7 +23,7 @@ let pipeline = AudioPipeline(source: source, vad: vad, options: options)
 let events = pipeline.events()                           // AsyncStream<AudioPipelineEvent>, one per subscriber
 Task { for await e in events { switch e {
     case .audio(let samples, let position): ...          // 16 kHz Float, ≈50 ms blocks, in order, nothing dropped
-    case .micQuality(let q): pill.show(q)                // once, from the first 300 ms of signal
+    case .micQuality(let q): pill.show(q)                // once: pre-speech floor vs the first 1 s of VAD speech
     case .vad(let ev): ...                               // speechStart(at:) / speechEnd(at:) seconds from start
     case .chunk(let c): await asr.transcribe(c.samples)  // 3–5 s, cut at speech ends; `.flush` chunk at stop
     case .endpoint(let d): await pipeline.stop()         // .endpoint(at:) / .noSpeech / .maxDuration
@@ -46,7 +46,7 @@ pipeline.audioBuffers()          // AsyncStream<[Float]> of just the 16 kHz audi
 | `RingBuffer.swift` | SPSC Float ring; producer never blocks/allocates; overruns counted, not hidden. |
 | `AudioConverter16k.swift` | `AVAudioConverter` any-format → 16 kHz mono Float32 (streaming or one-shot flush). |
 | `InputSelectionPolicy.swift` | Device choice: per-device prefs in `UserDefaults` (`audio.input.preferredUID`, `audio.input.pref.<uid>`) → keep current → system default unless display/virtual → built-in. |
-| `MicQualityAnalyzer.swift` | SNR (p90/p10 frame RMS), clipping fraction, low level over 300 ms of signal (leading pause skipped; 1.5 s deadline). |
+| `MicQualityAnalyzer.swift` | V4.18 SNR: floor = p10 of 10 ms frame RMS over the pre-speech window (else the 4 s running minimum), signal = p90 over the first 1 s of VAD speech; one verdict, a pause is never graded; clipping fraction; low level only when speech peaks below −40 dBFS. |
 | `Chunker.swift` / `Endpointer.swift` | 3.0 / 5.0 s chunking at speech boundaries; latched-mode endpoint after trailing silence (1.2 s default), no-speech timeout, max duration. |
 | `WAVFile.swift` / `FixtureCaptureSource.swift` | Dependency-free WAV reader/writer; deterministic replay through the same sink as the HAL source. `AudioFixtures.url(suite, file)`. |
 | `VAD/VADProtocol.swift` | `VADProtocol` (frame-synchronous, 16 kHz), `VADEvent`, offline `segments(in:)`. |

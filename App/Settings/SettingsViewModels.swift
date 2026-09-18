@@ -489,7 +489,9 @@ public final class AudioInputSettingsViewModel: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(at: recordingsDirectory, includingPropertiesForKeys: nil)) ?? []
         let count = Set(files.map(UtteranceRecorder.stamp(of:))).count
         guard count > 0 else { return "No recordings saved yet." }
-        return "\(count) recording\(count == 1 ? "" : "s") saved on this Mac. Only the most recent \(UtteranceRecorder.retainedUtterances) are kept."
+        let retain = UtteranceRecorder.retainedUtterances
+        let policy = retain > 0 ? "Only the most recent \(retain) are kept." : "All of them are kept."
+        return "\(count) recording\(count == 1 ? "" : "s") saved on this Mac. \(policy)"
     }
 
     public func revealRecordings() {
