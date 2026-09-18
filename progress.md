@@ -1553,3 +1553,4 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - G0.4 done · 6c57b64..4d139a9 · PillState/EngineState V4 additive cases, reducer table verification · SharedTests 84 passed, AppTests 771 passed
 - G0.1 done · 54d80ec..1705ac2 · Shared types (CaretState, punctuationOrigin, TurnRecord, ScreenTextReader, .partial) + decode-clamp fix · SharedTests 89 passed (+5)
 - G0.3 done · 60f28aa..86351c5 · DESIGN.md v2 + DesignTokens verified, copy drift fixed against fixtures · AppTests 780 passed (+9), DesignTokenTests 22 passing
+- G0.2 done · 6ad3286..ef56ebc · PipelineAudioSource forwards .vad/.endpoint/.chunk, setLatched on live pipeline · AppTests 783 passed (+3), EngineTests 457/458 passed (unrelated fixture failure)

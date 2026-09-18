@@ -199,7 +199,7 @@ waves. Agents in wave 1 have no dependency on each other except the file-ownersh
   - `Shared/Types/DeliveryOutcome`: add `.partial(method:)` if absent.
   - Tests: `SharedTests` round trips + `renderedText` vs `joinedText` table. Acceptance: whole package builds; no existing test changed except added cases.
 
-- [ ] **G0.2 Audio event forwarding · [P]**
+- [x] **G0.2 Audio event forwarding · [P]**
   - `App/Services/PipelineAudioSource.swift` events loop (`:100-119`): replace `default: break` with
     `onVAD: ((VADEvent) -> Void)?`, `onEndpoint: ((Endpointer.Decision) -> Void)?`, `onChunk: ((AudioChunk) -> Void)?`
     forwards; add `setLatched(_ on: Bool)` that flips `AudioPipeline.Options.latched` on the live pipeline.
@@ -838,7 +838,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | Wave | Task | Status | Commit | Tests (+added) | Evidence | Notes |
 |---|---|---|---|---|---|---|
 | 0 | G0.1 | [x] | 54d80ec..1705ac2 | SharedTests 89 passed (+5), PipelineTests 330, InjectionTests 111, AppTests(filtered) 34 | build clean, scratch .build-base | deviation: PillDelivery.swift 1 case; Pipeline renderedText still shadows Shared's (unowned) |
-| 0 | G0.2 | [ ] | | | | |
+| 0 | G0.2 | [x] | 6ad3286..ef56ebc | AppTests 783 passed (+3), Engine 458: 457 passed | build clean, .build-slot1 | unrelated fixture-length test failure; AudioPipeline edit outside Owns |
 | 0 | G0.3 | [x] | 60f28aa..86351c5 | AppTests 780 passed (+9), DesignTokenTests 22 passing | build clean, scratch .build-slot2 | separator/pill border kept decorative per §3.3; hardware rendering unverified |
 | 0 | G0.4 | [x] | 6c57b64..4d139a9 | SharedTests 84 passed; AppTests 771 passed (7 new) | build clean, scratch .build-slot3 | deviation: compiler-forced edits to PillPresentation/PillView/PresenceState; S6/S2/S2 gaps reported not fixed |
 | 1 | A1–A5 | [ ] | | | | |
