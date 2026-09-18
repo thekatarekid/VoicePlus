@@ -205,7 +205,7 @@ waves. Agents in wave 1 have no dependency on each other except the file-ownersh
     forwards; add `setLatched(_ on: Bool)` that flips `AudioPipeline.Options.latched` on the live pipeline.
   - Tests: `AppTests` — a mock pipeline emitting `.vad/.endpoint` reaches the callbacks; `setLatched` is observed by the pipeline. Nothing else in this file changes (wave 1 A owns `start/stop`).
 
-- [ ] **G0.3 DESIGN.md v2 + tokens · [P]**
+- [x] **G0.3 DESIGN.md v2 + tokens · [P]**
   - `DESIGN.md`: replace §8 ("the pill as-is") with design_v1 §3, §4, §6 (Spool, geometry table, state inventory I0–Q2); add the token table (§3), typography, spacing/radii; keep §5 focus rules and §7 copy voice; amend §9–§11 with the design §8 window, menu and onboarding. Record the authority order and the owner decisions from §0 of this document, and replace the old rule that forbade "hands-free" in UI copy with the verified latched copy.
   - `App/Core/DesignTokens.swift`: `enum Tokens` — colours as `NSColor(name:dynamicProvider:)` with the dark/light pairs from design §3 (canvas, sidebar, surface, elevated, ink, secondary ink, separator, accent, ready, attention, uncertainty, pill), the six Spool material tokens, typography roles (title 24/30, section 17/24, body 13/20, meta 11/16, pill transcript 14/20 medium, pill status 11/16, key 11/16, tabular digits), spacing scale, radii (window 16, group 10, control 7, pill 18 standalone / lower-only when attached).
   - Tests: `AppTests` contrast test computing WCAG ratios for every ink/surface pair in both themes (≥ 4.5:1 text, ≥ 3:1 lines). Acceptance: all pairs pass or the failing pair is adjusted and recorded in DESIGN.md.
@@ -839,7 +839,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 |---|---|---|---|---|---|---|
 | 0 | G0.1 | [x] | 54d80ec..1705ac2 | SharedTests 89 passed (+5), PipelineTests 330, InjectionTests 111, AppTests(filtered) 34 | build clean, scratch .build-base | deviation: PillDelivery.swift 1 case; Pipeline renderedText still shadows Shared's (unowned) |
 | 0 | G0.2 | [ ] | | | | |
-| 0 | G0.3 | [ ] | | | | |
+| 0 | G0.3 | [x] | 60f28aa..86351c5 | AppTests 780 passed (+9), DesignTokenTests 22 passing | build clean, scratch .build-slot2 | separator/pill border kept decorative per §3.3; hardware rendering unverified |
 | 0 | G0.4 | [x] | 6c57b64..4d139a9 | SharedTests 84 passed; AppTests 771 passed (7 new) | build clean, scratch .build-slot3 | deviation: compiler-forced edits to PillPresentation/PillView/PresenceState; S6/S2/S2 gaps reported not fixed |
 | 1 | A1–A5 | [ ] | | | | |
 | 1 | B1–B4 | [ ] | | | | |
