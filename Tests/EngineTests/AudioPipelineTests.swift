@@ -148,7 +148,8 @@ private final class EventBox: @unchecked Sendable {
         let pipeline = AudioPipeline(source: FixtureCaptureSource(wav: wav), vad: EnergyVAD(), options: options)
         let events = try await collect(pipeline) { try await pipeline.start(); await pipeline.stop() }
         #expect(events.contains(.endpoint(.noSpeech)))
-        #expect(events.contains { if case .micQuality(let q) = $0 { return q.lowLevel }; return false })
+        // F1 (V4.18): silence is never graded — no "Mic level is very low" for a pause.
+        #expect(!events.contains { if case .micQuality = $0 { return true }; return false })
     }
 
     /// Route-change chaos: device swaps mid-utterance must not lose a single sample.

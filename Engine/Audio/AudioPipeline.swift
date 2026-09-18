@@ -340,6 +340,8 @@ public final class AudioPipeline: @unchecked Sendable {
         for s in samples { acc += s * s }
         broadcaster.send(.level(rms: (acc / Float(samples.count)).squareRoot()))
 
+        // F1 (V4.18): the analyzer grades VAD speech against the pre-speech floor; `runVAD` hands it
+        // the events. It publishes once, after a second of speech, or at `flush()` if there was any.
         if let q = micQuality.feed(samples) { lastMicQuality = q; broadcaster.send(.micQuality(q)) }
 
         for chunk in chunker.feed(samples) { broadcaster.send(.chunk(chunk)) }
@@ -404,6 +406,7 @@ public final class AudioPipeline: @unchecked Sendable {
     private func runVAD(_ frame: [Float]) async {
         guard let step = try? await vad.process(frame: frame), let event = step.event else { return }
         broadcaster.send(.vad(event))
+        micQuality.note(event)             // F1: speech segments and the end of the pre-speech window
         switch event {
         case .speechStart(let t): endpointer.speechStarted(at: t)
         case .speechEnd(let t):

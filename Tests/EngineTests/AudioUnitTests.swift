@@ -122,17 +122,8 @@ private func sine(_ hz: Double, rate: Int, seconds: Double, amp: Float = 0.5) ->
         }
     }
 
-    @Test func analyzerFiresOnceAt300ms() {
-        let a = MicQualityAnalyzer()
-        #expect(a.feed([Float](repeating: 0, count: 8000)) == nil)     // leading pause is skipped
-        #expect(a.feed([Float](repeating: 0.1, count: 3000)) == nil)
-        #expect(a.feed([Float](repeating: 0.1, count: 3000)) != nil)
-        #expect(a.feed([Float](repeating: 0.1, count: 3000)) == nil)
-        #expect(a.result != nil)
-        let quiet = MicQualityAnalyzer()
-        #expect(quiet.feed([Float](repeating: 0, count: 16_000)) == nil)
-        #expect(quiet.feed([Float](repeating: 0, count: 16_000))?.lowLevel == true)  // deadline hit
-    }
+    // The live verdict's timing (v1: once at 300 ms of signal, or a "very low" graded pause after a
+    // 1.5 s deadline) is replaced by F1 / V4.18 — see MicQualityV2Tests.swift.
 }
 
 @Suite struct ChunkerEndpointerTests {
