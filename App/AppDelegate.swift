@@ -45,13 +45,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory) // LSUIElement equivalent until Packaging installs Info.plist
         AppContainer.ensureSupportDirectories()
+        // A3 / V4.6 — the hotkey is armed *before* the container is built (VAD on the ANE, engine,
+        // providers). A press made meanwhile shows "Starting microphone…" and is replayed through the
+        // real handler once the container is wired: one press at most, and a released one lands
+        // nothing. Until 1.11 presses before `wire()` simply did nothing.
+        let gate = LaunchPressGate(present: { [weak self] state in self?.pill.model.present(state) },
+                                   dismiss: { [weak self] in self?.pill.model.hide() })
+        hotkey.onAction = { action in gate.handle(action) }
+        armHotkeys()
         Task { @MainActor in
             var options = AppContainer.Options()
             options.flags = flags
-            let container = await AppContainer.build(options: options)
-            self.container = container
-            self.wire(container)
+            let built = options
+            let container = await LaunchSequence.run(
+                gate: gate,
+                build: { await AppContainer.build(options: built) },
+                wire: { container in
+                    self.container = container
+                    self.wire(container)
+                },
+                forward: { [weak self] action in self?.hotkey.onAction?(action) })
+            // The watcher may have read capabilities before the menu and the indicator existed.
+            if let caps = self.capabilityWatcher?.capabilities {
+                self.statusItem?.capabilities = caps
+                self.presence.setCapabilities(caps)
+            }
+            // V4.7 / V4.8 — model-store maintenance, model preload and capture prewarm: all after
+            // wiring, all off the launch path.
+            container.startBackgroundWork()
         }
+    }
+
+    /// Arm the hotkey from the permission *matrix*, continuously, before anything else — not from
+    /// the completion of the permission walk. Until 1.6.5 `hotkey.start()` had exactly one caller,
+    /// that completion, which does not run while onboarding is on screen and is withheld while a
+    /// pre-prompt window is up. On the reporting machine Input Monitoring had been granted for
+    /// twenty minutes and no tap had ever been created, because the walk was parked on the
+    /// Accessibility pre-prompt — a permission the hotkey does not need. That is the whole of the
+    /// "it needs a relaunch" symptom: the app only ever tried once, at the wrong moment.
+    /// A3 moved this out of `wire()` so the tap is live while the container is still building.
+    @MainActor
+    private func armHotkeys() {
+        // Actions ships off (`ActKeySettings`): with the switch off the act service is never armed
+        // at all, so the key it is bound to reaches the frontmost app untouched. Read per tick, so
+        // the Settings picker takes effect within a second and without a relaunch. Before the
+        // container exists there are no settings to read, so it stays off until then.
+        actHotkey.isWanted = { [weak self] in ActKeySettings.isEnabled(self?.container?.settings) }
+        let watcher = CapabilityWatcher(checker: permissionChecker, hotkeys: [hotkey, actHotkey])
+        watcher.onCapabilitiesChanged = { [weak self] caps, _ in
+            self?.statusItem?.capabilities = caps
+            self?.presence.setCapabilities(caps)   // P5 — a missing permission is a visible state
+        }
+        watcher.onTapProvenDead = { [weak self] in
+            // The tap is armed, was re-armed once, and the system is still delivering modifier keys
+            // to everyone but us. Say so; never restart behind the user's back.
+            self?.pill.model.present(.preview(text: "macOS isn't sending keys to VoicePlus — quit and reopen it to fix the hotkey"))
+            self?.presence.setTapProvenDead()   // P5 — and it stays visible after the pill goes
+        }
+        // P6 — the trigger that covers the case `onTapProvenDead` structurally cannot: a Microphone
+        // or Input Monitoring grant made while this process was already running. macOS withholds
+        // those until the app next starts (it says so in its own alert), so the status never flips,
+        // the tap never arms, and nothing above ever fires. Offer the restart, once per trip.
+        PermissionSettingsOpener.onOpened = { [weak watcher] permission in
+            Task { @MainActor in watcher?.noteSentToSettings(permission) }
+        }
+        watcher.onRelaunchAdvised = { permission in
+            RelaunchPrompt.present(for: permission)
+        }
+        capabilityWatcher = watcher
+        watcher.start()
     }
 
     @MainActor
@@ -477,40 +539,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presence.bind(pill: pill.model, mute: container.latchController.mute)
         presence.start()
 
-        // Arm the hotkey from the permission *matrix*, continuously, before anything else — not from
-        // the completion of the permission walk. Until 1.6.5 `hotkey.start()` had exactly one caller,
-        // that completion, which does not run while onboarding is on screen and is withheld while a
-        // pre-prompt window is up. On the reporting machine Input Monitoring had been granted for
-        // twenty minutes and no tap had ever been created, because the walk was parked on the
-        // Accessibility pre-prompt — a permission the hotkey does not need. That is the whole of the
-        // "it needs a relaunch" symptom: the app only ever tried once, at the wrong moment.
-        // Actions ships off (`ActKeySettings`): with the switch off the act service is never armed
-        // at all, so the key it is bound to reaches the frontmost app untouched. Read per tick, so
-        // the Settings picker takes effect within a second and without a relaunch.
-        actHotkey.isWanted = { [weak container] in ActKeySettings.isEnabled(container?.settings) }
-        let watcher = CapabilityWatcher(checker: permissionChecker, hotkeys: [hotkey, actHotkey])
-        watcher.onCapabilitiesChanged = { [weak self] caps, _ in
-            self?.statusItem?.capabilities = caps
-            self?.presence.setCapabilities(caps)   // P5 — a missing permission is a visible state
-        }
-        watcher.onTapProvenDead = { [weak self] in
-            // The tap is armed, was re-armed once, and the system is still delivering modifier keys
-            // to everyone but us. Say so; never restart behind the user's back.
-            self?.pill.model.present(.preview(text: "macOS isn't sending keys to VoicePlus — quit and reopen it to fix the hotkey"))
-            self?.presence.setTapProvenDead()   // P5 — and it stays visible after the pill goes
-        }
-        // P6 — the trigger that covers the case `onTapProvenDead` structurally cannot: a Microphone
-        // or Input Monitoring grant made while this process was already running. macOS withholds
-        // those until the app next starts (it says so in its own alert), so the status never flips,
-        // the tap never arms, and nothing above ever fires. Offer the restart, once per trip.
-        PermissionSettingsOpener.onOpened = { [weak watcher] permission in
-            Task { @MainActor in watcher?.noteSentToSettings(permission) }
-        }
-        watcher.onRelaunchAdvised = { permission in
-            RelaunchPrompt.present(for: permission)
-        }
-        capabilityWatcher = watcher
-        watcher.start()
+        // The hotkey and its capability watcher were armed at launch, before the container (A3):
+        // see `armHotkeys()`.
 
         let orchestrator = PermissionOrchestrator(checker: permissionChecker, presentPrePrompt: PrePromptWindow.present)
         // macOS answers Input Monitoring / Accessibility only in System Settings, so "Check
