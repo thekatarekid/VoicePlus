@@ -19,8 +19,14 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     /// Capture reported success and then produced nothing (the pipeline's no-audio watchdog), or a
     /// start failed after `.started`. Never silent: a meter that cannot move must say so.
     public var onCaptureFailure: (@Sendable (String) -> Void)?
-    /// Seconds to wait for the async pipeline start before giving up (a hung HAL must not hang the hotkey).
-    public var startTimeout: TimeInterval = 3
+    /// Seconds to wait for the async pipeline start before giving up (a hung HAL must not hang the
+    /// hotkey). V4.10: unless overridden (`--mic-selftest` sets `selfTestBudget`), this is the start
+    /// budget of the device about to open — `budget(for:)` — not one number for every mic.
+    public var startTimeout: TimeInterval {
+        get { lock.withLock { startTimeoutOverride } ?? Self.budget(for: startTransport()) }
+        set { lock.withLock { startTimeoutOverride = newValue } }
+    }
+    private var startTimeoutOverride: TimeInterval?
     /// Tests replaying fixtures set this false; live capture keeps the TCC check.
     public var requireMicrophonePermission = true
     /// P1.5.2 — keeps the last utterance's samples so the dual-path reconciler can re-run both
@@ -114,12 +120,23 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
         lock.withLock { self.owner = owner }
         utteranceTap?.reset()
 
+        // V4.7 — key-down → first buffer, once per turn. `start(for:)` is called on key-down, so its
+        // entry is the closest point to the press this layer can see.
+        let pressedAt = DispatchTime.now().uptimeNanoseconds
+        let describing = pipeline.source as? any CaptureGraphDescribing
         let events = pipeline.events()
         forwarder = Task.detached(priority: .userInteractive) { [weak self] in
+            var awaitingFirstBuffer = true
             for await event in events {
                 guard let self else { return }
                 switch event {
                 case .audio(let samples, _):
+                    if awaitingFirstBuffer {
+                        awaitingFirstBuffer = false
+                        let ms = Double(DispatchTime.now().uptimeNanoseconds &- pressedAt) / 1_000_000
+                        let graph = describing.map { $0.diagnostics.lastStartWasWarm ? "warm" : "cold" } ?? "n/a"
+                        Log.engine.info("audio: key-down → first buffer \(String(format: "%.0f", ms)) ms (\(owner.rawValue), graph=\(graph), device=\(self.deviceName ?? "-"))")
+                    }
                     self.utteranceTap?.append(samples)
                     samples.withUnsafeBufferPointer { self.sink?($0) }
                 case .level(let rms):
@@ -149,25 +166,61 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
 
         // `AudioSource.start()` is synchronous; run the async pipeline start on the pool and
         // wait briefly so errors (no device, engine start failure) still propagate to the engine.
+        // V4.10 — how briefly depends on the device: a Bluetooth or Continuity mic legitimately
+        // takes seconds to open, a built-in one does not.
+        let budget = startTimeout
         let box = ErrorBox()
+        let attempt = StartAttempt()
         let done = DispatchSemaphore(value: 0)
-        Task.detached(priority: .userInteractive) { [pipeline] in
+        Task.detached(priority: .userInteractive) { [weak self, pipeline] in
             do { try await pipeline.start() } catch { box.error = error }
             done.signal()
+            // A start that outlived its budget and then succeeded has opened a microphone nobody
+            // owns — the indicator would stay lit behind an error. Close it again unless another
+            // owner took the graph in the meantime.
+            guard attempt.finish(), box.error == nil, self?.currentOwner == nil else { return }
+            Log.engine.notice("audio source: a start that ran out of budget finished late; closing the unowned capture")
+            await pipeline.stop()
         }
-        if done.wait(timeout: .now() + startTimeout) == .timedOut {
+        if done.wait(timeout: .now() + budget) == .timedOut, attempt.abandon() {
             // Reporting success for a pipeline that never started is what let the mic check show a
-            // dead meter under a "listening" label. A timeout is a start failure.
-            Log.engine.error("audio pipeline start timed out after \(startTimeout)s")
+            // dead meter under a "listening" label. A timeout is a start failure — and it names the
+            // device (A03), because "start timed out" never said which microphone was slow.
+            let device = startDeviceLabel()
+            Log.engine.error("audio pipeline start timed out after \(budget)s on \(device)")
             lock.withLock { self.owner = nil }
             forwarder?.cancel()
-            throw AudioCaptureError.engineStartFailed("start timed out after \(startTimeout)s")
+            throw AudioCaptureError.startTimedOut(device: device, seconds: budget)
         }
         if let error = box.error {
             lock.withLock { self.owner = nil }
             forwarder?.cancel()
             throw error
         }
+    }
+
+    /// V4.10 start budgets. Built-in opens in well under a second; USB and wired display audio in a
+    /// couple; Bluetooth (SCO negotiation), Continuity (reported as `.other`), virtual and aggregate
+    /// devices can take several. Unknown gets the generous one.
+    public static func budget(for transport: AudioDeviceInfo.Transport?) -> TimeInterval {
+        switch transport {
+        case .builtIn?: return 3
+        case .usb?, .displayPort?: return 5
+        case .bluetooth?, .virtual?, .aggregate?, .other?, nil: return 8
+        }
+    }
+
+    /// What `--mic-selftest` waits: wide on purpose, so a slow device is diagnosed, not truncated.
+    public static let selfTestBudget: TimeInterval = 15
+
+    /// The transport of the device about to open: the resolved one when the graph exists (the
+    /// launch warm-up makes that the normal case), else the system default input.
+    private func startTransport() -> AudioDeviceInfo.Transport? {
+        pipeline.source.device?.transport ?? AudioDeviceEnumerator.defaultInputDevice()?.transport
+    }
+
+    private func startDeviceLabel() -> String {
+        pipeline.source.device?.name ?? AudioDeviceEnumerator.defaultInputDevice()?.name ?? "The microphone"
     }
 
     public func stop() { stop(for: .engine) }
@@ -185,21 +238,61 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
         stopGraph()
     }
 
-    /// Tears the capture graph down. The owner slot is the caller's business.
+    /// Ends the pipeline's run. The capture source underneath keeps its graph paused between turns
+    /// (V4.7); `release(reason:)` on the source is the full teardown. The owner slot is the caller's
+    /// business.
     private func stopGraph() {
+        let forwarder = self.forwarder
+        self.forwarder = nil
         let done = DispatchSemaphore(value: 0)
         Task.detached(priority: .userInteractive) { [pipeline] in
             await pipeline.stop()
             done.signal()
         }
-        _ = done.wait(timeout: .now() + startTimeout)
-        forwarder?.cancel()
-        forwarder = nil
+        _ = done.wait(timeout: .now() + Self.stopTimeout)
+        // G0.2 handoff: `pipeline.stop()` returns with the run's last events (the final VAD end, the
+        // tail chunk, an endpoint, `.stopped`) still queued for the forwarder. Cancelling at once
+        // dropped them; let it drain to `.stopped` instead. Bounded, because a pipeline that was not
+        // running sends no `.stopped` and must not hold the caller.
+        if let forwarder {
+            let drained = DispatchSemaphore(value: 0)
+            Task.detached(priority: .userInteractive) {
+                await forwarder.value
+                drained.signal()
+            }
+            if drained.wait(timeout: .now() + Self.drainTimeout) == .timedOut { forwarder.cancel() }
+        }
     }
+
+    static let stopTimeout: TimeInterval = 3
+    static let drainTimeout: TimeInterval = 0.5
 
     static var microphoneAuthorized: Bool {
         if ProcessInfo.processInfo.environment["VOICEPLUS_MOCK_PERMISSIONS"] == "1" { return true }
         return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    /// One start's race against its budget: exactly one of "returned" and "given up" wins.
+    private final class StartAttempt: @unchecked Sendable {
+        private enum State { case pending, finished, abandoned }
+        private let lock = NSLock()
+        private var state = State.pending
+        /// The start returned. True when the caller had already given up on it.
+        func finish() -> Bool {
+            lock.withLock {
+                let abandoned = state == .abandoned
+                if state == .pending { state = .finished }
+                return abandoned
+            }
+        }
+        /// The caller gives up. False when the start returned just in time; its result then stands.
+        func abandon() -> Bool {
+            lock.withLock {
+                guard state == .pending else { return false }
+                state = .abandoned
+                return true
+            }
+        }
     }
 
     private final class ErrorBox: @unchecked Sendable {
