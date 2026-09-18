@@ -91,13 +91,19 @@ actor UtteranceBuffer {
     /// The two happen together, inside this actor, on purpose: the segment identity and the
     /// samples it names must be taken atomically. Two endpoint closures racing (a plausible latch
     /// session) would otherwise be able to give segment *n*'s ID segment *n+1*'s audio.
-    func closeSegment(tracker: SegmentTracker, openNext: Bool) -> (closed: SegmentID, opened: SegmentID?, samples: [Float])? {
+    func closeSegment(tracker: SegmentTracker, openNext: Bool) -> ClosedSegmentAudio? {
         guard let closure = tracker.closeOpenSegment(openNext: openNext) else { return nil }
         let start = min(max(segmentStart, 0), samples.count)
         let slice = Array(samples[start...])
+        // V4.21 — where this audio sits on the capture stream's clock, which is the clock the VAD
+        // reports in. Absolute, so a ring-bound trim cannot shift one onto the other.
+        let window = (droppedSamples + start)..<(droppedSamples + samples.count)
         segmentStart = samples.count
-        return (closure.closed, closure.opened, slice)
+        return ClosedSegmentAudio(closed: closure.closed, opened: closure.opened, samples: slice, window: window)
     }
+
+    /// Every sample of the session on the stream's clock (see `closeSegment`).
+    var wholeWindow: Range<Int> { droppedSamples..<(droppedSamples + samples.count) }
 
     /// Samples accumulated for the segment now taking audio.
     var openSegmentSampleCount: Int { max(0, samples.count - segmentStart) }
@@ -120,6 +126,55 @@ actor UtteranceBuffer {
     }
 
     func drain() async { await previewTask?.value }
+}
+
+/// One closed segment's audio, its identity, and where it sits on the capture stream's clock.
+struct ClosedSegmentAudio: Sendable {
+    let closed: SegmentID
+    let opened: SegmentID?
+    let samples: [Float]
+    /// Absolute sample positions since capture opened (16 kHz): the VAD's time base × 16 000.
+    let window: Range<Int>
+}
+
+/// Why the last `stop()` returned what it did (V4.21, V4.22).
+///
+/// `stop()` returning `[]` used to mean one thing to the caller — "nothing to land" — whether the
+/// user tapped the key, stayed silent, or the decoder invented "Thank you." into room tone. The
+/// coordinator needs to tell those apart to say the right thing: a silent hold is recovery **A06**,
+/// "No speech detected — Try again", shown as a quiet return that fades after 1200 ms.
+public enum EngineStopReason: Equatable, Sendable {
+    /// The final pass ran and its text stands.
+    case decoded
+    /// Less audio than the recognizer's floor (`minimumUtteranceSeconds`); nothing was decoded.
+    case tooShort
+    /// The VAD heard less than `minimumSpeechSeconds` of speech; nothing was decoded (V4.21).
+    case noSpeech
+    /// The final pass ran and the hallucination guard dropped its text (V4.22).
+    case hallucination(HallucinationGuard.Reason)
+
+    /// The recovery-catalogue row the coordinator shows for this outcome, or nil when there is
+    /// nothing to say. A dropped hallucination reads to the user exactly like silence: the text
+    /// was not theirs, so "No speech detected" is the true sentence.
+    public var recoveryID: String? {
+        switch self {
+        case .noSpeech, .hallucination: return "A06"
+        case .decoded, .tooShort: return nil
+        }
+    }
+
+    /// A06 is a quiet return: no action required, the notice fades by itself.
+    public var isQuietReturn: Bool { recoveryID != nil }
+
+    /// How long a quiet return stays before it fades (design A06).
+    public static let quietReturnFade: TimeInterval = 1.2
+}
+
+/// Engines that can say why their last `stop()` came back empty. Asked through the protocol, not by
+/// class: the coordinator holds a `SwappableEngine`, so it asks `current`.
+public protocol EngineStopReporting: AnyObject {
+    /// Reason for the most recent `stop()`; nil before the first one of a session completes.
+    var lastStopReason: EngineStopReason? { get }
 }
 
 /// Engines that publish captured input level continuously, not just while the state machine happens
@@ -180,10 +235,74 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     /// Context text handed to the refiner. Never logged and never persisted here.
     public var refinementContext = ""
 
+    // MARK: V4.21 / V4.22 — speech guards
+
+    /// Where the engine learns what the capture VAD heard. Chosen at construction by
+    /// `discoverVADFeed(in:)`; set `vadFeed` to override.
+    public enum VADFeed: Sendable {
+        /// No VAD. The engine cannot tell silence from speech and decodes by duration alone, as
+        /// it did before V4.21. Lab replays and bare test sources run like this.
+        case none
+        /// The caller forwards the capture pipeline's VAD events to `noteVAD(_:)` (for example from
+        /// `PipelineAudioSource.onVAD`). The no-speech gate is armed for every session.
+        case forwarded
+        /// The engine subscribes to this pipeline's own event stream for each session. It does not
+        /// take the `onVAD` slot, so the latch runtime can keep that. The gate arms when the
+        /// session's `.started` arrives; if it never does (a broken feed), the gate stays open
+        /// rather than discarding every dictation as silence.
+        case pipeline(AudioPipeline)
+    }
+
+    /// Discovered at construction (the pipeline behind `audio`, when there is one); set it to wire
+    /// the engine differently. Read at each `start()`, so change it between sessions, not during one.
+    public var vadFeed: VADFeed {
+        get { lock.withLock { feed } }
+        set { lock.withLock { feed = newValue } }
+    }
+
+    /// V4.21 — the VAD must have heard at least this much speech in a segment before the final
+    /// pass is run on it. The same number as the recognizer's audio floor, on purpose: 300 ms of
+    /// room tone is not an utterance, and neither is 300 ms of audio.
+    public var minimumSpeechSeconds: TimeInterval = 0.3
+
+    /// Counters and recent records of what the speech guards dropped.
+    public let diagnostics = EngineDiagnostics()
+
+    private var feed: VADFeed = .none
+    private var ledger = SpeechLedger()
+    /// Events are accepted from `start()` until the session's last segment is decided.
+    private var ledgerOpen = false
+    /// `.pipeline` feed only: the subscription has seen this session's `.started`.
+    private var feedLive = false
+    private var feedTask: Task<Void, Never>?
+    private var stopReason: EngineStopReason?
+    /// Longest `stop()` waits for the VAD subscription to deliver the capture's last events.
+    static let vadSettleTimeout: UInt64 = 300_000_000
+
     public init(audio: AudioSource, provider: RecognizerProvider, segmentBounds: SegmentTracker.Bounds = .init()) {
         self.audio = audio
         self.provider = provider
         self.segments = SegmentTracker(bounds: segmentBounds)
+        self.feed = Self.discoverVADFeed(in: audio)
+    }
+
+    /// The VAD feed an engine starts with: the capture pipeline behind `audio`, if it has one.
+    ///
+    /// The app's bridge (`PipelineAudioSource`, App module) keeps its `AudioPipeline` in a stored
+    /// property. This module cannot name that type, so the pipeline is found by reflecting over the
+    /// source's stored properties — once, here, before any capture thread exists. That is what arms
+    /// the no-speech gate for live dictation without the app having to remember a wiring line.
+    /// A source with no pipeline (Lab replays, `SampleAudioSource`, test doubles) gets `.none` and
+    /// is decoded by duration alone, exactly as before V4.21.
+    static func discoverVADFeed(in audio: AudioSource) -> VADFeed {
+        var mirror: Mirror? = Mirror(reflecting: audio)
+        while let current = mirror {
+            for child in current.children {
+                if let pipeline = child.value as? AudioPipeline { return .pipeline(pipeline) }
+            }
+            mirror = current.superclassMirror
+        }
+        return .none
     }
 
     public convenience init(audio: AudioSource, manager: ModelManager) {
@@ -276,7 +395,13 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             previewPending.removeAll()
             closureFacts.removeAll()
             closesStarting = 0
+            ledger.reset()
+            ledgerOpen = true
+            feedLive = false
+            stopReason = nil
         }
+        // V4.21 — subscribe before capture opens, so the session's first VAD edge is not missed.
+        startVADFeed()
         // R2.2 — a dictation session is a fresh UUID; segment 0 starts taking audio now.
         segmentBroadcaster.send(.opened(segments.beginSession()))
         // "Warming up…" is only honest while it is *bounded and recording*. The state stays
@@ -295,6 +420,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         } catch {
             audio.sink = nil
             lock.withLock { listening = false; previewPending.removeAll() }
+            stopVADFeed()
             await buffer.reset()
             abandonSegmentSession()
             setState(.error(EngineMessage.describe(error)))
@@ -323,8 +449,125 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         audio.stop()
         audio.sink = nil
         lock.withLock { listening = false; previewPending.removeAll() }
+        stopVADFeed()
         await buffer.reset()
         abandonSegmentSession()
+    }
+
+    // MARK: V4.21 — VAD feed and the no-speech gate
+
+    /// A speech edge from the capture VAD, in stream seconds since capture opened. Thread-safe;
+    /// events outside a session are ignored. Feeding the same VAD twice counts it once.
+    public func noteVAD(_ event: VADEvent) {
+        lock.withLock {
+            guard ledgerOpen else { return }
+            ledger.note(event)
+        }
+    }
+
+    /// Whether the no-speech gate applies to the session in progress (see `VADFeed`).
+    public var isSpeechGateArmed: Bool { lock.withLock { gateArmedLocked } }
+
+    /// Caller holds `lock`.
+    private var gateArmedLocked: Bool {
+        switch feed {
+        case .none: return false
+        case .forwarded: return true
+        case .pipeline: return feedLive
+        }
+    }
+
+    /// VAD speech inside `window` (absolute samples), or nil when the gate is not armed — "nil"
+    /// meaning *unknown*, which the gate and the guard both treat as "do not drop on speech".
+    private func speechSeconds(in window: Range<Int>) -> Double? {
+        lock.withLock {
+            guard gateArmedLocked else { return nil }
+            return ledger.speechSeconds(from: Double(window.lowerBound) / Self.sampleRate,
+                                        to: Double(window.upperBound) / Self.sampleRate)
+        }
+    }
+
+    private func startVADFeed() {
+        let pipeline: AudioPipeline? = lock.withLock {
+            if case .pipeline(let p) = feed { return p }
+            return nil
+        }
+        guard let pipeline else { return }
+        // Subscribed here, synchronously, so everything the pipeline broadcasts from now on is
+        // buffered for us. A `.stopped` from a previous owner being torn down (the onboarding
+        // meter) arrives *before* this session's `.started` and is ignored, as are its VAD edges.
+        let events = pipeline.events()
+        let task = Task.detached(priority: .high) { [weak self] in
+            var live = false
+            for await event in events {
+                guard let self else { return }
+                switch event {
+                case .started:
+                    live = true
+                    self.lock.withLock { self.feedLive = true }
+                case .vad(let edge) where live:
+                    self.noteVAD(edge)
+                case .stopped where live:
+                    return
+                default:
+                    break
+                }
+            }
+        }
+        let previous = lock.withLock { () -> Task<Void, Never>? in
+            let old = feedTask
+            feedTask = task
+            return old
+        }
+        previous?.cancel()
+    }
+
+    private func stopVADFeed() {
+        let task = lock.withLock { () -> Task<Void, Never>? in
+            let t = feedTask
+            feedTask = nil
+            ledgerOpen = false
+            return t
+        }
+        task?.cancel()
+    }
+
+    /// Waits (bounded) until the VAD subscription has seen capture stop, so the edges of the last
+    /// few hundred milliseconds — the VAD's tail flush runs inside the pipeline's `stop()` — are
+    /// counted before the gate decides. The `onVAD` forward has no such guarantee; there an open
+    /// run simply counts to the end of the audio.
+    private func settleVADFeed() async {
+        guard let task = lock.withLock({ feedTask }) else { return }
+        let timeout = Self.vadSettleTimeout
+        let finished = await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask { await task.value; return true }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeout)
+                // Cancelling the feed is what lets the first child return if it has not already.
+                task.cancel()
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        if !finished { Log.engine.notice("VAD feed did not report capture stop in time; gating on the edges already seen") }
+        lock.withLock { if feedTask == task { feedTask = nil } }
+    }
+
+    /// Records a guard drop and logs it with the utterance stamp. Never logs the text.
+    private func recordDrop(_ kind: EngineDiagnostics.DropKind, segment: SegmentID?, speech: Double?,
+                            audioSeconds: Double, tokens: Int) {
+        let stamp = EngineDiagnostics.stamp(Date())
+        diagnostics.record(.init(stamp: stamp, segment: segment, kind: kind, speechSeconds: speech,
+                                 audioSeconds: audioSeconds, tokenCount: tokens))
+        let heard = speech.map { String(format: "%.2f", $0) } ?? "unknown"
+        let what: String
+        switch kind {
+        case .noSpeech: what = "no-speech gate skipped the final pass"
+        case .hallucination(let reason): what = "hallucination guard dropped \(tokens) token(s) (\(reason.rawValue))"
+        }
+        Log.engine.notice("\(what): utterance \(stamp), segment \(segment?.description ?? "-"), speech \(heard) s of \(String(format: "%.2f", audioSeconds)) s audio")
     }
 
     /// R2.2 — tears the segment session down without committing anything. The open segment is
@@ -422,6 +665,9 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         audio.sink = nil
         setState(.finalizing)
         await buffer.drain()
+        // V4.21 — the VAD's tail flush runs inside the pipeline's stop; let its edges land before
+        // the gate below reads them.
+        await settleVADFeed()
         // R2.2 — earlier segments closed by an endpoint may still be in the final or refinement
         // pass. Wait for them before ending the session: `SegmentTracker` refuses results for a
         // session that is over, so tearing it down here would throw their text away. No new close
@@ -433,25 +679,34 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         // Without a mid-session closure `segmentStart` is still 0, so this is the whole utterance —
         // byte for byte what the final pass saw before R2.2.
         let samples: [Float]
-        if let closure { samples = closure.samples } else { samples = await buffer.samples }
+        let window: Range<Int>
+        if let closure {
+            samples = closure.samples; window = closure.window
+        } else {
+            samples = await buffer.samples; window = await buffer.wholeWindow
+        }
+        // nil = no VAD feed for this session: nothing is known about speech, so nothing is gated.
+        let speech = speechSeconds(in: window)
+        stopVADFeed()
         guard let final = recs?.final else {
             segments.endSession()
             setState(.error(EngineError.modelUnavailable("final").readable))
             throw EngineError.modelUnavailable("final")
         }
+        let seconds = Double(samples.count) / Self.sampleRate
+        // V4.21 — a hold the VAD heard no speech in is never decoded. Room tone handed to Parakeet
+        // comes back as "you" or "Thank you.", and the only precondition used to be duration.
+        if let speech, speech < minimumSpeechSeconds {
+            recordDrop(.noSpeech, segment: closure?.closed, speech: speech, audioSeconds: seconds, tokens: 0)
+            return endSessionWithoutText(closure?.closed, reason: .noSpeech)
+        }
         // Too little audio to transcribe is a normal human thing to do (a stray tap of the key, a
         // start/stop that raced the HAL) — not an error worth a red pill. FluidAudio throws
         // `ASRError.invalidAudioData` below 300 ms, and until 1.6.6 that reached the user as the raw
         // token "invalidAudioData". Never call the recognizer where the answer is already known.
-        let seconds = Double(samples.count) / Self.sampleRate
         if seconds < minimumUtteranceSeconds {
             Log.engine.notice("final pass skipped: \(String(format: "%.2f", seconds)) s captured, minimum is \(String(format: "%.2f", self.minimumUtteranceSeconds)) s")
-            release(closure?.closed, spans: [], stability: .final, reason: .keyRelease)
-            broadcaster.send(.final([]))
-            setState(.landed)
-            setState(.idle)
-            segments.endSession()
-            return []
+            return endSessionWithoutText(closure?.closed, reason: .tooShort)
         }
         do {
             let t0 = Date()
@@ -461,6 +716,13 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             // will arrive for it. The recognizers already hand back spans at that default, so this
             // is a no-op on the hold path and exists for symmetry with the endpoint path.
             let mine = stamped(spans, .final)
+            // V4.22 — the final pass's text must have been said. A drop lands nothing.
+            if case .drop(let why) = HallucinationGuard.verdict(for: mine, speechSeconds: speech, audioSeconds: seconds) {
+                recordDrop(.hallucination(why), segment: closure?.closed, speech: speech, audioSeconds: seconds,
+                           tokens: HallucinationGuard.tokens(of: mine.renderedText).count)
+                return endSessionWithoutText(closure?.closed, reason: .hallucination(why))
+            }
+            lock.withLock { stopReason = .decoded }
             // The legacy utterance stream is unchanged: `.final` carries *this* segment's spans,
             // exactly as it did before R2.2, regardless of where the ordered segment queue is.
             broadcaster.send(.final(mine))
@@ -474,6 +736,18 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             setState(.error(EngineMessage.describe(error)))
             throw error
         }
+    }
+
+    /// Ends a session whose last segment produces no text: an empty commit (so the ordered queue
+    /// moves), an empty `.final`, and the reason for whoever asks `lastStopReason`.
+    private func endSessionWithoutText(_ id: SegmentID?, reason: EngineStopReason) -> [TranscriptSpan] {
+        lock.withLock { stopReason = reason }
+        release(id, spans: [], stability: .final, reason: .keyRelease)
+        broadcaster.send(.final([]))
+        setState(.landed)
+        setState(.idle)
+        segments.endSession()
+        return []
     }
 
     // MARK: R2.2 — endpoint closure (latch)
@@ -506,6 +780,9 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             lock.withLock { closesStarting -= 1 }
             return nil
         }
+        // V4.21 — this segment's speech, measured now: the endpoint fired after trailing silence,
+        // so every VAD edge of the segment has already arrived.
+        let speech = speechSeconds(in: closure.window)
         // Say the next segment is live *before* the slow part: capture is already filling it.
         if let opened = closure.opened { segmentBroadcaster.send(.opened(opened)) }
         // Preview state restarts per segment. A streaming recognizer that carried its state across
@@ -513,7 +790,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         if let preview = lock.withLock({ recognizers?.preview }) { await preview.reset() }
 
         let task = Task<Void, Never> { [weak self] in
-            await self?.finishSegment(closure, reason: .endpoint, stability: .committed)
+            await self?.finishSegment(closure, speech: speech, reason: .endpoint, stability: .committed)
         }
         lock.withLock { closeTasks[closure.closed] = task; closesStarting -= 1 }
         await task.value
@@ -522,7 +799,8 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
 
     /// Runs the passes for one closed segment and commits it.
     private func finishSegment(
-        _ closure: (closed: SegmentID, opened: SegmentID?, samples: [Float]),
+        _ closure: ClosedSegmentAudio,
+        speech: Double?,
         reason: SegmentCloseReason,
         stability: Stability
     ) async {
@@ -536,6 +814,12 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             return
         }
         let seconds = Double(closure.samples.count) / Self.sampleRate
+        // V4.21 — a segment the VAD heard no speech in closes empty without a pass, like a sliver.
+        if let speech, speech < minimumSpeechSeconds {
+            recordDrop(.noSpeech, segment: id, speech: speech, audioSeconds: seconds, tokens: 0)
+            release(id, spans: [], stability: stability, reason: reason)
+            return
+        }
         guard seconds >= minimumUtteranceSeconds, let final = lock.withLock({ recognizers?.final }) else {
             // An endpoint on a sub-300 ms sliver of audio: nothing to say, but the segment still
             // closes so the queue behind it can move.
@@ -547,6 +831,14 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             spans = try await final.recognize(closure.samples)
         } catch {
             Log.engine.warning("final pass failed for segment \(id.description): \(error)")
+            release(id, spans: [], stability: stability, reason: reason)
+            return
+        }
+        // V4.22 — judged on pass 1, whose confidences are real; refinement reports none. A
+        // dropped segment is not worth a second pass either.
+        if case .drop(let why) = HallucinationGuard.verdict(for: spans, speechSeconds: speech, audioSeconds: seconds) {
+            recordDrop(.hallucination(why), segment: id, speech: speech, audioSeconds: seconds,
+                       tokens: HallucinationGuard.tokens(of: spans.renderedText).count)
             release(id, spans: [], stability: stability, reason: reason)
             return
         }
@@ -627,6 +919,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     public func cancel() async {
         let was = lock.withLock { let w = listening; listening = false; return w }
         if was { audio.stop(); audio.sink = nil }
+        stopVADFeed()
         await drainClosedSegments()
         await buffer.reset()
         abandonSegmentSession()
@@ -635,6 +928,10 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
 }
 
 extension RealEngine: AudioLevelPublishing {}
+
+extension RealEngine: EngineStopReporting {
+    public var lastStopReason: EngineStopReason? { lock.withLock { stopReason } }
+}
 
 /// Engines that can say how much audio the current utterance holds.
 ///
