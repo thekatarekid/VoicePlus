@@ -283,6 +283,10 @@ public enum PillDeliveryRouter {
         switch outcome {
         case .delivered(let verified, _):
             return .landed(LandedPillInfo(text: text, verified: verified))
+        case .partial:
+            // G0.1 — some of the text may be in the destination: never a success claim, never
+            // "nothing was typed". The design's partial row (G0.4, D3).
+            return .landed(text: text, outcome: .partial)
         case .held(let reason):
             return .held(HeldPillInfo(id: heldID, text: text, destination: destination, reason: reason))
         case .failed(let reason):

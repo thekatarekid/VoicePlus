@@ -51,6 +51,22 @@ public enum Stability: String, Codable, Sendable, Equatable, Hashable, CaseItera
     public var description: String { rawValue }
 }
 
+/// G0.1 — where a span's punctuation came from (V4.1). Model punctuation is provisional: a
+/// caret-aware stage may strip it mid-sentence and keep it at the end of one. Spoken punctuation
+/// ("comma", "full stop") is what the user asked for and is never stripped for context.
+///
+/// - `model`: the recogniser produced it (or the span carries none). The default.
+/// - `spoken`: the user dictated it; set by spoken-punctuation handling.
+/// - `stage`: a pipeline stage added it (terminal period, list punctuation, number formatting).
+public enum PunctuationOrigin: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
+    case model
+    case spoken
+    case stage
+
+    /// True when context-sensitive stages may remove it.
+    public var isProvisional: Bool { self == .model }
+}
+
 /// The core shared type (Build doc §2). Every pipeline stage receives `[TranscriptSpan]`
 /// and returns `[TranscriptSpan]`; confidence, audioRange and provenance must survive.
 public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
@@ -68,6 +84,9 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
     /// R2.1 — how settled this span is. Defaults to `.final` so every pre-R2.1
     /// initializer call site and every pre-R2.1 JSON payload keeps working.
     public var stability: Stability
+    /// G0.1 — where this span's punctuation came from. Defaults to `.model` so every earlier
+    /// initializer call site and every earlier JSON payload keeps working.
+    public var punctuationOrigin: PunctuationOrigin
 
     public init(
         text: String,
@@ -76,7 +95,8 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
         alternates: [Alternate] = [],
         provenance: [StageID] = [],
         needsRepair: Bool = false,
-        stability: Stability = .final
+        stability: Stability = .final,
+        punctuationOrigin: PunctuationOrigin = .model
     ) {
         self.text = text
         self.confidence = min(max(confidence, 0), 1)
@@ -85,6 +105,7 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
         self.provenance = provenance
         self.needsRepair = needsRepair
         self.stability = stability
+        self.punctuationOrigin = punctuationOrigin
     }
 
     /// Confidence below which a stage must flag instead of rewrite.
@@ -128,6 +149,7 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case text, confidence, audioStart, audioEnd, alternates, provenance, needsRepair, stability
+        case punctuationOrigin
     }
 
     public init(from decoder: Decoder) throws {
@@ -141,7 +163,8 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
             alternates: try c.decodeIfPresent([Alternate].self, forKey: .alternates) ?? [],
             provenance: try c.decodeIfPresent([StageID].self, forKey: .provenance) ?? [],
             needsRepair: try c.decodeIfPresent(Bool.self, forKey: .needsRepair) ?? false,
-            stability: try c.decodeIfPresent(Stability.self, forKey: .stability) ?? .final
+            stability: try c.decodeIfPresent(Stability.self, forKey: .stability) ?? .final,
+            punctuationOrigin: try c.decodeIfPresent(PunctuationOrigin.self, forKey: .punctuationOrigin) ?? .model
         )
     }
 
@@ -155,10 +178,66 @@ public struct TranscriptSpan: Codable, Equatable, Hashable, Sendable {
         try c.encode(provenance, forKey: .provenance)
         try c.encode(needsRepair, forKey: .needsRepair)
         try c.encode(stability, forKey: .stability)
+        try c.encode(punctuationOrigin, forKey: .punctuationOrigin)
     }
 }
 
 public extension Array where Element == TranscriptSpan {
-    /// Plain text of the spans, space-joined.
+    /// Plain text of the spans, space-joined — empty spans included, so a blanked span leaves a
+    /// double or leading space. **Tests and diagnostics only**; text that reaches a destination or
+    /// the pill uses `renderedText`.
     var joinedText: String { map(\.text).joined(separator: " ") }
+}
+
+public extension Sequence where Element == TranscriptSpan {
+    /// G0.1 — the text of the spans as it should be inserted or shown (V4.13).
+    ///
+    /// - Empty and space-only spans are skipped (a filler or number the formatter blanked leaves
+    ///   no stray space).
+    /// - Spans join with one space, except next to a line break.
+    /// - Runs of spaces collapse to one; spaces at either end and before a line break are dropped.
+    ///   Indentation right after a line break is kept (code, nested lists).
+    ///
+    /// Leading/trailing spacing against the destination is the continuation planner's job, never
+    /// this join's. Declared on `Sequence` (not `Array`) so the older `Array` overload in
+    /// `Pipeline` keeps resolving without ambiguity in modules that import both.
+    var renderedText: String {
+        var joined = ""
+        for span in self {
+            let text = span.text
+            guard text.contains(where: { $0 != " " }) else { continue }
+            if !joined.isEmpty, !joined.hasSuffix("\n"), !text.hasPrefix("\n") { joined += " " }
+            joined += text
+        }
+        return TranscriptSpan.collapsingSpaces(joined)
+    }
+}
+
+extension TranscriptSpan {
+    /// Collapses runs of U+0020 per line; see `renderedText`. Other whitespace is left alone.
+    static func collapsingSpaces(_ text: String) -> String {
+        guard text.contains("  ") || text.hasPrefix(" ") || text.hasSuffix(" ") || text.contains(" \n") else {
+            return text
+        }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var out: [String] = []
+        out.reserveCapacity(lines.count)
+        for (index, line) in lines.enumerated() {
+            // The first line's leading spaces are edge padding; later lines' are indentation.
+            let indent = index == 0 ? "" : String(line.prefix { $0 == " " })
+            var body = ""
+            var pendingSpace = false
+            for ch in line.dropFirst(indent.count) {
+                if ch == " " {
+                    pendingSpace = true
+                } else {
+                    if pendingSpace, !body.isEmpty { body.append(" ") }
+                    pendingSpace = false
+                    body.append(ch)
+                }
+            }
+            out.append(body.isEmpty ? "" : indent + body)
+        }
+        return out.joined(separator: "\n")
+    }
 }
