@@ -47,7 +47,7 @@ release **1.11.0**.
 | Engine | `Engine/ASRRuntime/RealEngine.swift` (`minimumUtteranceSeconds = 0.3` `:155`; `stop()` `:436-458`; `prewarm()` `:231` unused) |
 | Latch | `App/Services/LatchRuntime.swift` (`tick/noteVAD/noteEndpoint` `:167/182/196` uncalled; `endpointer` `:102`; raw `joinedText` inject `:406`); `Engine/Audio/AudioPipeline.swift:34` `Options.latched` |
 | Coordinator | `App/Services/DictationCoordinator.swift` (`handle(_:)` `:159`; `endSession` `:300-318` lands immediately); `App/Services/SessionCoordinator.swift` (ranks) |
-| Formatting | `Pipeline/Formatters/FieldRole/{FieldRoleFormatter,Continuation,FieldRules,FieldRole}.swift`; `Pipeline/Style/StyleStage.swift`; `Pipeline/Formatters/ProseFormatter.swift` (`Numbers` `:295-437`, `renderedText` `:47-56`) |
+| Formatting | `Pipeline/Formatters/FieldRole/{FieldRoleFormatter,Continuation,FieldRules,FieldRole}.swift`; `Pipeline/Style/StyleStage.swift`; `Pipeline/Formatters/ProseFormatter.swift` (`Numbers` `:282-424`; its `renderedText` copy was removed at the W0 gate, use `Shared/Types/TranscriptSpan.swift` `renderedText`) |
 | Field context | `App/Services/FieldContextReader.swift:37-64` (caret fallback `:60`); `Injection/LiveSystemAccess.swift:28-62` |
 | Lander | `App/Services/UtteranceLander.swift` (`land` `:117`; `joinedText` at `:132,154,167,178,191,201`; continuation `:207-221`) |
 | Join | `Shared/Types/TranscriptSpan.swift:163` `joinedText` (joins empty spans) |
@@ -837,8 +837,8 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 
 | Wave | Task | Status | Commit | Tests (+added) | Evidence | Notes |
 |---|---|---|---|---|---|---|
-| 0 | G0.1 | [x] | 54d80ec..1705ac2 | SharedTests 89 passed (+5), PipelineTests 330, InjectionTests 111, AppTests(filtered) 34 | build clean, scratch .build-base | deviation: PillDelivery.swift 1 case; Pipeline renderedText still shadows Shared's (unowned) |
-| 0 | G0.2 | [x] | 6ad3286..ef56ebc | AppTests 783 passed (+3), Engine 458: 457 passed | build clean, .build-slot1 | unrelated fixture-length test failure; AudioPipeline edit outside Owns |
+| 0 | G0.1 | [x] | 54d80ec..1705ac2 | SharedTests 89 passed (+5), PipelineTests 330, InjectionTests 111, AppTests(filtered) 34 | build clean, scratch .build-base | deviation: PillDelivery.swift 1 case; W0 gate `97fe589` removed Pipeline's shadowing `renderedText` (`ProseFormatter.swift:47-56`), Shared's is the only one |
+| 0 | G0.2 | [x] | 6ad3286..ef56ebc | AppTests 783 passed (+3), Engine 458: 457 passed | build clean, .build-slot1 | AudioPipeline edit outside Owns; W0 gate `42c2c19` fixed the replay test (skips clips < 0.3 s); wave 0 gate: 2060 tests green `--no-parallel` |
 | 0 | G0.3 | [x] | 60f28aa..86351c5 | AppTests 780 passed (+9), DesignTokenTests 22 passing | build clean, scratch .build-slot2 | separator/pill border kept decorative per §3.3; hardware rendering unverified |
 | 0 | G0.4 | [x] | 6c57b64..4d139a9 | SharedTests 84 passed; AppTests 771 passed (7 new) | build clean, scratch .build-slot3 | deviation: compiler-forced edits to PillPresentation/PillView/PresenceState; S6/S2/S2 gaps reported not fixed |
 | 1 | A1–A5 | [ ] | | | | |

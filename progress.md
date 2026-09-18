@@ -1554,3 +1554,12 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - G0.1 done · 54d80ec..1705ac2 · Shared types (CaretState, punctuationOrigin, TurnRecord, ScreenTextReader, .partial) + decode-clamp fix · SharedTests 89 passed (+5)
 - G0.3 done · 60f28aa..86351c5 · DESIGN.md v2 + DesignTokens verified, copy drift fixed against fixtures · AppTests 780 passed (+9), DesignTokenTests 22 passing
 - G0.2 done · 6ad3286..ef56ebc · PipelineAudioSource forwards .vad/.endpoint/.chunk, setLatched on live pipeline · AppTests 783 passed (+3), EngineTests 457/458 passed (unrelated fixture failure)
+- **Wave 0 gate passed (4/4 done).** `swift build --build-tests` clean (only the old R5.4 Sendable warning in
+  `RefinementBenchmarkCorpusTests`); `swift test --no-parallel`: **2060 tests, all passing**.
+- Gate fixes: `42c2c19` replay test skips saved clips under the recognizer's 300 ms floor (a 0.28 s
+  recording in the owner's Recordings folder failed it; same floor as `RealEngine.stop()`) ·
+  `97fe589` removed Pipeline's shadowing `Array.renderedText`, so Pipeline/App/D4 now get Shared's
+  V4.13 join (skips space-only spans, collapses spaces).
+- Open for wave 1: B reconciles `AudioPipeline.options.latched` vs live `isLatched` and the `.endpoint`
+  doc comment; B1 hops the `@Sendable` audio callbacks to MainActor. S6: `.starting/.finishing` show as
+  listening. S2: `.landedPartial` size and retract. No test covers `.partial` routing in PillDeliveryRouter.
