@@ -28,7 +28,8 @@ extension ScreenTextService: ScreenRegionReading {}
 /// inside `UtteranceLander.land` and injects `contextLine` (+ window text) into
 /// `StageContext.extra` for the pipeline / transform, keeping `lastBindings` around for the act
 /// path. Boxes drawn in the turn live in `currentRegions` (with their crop, by `imageID`) until
-/// `endTurn()` — the next turn's key-down, a cancel, or the retention limit, whichever is first —
+/// `endTurn()` — shortly after the utterance lands in hold mode (`landedRetention`), the next
+/// turn's key-down, a cancel, or the retention limit, whichever is first —
 /// or, in latch, until the next segment lands (`augment`).
 public final class DeixisService: @unchecked Sendable {
     public static let contextLineKey = "contextLine"
@@ -78,6 +79,10 @@ public final class DeixisService: @unchecked Sendable {
     /// Boxes and their crops are dropped this long after capture ends if nothing ended the turn
     /// first — the same 30 s horizon as the timeline, so a frame never outlives it.
     public var regionRetention: TimeInterval = 30
+    /// Hold mode: once an utterance has landed with its boxes and the key is up (not latched),
+    /// the turn is over — boxes and crops go after this grace (it covers the 1.5 s fade and a
+    /// chip still on screen). A new key-down in the meantime starts a new turn and is untouched.
+    public var landedRetention: TimeInterval = 2
     /// How long `augment` waits for a box whose screenshot / OCR is still running before the
     /// utterance lands without that text.
     public var settleTimeout: TimeInterval = 0.5
@@ -320,8 +325,15 @@ public final class DeixisService: @unchecked Sendable {
 
     private func scheduleRetention() {
         lock.lock()
-        let generation = turnGeneration
         let delay = regionRetention
+        lock.unlock()
+        scheduleTurnEnd(after: delay)
+    }
+
+    /// Clear the turn after `delay` unless a new turn started or the tap was re-armed meanwhile.
+    private func scheduleTurnEnd(after delay: TimeInterval) {
+        lock.lock()
+        let generation = turnGeneration
         lock.unlock()
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
@@ -392,6 +404,7 @@ public final class DeixisService: @unchecked Sendable {
         if let ambiguous = d.first(where: { ReverseElicitation.needsElicitation($0) }) {
             ask(about: ambiguous)
         }
+        if !fresh.isEmpty, !isLatched(), !isCapturing { scheduleTurnEnd(after: landedRetention) }
         return ctx
     }
 

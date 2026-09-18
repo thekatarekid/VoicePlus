@@ -29,11 +29,25 @@ struct DeixisRegionServiceTests {
         var recognitionDelay: UInt64 = 0
         /// Not cancellable: the screenshot finishes even when the turn ends meanwhile.
         var captureDelay: UInt64 = 0
+        /// Deterministic hold: `capture` waits (uncancellably) until `releaseCapture()`, having
+        /// set `captureStarted`. Timing-free, so a loaded test run cannot reorder it.
+        var holdsCapture = false
+        private let gate = NSLock()
+        private var started = false, released = false
+        var captureStarted: Bool { gate.lock(); defer { gate.unlock() }; return started }
+        func releaseCapture() { gate.lock(); released = true; gate.unlock() }
         init(access: ScreenRecordingAccess, lines: [ScreenTextLine] = []) { self.access = access; self.lines = lines }
 
         func capture(_ rect: CGRect, display: CGDirectDisplayID) async throws -> CapturedRegion {
             guard access.preflight() else { throw ScreenTextError.permissionDenied }
             if captureDelay > 0 { try? await Task.sleep(nanoseconds: captureDelay) }
+            if holdsCapture {
+                gate.lock(); started = true; gate.unlock()
+                while !({ gate.lock(); defer { gate.unlock() }; return released }()) {
+                    await Task.yield()
+                    usleep(1_000)
+                }
+            }
             captures += 1
             let m = ScreenPixelMapping(pointRect: rect, scale: 2)
             let frame = CapturedRegion(image: ScreenTextServiceTests.image(m.pixelSize), mapping: m, windowID: 7)
@@ -70,6 +84,12 @@ struct DeixisRegionServiceTests {
         service.bundleIDForPID = { _ in nil }
         service.beginCapture(at: 0)
         return (service, ax)
+    }
+
+    /// Poll (bounded) for a timer-driven change, so a loaded parallel run does not flake.
+    static func waitUntil(_ timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
     }
 
     @Test func axTextPresentMeansNoOCR() async {
@@ -127,8 +147,30 @@ struct DeixisRegionServiceTests {
         service.regionRetention = 0.05
         await service.regionDrawn(Self.drawn()).value
         service.endCapture()
-        try await Task.sleep(nanoseconds: 400_000_000)
+        try await Self.waitUntil { service.currentRegions.isEmpty }
         #expect(service.currentRegions.isEmpty && screen.frames.isEmpty)
+    }
+
+    @Test func holdModeLandingEndsTheTurnAfterTheGrace() async throws {
+        let screen = Screen(access: Access(granted: true))
+        let (service, _) = Self.service(elements: [Self.mailBody], axText: "Send the deck", screen: screen)
+        service.landedRetention = 0.05
+        await service.regionDrawn(Self.drawn()).value
+        let spans = [TranscriptSpan(text: "reply to this", confidence: 0.9, audioRange: 0.0...0.3)]
+        let landed = service.augment(spans, StageContext())
+        #expect(landed.extra[DeixisService.contextLineKey]?.hasPrefix("region 1 = ") == true)
+        #expect(service.currentRegions.count == 1 && screen.frames.count == 1)   // still there for the fade/chip
+        try await Self.waitUntil { service.currentRegions.isEmpty }
+        #expect(service.currentRegions.isEmpty && screen.frames.isEmpty)        // turn over: box and crop gone
+
+        // A new key-down inside the grace starts a new turn; its box is not cleared by the old timer.
+        service.landedRetention = 0.1
+        await service.regionDrawn(Self.drawn()).value
+        _ = service.augment(spans, StageContext())
+        service.beginCapture()
+        await service.regionDrawn(Self.drawn(CGRect(x: 500, y: 500, width: 50, height: 50))).value
+        try await Task.sleep(nanoseconds: 400_000_000)
+        #expect(service.currentRegions.count == 1 && service.currentRegions[0].rect.minX == 500)
     }
 
     @Test func firstBoxWithoutPermissionExplainsAsksOnceThenAXOnly() async {
@@ -179,6 +221,7 @@ struct DeixisRegionServiceTests {
     @Test func augmentAddsRegionLinesOnceAcrossLatchedSegments() async {
         let screen = Screen(access: Access(granted: true))
         let (service, _) = Self.service(elements: [Self.mailBody], axText: "Send the deck", screen: screen)
+        service.isLatched = { true }
         await service.regionDrawn(Self.drawn()).value
         let spans = [TranscriptSpan(text: "reply", confidence: 0.9, audioRange: 0.0...0.3)]
         let first = service.augment(spans, StageContext())
@@ -200,11 +243,12 @@ struct DeixisRegionServiceTests {
 
     @Test func boxClearedWhileItsScreenshotIsTakenDropsTheFrame() async {
         let screen = Screen(access: Access(granted: true))
-        screen.captureDelay = 150_000_000
+        screen.holdsCapture = true
         let (service, _) = Self.service(elements: [Self.mailBody], axText: nil, screen: screen)
         let analysis = service.regionDrawn(Self.drawn())
-        try? await Task.sleep(nanoseconds: 30_000_000)
+        while !screen.captureStarted { await Task.yield(); usleep(1_000) }
         service.endTurn()                                        // the turn ends mid-capture
+        screen.releaseCapture()
         await analysis.value
         #expect(service.currentRegions.isEmpty && screen.frames.isEmpty && screen.recognitions.isEmpty)
     }
