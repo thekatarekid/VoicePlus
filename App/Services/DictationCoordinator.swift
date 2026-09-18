@@ -144,6 +144,28 @@ public final class DictationCoordinator {
         levelSource?.cancel()
         levelSource = nil
         audio.onLevel = { [capturedLevels] level in capturedLevels.send(level) }
+        // B1 — the same pipeline is what the latch listens to (VAD, endpoints, stream position).
+        // The app binds here at launch and after every engine swap, so this is always the live one.
+        latchAudio = audio
+        if latched { onLatchAudioChanged?() }
+    }
+
+    // MARK: Latch feed and timer (B1, B4)
+
+    /// B1 — the capture pipeline a latched session endpoints on. Held weakly: the container owns it.
+    public private(set) weak var latchAudio: PipelineAudioSource?
+    /// B1 — the pipeline changed under a running latch (engine swap); the session coordinator
+    /// moves the latch onto the new one.
+    public var onLatchAudioChanged: (() -> Void)?
+    /// B4 — the latch timer as last published by `LatchRuntime`.
+    public private(set) var latchElapsed: TimeInterval = 0
+
+    /// B4 — `LatchRuntime` publishes elapsed latch time; the pill shows it as the design's timer
+    /// (`PillState.latched(elapsed:)`). Outside latch there is no timer to show.
+    public func noteLatchElapsed(_ elapsed: TimeInterval) {
+        guard latched else { return }
+        latchElapsed = elapsed
+        pill.model.present(.latched(elapsed: elapsed))
     }
 
     /// Hard mute (V3 §4.4) and anything else that closes the microphone for good. Pausing ends the

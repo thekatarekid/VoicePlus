@@ -52,6 +52,47 @@ public enum SettingsKeys {
     public static let presenceHideInFullScreen = "presence.indicator.hideInFullScreen"
     /// P4.2 — whether the second (act) key is live at all. Default OFF; see `ActKeySettings`.
     public static let actKeyEnabled = "act.key.enabled"
+    /// V4.33 — "Insert after a pause of" (seconds of trailing silence that close a latched
+    /// segment). 1.0–5.0, default 2.0; read and written through `LatchSettings`.
+    public static let latchPauseSeconds = "latch.pauseSeconds"
+}
+
+/// V4.33 — the latch pause, defaults and bounds included, in one place.
+///
+/// Stored as a decimal string because `SettingsStore` carries strings and booleans only. Writes go
+/// through `setPauseSeconds(_:store:)`, which posts `didChangeNotification` so a latched session
+/// picks the new pause up without being restarted.
+public enum LatchSettings {
+    public static let defaultPauseSeconds: TimeInterval = 2.0
+    public static let pauseRange: ClosedRange<TimeInterval> = 1.0...5.0
+    /// Latch is an explicit session: silence this long is reported, never a reason to close.
+    public static let noSpeechTimeout: TimeInterval = 8
+    /// A long monologue still lands in pieces (V4.33).
+    public static let maxSegmentSeconds: TimeInterval = 30
+    /// Posted after `setPauseSeconds(_:store:center:)` wrote a new value.
+    public static let didChangeNotification = Notification.Name("VoicePlus.LatchSettings.didChange")
+
+    /// The stored pause, clamped to `pauseRange`. Missing or unreadable → the default.
+    public static func pauseSeconds(_ store: SettingsStore?) -> TimeInterval {
+        guard let raw = store?.string(SettingsKeys.latchPauseSeconds),
+              let value = Double(raw.trimmingCharacters(in: .whitespaces)), value.isFinite else {
+            return defaultPauseSeconds
+        }
+        return clamp(value)
+    }
+
+    public static func setPauseSeconds(_ seconds: TimeInterval, store: SettingsStore?,
+                                       center: NotificationCenter = .default) {
+        guard let store, seconds.isFinite else { return }
+        store.set(String(clamp(seconds)), for: SettingsKeys.latchPauseSeconds)
+        center.post(name: didChangeNotification, object: nil)
+    }
+
+    /// Bounded to the range and rounded to a tenth of a second — the precision the row offers.
+    public static func clamp(_ seconds: TimeInterval) -> TimeInterval {
+        let bounded = min(pauseRange.upperBound, max(pauseRange.lowerBound, seconds))
+        return (bounded * 10).rounded() / 10
+    }
 }
 
 /// The on/off switch for the act key, defaults included, in one place.

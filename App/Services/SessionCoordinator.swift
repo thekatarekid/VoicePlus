@@ -120,10 +120,61 @@ public final class SessionCoordinator {
         latch?.isLatched = { [weak dictation] in dictation?.latched ?? false }
         // The mode has exactly one home. `DictationCoordinator.latched` is it; this mirror exists so
         // `mode` can be read without asking two objects and getting two answers.
+        //
+        // B1 — it is also the one place latch entry and exit are seen, whichever path caused them
+        // (the double tap, the stop tap, Escape, mute, lock, sleep, a failed start), so the latch
+        // runtime connects to the capture feed here and lets go of it here.
         dictation.onLatchChanged = { [weak self] latched in
             guard let self else { return }
             self.lock.withLock { self.requestedMode = latched ? .latched : (self.holder == nil ? .idle : .hold) }
+            if latched { self.latch?.enterLatch(feed: self.dictation.latchAudio) } else { self.latch?.leaveLatch() }
         }
+        dictation.onLatchAudioChanged = { [weak self] in
+            guard let self else { return }
+            self.latch?.replaceFeed(self.dictation.latchAudio)
+        }
+        // B4 — the timer: runtime → coordinator → pill, on the main thread.
+        latch?.onElapsed = { [weak dictation] elapsed in
+            if Thread.isMainThread { dictation?.noteLatchElapsed(elapsed) }
+            else { DispatchQueue.main.async { dictation?.noteLatchElapsed(elapsed) } }
+        }
+    }
+
+    // MARK: The latch pause setting — B2 (V4.33)
+
+    private var latchSettings: SettingsStore?
+    private var latchSettingsObservers: [NSObjectProtocol] = []
+    private var latchSettingsCenter: NotificationCenter?
+
+    deinit { latchSettingsObservers.forEach { latchSettingsCenter?.removeObserver($0) } }
+
+    /// Reads "Insert after a pause of" into the latch now, and again whenever it changes — live,
+    /// including in the middle of a latched session. `LatchSettings.setPauseSeconds` posts the change;
+    /// a write straight to `UserDefaults` is seen through its own change notification.
+    public func bindLatchSettings(_ store: SettingsStore, center: NotificationCenter = .default) {
+        latchSettingsObservers.forEach { latchSettingsCenter?.removeObserver($0) }
+        latchSettingsCenter = center
+        latchSettings = store
+        applyLatchPause()
+        let apply: (Notification) -> Void = { [weak self] _ in self?.applyLatchPause() }
+        latchSettingsObservers = [
+            center.addObserver(forName: LatchSettings.didChangeNotification, object: nil, queue: .main, using: apply),
+            center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main, using: apply),
+        ]
+    }
+
+    /// The pause the latch is running with, from the bound store (the default when none is bound).
+    public var latchPauseSeconds: TimeInterval { LatchSettings.pauseSeconds(latchSettings) }
+
+    private func applyLatchPause() {
+        guard let latch, let store = latchSettings else { return }
+        let pause = LatchSettings.pauseSeconds(store)
+        let wanted = LatchSettings.endpointer(pauseSeconds: pause)
+        let current = latch.endpointer
+        guard current.trailingSilence != wanted.trailingSilence || current.noSpeechTimeout != wanted.noSpeechTimeout
+            || current.maxUtterance != wanted.maxUtterance else { return }
+        latch.setPauseSeconds(pause)
+        Log.app.info("latch: pause set to \(pause)s")
     }
 
     // MARK: State
@@ -335,8 +386,14 @@ public final class SessionCoordinator {
 
     /// Registers the workspace notifications that carry lock and sleep. Kept out of `init` so tests
     /// (and any headless run) never touch `NSWorkspace`.
+    ///
+    /// B2 — and binds the latch pause to `latchSettings`, the app's own settings store by default
+    /// (`UserDefaults`, which is what `AppContainer.settings` is), for the same reason: a test's
+    /// latch keeps the endpointer it was given unless it binds a store itself.
     public func observeSystemEvents(center: NotificationCenter = NSWorkspace.shared.notificationCenter,
-                                    distributed: Bool = true) {
+                                    distributed: Bool = true,
+                                    latchSettings: SettingsStore? = UserDefaultsSettingsStore()) {
+        if let latchSettings { bindLatchSettings(latchSettings) }
         center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.systemWillSleep()
         }
