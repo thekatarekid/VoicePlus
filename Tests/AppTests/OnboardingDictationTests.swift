@@ -226,7 +226,8 @@ struct GuidedDictationOutcomeTests {
         }
     }
 
-    /// A throw from the engine surfaces as the author's sentence, not as an enum case name.
+    /// A throw from the engine surfaces as recovery-catalogue copy (S9): never an enum case name, and
+    /// never the error's own text — an unrecognised error is X08; its sentence goes to the log.
     @MainActor
     @Test func aFailedAttemptShowsTheRealErrorInPlainLanguage() async throws {
         let vm = onboardingAtDictationStep(engine: StubEngine(behaviour: .failStop(FluidAudioLikeError())))
@@ -235,7 +236,7 @@ struct GuidedDictationOutcomeTests {
         vm.finishGuidedDictation()
         try await waitUntil { vm.machine.dictation != nil }
         #expect(vm.machine.landedText == nil)
-        #expect(vm.machine.dictationError == "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")
+        #expect(vm.machine.dictationError == "VoicePlus couldn’t finish this step")
         #expect(vm.machine.dictationError?.contains("invalidAudioData") == false,
                 "the raw enum case name is what the user was shown in 1.6.6")
         vm.teardown()
@@ -247,7 +248,7 @@ struct GuidedDictationOutcomeTests {
         vm.startGuidedDictation()
         try await waitUntil { vm.machine.dictation != nil }
         #expect(vm.machine.landedText == nil)
-        #expect(vm.machine.dictationError == "No speech model is ready yet (tdt-v3).")
+        #expect(vm.machine.dictationError == "Install a speech model", "catalogue M01, not the model id")
         #expect(!vm.isDictating)
         vm.teardown()
     }
