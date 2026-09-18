@@ -120,11 +120,19 @@ public final class TerminalAdapter: AppAdapter {
     }
 }
 
-/// Electron apps (Slack, VS Code, Discord, Notion, Obsidian…): `AXValue` writes silently desync the
-/// editor's model (React/ProseMirror/Monaco), so AX is forbidden; keystrokes land, paste is the backup.
+/// Electron apps (Slack, VS Code, Discord, Notion, Obsidian, Claude…): `AXValue` writes silently
+/// desync the editor's model (React/ProseMirror/Monaco), so AX is forbidden; keystrokes land, paste
+/// is the backup.
+///
+/// V4.40: the Claude desktop app (`com.anthropic.claudefordesktop`, verified with
+/// `osascript -e 'id of app "Claude"'` against Claude 2.110.0, which ships `Electron Framework`)
+/// used to fall through to `DefaultAdapter`, whose `.ax` first write is exactly the ProseMirror
+/// desync this adapter exists to avoid.
 public final class ElectronAdapter: AppAdapter {
+    public static let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
     public static let bundleIDs: Set<String> = ["com.tinyspeck.slackmacgap", "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders",
-                                               "com.hnc.Discord", "notion.id", "md.obsidian", "com.figma.Desktop"]
+                                               "com.hnc.Discord", "notion.id", "md.obsidian", "com.figma.Desktop",
+                                               claudeDesktopBundleID]
     public let id = "electron"
     public init() {}
     public func matches(bundleID: String) -> Bool { Self.bundleIDs.contains(bundleID) }
