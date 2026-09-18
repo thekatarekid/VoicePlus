@@ -304,7 +304,7 @@ Delivery outcomes read as the design's pill statuses:
 | `delivered(verified: false)` — readback showed nothing *or could not run* | ⚠ Inserted · not confirmed | Unconfirmed |
 | `partial` | ⚠ Only part may have been inserted | Unconfirmed |
 | `held` | ⚠ Destination changed · text held | Held |
-| `failed` | ⚠ Couldn't finish this dictation | — (recovery row) |
+| `failed` | ⚠ Couldn’t finish this dictation | — (recovery row) |
 
 Kept from v1: `InputTimeline` is an internal deixis structure and is never shown to a user as history.
 Never write "paused" where the state is `muted`, or "muted" where it is `paused` (a meeting pause).
@@ -444,6 +444,9 @@ If a state is added later and does not appear in one of these three tables, it i
 - Never claim success that was not verified — this is why **⚠ Inserted · not confirmed** exists.
 - Never claim zero network bytes; say what left the Mac.
 - Sentence case. Serial commas. No trailing period on a headline; a period on the detail sentence.
+  These rules govern copy written for this app; the verified design's own strings are used verbatim,
+  punctuation included (for example the page titles "Your text is still here." and "You’re ready.",
+  and typographic apostrophes and ellipses: "Couldn’t", "Finishing…").
 
 **How the voice renders in the verified design.** The recovery catalogue (design §10;
 `design_copy.json` › `errors`, 59 entries) gives every error a **headline** (the problem), a
@@ -552,7 +555,8 @@ ACTIVE ATTACHED PILL — nominal 560 x 164 pt
 Upper corners square when attached, all four rounded when floating below an external display's menu
 bar (§3.2). Content inset 16 pt; the status and words lanes are the content width minus 144 pt
 (≈ 384 pt at 560), so no text reaches the character bay; the tape lane starts at (16, 104) in the
-164 pt scene and is 8 pt wide (`spool_spec.json` › `sceneGeometry`).
+164 pt scene and the ribbon is 8 pt wide (`spool_spec.json` › `sceneGeometry` › `tapeStart`,
+`tapeWidth`).
 Very narrow displays use a detached review panel. The v1 panel rules that prevented the black slab are
 kept: borderless non-activating `NSPanel` above the status bar, `sizingOptions = []`, frame is
 placement math.
@@ -580,7 +584,9 @@ placement math.
 - **Deixis chip (owner decision §0.1):** the box-and-screenshot thumbnail sits in the text lane, under
   the transcript and above the tape lane, styled as the design's tag/chip (`Radius.keyCap`, `key` type,
   `Pill.controlBorder` outline). Never in the character bay, never over Spool.
-- Key-hint row: "Release <key> to finish · Esc" in `pillStatus`; key names in `key` type.
+- Key-hint row: the state's fixture helper ("Release <key> to finish" while listening, "Tap <key> to
+  finish" while latched) in `pillStatus`, with the Esc key cap beside it (design §4 diagram); key names
+  in `key` type.
 
 ### 8.6 State inventory (I0–Q2)
 
@@ -611,7 +617,7 @@ Spool treatment (design §6), and the status line and actions from `design_copy.
 | R0 | `correcting` | Correcting | Stationary tape, asymmetric shutter; the correction popover owns alternatives and focus. | Review one word · **Review word** | Replace verified range / Keep / Dismiss |
 | R1 | `editing` | Editing selection | Stationary reels; small progress marker on the taut ribbon; thoughtful pursed mouth. | Editing N words… | Edited final preview before replacement |
 | R2 | `undo` | Undo available | Parked reels, calm mouth. No rewind until safe undo is confirmed. | ✓ Updated in <app> · **Undo** | Safe undo 5 s; stale range → recovery |
-| E0 | `error` | Recoverable error | Tape guide brake, stopped reels, gentle concern, exact problem / consequence / recovery. | ⚠ Couldn't finish this dictation · **Review text**, Copy text | Stays until action/dismissal; drafts remain |
+| E0 | `error` | Recoverable error | Tape guide brake, stopped reels, gentle concern, exact problem / consequence / recovery. | ⚠ Couldn’t finish this dictation · **Review text**, Copy text | Stays until action/dismissal; drafts remain |
 | E1 | `blocked` | Blocking error | Closed shutters and setup latch; no recording or readiness claim. | Microphone access is off (or the named blocker) · **Review permissions** | Named setup action; recheck capability |
 | Q0 | `meeting` | Meeting capture | Counterclockwise reels and audio-reactive tape only while capture is really open; timer, track status. | Meeting · recording · Pause, Stop, Expand | Pause / Stop / Expand |
 | Q1 | `paused` | Meeting paused | Stationary reels, flat tape, pause bars on the latch. | Meeting paused · **Resume**, Stop | Explicit Resume / Stop |
@@ -658,8 +664,9 @@ delays or triggers the write.
 detail takes the rest. One clear page title (`title`), 24 pt outer padding, 24 pt section gaps.
 The toolbar holds only relevant actions. Scroll position and selection are preserved per section.
 `⌘1`–`⌘6` select the six sections in this order; `⌘,` opens Settings; `⌘F` focuses local search. The
-sidebar footer reads "• On this Mac"; the page foot shows "Hold <key> to speak." with a still Spool
-cameo.
+sidebar footer is the green `ready` dot plus "Ready · On this Mac" over "Hold <key> to speak" (prototype
+`<footer>`); Today's page foot reads "Hold <key> to speak. Release to preview, then insert." with the
+key in a key cap (`key` type), beside a still Spool cameo.
 
 1. Today
 2. Meetings
@@ -730,7 +737,7 @@ S02, Shortcuts K01, Models M02, Providers & Sync N02, Onboarding P01, Menu K05, 
   re-target that revalidates after a field is selected; Copy is acknowledged only when the copy is
   verified; Discard… confirms when it destroys the only saved copy; closing keeps the draft. History
   off → "Kept until resolved"; persistence prohibited → "Kept for this session only".
-- Loading: "Loading recent dictations…". Error: "History can't be read" + Retry, with held drafts still
+- Loading: "Loading recent dictations…". Error: "History can’t be read" + Retry, with held drafts still
   shown.
 
 ### 9.2 Meetings
@@ -828,16 +835,20 @@ One menu. Left-, right- and control-click on the **menu-bar glyph** (§8.4) or t
 same menu (`PresenceClickRouter` returns `.menu`). Opening it never takes focus from the destination
 app and never records; closing it never changes recording.
 
-| Item | States |
-|---|---|
-| Status line | Glyph + "VoicePlus · Ready" / Muted / the blocked reason; detail "Microphone is closed." when idle |
-| Microphone line | Current input device and its state |
-| **Start dictation** | Explicit click-to-stop capture ("Stop" while menu capture is open); it cannot imply a held key |
-| **Mute microphone** | Toggle; closes every active capture; never auto-unmutes |
-| **Held dictations** | "N held dictation(s)" with **Review** (opens the recovery sheet / Today); hidden when nothing is held |
-| **Open VoicePlus** | Opens the one window at Today |
-| **Settings…** | `⌘,` — opens the one window at Settings |
-| **Quit VoicePlus** | During capture asks **Stop and quit** / Cancel; held drafts are saved or an unsaved-data warning names what would be lost |
+Row titles, helper lines and control labels in quotes are the prototype's menu review surface
+(`case'menu'` in `design_v1.html`) verbatim; the two rows marked *design §8.8* are listed by the
+specification but not drawn in the prototype.
+
+| Item | Prototype row (title · helper · control) | States |
+|---|---|---|
+| Status line | Glyph + "VoicePlus · Ready" · "Microphone is closed." · green `ready` dot | Ready / Muted / the blocked reason; the dot only when ready |
+| Microphone line (*design §8.8*) | — | Current input device and its state |
+| **Start dictation** | "Start dictation" · "Menu capture has an explicit Stop control." · **Start** | Explicit click-to-stop capture ("Stop" while menu capture is open); it cannot imply a held key |
+| **Mute microphone** | "Mute microphone" · "Close every active capture." · Muted toggle | Toggle; closes every active capture; never auto-unmutes |
+| **Held dictations** | "1 held dictation" · "Saved until you resolve it." · **Review** | "N held dictation(s)"; Review opens the recovery sheet / Today; hidden when nothing is held |
+| **Open VoicePlus** | "Open VoicePlus" · "Today and all settings." · **Open** | Opens the one window at Today |
+| **Settings…** (*design §8.8*) | — | `⌘,` — opens the one window at Settings |
+| **Quit VoicePlus** | "Quit VoicePlus" · "Protect active capture and unsaved text." · **Quit…** | During capture asks **Stop and quit** / Cancel; held drafts are saved or an unsaved-data warning names what would be lost |
 
 Rules kept from v1: no item is removed to hide a problem — an unavailable action stays visible and
 disabled with the reason in its title. Nothing in the menu opens a standalone window. The menu carries
@@ -857,15 +868,25 @@ permission just before requesting it and use the real macOS prompt. Ask only for
 backend's permissions: the default bare-modifier monitor does not justify Input Monitoring. Still
 Spool cameo on Welcome and Try; motion only during the real dictation test.
 
-| Step | Heading (prototype) | Body | Primary |
+Heading, body and primary action are the prototype's onboarding `steps` verbatim (`case'onboarding'`
+in `design_v1.html`), with "Right Control" rendered as the configured key (§0.1). The prototype's
+step counter reads "Setup · N of 6"; with the owner's Voice step it is "Setup · N of 7".
+
+| Step | Heading (prototype) | Body (prototype) | Primary |
 |---|---|---|---|
 | Welcome | Your voice, a little closer. | Hold a key. Speak naturally. See the sentence before it reaches your app. | Begin setup |
-| Microphone | Let VoicePlus hear you. | Microphone access is needed only to capture your voice. (Real prompt; real level meter.) | Allow microphone |
+| Microphone | Let VoicePlus hear you. | Microphone access is needed only to capture your voice. | Allow microphone |
 | Typing access | Let your words reach the page. | Accessibility lets VoicePlus insert text into your focused field. You can set this up later and use Copy. | Allow typing access |
 | Model | Bring speech recognition on device. | Choose a compatible model. Dictation is ready only after download, verification and loading. | Install model |
-| Try dictation | Try your first sentence. | Hold <key>: words appear above Spool's tape while the reels turn counterclockwise; release, review, then a clockwise feed places the sentence in a safe test field. One uncertain word is demonstrated and corrected. | Try dictation |
+| Try dictation | Try your first sentence. | Hold <key>. Watch Spool’s reels turn counterclockwise and words appear above the tape. Release, review, then watch a clockwise feed place your sentence. | Try dictation |
 | **Voice** (owner addition, skippable) | The Voice section's enrollment copy ("No voice enrolled — Enrollment is optional. Hold-to-talk works without it.") | Read four lines (~30 s) with the Voice section's enrollment view; skipping leaves hold dictation fully working | Set up my voice · Skip |
-| Ready | You're ready. | A small green dot means VoicePlus is available. The microphone opens when you start dictating. | Open VoicePlus |
+| Ready | You’re ready. | A small green dot means VoicePlus is available. The microphone opens when you start dictating. | Open VoicePlus |
+
+- The prototype's Microphone body continues "The real app requests the macOS permission here." That
+  sentence annotates the simulation; the real step shows the real macOS prompt and a real level meter
+  instead (§0: the markdown's real-product rule applies).
+- Try dictation inserts into a safe test field and demonstrates one uncertain word and its correction
+  (design §8.7).
 
 Rules kept from v1 (they do not conflict with the design):
 
