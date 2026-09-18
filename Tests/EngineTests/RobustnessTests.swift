@@ -136,17 +136,18 @@ private func noisyFixtures() -> [URL] { AudioFixtures.list("noisy") }
     }
 
     @Test func prerollKeepsFirstWordAcrossPrewarmToStart() throws {
-        // Inner "device" starts streaming at prewarm (as SCO does, slowly); what arrives before
-        // start() must still reach the sink, newest `prerollSeconds` first.
+        // Inner "device" starts streaming at `beginPreroll()` (as SCO does, slowly); what arrives
+        // before start() must still reach the sink, newest `prerollSeconds` first. (V4.7: plain
+        // `prewarm()` no longer opens the microphone, so the pre-roll is asked for explicitly.)
         let speech = (0..<8000).map { Float($0) / 8000 }        // 0.5 s ramp, identifiable
         let inner = FixtureCaptureSource(wav: WAVFile(sampleRate: 16_000, samples: []),
                                          device: dev("AirPods", .bluetooth, rate: 16_000))
         let src = AcousticCaptureSource(wrapping: inner, profile: RobustnessProfile(noiseSuppression: false, aec: .off, prerollSeconds: 0.3))
         var received: [Float] = []
         src.sink = { received.append(contentsOf: $0) }
-        try src.prewarm()
+        try src.beginPreroll()
         #expect(src.bluetooth?.mode == .scoWideband)
-        inner.push(speech)                                      // arrives while "prewarming"
+        inner.push(speech)                                      // arrives while pre-rolling
         #expect(received.isEmpty)
         try src.start()
         #expect(src.prerollFlushed == 4800)

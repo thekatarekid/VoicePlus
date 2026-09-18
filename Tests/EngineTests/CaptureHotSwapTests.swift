@@ -116,11 +116,11 @@ struct CaptureHotSwapTests {
         #expect(inner.stops == 1)
     }
 
-    /// The wedge R1.4 exists to remove. `prewarm()` marks the wrapper as pre-rolling *before* it
-    /// starts the inner source; when that start throws (the device was pulled between hotkey-down
-    /// and hotkey-up) the flag used to stay set, and the next `start()` concluded the inner source
-    /// was already streaming and never started it. Capture then announced itself and delivered zero
-    /// blocks for the rest of the session.
+    /// The wedge R1.4 exists to remove. The pre-roll (`prewarm()` until V4.7, `beginPreroll()` now)
+    /// marks the wrapper as pre-rolling *before* it starts the inner source; when that start throws
+    /// (the device was pulled between hotkey-down and hotkey-up) the flag used to stay set, and the
+    /// next `start()` concluded the inner source was already streaming and never started it. Capture
+    /// then announced itself and delivered zero blocks for the rest of the session.
     @Test func failedPrewarmDoesNotWedgeTheNextStart() throws {
         let inner = MockCaptureSource(device: Self.device("Scarlett Solo"))
         let src = AcousticCaptureSource(wrapping: inner, profile: .default)   // preroll > 0
@@ -128,7 +128,7 @@ struct CaptureHotSwapTests {
         src.sink = { received.append(contentsOf: $0) }
 
         inner.failNextStart = .engineStartFailed("device removed")
-        #expect(throws: AudioCaptureError.self) { try src.prewarm() }
+        #expect(throws: AudioCaptureError.self) { try src.beginPreroll() }
 
         // Retry: the inner source must genuinely be started this time.
         try src.start()
@@ -136,6 +136,25 @@ struct CaptureHotSwapTests {
         inner.push(Self.tone(0.4))
         src.stop()
         #expect(!received.isEmpty, "capture wedged: the retry never started the inner source")
+    }
+
+    /// V4.7 — `prewarm()` prepares the inner graph and nothing more: the app prewarms at launch,
+    /// and a prewarm that started the inner source would keep the microphone open until quit.
+    @Test func prewarmNeverStartsTheInnerSource() throws {
+        let inner = MockCaptureSource(device: Self.device("AirPods Pro", .bluetooth, rate: 16_000))
+        let src = AcousticCaptureSource(wrapping: inner, profile: .default)   // preroll > 0
+        var received: [Float] = []
+        src.sink = { received.append(contentsOf: $0) }
+        try src.prewarm()
+        try src.prewarm()
+        #expect(inner.prewarms == 2)
+        #expect(inner.starts == 0, "prewarm opened the microphone")
+        #expect(!inner.isRunning)
+        #expect(src.bluetooth?.mode == .scoWideband, "prewarm still assesses the device")
+        try src.start()
+        #expect(inner.starts == 1)
+        #expect(src.prerollFlushed == 0, "a press that opened the microphone is never padded (V4.23)")
+        src.stop()
     }
 
     /// The same wedge reached through `start()` rather than `prewarm()`.
@@ -207,7 +226,7 @@ struct CaptureHotSwapTests {
         var received: [Float] = []
         src.sink = { received.append(contentsOf: $0) }
 
-        try src.prewarm()
+        try src.beginPreroll()
         inner.push(Self.tone(0.9, count: 8000))       // captured into the pre-roll, not delivered
         #expect(received.isEmpty)
 
@@ -234,7 +253,7 @@ struct CaptureHotSwapTests {
         src.sink = { received.append(contentsOf: $0) }
 
         // Before sleep: a pre-roll is captured and flushed, then live audio.
-        try src.prewarm()
+        try src.beginPreroll()
         inner.push(Self.tone(0.8, count: 8000))
         try src.start()
         #expect(src.prerollFlushed == 8000)

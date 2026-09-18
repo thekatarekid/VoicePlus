@@ -3,9 +3,15 @@ import Shared
 
 /// Wraps any `AudioCaptureSource` and runs the sample-level acoustic chain (neural AEC slot →
 /// noise suppression) on its output before the pipeline's ring buffer. Also implements the
-/// Bluetooth pre-roll: on `prewarm()` the inner source is *started* into a private buffer so a
+/// Bluetooth pre-roll: `beginPreroll()` *starts* the inner source into a private buffer so a
 /// slow-opening transport (SCO) is already streaming when the user begins talking; `start()`
 /// flushes the last `profile.prerollSeconds` of that buffer to the sink first.
+///
+/// V4.7 split the pre-roll off `prewarm()`. The app now prewarms at launch, and a prewarm that
+/// opened the microphone would have kept the mic indicator lit from launch to quit. `prewarm()`
+/// only prepares the inner graph; pre-roll is an explicit `beginPreroll()`, so audio is only ever
+/// flushed from a graph that was already running before the press (V4.23) — a press that opened
+/// the microphone itself gets no pad.
 ///
 /// Drop-in: `AudioPipeline(source: AcousticCaptureSource(wrapping: inner, profile: p), ...)`.
 public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescribing, @unchecked Sendable {
@@ -86,11 +92,17 @@ public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescri
         }
     }
 
-    /// Opens the device and, when the profile asks for pre-roll, begins capturing into the
-    /// pre-roll buffer immediately (the "AirPods first word never clipped" guarantee).
+    /// Prepares the inner graph and assesses its device. The microphone stays closed (V4.7).
     public func prewarm() throws {
         try inner.prewarm()
         bluetooth = BluetoothInputDetector.assess(inner.device)
+    }
+
+    /// Opens the device and, when the profile asks for pre-roll, begins capturing into the
+    /// pre-roll buffer immediately (the "AirPods first word never clipped" guarantee). Explicit:
+    /// nothing in `prewarm()` opens the microphone any more.
+    public func beginPreroll() throws {
+        try prewarm()
         lock.lock(); let needStart = prerollCapacity > 0 && !prerolling && !live; if needStart { prerolling = true }; lock.unlock()
         guard needStart else { return }
         do {
@@ -98,7 +110,7 @@ public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescri
         } catch {
             // The wedge this guard exists for. `prerolling` is set *before* the inner source is
             // started, and it used to stay set when that start threw — a device unplugged between
-            // hotkey-down and hotkey-up is the ordinary way in. The next `start()` then saw
+            // pre-roll and hotkey-up is the ordinary way in. The next `start()` then saw
             // `wasPrerolling == true`, concluded the inner source was already streaming, and never
             // called `inner.start()`: capture announced itself, delivered zero blocks, and the
             // no-audio watchdog reported "no sound is reaching VoicePlus" for the rest of the
@@ -153,6 +165,15 @@ public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescri
     }
 
     public func switchDevice(to device: AudioDeviceInfo?) throws { try inner.switchDevice(to: device) }
+
+    /// V4.7 — the inner graph's full teardown; nothing the wrapper holds survives it either.
+    public func release(reason: CaptureReleaseReason) {
+        lock.lock(); let wasLive = live; lock.unlock()
+        if wasLive { stop() }
+        inner.release(reason: reason)
+        lock.lock(); live = false; prerolling = false; preroll.removeAll(); lock.unlock()
+        chain.reset()
+    }
 
     // MARK: internals
 
