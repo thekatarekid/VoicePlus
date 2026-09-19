@@ -120,6 +120,9 @@ public final class AudioPipeline: @unchecked Sendable {
     private var vadPosition = 0       // samples fed to VAD
     private(set) public var totalSamples = 0
     private(set) public var lastMicQuality: MicQuality?
+    /// What `lastMicQuality` was computed from (floor, signal, floor source): diagnostics for the Lab
+    /// and tests. Set with it, on the worker; read it after `stop()`.
+    private(set) public var lastMicMeasurement: MicQualityAnalyzer.Measurement?
 
     public init(source: any AudioCaptureSource, vad: any VADProtocol, options: Options = Options()) {
         self.source = source
@@ -321,7 +324,7 @@ public final class AudioPipeline: @unchecked Sendable {
 
     private func resetProcessing() {
         chunker.reset(); endpointer.reset(); micQuality.reset()
-        vadPending.removeAll(); position = 0; vadPosition = 0; totalSamples = 0; lastMicQuality = nil; lastOverruns = 0
+        vadPending.removeAll(); position = 0; vadPosition = 0; totalSamples = 0; lastMicQuality = nil; lastMicMeasurement = nil; lastOverruns = 0
         stateLock.lock(); sawAudio = false; stateLock.unlock()
     }
 
@@ -340,10 +343,6 @@ public final class AudioPipeline: @unchecked Sendable {
         for s in samples { acc += s * s }
         broadcaster.send(.level(rms: (acc / Float(samples.count)).squareRoot()))
 
-        // F1 (V4.18): the analyzer grades VAD speech against the pre-speech floor; `runVAD` hands it
-        // the events. It publishes once, after a second of speech, or at `flush()` if there was any.
-        if let q = micQuality.feed(samples) { lastMicQuality = q; broadcaster.send(.micQuality(q)) }
-
         for chunk in chunker.feed(samples) { broadcaster.send(.chunk(chunk)) }
 
         vadPending.append(contentsOf: samples)
@@ -351,6 +350,11 @@ public final class AudioPipeline: @unchecked Sendable {
             let frame = Array(vadPending[0..<vad.frameSize])
             vadPending.removeFirst(vad.frameSize)
             vadPosition += vad.frameSize
+            // F1 (V4.18): the analyzer grades VAD speech against the pre-speech floor; `runVAD` hands
+            // it the events. It is fed one VAD frame at a time, just before the VAD hears that frame,
+            // so every event reaches it at the same sample whatever size of block the ring handed
+            // over: its verdict is a function of the audio, not of scheduling.
+            feedMicQuality(frame)
             await runVAD(frame)
         }
         let now = Double(position) / 16_000
@@ -403,6 +407,17 @@ public final class AudioPipeline: @unchecked Sendable {
         endpointAwaitingSpeech = false
     }
 
+    /// Once per capture: the analyzer returns its verdict exactly once.
+    private func feedMicQuality(_ samples: [Float]) {
+        if let q = micQuality.feed(samples) { publishMicQuality(q) }
+    }
+
+    private func publishMicQuality(_ q: MicQuality) {
+        lastMicQuality = q
+        lastMicMeasurement = micQuality.measurement
+        broadcaster.send(.micQuality(q))
+    }
+
     private func runVAD(_ frame: [Float]) async {
         guard let step = try? await vad.process(frame: frame), let event = step.event else { return }
         broadcaster.send(.vad(event))
@@ -417,12 +432,13 @@ public final class AudioPipeline: @unchecked Sendable {
 
     private func finishProcessing() async {
         if !vadPending.isEmpty {
+            feedMicQuality(vadPending)     // the real tail, not the VAD's zero padding
             var frame = vadPending
             frame.append(contentsOf: [Float](repeating: 0, count: vad.frameSize - frame.count))
             vadPending.removeAll()
             await runVAD(frame)
         }
-        if lastMicQuality == nil, let q = micQuality.flush() { lastMicQuality = q; broadcaster.send(.micQuality(q)) }
+        if lastMicQuality == nil, let q = micQuality.flush() { publishMicQuality(q) }
         if let chunk = chunker.flush() { broadcaster.send(.chunk(chunk)) }
         broadcaster.send(.stopped(totalSamples: totalSamples))
         let waiters = drainWaiters; drainWaiters.removeAll()

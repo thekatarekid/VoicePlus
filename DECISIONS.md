@@ -465,9 +465,22 @@ Build doc: `VoicePlus_ImplementationBuild_V4_Wave1+Design.md`. Five decisions th
   Why: a guessed "end of field" added spaces and capitals mid-sentence. Revisit on §5 item 5 counts
   (> 2 wrong placements in 30 per app).
 - **SNR thresholds are a hypothesis.** Poor < 10 dB, bad < 5 dB (entry above, F1). The replay of
-  `Fixtures/real-room/builtin` now fails the "0 warnings" gate 2 / 20 — not because of the bounds:
-  the energy VAD opens at capture start and the analyzer grades the room as speech. Fix the VAD
-  onset / signal window first, then calibrate per device class and update the F1 entry.
+  `Fixtures/real-room/builtin` failed the "0 warnings" gate 2 / 20 — not because of the bounds:
+  the energy VAD opened at capture start and the analyzer graded the room as speech. Fixed by the
+  F1 fix below (20 / 20 good, bounds unchanged); calibrate per device class next and update the F1
+  entry.
+- **Energy VAD floor hold; mic-quality verdict fed in VAD lockstep (F1 fix, 2026-09-19).** The
+  built-in mic dips 10–20 dB below the room for 30–45 ms right after capture starts; `EnergyVAD`'s
+  plain 4 s minimum took that dip as its floor and called the room speech from 0.01–0.15 s (18 / 20
+  recordings). A level now has to last `floorHold` = 3 frames (60 ms) to become the floor — the
+  minimum of each frame's 3-frame maximum. Cost: in a real room the steady floor reads ≈ 2–3 dB
+  higher (white noise ≈ 0.3 dB), so onset needs that much more; fixture F1 0.983 → 0.986. Separately
+  the analyzer took its verdict at the end of whatever block the ring handed over (same file: 26 dB
+  serial, 8 dB parallel); `AudioPipeline` now feeds it one VAD frame at a time, just before the VAD
+  hears that frame, and it takes the verdict at the exact 10 ms frame. Still open: the analyzer's own
+  floors (pre-speech p10 over a short window, running minimum) have no hold, so on 9 / 20 files the
+  dip is the floor and the SNR reads 6–26 dB high (never a warning) — settle before Wave 2
+  calibrates the bounds. Revisit the hold if a device's start-up transient outlasts 60 ms.
 - **Pill geometry follows the design (S2).** The pre-V4 ceiling of 560 × 96 (`absoluteMaximumSize`)
   is replaced by idle chin 64 × 14, hover hint 360 × 38 (≥ 190), active 560 × 164, actionable
   560 × 204, compact ceiling `min(560, usable − 32) × 204`, narrow < 460 with an 84 pt cameo bay;

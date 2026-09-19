@@ -9,9 +9,12 @@ import Shared
 ///
 /// * **Noise floor** — p10 of 10 ms frame RMS over the pre-speech window: capture start (key-down) up
 ///   to the first VAD `speechStart`, when that window holds at least 200 ms of audio. Otherwise the
-///   running minimum frame RMS over the last 4 s — the minimum statistics `EnergyVAD`'s floor tracker
-///   keeps. It is tracked here because the VAD's value is private, scaled up for onset detection, and
-///   Silero keeps none.
+///   running minimum frame RMS over the 4 s before the verdict is taken (see `feed`) — the minimum
+///   statistics `EnergyVAD`'s floor tracker keeps, per 10 ms frame and without its 60 ms hold. It is
+///   tracked here because the VAD's value is private, scaled up for onset detection, and Silero keeps
+///   none. (No hold here: it would erase the short gaps between words it is meant to find, so the
+///   microphone's start-up dip can still be this floor, or the p10 of a pre-speech window shorter
+///   than ~0.5 s — which reads the SNR high, never low. Open: DECISIONS.md, F1 fix.)
 ///   A window that reached speech level (its p90 within 10 dB of the signal's) while its p10 sat more
 ///   than 10 dB above that running minimum held speech the VAD missed — the energy VAD learns its
 ///   floor from its first frames, so words from the first sample read as floor. The running minimum
@@ -31,6 +34,14 @@ import Shared
 /// Time is stream time in seconds since `reset()`: the clock the VAD's events carry. `AudioPipeline`
 /// resets both at `start()` and feeds both the same samples. Driven from one task (the pipeline's
 /// worker); not thread-safe.
+///
+/// **Deterministic.** The verdict is a function of the samples and of where in them each event was
+/// noted — never of how the samples were split into `feed` calls, nor of when those calls ran.
+/// `AudioPipeline` feeds the analyzer one VAD frame at a time, just before the VAD hears that frame,
+/// so where each event lands is itself fixed by the audio. (Fed a whole ring read at once, as it was
+/// before, a busy machine handed it the file in one block: the "last 4 s" of the running minimum
+/// then ended at the file's end instead of at the speech, and the same recording read 26 dB alone
+/// and 8 dB under a parallel test run.)
 public final class MicQualityAnalyzer: @unchecked Sendable {
     public static let sampleRate = 16_000
     /// 10 ms analysis frames.
@@ -128,29 +139,35 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
 
     // MARK: input
 
-    /// Feed audio in stream order. Returns the verdict exactly once: at the first call after the VAD
-    /// has marked a full second of speech.
+    /// Feed audio in stream order. Returns the verdict exactly once: at the call in which the VAD's
+    /// speech reaches a full second.
+    ///
+    /// The verdict is taken at the 10 ms frame that completes that second (or, when a `speechEnd`
+    /// completed it, before any later audio), never at the end of the block that carried it: the
+    /// running-minimum floor ends there too, so how the audio was split into calls changes nothing.
     @discardableResult
     public func feed(_ samples: [Float]) -> MicQuality? {
         guard result == nil, !samples.isEmpty else { return nil }
+        if speechFrameCount >= Self.signalFrameCount { return publish() }
         var i = 0
-        if !partial.isEmpty {
-            let take = min(Self.frameSamples - partial.count, samples.count)
-            partial.append(contentsOf: samples[0..<take])
-            i = take
-            if partial.count == Self.frameSamples {
-                append(Self.frame(partial[...]))
+        while i < samples.count {
+            let frame: Frame
+            if partial.isEmpty, samples.count - i >= Self.frameSamples {
+                frame = Self.frame(samples[i..<i + Self.frameSamples])
+                i += Self.frameSamples
+            } else {
+                let take = min(Self.frameSamples - partial.count, samples.count - i)
+                partial.append(contentsOf: samples[i..<i + take])
+                i += take
+                guard partial.count == Self.frameSamples else { break }
+                frame = Self.frame(partial[...])
                 partial.removeAll(keepingCapacity: true)
             }
+            append(frame)
+            if openStart != nil, speechFrameCount >= Self.signalFrameCount { return publish() }
         }
-        while i + Self.frameSamples <= samples.count {
-            append(Self.frame(samples[i..<i + Self.frameSamples]))
-            i += Self.frameSamples
-        }
-        if i < samples.count { partial.append(contentsOf: samples[i...]) }
         if openStart == nil { trimUnclassified() }
-        guard speechFrameCount >= Self.signalFrameCount else { return nil }
-        return publish()
+        return nil
     }
 
     /// A VAD event on the same clock as the fed audio. The first `speechStart` closes the pre-speech

@@ -46,11 +46,11 @@ pipeline.audioBuffers()          // AsyncStream<[Float]> of just the 16 kHz audi
 | `RingBuffer.swift` | SPSC Float ring; producer never blocks/allocates; overruns counted, not hidden. |
 | `AudioConverter16k.swift` | `AVAudioConverter` any-format → 16 kHz mono Float32 (streaming or one-shot flush). |
 | `InputSelectionPolicy.swift` | Device choice: per-device prefs in `UserDefaults` (`audio.input.preferredUID`, `audio.input.pref.<uid>`) → keep current → system default unless display/virtual → built-in. |
-| `MicQualityAnalyzer.swift` | V4.18 SNR: floor = p10 of 10 ms frame RMS over the pre-speech window (else the 4 s running minimum), signal = p90 over the first 1 s of VAD speech; one verdict, a pause is never graded; clipping fraction; low level only when speech peaks below −40 dBFS. |
+| `MicQualityAnalyzer.swift` | V4.18 SNR: floor = p10 of 10 ms frame RMS over the pre-speech window (else the 4 s running minimum), signal = p90 over the first 1 s of VAD speech; one verdict, a pause is never graded; clipping fraction; low level only when speech peaks below −40 dBFS. Deterministic: the pipeline feeds it one VAD frame at a time, just before the VAD hears that frame, and it takes its verdict at the exact 10 ms frame that completes the second — the ring's block size never changes it. |
 | `Chunker.swift` / `Endpointer.swift` | 3.0 / 5.0 s chunking at speech boundaries; latched-mode endpoint after trailing silence (1.2 s default), no-speech timeout, max duration. |
 | `WAVFile.swift` / `FixtureCaptureSource.swift` | Dependency-free WAV reader/writer; deterministic replay through the same sink as the HAL source. `AudioFixtures.url(suite, file)`. |
 | `VAD/VADProtocol.swift` | `VADProtocol` (frame-synchronous, 16 kHz), `VADEvent`, offline `segments(in:)`. |
-| `VAD/EnergyVAD.swift` | Fallback: min-statistics noise floor + hysteresis, 20 ms frames. F1 0.98 on `Fixtures/audio/vad`. |
+| `VAD/EnergyVAD.swift` | Fallback: min-statistics noise floor + hysteresis, 20 ms frames. A level must last `floorHold` (60 ms) to become the floor, so the built-in mic's start-up dip is not taken for the room. F1 0.986 on `Fixtures/audio/vad`. |
 | `VAD/SileroVAD.swift` | FluidAudio `VadManager` streaming wrapper (256 ms frames); `VADFactory.make()` picks it only when the CoreML model is already on disk. |
 | `VAD/VADScoring.swift` | Frame-level P/R/F1 vs `labels.json`. |
 

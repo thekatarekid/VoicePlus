@@ -29,8 +29,9 @@ private func samples(_ seconds: Double) -> Int { Int(seconds * 16_000) }
 
 // MARK: drivers
 
-/// Drives an analyzer the way `AudioPipeline.process` does: 50 ms blocks, audio first, then the VAD
-/// over its frames with every event handed to the analyzer, `flush()` at stop.
+/// Drives an analyzer the way `AudioPipeline.process` does: one VAD frame at a time, the analyzer
+/// fed each frame just before the VAD hears it and handed every event, the real tail before the
+/// VAD's zero-padded last frame, `flush()` at stop.
 ///
 /// `vadHears` (sample-aligned with `audio`) is what the VAD is given instead of `audio`: the clean
 /// source of a noisy fixture makes it an oracle VAD, one that hears the speech through the noise.
@@ -39,22 +40,14 @@ private func replay(_ audio: [Float], vadHears: [Float]? = nil, vad: any VADProt
     let analyzer = MicQualityAnalyzer()
     await vad.reset()
     var verdicts: [MicQuality] = []
-    var pending: [Float] = []
     var i = 0
     while i < audio.count {
-        let block = Array(audio[i..<min(i + 800, audio.count)])
-        if let q = analyzer.feed(block) { verdicts.append(q) }
-        pending.append(contentsOf: heard[i..<min(i + 800, heard.count)])
-        i += block.count
-        while pending.count >= vad.frameSize {
-            let frame = Array(pending.prefix(vad.frameSize))
-            pending.removeFirst(vad.frameSize)
-            if let event = try await vad.process(frame: frame).event { analyzer.note(event) }
-        }
-    }
-    if !pending.isEmpty {
-        pending.append(contentsOf: [Float](repeating: 0, count: vad.frameSize - pending.count))
-        if let event = try await vad.process(frame: pending).event { analyzer.note(event) }
+        let end = min(i + vad.frameSize, audio.count)
+        if let q = analyzer.feed(Array(audio[i..<end])) { verdicts.append(q) }
+        var frame = Array(heard[i..<min(end, heard.count)])
+        frame.append(contentsOf: [Float](repeating: 0, count: vad.frameSize - frame.count))
+        if let event = try await vad.process(frame: frame).event { analyzer.note(event) }
+        i = end
     }
     if let q = analyzer.flush() { verdicts.append(q) }
     return (analyzer, verdicts)

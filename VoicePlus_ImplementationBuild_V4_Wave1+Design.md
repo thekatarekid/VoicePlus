@@ -838,7 +838,8 @@ Unverified: Chromium marker-range read on a real page
 `verify_install.sh` OK). All waves 0–4 done; `swift test --no-parallel`: **3156 tests, all passing** at
 `5ec671b` (one recorded known issue). Real-room WER 0.100 (1.10.0: 0.099). V4 gates: silent holds 0 landings
 and digits WER 0.062 / 0.094 are **fixture-verified**; the quiet-room mic gate **fails 2 / 20** (energy-VAD
-onset, known issue, open). Everything else is **implemented** (unit/mock-tested). **Hardware-only** and still
+onset, known issue) — **fixed after 1.11.0 by the F1 fix: 20 / 20 good, block-size invariant** (not in the 1.11.0 DMG;
+progress.md "F1 fix"). Everything else is **implemented** (unit/mock-tested). **Hardware-only** and still
 the owner's: every §5 item — live latency p95s (key-down → first buffer, cold launch → first landing), 50 live
 silent holds, latch placement in Docs/Claude/Notes, AX word-mark overlays and D09, tape flight to a real caret,
 the live K02 modifier poll, VoiceOver / high contrast / Reduce Motion on the real pill, external-monitor
