@@ -205,6 +205,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.latchRuntime = latch
         self.session = sessionCoordinator
 
+        // ── S3 · turn controller: preview before insert (design §5, §12) ────────────────────────
+        // Every hold and every latch segment goes key-down snapshot → final preview → one insert
+        // through `TurnController` (the lander's gate). Escape (I2), the pill's turn buttons, hover,
+        // lock/sleep/mute and deixis are wired inside; the turn records go to `TurnStore.current`.
+        TurnWiring.attach(container: container, pill: pill.model, coordinator: coordinator, session: sessionCoordinator,
+                          finishLatch: { [weak self] in
+                              self?.session?.stop(.hotkey)
+                              self?.hotkey.resetGesture()
+                          })
+        // ── end S3 ──────────────────────────────────────────────────────────────────────────────
+
         // H2 (V4.49) — every hold-to-talk utterance with ≥ 1.5 s of speech teaches the voice until
         // ten have; then latch segments go through the speaker filter, fed the latch audio here.
         let speakerAudio = SpeakerAudioWiring(

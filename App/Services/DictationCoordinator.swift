@@ -107,11 +107,41 @@ public final class DictationCoordinator {
     private let capturedLevels = PassthroughSubject<Float, Never>()
     private var levelSource: AnyCancellable?
 
+    // MARK: S3 — the turn controller
+
+    /// S3 — every hold goes key-down snapshot → capture → finishing → final preview → one insert,
+    /// through this controller; `endSession` hands it the final pass instead of landing directly.
+    /// Nil → the pre-S3 direct landing (shell-only tests, headless tools).
+    public var turns: TurnController? {
+        get { sessionLock.withLock { _turns } }
+        set {
+            sessionLock.withLock { _turns = newValue }
+            newValue?.onLanded = { [weak self] result in self?.onLanded?(result) }
+        }
+    }
+    private var _turns: TurnController?
+    /// The capture turn this coordinator opened (hold, or the latched session's).
+    private var turnID: TurnID?
+    /// The press the controller refused (K04): its key-up must do nothing.
+    private var refusedPress = false
+    private var partialWords: AnyCancellable?
+    private var voiceActivity: Task<Void, Never>?
+
+    /// The current capture turn, for tests and diagnostics.
+    public var currentTurn: TurnID? { sessionLock.withLock { turnID } }
+
     public init(engine: any EngineProtocol, database: AppDatabase?, pill: PillPanelController) {
         self.engine = engine
         self.database = database
         self.pill = pill
-        pill.model.bind(engineState: engine.statePublisher, audioLevel: capturedLevels.eraseToAnyPublisher())
+        // S3 — while a turn owns the pill (finishing, preview, inserting, a Cancelled row) the
+        // engine's own states would contradict it; the controller decides which get through.
+        let states = engine.statePublisher
+        let admitted = states.filter { [weak self] state in self?.turns?.admitsEngineState(state) ?? true }
+        pill.model.bind(engineState: admitted.eraseToAnyPublisher(), audioLevel: capturedLevels.eraseToAnyPublisher())
+        partialWords = states.sink { [weak self] state in
+            if case .previewing(let text) = state { self?.turns?.notePartial(text) }
+        }
         // Engines that publish levels for the whole utterance drive the waveform directly; the mock
         // engine (VOICEPLUS_FIXTURE) publishes none and keeps falling back to `.listening(level:)`.
         if let publishing = engine as? AudioLevelPublishing {
@@ -135,7 +165,10 @@ public final class DictationCoordinator {
         }
     }
 
-    deinit { eventTask?.cancel() }
+    deinit {
+        eventTask?.cancel()
+        voiceActivity?.cancel()
+    }
 
     /// Drive the pill waveform straight from the capture pipeline's `.level(rms:)` channel — the
     /// same signal the onboarding mic meter uses, so the two agree. Replaces the engine-level
@@ -148,6 +181,18 @@ public final class DictationCoordinator {
         // The app binds here at launch and after every engine swap, so this is always the live one.
         latchAudio = audio
         if latched { onLatchAudioChanged?() }
+        // S3 — the VAD tells the turn when the room went quiet (C2 "Listening · quiet"). Its own
+        // subscription to the pipeline's broadcast, so the latch's `onVAD` stays the latch's.
+        voiceActivity?.cancel()
+        let events = audio.pipeline.events()
+        voiceActivity = Task.detached(priority: .utility) { [weak self] in
+            for await event in events {
+                guard !Task.isCancelled else { return }
+                guard case .vad(let vad) = event else { continue }
+                if case .speechStart = vad { self?.turns?.noteVoiceActivity(speech: true) }
+                else { self?.turns?.noteVoiceActivity(speech: false) }
+            }
+        }
     }
 
     // MARK: Latch feed and timer (B1, B4)
@@ -165,6 +210,8 @@ public final class DictationCoordinator {
     public func noteLatchElapsed(_ elapsed: TimeInterval) {
         guard latched else { return }
         latchElapsed = elapsed
+        // S3 — a segment's final preview (or its write) owns the pill until it resolves.
+        guard !(turns?.isGateBusy ?? false) else { return }
         pill.model.present(.latched(elapsed: elapsed))
     }
 
@@ -194,6 +241,7 @@ public final class DictationCoordinator {
         case .enterLatch:
             latched = true
             pill.model.latched = true
+            turns?.noteLatched(true)
             onLatchChanged?(true)
         }
     }
@@ -222,12 +270,36 @@ public final class DictationCoordinator {
     public var preflight: (() async -> Void)?
 
     public func start() {
+        // S3 — key down is a turn: snapshot the destination and show "Starting…" now, before
+        // capture opens. A key repeat is not a second turn, and a press while the previous turn is
+        // still finishing, previewing or inserting does not steal it (K04).
+        let turn: TurnID?
+        if let turns {
+            switch turns.keyDown(latched: latched) {
+            case .began(let id):
+                sessionLock.withLock { turnID = id; refusedPress = false }
+                turn = id
+            case .repeated:
+                return
+            case .busy:
+                sessionLock.withLock { refusedPress = true }
+                return
+            }
+        } else {
+            turn = nil
+        }
         startedAt = Date()
         onPrepare?()
-        enqueue { [weak self] in await self?.beginSession() }
+        enqueue { [weak self] in await self?.beginSession(turn: turn) }
     }
 
-    private func beginSession() async {
+    private func beginSession(turn: TurnID? = nil) async {
+        await openSession()
+        guard let turn, let turns else { return }
+        if isSessionHeld { turns.captureOpened(turn) } else { turns.captureFailed(turn) }
+    }
+
+    private func openSession() async {
         // A session still held here belongs to an utterance that never ended (a swallowed error, a
         // torn-down window, another owner of the same engine). Release it instead of refusing every
         // start from now on: a wedged state must be able to clear itself.
@@ -305,26 +377,64 @@ public final class DictationCoordinator {
         // is what was focused when the user let go.
         let focus = focusSnapshot?()
         let started = startedAt
-        enqueue { [weak self] in await self?.endSession(focus: focus, startedAt: started) }
+        // S3 — key up: the turn goes to `finishing` now (microphone closing, nothing written). A
+        // duplicate key-up, or the key-up of a press the controller refused, does nothing at all.
+        var turn: TurnID?
+        if let turns {
+            let (id, refused) = sessionLock.withLock { () -> (TurnID?, Bool) in
+                defer { refusedPress = false }
+                return (turnID, refusedPress)
+            }
+            if refused { return }
+            if let id {
+                sessionLock.withLock { if turnID == id { turnID = nil } }
+                guard turns.keyUp(id) else {
+                    // The turn already ended (Escape, an interruption): nothing lands from it.
+                    // Capture must still close if anything left it open.
+                    enqueue { [weak self] in
+                        guard let self, self.takeSession() else { return }
+                        await self.engine.cancel()
+                    }
+                    return
+                }
+                turn = id
+            }
+        }
+        let finishing = turn
+        enqueue { [weak self] in await self?.endSession(focus: focus, startedAt: started, turn: finishing) }
     }
 
-    private func endSession(focus: FocusSnapshot?, startedAt started: Date) async {
+    /// The reason the engine gave for its last `stop()` (V4.21/V4.22): a silent hold or a dropped
+    /// hallucination is A06 "No speech detected", not an empty landing.
+    private var lastStopReason: EngineStopReason? {
+        let underlying = (engine as? SwappableEngine)?.current ?? engine
+        return (underlying as? EngineStopReporting)?.lastStopReason
+    }
+
+    private func endSession(focus: FocusSnapshot?, startedAt started: Date, turn: TurnID? = nil) async {
         // Queued behind this utterance's own `start()`, so "nothing held" now means exactly one
         // thing: capture never opened. The key was released during warm-up, or the start failed.
         // Cancel anyway — teardown is unconditional — and land nothing.
         guard takeSession() else {
             await engine.cancel()
+            if let turn { turns?.nothingCaptured(turn) }
             return
         }
         // No recognizer on this machine: let the engine wind down its notice, but never route
         // anything to the lander/injector. There is no user speech to land.
         if engineIsUnavailable {
             _ = try? await engine.stop()
+            if let turn { turns?.nothingCaptured(turn) }
             return
         }
         do {
             let spans = try await engine.stop()
-            if let lander {
+            if let turn, let turns {
+                // S3 — the controller formats the final payload, previews it for its dwell,
+                // revalidates the destination and inserts it once; `onLanded` follows from there.
+                await turns.finalize(turn, spans: spans, stopReason: lastStopReason)
+                await MainActor.run { self.onFinal?(spans) }
+            } else if let lander {
                 let result = await lander.land(spans, startedAt: started, focus: focus)
                 await MainActor.run {
                     self.onFinal?(spans)
@@ -335,8 +445,10 @@ public final class DictationCoordinator {
             }
         } catch EngineError.notListening {
             // Tap released before the engine finished prewarming — nothing to land.
+            if let turn { turns?.nothingCaptured(turn) }
         } catch {
             Log.app.error("engine stop failed: \(error)")
+            if let turn { turns?.finishFailed(turn, error: error) }
             // A `stop()` that threw says nothing about whether capture is still open. Never leave
             // that to chance: this is the path that used to leak a live microphone.
             await engine.cancel()
@@ -348,6 +460,16 @@ public final class DictationCoordinator {
     /// asking to leave latch. The paths that *must* end the mode — hard mute, lock/sleep, an
     /// explicit stop — call `endLatch()` themselves (`SessionCoordinator`).
     public func cancel() {
+        // S3 — the capture turn ends quietly (a too-short tap is not news; Escape shows its own
+        // "Cancelled"). A turn already past key-up is not capture any more: it is left to finish.
+        if let turns, let id = sessionLock.withLock({ () -> TurnID? in
+            let id = turnID
+            turnID = nil
+            refusedPress = false
+            return id
+        }) {
+            turns.captureCancelled(id)
+        }
         enqueue { [weak self] in
             guard let self else { return }
             _ = self.takeSession()

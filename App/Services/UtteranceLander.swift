@@ -32,13 +32,31 @@ public struct LandingResult: Sendable {
     /// D1 — the caret state the text was formatted for; `nil` when no field reader is wired.
     /// `.unknown` is what the pill's "placed as spoken" hint keys on.
     public var caret: CaretState.Kind?
+    /// S3 — set by `land(…, inject: false)`: `text` is the formatted, immutable final payload and
+    /// nothing has been offered to the injector yet. `inject(payload:)` finishes the landing.
+    public var pending: PendingInsertion?
+    /// S3 — the method that wrote posted and then threw, unconfirmed: part of the text may be in
+    /// the field (`DeliveryOutcome.partial`, D07).
+    public var partialWrite = false
+    /// S3 — the commit guard refused this insert as a second one for the same turn and revision.
+    /// Nothing was posted by this call.
+    public var duplicateCommit = false
 
     public var landed: Bool { injection?.succeeded ?? false }
+
+    /// S3 — the final payload is ready and waiting for its one insert.
+    public var isAwaitingInsertion: Bool { pending != nil && injection == nil }
 
     /// R2.4 — what actually happened to this text, in the vocabulary the pill and the menu speak
     /// (`DeliveryOutcome`, R2.1). `nil` only when nothing was ever offered to the injector: a
     /// repair command, an act-domain claim, a transform, or empty spans.
-    public var delivery: DeliveryOutcome? { injection.map(DeliveryOutcome.init(injection:)) }
+    public var delivery: DeliveryOutcome? {
+        guard let injection else { return nil }
+        if partialWrite, case let .injected(method, verified) = injection, !verified {
+            return .partial(method: method.rawValue)
+        }
+        return DeliveryOutcome(injection: injection)
+    }
 
     /// The destination name to put in a held row ("Held for Notes"), when focus was snapshotted.
     public var destinationName: String { focusDestination ?? "" }
@@ -53,6 +71,37 @@ extension DeliveryOutcome {
     /// `InjectionOutcome.delivery` rather than a second copy of that policy in `App` — a duplicate
     /// would silently disagree the first time the rule changed.
     public init(injection: InjectionOutcome) { self = injection.delivery }
+}
+
+/// S3 — what `inject(payload:)` needs to finish a landing that `land(…, inject: false)` formatted:
+/// everything the post-insert bookkeeping (landing memory, repair, history, correction) reads.
+public struct PendingInsertion: Sendable {
+    /// The formatted final spans the payload text was rendered from.
+    public var spans: [TranscriptSpan]
+    /// What the engine returned, before formatting (`TurnRecord.rawText`).
+    public var rawSpans: [TranscriptSpan]
+    /// Where the text is going: the snapshot the landing was aimed at.
+    public var focus: FocusSnapshot?
+    public var bundleID: String?
+    public var startedAt: Date
+    /// AX role of the field the text was formatted for.
+    public var axRole: String?
+    /// When `land` began, for `totalMs`.
+    public var landStarted: Date
+    /// Low-confidence words of the payload text, as UTF-16 ranges of `LandingResult.text`
+    /// (`TurnRecord.uncertainSpans`); their count drives the 1800 ms dwell and "1 word to review".
+    public var uncertainRanges: [Range<Int>]
+
+    public var rawText: String { rawSpans.joinedText }
+    public var uncertainCount: Int { uncertainRanges.count }
+}
+
+/// S3 — the turn gate. When a lander has one, every `land(…)` that would insert (a latch segment, a
+/// guided landing) hands its final payload here instead of injecting: the gate previews it, dwells,
+/// revalidates the destination and inserts it once through `inject(payload:commit:)`.
+/// `TurnController` is the gate. Hold turns reach it directly through `land(…, inject: false)`.
+public protocol LandingGate: AnyObject {
+    func admit(_ payload: LandingResult, from lander: UtteranceLander) async -> LandingResult
 }
 
 /// P1.12 T1 — final spans → pipeline (gatekeeper → formatter by register → style) →
@@ -102,6 +151,11 @@ public final class UtteranceLander: @unchecked Sendable {
     /// afterwards". Off by default (the summary below is always logged and names no words); opt in
     /// with `VOICEPLUS_LOG_TEXT=1`. Local `os_log` only — nothing leaves the machine.
     public var logsText = ProcessInfo.processInfo.environment["VOICEPLUS_LOG_TEXT"] == "1"
+    /// S3 — the turn gate (`TurnController`). Weak: the controller owns the lander.
+    public weak var gate: LandingGate?
+    /// S3 — the commit guard for an injector that has none of its own (anything but
+    /// `TextInjector`, e.g. a test spy): one insert per `TurnCommitKey` whatever the injector.
+    public let commitGuard = TurnCommitGuard()
 
     public init(pipeline: PipelineRunner, injector: any Injector, system: SystemAccess, repair: RepairSession?,
                 flags: FeatureFlagService, database: AppDatabase?, zeroEdit: ZeroEditTracker? = nil,
@@ -128,8 +182,14 @@ public final class UtteranceLander: @unchecked Sendable {
 
     /// Runs the whole landing. `focus` is the snapshot taken at key release; injection aborts
     /// (and queues) if focus moved since.
+    ///
+    /// S3 — `inject: false` stops at the final payload: formatted, immutable, nothing offered to the
+    /// injector (`result.isAwaitingInsertion`); `inject(payload:commit:)` finishes it. With
+    /// `inject: true` and a `gate`, the payload goes through the gate (preview, dwell, revalidation,
+    /// one insert) rather than straight to the injector.
     @discardableResult
-    public func land(_ spans: [TranscriptSpan], startedAt: Date, focus: FocusSnapshot?) async -> LandingResult {
+    public func land(_ spans: [TranscriptSpan], startedAt: Date, focus: FocusSnapshot?,
+                     inject: Bool = true) async -> LandingResult {
         let t0 = clock()
         let id = UUID()
         let bundleID = focus?.bundleID ?? system.frontmostApp()?.bundleID
@@ -244,15 +304,60 @@ public final class UtteranceLander: @unchecked Sendable {
         }
         result.text = text
         logTransform(raw: spans, landed: text, finalSpans: finalSpans)
+        result.pending = PendingInsertion(spans: finalSpans, rawSpans: spans, focus: focus, bundleID: bundleID,
+                                          startedAt: startedAt, axRole: field?.axRole, landStarted: t0,
+                                          uncertainRanges: Self.uncertainRanges(of: finalSpans, in: text))
+        // S3 — the final payload exists; whoever asked for it decides when (and whether) it goes in.
+        guard inject else {
+            result.totalMs = ms(since: t0)
+            return result
+        }
+        if let gate { return await gate.admit(result, from: self) }
+        return await self.inject(payload: result)
+    }
+
+    /// S3 — the one insert of a payload from `land(…, inject: false)`, and everything that follows
+    /// a landing (landing memory, repair, recent words, zero-edit, correction, history).
+    ///
+    /// With a `commit` key the insert goes through the idempotent commit guard (`TextInjector`'s own,
+    /// or `commitGuard` for any other injector): a second call for the same turn and revision posts
+    /// nothing and returns `duplicateCommit`. A payload that is not awaiting insertion comes back
+    /// unchanged.
+    public func inject(payload: LandingResult, commit key: TurnCommitKey? = nil) async -> LandingResult {
+        guard payload.isAwaitingInsertion, let pending = payload.pending else { return payload }
+        var result = payload
+        let text = result.text
+        let id = result.utteranceID
+        let focus = pending.focus
+        let bundleID = pending.bundleID
         let caret = (try? system.focusedElement())?.selectedRange?.lowerBound ?? 0
-        let outcome = injector.inject(InjectionRequest(text: text, utteranceID: id.uuidString, expectedFocus: focus))
+        let request = InjectionRequest(text: text, utteranceID: id.uuidString, expectedFocus: focus)
+        let outcome: InjectionOutcome
+        if let key {
+            let committed = (injector as? TurnCommitting)?.commit(request, key: key)
+                ?? commitGuard.commit(key) { TurnCommitReport(injector.inject(request)) }
+            switch committed {
+            case .committed(let report):
+                outcome = report.outcome
+                result.partialWrite = report.postedThenThrew
+            case .duplicate(_, let previous):
+                // Nothing was posted by this call, so nothing else here may run a second time.
+                result.duplicateCommit = true
+                result.injection = previous?.outcome
+                result.partialWrite = previous?.postedThenThrew ?? false
+                Log.app.notice("lander: duplicate commit for turn \(key.description) refused")
+                return result
+            }
+        } else {
+            outcome = injector.inject(request)
+        }
         result.injection = outcome
 
-        let utterance = Utterance(id: id, spans: finalSpans, startedAt: startedAt, endedAt: clock(),
-                                  register: decision.register, route: decision.route)
+        let utterance = Utterance(id: id, spans: pending.spans, startedAt: pending.startedAt, endedAt: clock(),
+                                  register: result.register, route: result.route)
         if outcome.succeeded {
             // D5 — the caret now sits right after this text, until the user touches anything.
-            if let element = LandedElement(focus: focus ?? system.frontmostApp(), role: field?.axRole) {
+            if let element = LandedElement(focus: focus ?? system.frontmostApp(), role: pending.axRole) {
                 landingMemory.record(text: text, in: element)
             }
             repair?.land(utterance, fieldOffset: caret)
@@ -267,13 +372,54 @@ public final class UtteranceLander: @unchecked Sendable {
                 else { Task { await correction.reconcile(utteranceID: id, landedText: text, fieldOffset: caret, bundleID: bundleID) } }
             }
         }
-        if let database {
-            do { try database.insert(try DictationRecord(utterance: utterance, finalText: text, appBundleID: bundleID)) }
-            catch { Log.db.error("history insert failed: \(error)") }
-        }
-        result.totalMs = ms(since: t0)
-        Log.app.info("landed \(finalSpans.count) spans (\(text.count) chars) route=\(decision.route.rawValue) register=\(decision.register.rawValue) via \(String(describing: outcome)) in \(String(format: "%.0f", result.totalMs)) ms")
+        recordHistory(utterance, text: text, bundleID: bundleID)
+        result.totalMs = ms(since: pending.landStarted)
+        Log.app.info("landed \(pending.spans.count) spans (\(text.count) chars) route=\(result.route.rawValue) register=\(result.register.rawValue) via \(String(describing: outcome)) in \(String(format: "%.0f", result.totalMs)) ms")
         return result
+    }
+
+    /// S3 — the payload could not go in safely (the destination changed during the preview): it is
+    /// held in `focusGuard` for Insert here / Copy / Discard, recorded in history like any landing,
+    /// and the result reads as a focus-changed abort, exactly as the injector's own abort does.
+    public func hold(payload: LandingResult, reason: String, in focusGuard: FocusGuard,
+                     actual: FocusSnapshot?, turnID: TurnID?) -> LandingResult {
+        guard payload.isAwaitingInsertion, let pending = payload.pending else { return payload }
+        var result = payload
+        let request = InjectionRequest(text: result.text, utteranceID: result.utteranceID.uuidString,
+                                       expectedFocus: pending.focus)
+        focusGuard.hold(request, reason: reason, destination: pending.focus, turnID: turnID)
+        result.injection = .abortedFocusChanged(expected: pending.focus, actual: actual)
+        let utterance = Utterance(id: result.utteranceID, spans: pending.spans, startedAt: pending.startedAt,
+                                  endedAt: clock(), register: result.register, route: result.route)
+        recordHistory(utterance, text: result.text, bundleID: pending.bundleID)
+        result.totalMs = ms(since: pending.landStarted)
+        Log.app.notice("held \(result.text.count) chars: \(reason)")
+        return result
+    }
+
+    private func recordHistory(_ utterance: Utterance, text: String, bundleID: String?) {
+        guard let database else { return }
+        do { try database.insert(try DictationRecord(utterance: utterance, finalText: text, appBundleID: bundleID)) }
+        catch { Log.db.error("history insert failed: \(error)") }
+    }
+
+    /// S3 — the low-confidence words of `text` as UTF-16 ranges, found in order. A span whose text
+    /// the formatting changed beyond recognition contributes no range here (S5 aligns them properly
+    /// with `WordAligner`); its uncertainty still counts in the dwell through the spans themselves.
+    public static func uncertainRanges(of spans: [TranscriptSpan], in text: String) -> [Range<Int>] {
+        let haystack = text as NSString
+        var cursor = 0
+        var ranges: [Range<Int>] = []
+        for span in spans {
+            let word = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !word.isEmpty else { continue }
+            let window = NSRange(location: cursor, length: max(0, haystack.length - cursor))
+            let found = haystack.range(of: word, options: [], range: window)
+            guard found.location != NSNotFound else { continue }
+            if span.isLowConfidence { ranges.append(found.location..<(found.location + found.length)) }
+            cursor = found.location + found.length
+        }
+        return ranges
     }
 
     private func ms(since t0: Date) -> Double { clock().timeIntervalSince(t0) * 1000 }
