@@ -54,17 +54,22 @@ struct TransformPreviewControlsTests {
         let h = TransformPreviewGateTests.harness()
         h.landing.previewDwell = { TransformPreviewDwell.fromSetting(seconds: TurnSettings.previewDwell(settings).seconds) }
         let sleeps = Box(0), seen = Box<[String]>([]), rows = Box<TransformPreviewRows?>(nil)
+        let stayed = Box(true)
         h.landing.sleep = { [landing = h.landing, system = h.system] _ in
             sleeps.value += 1
             seen.value.append(system.field.value)
             if sleeps.value == 1 { rows.value = landing.rows }
+            // Every slice before Replace text: still R1's manual preview, the same rows.
+            if landing.phase != .previewing || landing.rows != rows.value { stayed.value = false }
             if sleeps.value == 300 { landing.confirmPreview() }
         }
         _ = await TransformPreviewGateTests.instruct(h.landing)
         #expect(sleeps.value == 300, "300 slices (15 s of 50 ms) and still waiting until Replace text")
+        #expect(stayed.value, "the preview stays `.preview(_, manual: true)` until Replace text")
         #expect(seen.value.allSatisfy { $0 == Self.original }, "nothing replaced before Replace text")
         #expect(h.system.field.value == Self.edited)
         let preview = try? #require(rows.value)
+        if let p = h.landing.currentPreview { #expect(preview == .preview(p, manual: true)) }
         #expect(preview?.buttons.map(\.label) == [TransformPreviewCopy.replaceButton, TransformPreviewCopy.cancelButton])
         #expect(preview?.buttons.first?.primary == true)
         // The pill draws those buttons over the edited preview (W3H `drawingTransform`).
