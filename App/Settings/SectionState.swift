@@ -371,18 +371,24 @@ public enum SectionCopy {
     public static func nothingDictatedDetail(key: String) -> String { "Hold \(key) and say something." }
     public static let timelineOff = "Timeline is off"
     public static let timelineOffDetail = "Turn on ambient capture in Privacy"
-    public static let timelineUnreadable = "Timeline can't be read"
+    /// S11 — every error sentence below is a recovery-catalogue lookup (design §10), never local copy.
+    /// S01 "History can’t be read".
+    public static let timelineUnreadable = RecoveryCatalog.entry(for: .historyUnreadable).headline
     public static let openPrivacy = "Open Privacy"
-    public static let heldRowFailed = "That didn't land — Try again"
+    /// D05 "Couldn’t insert your text" (an Insert here that could not be carried out; the text stays).
+    public static let heldRowFailed = RecoveryCatalog.entry(.D05).headline
 
     // MARK: Meetings (§9.2)
     public static let noMeetings = "No meetings captured yet."
     public static let meetingCaptureOff = "Meeting capture is off"
     public static let meetingCaptureOffDetail = "Turn it on to keep transcripts of calls on this Mac."
-    public static let calendarOff = "Calendar access is off"
+    /// X01 "Meeting setup needs attention".
+    public static let calendarOff = RecoveryCatalog.entry(for: .meetingPermissionMissing).headline
     public static let openSystemSettings = "Open System Settings"
-    public static let meetingsUnreadable = "Meetings can't be read"
-    public static let meetingUnreadableRow = "This transcript can't be read"
+    /// S01 "History can’t be read".
+    public static let meetingsUnreadable = RecoveryCatalog.entry(for: .historyUnreadable).headline
+    /// X02 "This meeting needs recovery".
+    public static let meetingUnreadableRow = RecoveryCatalog.entry(for: .meetingUnreadable).headline
     public static let loadingTranscript = "Loading transcript…"
 
     // MARK: Dictionary / Apps (§9.3)
@@ -391,9 +397,10 @@ public enum SectionCopy {
     public static let importFromContacts = "Import from Contacts"
     public static let noAppSettings = "No app-specific settings"
     public static let noAppSettingsDetail = "Every app uses your defaults."
-    /// The existing string is kept verbatim (`DESIGN.md` §9.3).
-    public static let contactsDenied = "Contacts access was denied — Open System Settings"
-    public static let notSaved = "Changes weren't saved"
+    /// X04 "Couldn’t import these words" (Contacts denied or an import that could not be read).
+    public static let contactsDenied = RecoveryCatalog.entry(for: .wordImportFailed).headline
+    /// S02 "Changes weren’t saved".
+    public static let notSaved = RecoveryCatalog.entry(for: .changesNotSaved).headline
     public static let tryAgain = "Try again"
 
     // MARK: Voice (§9.4)
@@ -402,7 +409,8 @@ public enum SectionCopy {
     public static let noMeasurements = "No measurements yet"
     public static let runBenchmark = "Run benchmark"
     public static let lookingForMicrophones = "Looking for microphones…"
-    public static let microphoneOff = "Microphone access is off"
+    /// P01 "Microphone access is off".
+    public static let microphoneOff = RecoveryCatalog.entry(.P01).headline
     public static let chooseMicrophone = "Choose microphone"
     public static let copyDiagnostics = "Copy diagnostics"
     public static func benchmarkFailed(stage: String) -> String { "The benchmark stopped during \(stage)" }
@@ -413,11 +421,14 @@ public enum SectionCopy {
     public static let nothingLeftDetail = "This counts every request VoicePlus made, including ones it refused to make."
     public static let nothingSaved = "Nothing is saved"
     public static let nothingSavedDetail = "With history on, transcripts of what you dictate would be kept on this Mac."
-    public static let egressUnreadable = "The egress log can't be read"
-    public static let deleteAllPartial = "Some of it is still here"
+    /// S01 "History can’t be read" — an unreadable activity log is never proof of no activity.
+    public static let egressUnreadable = RecoveryCatalog.entry(for: .historyUnreadable).headline
+    /// S04 "Some items couldn’t be deleted".
+    public static let deleteAllPartial = RecoveryCatalog.entry(for: .deletionPartial).headline
 
     // MARK: Settings (§9.6)
     public static let nothingConnected = "Nothing connected"
     public static let nothingConnectedDetail = "Transcription is local either way — a subscription never changes it."
-    public static let settingNotSaved = "Not saved"
+    /// S02 "Changes weren’t saved".
+    public static let settingNotSaved = RecoveryCatalog.entry(for: .changesNotSaved).headline
 }

@@ -1,3 +1,4 @@
+import Engine
 import Foundation
 import Injection
 import Shared
@@ -330,29 +331,37 @@ public enum MenuCopy {
         public var headline: String
         public var consequence: String
         public var action: String
+
+        /// S11 — a line is always a catalogue entry's own words.
+        public init(_ entry: RecoveryEntry) {
+            id = entry.id.rawValue
+            headline = entry.headline
+            consequence = entry.consequence
+            action = entry.action
+        }
     }
 
-    /// The catalogue entries the menu can show (design §10). S11 moves every consumer onto
-    /// `RecoveryCatalog`; until then these are pinned to the fixture by the tests.
+    /// The catalogue entries the menu can show (design §10), looked up in `RecoveryCatalog` (S11).
     public enum Catalogue {
-        public static let microphoneDenied = Line(id: "P01", headline: "Microphone access is off",
-                                                  consequence: "Recording cannot start. Nothing was typed.",
-                                                  action: "Open Microphone settings")
-        public static let shortcutPermission = Line(id: "P03", headline: "The shortcut needs permission",
-                                                    consequence: "Only the selected legacy listener needs this grant.",
-                                                    action: "Open Input Monitoring")
-        public static let reopen = Line(id: "P04", headline: "Reopen VoicePlus to finish setup",
-                                        consequence: "Save held text before relaunch.", action: "Reopen VoicePlus")
-        public static let finishingPrevious = Line(id: "K04", headline: "Finishing your previous dictation",
-                                                   consequence: "A second session has not started.",
-                                                   action: "Wait or cancel")
-        public static let muted = Line(id: "K05", headline: "VoicePlus is muted",
-                                       consequence: "The microphone stays closed until you unmute.", action: "Unmute")
-        public static let modelMissing = Line(id: "M01", headline: "Install a speech model",
-                                              consequence: "Dictation is off until a model is ready.",
-                                              action: "Open Models")
+        public static let microphoneDenied = Line(RecoveryCatalog.entry(.P01))
+        public static let shortcutPermission = Line(RecoveryCatalog.entry(.P03))
+        public static let reopen = Line(RecoveryCatalog.entry(.P04))
+        public static let finishingPrevious = Line(RecoveryCatalog.entry(.K04))
+        public static let muted = Line(RecoveryCatalog.entry(.K05))
+        public static let modelMissing = Line(RecoveryCatalog.entry(.M01))
 
         public static let all = [microphoneDenied, shortcutPermission, reopen, finishingPrevious, muted, modelMissing]
+
+        /// The entry a blocked status names; nil for a download in progress (not a failure).
+        public static func id(for reason: PresenceBlockReason) -> RecoveryID? {
+            switch reason {
+            case .microphoneDenied: return .P01
+            case .hotkeyUnavailable: return .P03
+            case .relaunchNeeded: return .P04
+            case .modelMissing: return .M01
+            case .modelDownloading: return nil
+            }
+        }
     }
 
     /// `Problem — Action` on one line (`DESIGN.md` §7.1), without saying the action twice when the
@@ -362,14 +371,9 @@ public enum MenuCopy {
     }
 
     public static func blockedLine(_ reason: PresenceBlockReason) -> String {
-        switch reason {
-        case .microphoneDenied: return problemAction(Catalogue.microphoneDenied)
-        case .hotkeyUnavailable: return problemAction(Catalogue.shortcutPermission)
-        case .relaunchNeeded: return problemAction(Catalogue.reopen)
-        case .modelMissing: return problemAction(Catalogue.modelMissing)
         // Progress, not a failure: no catalogue entry, the presence line's own words.
-        case .modelDownloading: return reason.detail
-        }
+        guard let id = Catalogue.id(for: reason) else { return reason.detail }
+        return problemAction(Line(RecoveryCatalog.entry(id)))
     }
 
     /// A headline as a parenthetical reason: sentence case lowered, the product name kept.

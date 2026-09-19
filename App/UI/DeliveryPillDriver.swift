@@ -65,27 +65,35 @@ public final class DeliveryPillDriver {
     public var quitDecision: QuitGuard.Decision { QuitGuard.decision(heldCount: held.count) }
 }
 
-/// R2.5 → R2.4. A repair that could not be applied is a **notice**, not a new row: `Actions` already
-/// wrote the sentence (`pillLine`), and the existing `.error` row's standing subtitle — "Nothing was
-/// typed — press the key again to try that turn" — is what `suggestion.detail` says anyway. So this
-/// costs no new mark, colour, motion or state (V3 §12.12, DESIGN §8.4).
+/// R2.5 → R2.4, routed through the recovery catalogue (S11). A repair that found the text changed
+/// under it ("scratch that", "replace … with …" after the field moved on) is the catalogue's D10:
+/// "The text has changed" · "Your correction has not replaced anything." · Copy correction — an
+/// attentive-review notice that stays until the user acts. The informational refusals (nothing to
+/// scratch, too late to repair) are not failures (`RecoveryCatalog.entry(for: Reason)` is nil for
+/// them): they are a transient line that fades on its own.
 ///
-/// The `actionTitle` / `copyPayload` button R2.5 also offers is deliberately **not** built here: a
-/// fourth clickable pill row is outside the three additions DESIGN §8.4 permits for R2.4. The
-/// suggestion's `detail` — which names copying — goes to the log with it.
+/// `Actions`' own sentence (`pillLine`) and `detail` go to the log with the entry id; the surface
+/// draws only catalogue copy for a failure (design §10).
 extension DeliveryPillDriver: RepairSuggestionPresenter {
     public nonisolated func present(_ suggestion: RepairSuggestion) {
         let line = suggestion.pillLine
         let detail = suggestion.detail
+        let entry = RecoveryCatalog.entry(for: suggestion.reason)
         // Same hop-if-needed shape as the pill's own timers: a repair command is *already* handled
         // on the main thread, and deferring the row to a later turn of the loop is what let it be
         // raised after the pill had moved on.
-        let show = { MainActor.assumeIsolated { self.show(repairLine: line, detail: detail) } }
+        let show = { MainActor.assumeIsolated { self.show(repairLine: line, detail: detail, entry: entry) } }
         if Thread.isMainThread { show() } else { DispatchQueue.main.async(execute: show) }
     }
 
-    private func show(repairLine: String, detail: String) {
-        log("repair suggestion: \(repairLine) — \(detail)")
-        pill.presentNotice(.error(message: repairLine))
+    /// The state a repair suggestion puts on the pill: D10 for a region mismatch, else a transient line.
+    nonisolated static func state(for line: String, entry: RecoveryEntry?) -> PillState {
+        entry.map(PillState.recovery) ?? .preview(text: line)
+    }
+
+    private func show(repairLine: String, detail: String, entry: RecoveryEntry?) {
+        log("repair suggestion \(entry?.id.rawValue ?? "info"): \(repairLine) — \(detail)")
+        let state = Self.state(for: repairLine, entry: entry)
+        if case .preview = state { pill.present(state) } else { pill.presentNotice(state) }
     }
 }

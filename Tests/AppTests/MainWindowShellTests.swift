@@ -122,7 +122,7 @@ struct MainWindowShellTests {
         await model.reloadTimeline()
         #expect(model.timeline.rendering == .error)
         #expect(model.timeline.headline == SectionCopy.timelineUnreadable)
-        #expect(model.timeline.actionTitle == SectionCopy.openPrivacy)
+        #expect(model.timeline.actionTitle == RecoveryCatalog.entry(.S01).action)   // S11: S01, scoped Try again
         #expect(model.readiness.count == 4, "the strip must still be on screen when the Timeline is broken")
     }
 
@@ -361,9 +361,11 @@ struct MainWindowShellTests {
 
         let denied = voice(permissions: [.microphone: .denied])
         #expect(denied.microphone.rendering == .error)
+        // S11: the catalogue's P01 — headline, consequence and "Open Microphone settings".
         #expect(denied.microphone.headline == SectionCopy.microphoneOff)
-        #expect(denied.microphone.actionTitle == SectionCopy.openSystemSettings)
-        #expect(denied.microphone.detail?.contains("System Settings") == true)
+        #expect(denied.microphone.actionTitle == RecoveryCatalog.entry(.P01).action)
+        #expect(denied.microphone.detail == RecoveryCatalog.entry(.P01).consequence)
+        #expect(denied.microphone.recoveryID == .P01)
     }
 
     @Test("enrollment: the empty says it is optional, and with no recorder wired it says that too")

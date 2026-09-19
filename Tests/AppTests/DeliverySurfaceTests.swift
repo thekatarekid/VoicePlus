@@ -45,19 +45,22 @@ struct DeliveryRowTests {
         let state = PillDeliveryRouter.state(for: .delivered(verified: false, method: "paste"),
                                              text: Self.text, destination: "Brave Browser")
         guard case .landed(let info) = state else { Issue.record("expected a landed row"); return }
-        #expect(info.headline == "Landed · not confirmed")
+        // S11: the catalogue's D06, "Inserted · not confirmed".
+        #expect(info.headline == "Inserted · not confirmed")
         #expect(info.headline == DeliveryCopy.landedUnverified)
         #expect(!info.verified)
         // The committed text is still shown — in the subtitle slot, under the honest headline.
         #expect(info.subtitle == Self.text)
-        #expect(state.messageLines.contains("Landed · not confirmed"))
+        #expect(state.messageLines.contains("Inserted · not confirmed"))
     }
 
     @Test func heldRowNamesTheDestinationAndOffersThreeActions() {
         let state = PillDeliveryRouter.state(for: .held(reason: "no safe destination"),
                                              text: Self.text, destination: "Notes")
         guard case .held(let info) = state else { Issue.record("expected a held row"); return }
-        #expect(info.headline == "Held for Notes")
+        // S11: the reason's catalogue headline; the destination is the row's trailing name.
+        #expect(info.headline == RecoveryCatalog.entry(forDeliveryReason: "no safe destination").headline)
+        #expect(info.destination == "Notes")
         #expect(info.subtitle.contains("Ship the release notes"))
         #expect(HeldAction.allCases.map(\.label) == ["Insert here", "Copy", "Discard"])
         #expect(HeldAction.allCases.map(\.identifier)
@@ -70,10 +73,10 @@ struct DeliveryRowTests {
         let changed = PillDeliveryRouter.state(for: .held(reason: "destination changed"),
                                                text: Self.text, destination: "Notes")
         guard case .held(let info) = changed else { Issue.record("expected a held row"); return }
-        #expect(info.headline == "Destination changed — Copy text")
+        #expect(info.headline == "Destination changed — text held")   // S11: D01
 
         let unknown = HeldPillInfo(text: Self.text, destination: "", reason: "target unsafe")
-        #expect(unknown.headline == "Destination changed — Copy text")
+        #expect(unknown.headline == "Destination changed — text held")
     }
 
     /// DESIGN §8.4: every fixed string a held row draws is in `messageLines`, so `NotchGeometry`
@@ -81,7 +84,7 @@ struct DeliveryRowTests {
     @Test func heldAndLandedRowsAreSizedLikeEveryOtherTwoLineRow() {
         let held = PillDeliveryRouter.state(for: .held(reason: "focus moved"), text: Self.text, destination: "Notes")
         let lines = held.messageLines
-        #expect(lines.contains("Destination changed — Copy text"))
+        #expect(lines.contains("Destination changed — text held"))
         #expect(lines.contains(HeldPillInfo.actionsLine))
         #expect(HeldPillInfo.actionsLine.contains("Insert here"))
         // S2: both are actionable rows — 560 × 204 with the action row below the character bay.
@@ -198,8 +201,10 @@ struct HeldActionTests {
         #expect(driver.held.latest?.id == injectionSideID)
         guard case .held(let info) = state else { Issue.record("expected the held row"); return }
         #expect(info.id == injectionSideID)
-        // A never-inject hold did not lose its destination, so the row still names it.
-        #expect(info.headline == "Held for Brave Browser")
+        // A never-inject hold did not lose its destination, so the row still names it (trailing), under
+        // the catalogue's D04 headline (S11).
+        #expect(info.destination == "Brave Browser")
+        #expect(info.headline == RecoveryCatalog.entry(.D04).headline)
     }
 
     @Test func theQueueIsBounded() {
@@ -253,54 +258,55 @@ struct HeldActionTests {
         // A secure field is the one refusal that keeps nothing: the row says so and offers the only
         // action there is, and no held item appears for the user to "recover".
         driver.handle(.failed(reason: "secure field"), text: "typed", destination: "1Password")
-        #expect(pill.state == .error(message: "Text was not typed — Try again"))
+        #expect(pill.state == .error(message: RecoveryCatalog.entry(.D03).headline))   // S11: D03
         #expect(driver.held.isEmpty)
     }
 }
 
 @Suite("R2.4 — R2.5's repair suggestions land on an existing row")
 struct RepairSuggestionPresentationTests {
-    /// The integration point R2.5 defined: `Actions` writes the sentence, R2.4 puts it in the
-    /// *existing* `.error` notice — no new row, no new action, no new mark.
+    /// The integration point R2.5 defined, routed through the catalogue (S11): a repair that found
+    /// the text changed is the existing `.error` notice with D10's words — no new row, no new mark.
     @Test @MainActor func aRepairSuggestionBecomesAnExistingNoticeRow() {
         let pill = PillViewModel()
         let driver = DeliveryPillDriver(pill: pill)
         let suggestion = RepairSuggestion(command: .scratchThat, segment: nil,
                                           reason: .regionChanged(actual: "something else entirely"))
         driver.present(suggestion)   // synchronous when already on the main actor
-        #expect(pill.state == .error(message: "Text changed — nothing scratched"))
+        #expect(pill.state == .error(message: RecoveryCatalog.entry(.D10).headline))
         #expect(pill.state.caseName == "error")
         // A suggestion is not a delivery: nothing is held, and the quit guard stays quiet.
         #expect(driver.held.isEmpty)
         #expect(driver.quitDecision == .quit)
     }
 
-    /// The row must carry `Actions`' own sentence, not be rewritten by the delivery copy deck —
-    /// `DeliveryCopy` only speaks for `DeliveryOutcome`s.
+    /// An informational refusal is not a failure (no catalogue entry): `Actions`' own sentence stays,
+    /// as a line that fades on its own — never an error row, never rewritten by the delivery copy.
     @Test @MainActor func theSuggestionsOwnWordsSurvive() {
         let pill = PillViewModel()
         let driver = DeliveryPillDriver(pill: pill)
         driver.present(RepairSuggestion(command: .putItBack, segment: nil, reason: .nothingToPutBack))
-        #expect(pill.state == .error(message: "Nothing to put back"))
+        #expect(pill.state == .preview(text: "Nothing to put back"))
         #expect(pill.state != .error(message: DeliveryCopy.couldNotType))
     }
 }
 
-@Suite("R2.4 — error copy (V3 §6, verbatim)")
+@Suite("R2.4 → S11 — delivery copy is the recovery catalogue's")
 struct DeliveryCopyTests {
-    @Test func theThreeSentencesAreExact() {
-        #expect(DeliveryCopy.destinationChanged == "Destination changed — Copy text")
-        #expect(DeliveryCopy.microphoneDisconnected == "Microphone disconnected — Choose microphone")
-        #expect(DeliveryCopy.noSpeechDetected == "No speech detected — Try again")
+    @Test func theSentencesAreCatalogueHeadlines() {
+        #expect(DeliveryCopy.destinationChanged == "Destination changed — text held")    // D01
+        #expect(DeliveryCopy.microphoneDisconnected == "Microphone disconnected")         // A02
+        #expect(DeliveryCopy.noSpeechDetected == "No speech detected")                    // A06
+        #expect(DeliveryCopy.couldNotType == "Couldn’t insert your text")                 // D05
+        #expect(DeliveryCopy.landedUnverified == "Inserted · not confirmed")              // D06
     }
 
-    @Test func reasonsMapOntoThoseSentences() {
+    @Test func reasonsMapThroughTheCatalogue() {
         #expect(DeliveryCopy.message(forFailure: "destination changed") == DeliveryCopy.destinationChanged)
         #expect(DeliveryCopy.message(forFailure: "focus moved mid-utterance") == DeliveryCopy.destinationChanged)
-        // These three all mean "nothing was typed, and nothing is being held for you", so none of
-        // them may say "Copy text". Two of them contain the word "destination" anyway.
-        #expect(DeliveryCopy.message(forFailure: "secure field") == DeliveryCopy.couldNotType)
-        #expect(DeliveryCopy.message(forFailure: "no destination") == DeliveryCopy.couldNotType)
+        // Nothing was typed, and nothing is held: each says so in its own catalogue words.
+        #expect(DeliveryCopy.message(forFailure: "secure field") == RecoveryCatalog.entry(.D03).headline)
+        #expect(DeliveryCopy.message(forFailure: "no destination") == RecoveryCatalog.entry(.D02).headline)
         #expect(DeliveryCopy.message(forFailure: "every method threw") == DeliveryCopy.couldNotType)
         #expect(DeliveryCopy.message(forFailure: "microphone disconnected") == DeliveryCopy.microphoneDisconnected)
         #expect(DeliveryCopy.message(forFailure: "no input device") == DeliveryCopy.microphoneDisconnected)
@@ -308,8 +314,8 @@ struct DeliveryCopyTests {
         #expect(DeliveryCopy.message(forFailure: "empty transcript") == DeliveryCopy.noSpeechDetected)
     }
 
-    /// The rule that matters: a reason we do not recognise still reads as a sentence with an action,
-    /// and none of the raw text reaches the user (DESIGN §7.2 — raw errors go to the log only).
+    /// The rule that matters: a reason we do not recognise is D05, and none of the raw text reaches
+    /// the user (design §10 — raw errors go to the log only).
     @Test func aRawErrorIsNeverShown() {
         let raw = "Error Domain=NSAccessibilityErrorDomain Code=-25204 kAXErrorCannotComplete (OSStatus -1719)"
         let shown = DeliveryCopy.message(forFailure: raw)
@@ -318,8 +324,8 @@ struct DeliveryCopyTests {
         #expect(!shown.contains("kAXError"))
         #expect(!shown.contains("OSStatus"))
         for sentence in [DeliveryCopy.destinationChanged, DeliveryCopy.microphoneDisconnected,
-                         DeliveryCopy.noSpeechDetected, DeliveryCopy.couldNotType] {
-            #expect(sentence.contains(" — "))       // Problem — Action, every time
+                         DeliveryCopy.noSpeechDetected, DeliveryCopy.couldNotType, DeliveryCopy.landedUnverified] {
+            #expect(RecoveryCatalog.entry(forHeadline: sentence) != nil, "\(sentence) is a catalogue headline")
             #expect(!sentence.hasSuffix("."))
             #expect(!sentence.contains("!"))
         }
@@ -411,8 +417,7 @@ struct LanderDeliveryOutcomeTests {
                 #expect(!line.contains("InjectionOutcome"))
             }
             if case .error(let message) = state {
-                #expect([DeliveryCopy.destinationChanged, DeliveryCopy.microphoneDisconnected,
-                         DeliveryCopy.noSpeechDetected, DeliveryCopy.couldNotType].contains(message))
+                #expect(RecoveryCatalog.entry(forHeadline: message) != nil, "S11: a catalogue headline, \(message)")
             }
         }
     }

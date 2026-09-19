@@ -271,9 +271,19 @@ public struct OnboardingView: View {
                   systemImage: "info.circle")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         case .failed(let reason):
-            Label("Couldn't remove it: \(reason). Copy the reset command and run it in Terminal instead.",
-                  systemImage: "exclamationmark.triangle")
-                .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            // S11: the tool's own error text is a technical cause — behind a disclosure, never the sentence.
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Couldn't remove it. Copy the reset command and run it in Terminal instead.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                if !reason.isEmpty {
+                    DisclosureGroup("Details") {
+                        Text(reason).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.caption)
+                }
+            }
         }
     }
 
@@ -331,36 +341,48 @@ public struct OnboardingView: View {
                 Text("Listening…").foregroundStyle(.secondary)
             case .noAudio:
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("No sound is reaching VoicePlus.", systemImage: "waveform.slash").foregroundStyle(.orange)
+                    micRecoveryHeadline(.noAudio, systemImage: "waveform.slash")
                     Text("Capture started but not one audio block arrived. That is usually a microphone grant macOS has stopped honouring for this build, not the volume. Re-grant VoicePlus in Privacy & Security › Microphone, or pick a different input in Sound.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     micRecoveryButtons
                 }
             case .tooQuiet:
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Audio is arriving, but it's very quiet.", systemImage: "speaker.slash").foregroundStyle(.orange)
-                    Text("Check the input level for the right mic in System Settings › Sound.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    micRecoveryHeadline(.tooQuiet, systemImage: "speaker.slash")
+                    Text("Audio is arriving, but it's very quiet. Check the input level for the right mic in System Settings › Sound.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     micRecoveryButtons
                 }
             case .good:
                 Label("Sounds good.", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             case .clipping:
-                Label("Too loud — it's clipping. Move the mic a little further away.", systemImage: "waveform.badge.exclamationmark").foregroundStyle(.orange)
-            case .unavailable(let reason):
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Couldn't start the microphone.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(reason).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    micRecoveryHeadline(.clipping, systemImage: "waveform.badge.exclamationmark")
+                    Text("Too loud — it's clipping. Move the mic a little further away.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            case .unavailable:
+                let verdict = model.machine.micVerdict
+                VStack(alignment: .leading, spacing: 6) {
+                    micRecoveryHeadline(verdict, systemImage: "exclamationmark.triangle.fill")
                     micRecoveryButtons
+                    // S11: the capture error is a technical cause — behind a disclosure, never the headline.
+                    if let detail = OnboardingRecovery.detail(for: verdict) {
+                        DisclosureGroup("Details") {
+                            Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.caption)
+                    }
                 }
             case .permissionRequired:
+                let p01 = RecoveryCatalog.entry(.P01)
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Microphone access is needed.", systemImage: "mic.slash.fill").foregroundStyle(.orange)
+                    micRecoveryHeadline(.permissionRequired, systemImage: "mic.slash.fill")
                     Text("VoicePlus has no permission to open the microphone, so there is nothing to measure here — and dictation cannot work until it does. Allow VoicePlus in Privacy & Security › Microphone, then press Re-check.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
-                        Button("Open Microphone privacy") { model.openSettings(for: .microphone) }
+                        Button(p01.action) { model.openSettings(for: .microphone) }
                         Button("Re-check") { model.send(.verify(.microphone)) }
                     }
                     .font(.caption)
@@ -369,11 +391,23 @@ public struct OnboardingView: View {
         }
     }
 
+    /// S11 — a microphone-check verdict's catalogue headline and consequence (A05, A08, A03, P01).
+    @ViewBuilder private func micRecoveryHeadline(_ verdict: OnboardingStateMachine.MicVerdict,
+                                                  systemImage: String) -> some View {
+        if let entry = OnboardingRecovery.entry(for: verdict)?.rendered(hotkey: model.keyLabel) {
+            Label(entry.headline, systemImage: systemImage).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(entry.consequence).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var micRecoveryButtons: some View {
         HStack {
             Button("Open Sound settings") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!) }
             Button("Open Microphone privacy") { model.openSettings(for: .microphone) }
-            Button("Try again") { model.send(.verify(.microphone)) }
+            // S11: re-running the check is A05's own action, "Test microphone" — not a generic retry.
+            Button(RecoveryCatalog.entry(.A05).action) { model.send(.verify(.microphone)) }
         }
         .font(.caption)
     }
@@ -725,11 +759,36 @@ public struct OnboardingView: View {
                 Button("Copy the text") { model.copyDictationText() }.font(.caption)
             }
         case .noSpeech?, .failed?:
-            VStack(alignment: .leading, spacing: 6) {
-                Label(model.machine.dictationError ?? "That didn't work.", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                Button("Try again") { model.send(.retryDictation) }.font(.caption)
+            // S11: the attempt's catalogue entry — headline, consequence and its own one action.
+            if let entry = OnboardingRecovery.entry(for: model.machine.dictation)?.rendered(hotkey: model.keyLabel) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(entry.headline, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    Text(entry.consequence).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    recoveryStepButton(entry)
+                }
             }
+        }
+    }
+
+    /// The entry's own action as the step can carry it out (`OnboardingRecovery.step`); nothing when
+    /// this window cannot — never a generic "Try again" standing in for another action.
+    @ViewBuilder private func recoveryStepButton(_ entry: RecoveryEntry) -> some View {
+        switch OnboardingRecovery.step(for: entry.id) {
+        case .retryDictation:
+            Button(entry.action) { model.send(.retryDictation) }.font(.caption)
+        case .openSettings(let permission):
+            Button(entry.action) { model.openSettings(for: permission) }.font(.caption)
+        case .openSoundSettings:
+            Button(entry.action) { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!) }
+                .font(.caption)
+        case .retryModelLoad:
+            Button(entry.action) { model.send(.retryModelLoad) }.font(.caption)
+        case .installModels:
+            Button(entry.action) { model.send(.installModels) }.font(.caption)
+        case .none:
+            EmptyView()
         }
     }
 

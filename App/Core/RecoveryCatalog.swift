@@ -158,7 +158,7 @@ public struct RecoveryEntry: Equatable, Hashable, Sendable, Identifiable {
 /// Copy is verbatim from the verified prototype (`Fixtures/design/design_copy.json` › `errors`, Spool
 /// treatment from `Fixtures/spool/spool_spec.json` › `errorPoses`), asserted by `RecoveryCatalogTests`.
 /// Mapping never returns raw error text: that goes to `Log` (`EngineMessage.technicalDetail`).
-/// Consumers switch to it in S11.
+/// Every pill, window, onboarding and menu error path resolves through it (S11, `RecoveryPresentation`).
 public enum RecoveryCatalog {
     /// Design §10: transient cancellation / too-short hints may fade after 800–1600 ms.
     public static let fadeWindow: ClosedRange<TimeInterval> = 0.8...1.6
@@ -276,7 +276,7 @@ public enum RecoveryCatalog {
     }
 
     /// The entry for a reason string carried by `DeliveryOutcome.held` / `.failed` (`DeliveryReason`,
-    /// `InjectionRefusal` raw values). Keyword fallbacks mirror `DeliveryCopy.category(of:)`; an
+    /// `InjectionRefusal` raw values). Since S11 `DeliveryCopy` is built on this mapping; an
     /// unrecognised reason is a failed insertion (D05), never the reason itself.
     public static func entry(forDeliveryReason reason: String) -> RecoveryEntry {
         let r = reason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

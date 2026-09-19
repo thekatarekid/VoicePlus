@@ -101,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watcher.onTapProvenDead = { [weak self] in
             // The tap is armed, was re-armed once, and the system is still delivering modifier keys
             // to everyone but us. Say so; never restart behind the user's back.
-            self?.pill.model.present(.preview(text: "macOS isn't sending keys to VoicePlus — quit and reopen it to fix the hotkey"))
+            self?.pill.model.presentNotice(.recovery(AppRecovery.tapProvenDead))   // S11: P04, catalogue copy
             self?.presence.setTapProvenDead()   // P5 — and it stays visible after the pill goes
         }
         // P6 — the trigger that covers the case `onTapProvenDead` structurally cannot: a Microphone
@@ -199,8 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sessionCoordinator = SessionCoordinator(dictation: coordinator, mute: container.latchController.mute, latch: latch)
         sessionCoordinator.observeSystemEvents()
         sessionCoordinator.onStopped = { [weak self] _, reason in
-            guard reason == .locked || reason == .slept else { return }
-            self?.pill.model.present(.preview(text: "Dictation stopped — start it again when you're ready"))
+            guard reason == .locked || reason == .slept, let entry = AppRecovery.entry(forStop: reason) else { return }
+            self?.pill.model.presentNotice(.recovery(entry))   // S11: K02, catalogue copy
         }
         self.latchRuntime = latch
         self.session = sessionCoordinator
@@ -426,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             _ = try? await container.engine.stop()
             let samples = container.audioTap.samples
-            guard !samples.isEmpty else { return "Couldn't hear anything — try again." }
+            guard !samples.isEmpty else { return RecoveryCatalog.entry(.A05).problemAction }   // S11: A05
             return adaptation.trainByVoice(word: word, samples: samples)
         }
         // P6.3 — script indicator into the pill badge.
@@ -767,13 +767,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pill.model.present(.preview(text: "Confirm to proceed — say “confirm” or click"))
             } else if let result, result.outcome.isSuccess {
                 pill.model.present(.preview(text: "Done: \(result.request.catalogID ?? result.request.kind.rawValue)"))
-            } else if let result {
-                pill.model.present(.preview(text: "Couldn't do that (\(result.request.kind.rawValue))"))
+            } else if let result, let entry = AppRecovery.entry(forAct: result.outcome) {
+                // S11: catalogue copy; the request kind is a raw token and goes to the log only.
+                Log.app.error("act \(result.request.kind.rawValue) failed: \(String(describing: result.outcome))")
+                pill.model.presentNotice(.recovery(entry))
             }
         case .agentic(let report):
             // Plain language only. `String(describing:)` on the status put
             // `Agent: failed(reason: "planner: disabled(stage: act.planner)")` in the pill.
-            pill.model.present(.preview(text: report.userMessage))
+            if let entry = AppRecovery.entry(forAgent: report.status) {
+                pill.model.presentNotice(.recovery(entry))   // S11: a failed run is catalogue copy
+            } else {
+                pill.model.present(.preview(text: report.userMessage))
+            }
         case .stopped:
             pill.model.present(.preview(text: "Stopped"))
         case .cancelled:

@@ -237,7 +237,7 @@ public final class TransformLanding: @unchecked Sendable {
         case .applied(let result, _):
             guard let request = staged.1, let turn = session.turns.last else {
                 rollback(stager)
-                onEvent?(.failed("no rewrite"))
+                onEvent?(.failed(RecoveryCatalog.entry(.T03).headline))   // S11: the original stands
                 return .failed(.unavailable(reason: "no rewrite"))
             }
             let p = TransformPreview(instruction: result.request.instructionText, before: result.request.selection.text,
@@ -357,21 +357,20 @@ public final class TransformLanding: @unchecked Sendable {
 
     private func sync<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
 
+    /// S11 — the pill line for an edit that did not land: catalogue copy. A changed range is D10
+    /// ("The text has changed"); a write path that is unavailable is D05; the reason goes to the log.
     static func describe(_ o: TransformReplaceOutcome) -> String {
         switch o {
         case .replaced: return "done"
-        case .mismatch: return "text changed — not rewritten"
-        case .unavailable(let r): return "can't edit here (\(r))"
+        case .mismatch: return RecoveryCatalog.entry(.D10).headline
+        case .unavailable(let r):
+            Log.app.error("recovery D05: edit could not be written: \(r)")
+            return RecoveryCatalog.entry(.D05).headline
         }
     }
+    /// S11 — a rewrite that threw: its catalogue entry (T05 for an instruction it did not catch, T03
+    /// otherwise — the original text stands); the error's own text goes to the log.
     static func describe(_ e: Error) -> String {
-        if let t = e as? TransformError {
-            switch t {
-            case .emptySelection: return "nothing selected"
-            case .uncertainInstruction(let w): return "didn't catch “\(w.joined(separator: " "))”"
-            default: return "no rewrite"
-            }
-        }
-        return "no rewrite"
+        RecoveryCatalog.report(e).headline
     }
 }

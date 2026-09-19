@@ -110,7 +110,8 @@ public extension SectionCopy {
         "Nothing in the Timeline matches “\(query)”."
     }
     static let clearSearch = "Clear search"
-    static let timelineSearchFailed = "That search didn't finish"
+    /// S11 — S01 "History can’t be read": a search is a read of the Timeline.
+    static let timelineSearchFailed = RecoveryCatalog.entry(for: .historyUnreadable).headline
 
     // MARK: Timeline — source filters
     static let timelineNoMatchingSource = "Nothing from these sources"
@@ -119,8 +120,9 @@ public extension SectionCopy {
 
     // MARK: Timeline — delete and delete-all
     static let timelineDeleting = "Deleting…"
-    static let timelineRowNotDeleted = "That row wasn't deleted"
-    static let timelineRowStillThere = "That row is still in the Timeline"
+    /// S11 — S04 "Some items couldn’t be deleted" (the row keeps its place until a read says it is gone).
+    static let timelineRowNotDeleted = RecoveryCatalog.entry(for: .deletionPartial).headline
+    static let timelineRowStillThere = RecoveryCatalog.entry(for: .deletionPartial).headline
     static let deleteAllTimeline = "Delete all"
     static let confirmDeleteAllTimeline = "Delete everything in the Timeline?"
     static func confirmDeleteAllTimelineDetail(_ count: Int) -> String {
@@ -135,7 +137,8 @@ public extension SectionCopy {
     }
 
     // MARK: Timeline — the store is absent
-    static let timelineStoreMissing = "Timeline isn't running"
+    /// S11 — S01 "History can’t be read": capture is on and its store cannot be read. The detail says why.
+    static let timelineStoreMissing = RecoveryCatalog.entry(for: .historyUnreadable).headline
     static let timelineStoreMissingDetail = "Ambient capture is on, but its store hasn't started on this Mac."
 
     // MARK: Timeline — privacy (V3 §9.6)

@@ -119,10 +119,10 @@ struct PillRowsTests {
         }
     }
 
-    /// Errors: recovered words → E0; a quiet no-result return fades with no actions; anything else
-    /// states its problem and consequence and can always be dismissed.
+    /// Errors: T01 with recovered words → E0; a quiet no-result return fades with no actions; anything
+    /// else states its catalogue problem and consequence and can always be dismissed (S11).
     @Test func errorRows() {
-        let recovered = PillContent.make(.error(message: "Text was not typed — Try again"),
+        let recovered = PillContent.make(.error(message: RecoveryCatalog.entry(.T01).headline),
                                          context: Self.context("these words", open: false))
         #expect(recovered.status == "⚠ Couldn’t finish this dictation")
         #expect(recovered.words == .final("these words"))
@@ -133,8 +133,9 @@ struct PillRowsTests {
         let mic = PillContent.make(.error(message: DeliveryCopy.microphoneDisconnected), context: Self.context(open: false))
         #expect(mic.status == "⚠ Microphone disconnected")
         #expect(mic.buttons == [PillButton("Choose microphone", .voice, primary: true), PillButton("Dismiss", .dismiss)])
+        // S11: text the catalogue does not know is never drawn — it is the catch-all X08.
         let unknown = PillContent.make(.error(message: "Nothing to put back"), context: Self.context(open: false))
-        #expect(unknown.status == "⚠ Nothing to put back")
+        #expect(unknown.status == "⚠ VoicePlus couldn’t finish this step")
         #expect(unknown.buttons == [PillButton("Dismiss", .dismiss, primary: true)])
     }
 

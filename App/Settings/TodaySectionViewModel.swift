@@ -241,7 +241,8 @@ public final class TodaySectionViewModel: ObservableObject {
         case .inserted, .copied, .discarded:
             heldRowErrors[item.id] = nil
         case .unavailable, .unknownItem:
-            heldRowErrors[item.id] = SectionCopy.heldRowFailed
+            // S11: the catalogue's words for what did not happen — D08 for a copy, D05 otherwise.
+            heldRowErrors[item.id] = action == .copy ? RecoveryCatalog.entry(.D08).headline : SectionCopy.heldRowFailed
         }
         refreshHeld()
     }
@@ -314,8 +315,10 @@ public final class TodaySectionViewModel: ObservableObject {
         guard let reader else {
             timelineRows = []
             availableSources = []
-            timeline = .error(SectionCopy.timelineStoreMissing, detail: SectionCopy.timelineStoreMissingDetail,
-                              action: SectionCopy.openPrivacy)
+            // S11: S01's headline and action; the detail says why this read cannot happen.
+            let s01 = RecoveryCatalog.entry(for: .historyUnreadable)
+            timeline = SectionState(rendering: .error, headline: s01.headline, detail: SectionCopy.timelineStoreMissingDetail,
+                                    actionTitle: s01.action, recoveryID: s01.id)
             return
         }
         readGeneration += 1
@@ -334,16 +337,12 @@ public final class TodaySectionViewModel: ObservableObject {
         } catch {
             guard generation == readGeneration else { return }
             // Partial data keeps its content and gains a banner; no data at all is the error state.
+            // S11: a failed read (search or not) is S01 — headline, consequence, Try again (scoped).
             if timelineRows.isEmpty {
-                timeline = asked.isSearching
-                    ? .error(SectionCopy.timelineSearchFailed, action: SectionCopy.tryAgain)
-                    : .error(SectionCopy.timelineUnreadable, action: SectionCopy.openPrivacy)
+                timeline = .error(.historyUnreadable)
             } else {
                 timeline = .content
-                banner = SectionBanner(headline: asked.isSearching ? SectionCopy.timelineSearchFailed
-                                                                   : SectionCopy.timelineUnreadable,
-                                       actionTitle: asked.isSearching ? SectionCopy.tryAgain : SectionCopy.openPrivacy,
-                                       diagnostics: "\(error)")
+                banner = .recovery(.historyUnreadable, diagnostics: "\(error)")
             }
         }
     }
@@ -401,8 +400,7 @@ public final class TodaySectionViewModel: ObservableObject {
     /// a fresh read no longer has it, never because the call returned.
     public func delete(rowID: String) async {
         guard let reader else {
-            banner = SectionBanner(headline: SectionCopy.timelineRowNotDeleted, actionTitle: SectionCopy.tryAgain,
-                                   diagnostics: SectionCopy.timelineStoreMissingDetail)
+            banner = .recovery(.deletionPartial, diagnostics: SectionCopy.timelineStoreMissingDetail)   // S11: S04
             return
         }
         deletingRows.insert(rowID)
@@ -411,13 +409,12 @@ public final class TodaySectionViewModel: ObservableObject {
             try reader.delete(id: rowID)
         } catch {
             // The row keeps its place. Dropping it here would tell the user it is gone when it is not.
-            banner = SectionBanner(headline: SectionCopy.timelineRowNotDeleted, actionTitle: SectionCopy.tryAgain,
-                                   diagnostics: "\(error)")
+            banner = .recovery(.deletionPartial, diagnostics: "\(error)")   // S11: S04
             return
         }
         await reloadTimeline()
         if timelineRows.contains(where: { $0.id == rowID }) {
-            banner = SectionBanner(headline: SectionCopy.timelineRowStillThere, actionTitle: SectionCopy.tryAgain)
+            banner = .recovery(.deletionPartial)
         }
     }
 
@@ -425,20 +422,18 @@ public final class TodaySectionViewModel: ObservableObject {
     /// is the honest headline when the store kept something, and it is `DESIGN.md` §9.5's wording.
     public func deleteEverything() async {
         guard let reader else {
-            banner = SectionBanner(headline: SectionCopy.deleteAllPartial, actionTitle: SectionCopy.tryAgain,
-                                   diagnostics: SectionCopy.timelineStoreMissingDetail)
+            banner = .recovery(.deletionPartial, diagnostics: SectionCopy.timelineStoreMissingDetail)   // S11: S04
             return
         }
         do {
             try reader.deleteAll()
         } catch {
-            banner = SectionBanner(headline: SectionCopy.deleteAllPartial, actionTitle: SectionCopy.tryAgain,
-                                   diagnostics: "\(error)")
+            banner = .recovery(.deletionPartial, diagnostics: "\(error)")
             return
         }
         await reloadTimeline()
         if !timelineRows.isEmpty {
-            banner = SectionBanner(headline: SectionCopy.deleteAllPartial, actionTitle: SectionCopy.tryAgain)
+            banner = .recovery(.deletionPartial)
         }
     }
 

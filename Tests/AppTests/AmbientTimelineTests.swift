@@ -376,7 +376,7 @@ struct AmbientTimelineTests {
         await model.confirm()
         #expect(model.timelineRows.count == 1)
         #expect(model.banner?.headline == SectionCopy.deleteAllPartial)
-        #expect(model.banner?.actionTitle == SectionCopy.tryAgain)
+        #expect(model.banner?.actionTitle == RecoveryCatalog.entry(.S04).action)   // S11: "Retry deletion"
 
         let thrower = StubStore(rows: [row("one", id: "1")])
         thrower.deleteFailure = StubStore.Boom()
@@ -440,7 +440,10 @@ struct AmbientTimelineTests {
         await model.reloadTimeline()
         #expect(model.timeline.rendering == .error)
         #expect(model.timeline.headline == SectionCopy.timelineStoreMissing)
-        #expect(model.timeline.actionTitle == SectionCopy.openPrivacy)
+        #expect(model.timeline.detail == SectionCopy.timelineStoreMissingDetail)
+        // S11: S01's own action, scoped — never a claim that the Timeline is off.
+        #expect(model.timeline.actionTitle == RecoveryCatalog.entry(.S01).action)
+        #expect(model.timeline.recoveryID == .S01)
         #expect(model.timeline.isWellFormed)
 
         let off = today(ambient: false, reader: nil)

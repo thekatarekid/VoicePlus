@@ -354,8 +354,9 @@ public final class OnboardingViewModel: ObservableObject {
                 } catch {
                     guard !Task.isCancelled else { downloadTask = nil; return }
                     // `localizedDescription` on a bare Swift enum is a generic bridge string; this
-                    // is the same reason the pill used to show "invalidAudioData".
-                    let reason = EngineMessage.describe(error)
+                    // is the same reason the pill used to show "invalidAudioData". S11: the app's
+                    // catalogue, which also knows the layers above the engine; raw text to the log.
+                    let reason = RecoveryCatalog.report(error).headline
                     Log.app.error("onboarding: model install failed — \(reason)")
                     downloadTask = nil
                     send(.downloadFailed(reason))
@@ -741,7 +742,7 @@ public final class OnboardingViewModel: ObservableObject {
                 try await engine.start(prewarm: true)
                 startDictationWatchdog()
             } catch {
-                finishDictation(.failed(reason: EngineMessage.describe(error)))
+                finishDictation(.failed(reason: RecoveryCatalog.report(error).headline))
             }
         }
     }
@@ -797,7 +798,7 @@ public final class OnboardingViewModel: ObservableObject {
             finishDictation(landing.injected ? .landed(text: landedText, app: landing.appName)
                                              : .heard(text: landedText, recognizer: recognizer))
         } catch {
-            finishDictation(.failed(reason: EngineMessage.describe(error)))
+            finishDictation(.failed(reason: RecoveryCatalog.report(error).headline))
         }
     }
 

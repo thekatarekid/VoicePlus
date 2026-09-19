@@ -450,7 +450,7 @@ public struct PillContent: Equatable, Sendable {
         let rendered = entry.rendered(hotkey: keyLabel)
         return PillContent(designKey: "blocked", status: rendered.headline, tone: .warn,
                            words: .fixed(rendered.consequence), helper: PillDeck.blockedHelper,
-                           buttons: [PillButton(rendered.action, PillNotice.action(for: rendered.action) ?? .permissions,
+                           buttons: [PillButton(rendered.action, entry.actionKind.pillAction ?? .permissions,
                                                 primary: true)],
                            notice: true)
     }
@@ -501,29 +501,13 @@ public struct PillContent: Equatable, Sendable {
                            buttons: PillDeck.heldButtons, notice: true)
     }
 
+    /// S11 — every error row is a catalogue entry (`PillContent.recovery`). A message that is not a
+    /// catalogue headline is never shown (design §10): with words recovered from the turn it is the
+    /// prototype's error row E0 (T01, "Couldn’t finish this dictation"), otherwise the catch-all X08.
     private static func error(_ message: String, _ c: PillTurnContext) -> PillContent {
-        let entry = PillNotice.entry(forMessage: message)
-        if let entry, entry.treatment == .quietReturn {
-            let rendered = entry.rendered(hotkey: c.keyLabel)
-            return PillContent(designKey: "error", status: rendered.headline, trailing: destinationTrailing(c),
-                               helper: rendered.consequence, spoolKey: "cancelled")
-        }
-        // E0 — words were recovered from this turn: the design's recoverable-error row.
-        if !c.liveText.isEmpty {
-            return PillContent(designKey: "error", status: PillDeck.errorStatus, tone: .warn,
-                               trailing: destinationTrailing(c), words: .final(c.liveText), helper: PillDeck.errorHelper,
-                               buttons: PillDeck.errorButtons, notice: true)
-        }
-        // Nothing recovered: the problem, its consequence, its one recovery action, and Dismiss.
-        let headline = entry.map { $0.rendered(hotkey: c.keyLabel).headline } ?? PillNotice.headline(of: message)
-        var buttons: [PillButton] = []
-        if let entry, let action = PillNotice.action(for: entry.action) {
-            buttons.append(PillButton(entry.action, action, primary: true))
-        }
-        buttons.append(PillButton(PillDeck.dismissLabel, .dismiss, primary: buttons.isEmpty))
-        return PillContent(designKey: "error", status: PillDeck.warnPrefix + headline, tone: .warn,
-                           trailing: destinationTrailing(c), helper: entry?.rendered(hotkey: c.keyLabel).consequence ?? "",
-                           buttons: buttons, notice: true)
+        let recovered = !c.liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let entry = PillNotice.entry(forMessage: message) ?? RecoveryCatalog.entry(recovered ? .T01 : .X08)
+        return recovery(entry, context: c)
     }
 
     private static func transform(_ info: TransformPillInfo, _ c: PillTurnContext) -> PillContent {
@@ -566,13 +550,29 @@ public enum PillNotice {
     }
 
     /// The catalogue entry whose headline this message is (whole or its problem half); nil otherwise.
+    /// A headline naming the prototype's key ("Hold Right Control a little longer") also matches the
+    /// same sentence rendered with the configured key (owner decision, build doc §0).
     public static func entry(forMessage message: String) -> RecoveryEntry? {
         let whole = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let problem = headline(of: message).lowercased()
         return RecoveryCatalog.entries.first { entry in
             let h = entry.headline.lowercased()
-            return h == whole || h == problem
+            if h == whole || h == problem { return true }
+            let key = PillCopy.prototypeHotkey.lowercased()
+            guard let range = h.range(of: key) else { return false }
+            let prefix = h[..<range.lowerBound], suffix = h[range.upperBound...]
+            return [whole, problem].contains { candidate in
+                candidate.count > prefix.count + suffix.count
+                    && candidate.hasPrefix(prefix) && candidate.hasSuffix(suffix)
+            }
         }
+    }
+
+    /// S11 — the entry a pill `.error(message:)` draws: the catalogue entry whose headline it is, or
+    /// the catch-all X08 "VoicePlus couldn’t finish this step". Unrecognised text is never shown
+    /// (design §10); every producer passes a catalogue headline (`PillState.recovery`).
+    public static func entryOrCatchAll(forMessage message: String) -> RecoveryEntry {
+        entry(forMessage: message) ?? RecoveryCatalog.entry(.X08)
     }
 
     /// A quiet no-result return (A06 no speech, A07 too short, K03 short press): fades, never sticks.
@@ -580,17 +580,11 @@ public enum PillNotice {
         entry(forMessage: message)?.treatment == .quietReturn
     }
 
-    /// The pill action a catalogue recovery action names, when the pill can carry it out.
+    /// The pill action a catalogue recovery action label names, when the pill can carry it out
+    /// (`RecoveryActionKind.pillAction`); nil for a label that is not a catalogue action.
     public static func action(for label: String) -> PillActionKind? {
-        let l = label.lowercased()
-        if l.contains("microphone") && (l.contains("setting") || l.contains("permission")) { return .permissions }
-        if l.contains("permission") || l.contains("accessibility") || l.contains("input monitoring") { return .permissions }
-        if l.contains("microphone") { return .voice }
-        if l.contains("model") { return .models }
-        if l.contains("copy") { return .copy }
-        if l.contains("review") || l.contains("recover") { return .review }
-        if l.contains("unmute") { return .unmute }
-        return nil
+        RecoveryCatalog.entries.first { $0.action == label || $0.action.lowercased() == label.lowercased() }?
+            .actionKind.pillAction
     }
 }
 

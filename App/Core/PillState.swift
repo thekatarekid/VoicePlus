@@ -10,7 +10,7 @@ public enum PillState: Equatable, Sendable {
     case preview(text: String)
     case landing
     /// R2.4 — the delivery actually happened: the pill drops the preview and shows the *committed*
-    /// text for a beat (V3 §4.1, §14.1). `verified: false` draws the "Landed · not confirmed"
+    /// text for a beat (V3 §4.1, §14.1). `verified: false` draws the D06 "Inserted · not confirmed"
     /// variant instead of claiming a success readback could not confirm (V3 §6).
     case landed(LandedPillInfo)
     /// R2.4 — committed text with no safe destination: the destination is named and the row offers
@@ -109,8 +109,12 @@ public enum PillState: Equatable, Sendable {
         // The fixed strings a landed/held row can draw *are* listed, so neither can be clipped.
         case .landed(let info): return info.verified ? [] : [DeliveryCopy.landedUnverified]
         case .held(let info): return [info.headline, info.subtitle, HeldPillInfo.actionsLine]
-        case .unavailable(let reason): return [reason, PillState.unavailableSubtitle]
-        case .error(let message): return [message, PillState.errorSubtitle]
+        // S11 — the catalogue's words (M01 for no recognizer; the message's own entry, or X08), never
+        // the reason string or a message the catalogue does not know.
+        case .unavailable: return [PillState.unavailableHeadline, PillState.unavailableSubtitle]
+        case .error(let message):
+            let entry = PillNotice.entryOrCatchAll(forMessage: message)
+            return [entry.headline, entry.consequence]
         case .warning(let quality): return [PillState.warningHeadline(quality), PillState.warningSubtitle]
         // V4 states: the fixed sentences of each, verbatim from the verified prototype. Transcript
         // text, the destination-bearing "Inserting in Mail…" / "Updated in Mail" statuses and the
@@ -134,8 +138,9 @@ public enum PillState: Equatable, Sendable {
         }
     }
 
-    public static let unavailableSubtitle = "Dictation is off until a speech model is installed"
-    public static let errorSubtitle = "Nothing was typed — press the key again to try that turn"
+    /// M01 — "Install a speech model" / "Dictation is off until a model is ready." (S11: catalogue copy).
+    public static var unavailableHeadline: String { RecoveryCatalog.entry(.M01).headline }
+    public static var unavailableSubtitle: String { RecoveryCatalog.entry(.M01).consequence }
     public static let warningSubtitle = "Check your input device before you speak"
 
     /// Single source of truth for the mic-quality headline: `PillView` renders it and

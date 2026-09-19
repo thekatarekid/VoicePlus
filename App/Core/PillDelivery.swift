@@ -10,86 +10,46 @@ import Shared
 
 // MARK: - Copy
 
-/// Every user-facing delivery sentence, in one place, in the `Problem — Action` voice (DESIGN §7.1).
+/// Every user-facing delivery sentence, as a recovery-catalogue lookup (S11, design §10).
 ///
-/// The three strings V3 §6 fixes verbatim are stored as constants and asserted by
-/// `DeliveryCopyTests`; the fallback exists so that a reason we do not recognise still reads as a
-/// sentence with an action instead of leaking `localizedDescription`, an OSStatus or an AX code.
-/// Raw reasons go to `Log` only.
+/// Before S11 these were four hand-written `Problem — Action` sentences and a keyword matcher of
+/// their own. They are now the catalogue's headlines, and a reason maps to its entry through
+/// `RecoveryCatalog.entry(forDeliveryReason:)` — the one mapping, so the pill, the menu, Today and
+/// the recovery sheet can never disagree about what a reason means. An unrecognised reason is D05
+/// "Couldn’t insert your text", never the reason itself; raw reasons go to `Log` only.
 public enum DeliveryCopy {
-    public static let destinationChanged = "Destination changed — Copy text"
-    public static let microphoneDisconnected = "Microphone disconnected — Choose microphone"
-    public static let noSpeechDetected = "No speech detected — Try again"
-    /// Same shape, used for any failure reason that is not one of the three above.
-    ///
-    /// The action is "Try again", not "Copy text": a *failed* delivery holds nothing (only
-    /// `.held` outcomes reach `HeldTextStore`), so offering Copy would name an action the user
-    /// cannot take. Pressing the key again is the one that exists, and it is what the pill's
-    /// existing `errorSubtitle` already tells them.
-    public static let couldNotType = "Text was not typed — Try again"
+    /// D01 — "Destination changed — text held".
+    public static let destinationChanged = RecoveryCatalog.entry(.D01).headline
+    /// A02 — "Microphone disconnected".
+    public static let microphoneDisconnected = RecoveryCatalog.entry(.A02).headline
+    /// A06 — "No speech detected" (a quiet return: it fades).
+    public static let noSpeechDetected = RecoveryCatalog.entry(.A06).headline
+    /// D05 — "Couldn’t insert your text": any failure reason the catalogue does not name otherwise.
+    public static let couldNotType = RecoveryCatalog.entry(.D05).headline
+    /// D06 — "Inserted · not confirmed". "Inserted" alone means *verified*, so an unconfirmed
+    /// delivery says so in words, not only in colour; it is never retried automatically.
+    public static let landedUnverified = RecoveryCatalog.entry(.D06).headline
 
-    /// The unverified landed headline (DESIGN §8.4 (2)). "Landed" alone means *verified*, so an
-    /// unconfirmed delivery has to say so in words, not only in colour.
-    public static let landedUnverified = "Landed · not confirmed"
+    /// The catalogue entry for a failed delivery's reason. Never the raw reason.
+    public static func entry(forFailure reason: String) -> RecoveryEntry {
+        RecoveryCatalog.entry(forDeliveryReason: reason)
+    }
 
-    /// Headline for a failed delivery. Never the raw reason.
+    /// Headline for a failed delivery: the entry's headline. Never the raw reason.
     public static func message(forFailure reason: String) -> String {
-        switch category(of: reason) {
-        case .destination: return destinationChanged
-        case .microphone: return microphoneDisconnected
-        case .noSpeech: return noSpeechDetected
-        case .other: return couldNotType
-        }
+        entry(forFailure: reason).headline
     }
 
-    /// Headline for a held delivery: name the destination when we know it, otherwise fall back to
-    /// the canonical "Destination changed — Copy text".
-    ///
-    /// The name is suppressed for exactly one reason — the destination *changed*, which makes the
-    /// snapshotted name stale, and V3 §6 fixes the sentence for that case. Every other hold (an
-    /// app on the never-inject list, a target whose safety could not be established) still knows
-    /// where the text was going, so it says so.
+    /// The catalogue entry for a held delivery. A hold with no reason is the destination moving (D01).
+    public static func entry(forHeld reason: String) -> RecoveryEntry {
+        reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? RecoveryCatalog.entry(.D01) : RecoveryCatalog.entry(forDeliveryReason: reason)
+    }
+
+    /// Headline for a held delivery: its catalogue entry's headline. The destination is drawn beside
+    /// it (the row's trailing name), never folded into the sentence.
     public static func headline(forHeld reason: String, destination: String) -> String {
-        let name = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.isEmpty || isDestinationChange(reason) { return destinationChanged }
-        return "Held for \(name)"
-    }
-
-    /// "The destination moved out from under us", as opposed to "we chose not to type here".
-    /// Narrower than `category(of:)` on purpose: "no safe destination" contains the word
-    /// *destination* but the destination never changed.
-    static func isDestinationChange(_ reason: String) -> Bool {
-        let r = reason.lowercased()
-        return r.contains("destination changed") || r.contains("focus")
-    }
-
-    enum Category: Equatable { case destination, microphone, noSpeech, other }
-
-    /// Keyword match on the *internal* reason string. Deliberately conservative: anything it does
-    /// not recognise becomes `couldNotType`, so no unknown reason can reach a user-facing string.
-    static func category(of reason: String) -> Category {
-        let r = reason.lowercased()
-        // Reasons that mean "nothing was typed and there is nothing to copy" are checked first,
-        // because two of them contain the word "destination" without the destination having
-        // *changed*. `Injection.DeliveryReason` is the producer; matched as text, not imported, so
-        // this file stays a copy deck with no policy dependency.
-        if r == "no destination" || r == "every method threw" || r.contains("secure field")
-            || r.contains("password") {
-            return .other
-        }
-        if r.contains("destination") || r.contains("focus") || r.contains("target")
-            || r.contains("never-inject") || r.contains("never inject") {
-            return .destination
-        }
-        if r.contains("microphone") || r.contains("mic ") || r == "mic" || r.contains("input device")
-            || r.contains("device disconnected") || r.contains("no input") {
-            return .microphone
-        }
-        if r.contains("no speech") || r.contains("silence") || r.contains("silent")
-            || r.contains("empty") || r.contains("nothing heard") {
-            return .noSpeech
-        }
-        return .other
+        entry(forHeld: reason).headline
     }
 }
 
@@ -264,7 +224,7 @@ public struct LandedPillInfo: Equatable, Sendable {
     }
 
     /// Verified: the committed text itself, in the `preview` row's style. Unverified: the fixed
-    /// "Landed · not confirmed" headline, with the committed text in the subtitle slot.
+    /// D06 "Inserted · not confirmed" headline (S11), with the committed text in the subtitle slot.
     public var headline: String { verified ? text : DeliveryCopy.landedUnverified }
     public var subtitle: String? { verified ? nil : text }
 }
@@ -447,7 +407,9 @@ public enum PillDeliveryRouter {
         case .held(let reason):
             return .held(HeldPillInfo(id: heldID, text: text, destination: destination, reason: reason))
         case .failed(let reason):
-            return .error(message: DeliveryCopy.message(forFailure: reason))
+            // S11 — the reason's catalogue entry (D05 when unrecognised); the reason itself is logged
+            // by the driver, never drawn.
+            return .recovery(DeliveryCopy.entry(forFailure: reason))
         }
     }
 }

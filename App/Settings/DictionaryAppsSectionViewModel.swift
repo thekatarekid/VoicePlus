@@ -693,13 +693,19 @@ public final class DictionaryAppsSectionViewModel: ObservableObject {
     /// One line of consequence, stated next to the typing switch (`DESIGN.md` §9.3).
     public static let neverInjectConsequence = "Dictation is held here, never typed"
 
+    /// S11 — X04's headline and consequence. The action opens the Contacts pane: for a denied
+    /// permission design §10's rule is that the action opens the correct setting.
     public func reportContactsDenied() {
-        banner = SectionBanner(headline: SectionCopy.contactsDenied, actionTitle: SectionCopy.openSystemSettings)
+        let x04 = RecoveryCatalog.entry(for: .wordImportFailed)
+        banner = SectionBanner(headline: x04.headline, actionTitle: SectionCopy.openSystemSettings,
+                               body: x04.consequence, recoveryID: x04.id)
         bannerAction = .openContactsSettings
     }
 
+    /// S11 — S02: "Changes weren’t saved" · "Your previous setting is still active." · Try again; the
+    /// raw detail behind Copy diagnostics.
     public func reportWriteFailure(_ detail: String) {
-        banner = SectionBanner(headline: SectionCopy.notSaved, actionTitle: SectionCopy.tryAgain, diagnostics: detail)
+        banner = .recovery(.changesNotSaved, diagnostics: detail)
         bannerAction = .dismiss
     }
 

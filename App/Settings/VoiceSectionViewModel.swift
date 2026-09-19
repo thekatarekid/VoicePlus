@@ -154,9 +154,8 @@ public final class VoiceSectionViewModel: ObservableObject {
     /// first enumeration; then "No microphones found" — distinct from "No voice enrolled".
     static func microphoneState(denied: Bool, enumerated: Bool, deviceCount: Int) -> SectionState {
         if denied {
-            return .error(SectionCopy.microphoneOff,
-                          detail: "System Settings › Privacy & Security › Microphone",
-                          action: SectionCopy.openSystemSettings)
+            // S11: P01 — "Microphone access is off", its consequence, "Open Microphone settings".
+            return .error(.P01)
         }
         guard enumerated else { return .loading(SectionCopy.lookingForMicrophones) }
         guard deviceCount > 0 else {

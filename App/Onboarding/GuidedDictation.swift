@@ -1,3 +1,4 @@
+import Engine
 import Foundation
 import Shared
 
@@ -26,7 +27,7 @@ public enum GuidedDictationOutcome: Equatable, Sendable {
     case heard(text: String, recognizer: String)
     /// Capture ran, but less audio arrived than the recogniser's own floor. Carries what there was.
     case noSpeech(seconds: Double)
-    /// Anything else, already in the words the user should read (see `EngineMessage.describe`).
+    /// Anything else: a recovery-catalogue headline (`RecoveryCatalog.report(error).headline`).
     case failed(reason: String)
 
     /// Text VoicePlus heard, landed or not. Nil when there was nothing to hear.
@@ -43,18 +44,28 @@ public enum GuidedDictationOutcome: Equatable, Sendable {
         return nil
     }
 
-    /// The failure, in plain language, or nil when the attempt worked.
-    public var failureMessage: String? {
+    /// `RealEngine.minimumUtteranceSeconds`' default: under it the recogniser cannot decode at all.
+    static let recognizerFloor: Double = 0.3
+
+    /// S11 — the recovery-catalogue entry for a failed attempt; nil when the attempt worked.
+    /// No samples at all is A05; some audio under the recogniser's floor is A07; enough audio with
+    /// nothing recognised is A06; a failure is the entry whose headline it carries, or the catch-all
+    /// X08 — never the text it was given.
+    public var recoveryID: RecoveryID? {
         switch self {
         case .landed, .heard:
             return nil
         case .noSpeech(let seconds):
-            return seconds <= 0
-                ? "No audio reached VoicePlus at all. Check the microphone in System Settings › Sound."
-                : "That was only \(Self.tenths(seconds)) s of audio — too short to transcribe. Press Dictate now, wait a beat, then speak."
+            if seconds <= 0 { return .A05 }
+            return seconds < Self.recognizerFloor ? .A07 : .A06
         case .failed(let reason):
-            return reason
+            return RecoveryCatalog.entry(forHeadline: reason)?.id ?? .X08
         }
+    }
+
+    /// The failure as the catalogue words it (headline), or nil when the attempt worked.
+    public var failureMessage: String? {
+        recoveryID.map { RecoveryCatalog.entry($0).headline }
     }
 
     static func tenths(_ seconds: Double) -> String { String(format: "%.1f", seconds) }

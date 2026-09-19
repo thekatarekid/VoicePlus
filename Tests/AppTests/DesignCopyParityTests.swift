@@ -99,7 +99,8 @@ struct DesignCopyParityTests {
              "No microphone is recording"),
             ("correcting", PillContent.make(.correcting, context: closed), "Keep the spelling or replace the verified word"),
             ("blocked", PillContent.blocked(), "Nothing was recorded or typed"),
-            ("error", PillContent.make(.error(message: DeliveryCopy.couldNotType), context: closed),
+            // S11: the design's E0 row is T01 ("Couldn’t finish this dictation") with recovered words.
+            ("error", PillContent.make(.recovery(.T01), context: closed),
              "These words were recovered. Nothing inserted."),
         ]
     }

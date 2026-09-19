@@ -828,7 +828,8 @@ struct SnippetsRowsS7dTests {
         store.failDeletes = true
         #expect(!vm.delete(id: "a"))
         #expect(vm.snippets.count == 2)
-        #expect(vm.lastError == "“my address” wasn’t deleted — Try again")
+        // S11: S04's words; the row that could not be deleted stays in the list, which is what remains.
+        #expect(vm.lastError == RecoveryCatalog.entry(.S04).problemAction)
         store.failDeletes = false
         #expect(vm.delete(id: "a"))
         #expect(vm.lastError == nil && vm.snippets.map(\.id) == ["b"])

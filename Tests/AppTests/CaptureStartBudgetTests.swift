@@ -106,11 +106,12 @@ struct CaptureStartBudgetTests {
                 .hasPrefix(CaptureRecoveryCopy.formatMismatchHeadline))
     }
 
+    /// S11: the pill's second line is the entry's own consequence (A03 "Nothing was recorded.").
     @Test func thePillSubtitleStillSaysNothingWasTyped() {
         let lines = PillState.error(message: EngineMessage.describe(AudioCaptureError.startTimedOut(device: "AirPods Pro", seconds: 8))).messageLines
         #expect(lines.count == 2)
         #expect(lines[0].hasPrefix(CaptureRecoveryCopy.startFailedHeadline))
-        #expect(lines[1].hasPrefix("Nothing was typed"))
+        #expect(lines[1] == RecoveryCatalog.entry(.A03).consequence)
     }
 
     /// The copy is the verified design's, not retyped: A03 and A04 as the fixture has them.

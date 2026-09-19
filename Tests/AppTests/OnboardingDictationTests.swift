@@ -130,11 +130,12 @@ struct GuidedDictationOutcomeTests {
         m.handle(.dictationFinished(.failed(reason: "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")))
         #expect(m.landedText == nil)
         #expect(m.heardText == nil)
-        #expect(m.dictationError == "Invalid audio data provided. Must be at least 300ms of 16kHz audio.")
+        // S11: text that is not a catalogue headline is never shown — the catch-all X08.
+        #expect(m.dictationError == "VoicePlus couldn’t finish this step")
 
         m.handle(.dictationFinished(.noSpeech(seconds: 0.1)))
         #expect(m.landedText == nil)
-        #expect(m.dictationError?.contains("0.1 s") == true)
+        #expect(m.dictationError == "That was too short to transcribe")   // A07
         #expect(m.dictationError?.contains("too short") == true)
     }
 
@@ -144,8 +145,8 @@ struct GuidedDictationOutcomeTests {
         // The install (§11.1) is never a step, so nothing here needs it to be present.
         m.handle(.skip); m.handle(.skip)
         m.handle(.modelPresenceChanged(true)); m.handle(.next)
-        m.handle(.dictationFinished(.failed(reason: "nope")))
-        #expect(m.dictationError == "nope")
+        m.handle(.dictationFinished(.failed(reason: "No speech detected")))
+        #expect(m.dictationError == "No speech detected")
         #expect(m.handle(.retryDictation) == [.checkRecognizerReadiness])
         #expect(m.dictation == nil)
     }

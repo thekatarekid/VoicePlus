@@ -177,7 +177,8 @@ public enum MeetingsCopy {
     }
     public static let discardConfirm = "Discard recording"
     public static let cancel = "Cancel"
-    public static let recoverFailed = "That recording wasn't recovered"
+    /// S11 — X02 "This meeting needs recovery": the affected row only; other meetings stay.
+    public static let recoverFailed = RecoveryCatalog.entry(for: .meetingUnreadable).headline
     public static let recoverFailedDetail = "The saved transcript is unchanged. Try again, or copy diagnostics."
     /// An unreadable meeting whose text copy is missing or unreadable too.
     public static let unreadableNotRecovered = "No readable copy of this transcript was found. Its files are unchanged on this Mac."
@@ -190,7 +191,8 @@ public enum MeetingsCopy {
     public static let deleteUnreadableTitle = "Delete this meeting?"
     public static let deleteUnreadableMessage = "This deletes its saved files from this Mac, including any text that could still be recovered. It can't be undone."
     public static let deleteConfirm = "Delete meeting"
-    public static let deleteFailed = "That meeting wasn't deleted"
+    /// S11 — S04 "Some items couldn’t be deleted"; the row keeps its place.
+    public static let deleteFailed = RecoveryCatalog.entry(for: .deletionPartial).headline
 
     // Detail (prototype `meeting-detail`)
     public static let savedOnThisMac = "Saved on this Mac"
@@ -228,7 +230,8 @@ public enum MeetingsCopy {
         local ? "Route: \(name), on this Mac. The transcript stays here."
               : "Route: \(name). This meeting’s transcript is sent there when you ask."
     }
-    public static let askFailed = "That question wasn't answered"
+    /// S11 — N04 "This service couldn’t complete the request": Ask is a service request; the transcript stays.
+    public static let askFailed = RecoveryCatalog.entry(.N04).headline
 }
 
 // MARK: - Library rows

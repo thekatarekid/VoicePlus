@@ -25,14 +25,14 @@ public enum PresenceBlockReason: Equatable, Sendable {
         }
     }
 
-    /// The sentence shown when the pointer is on the indicator.
+    /// The sentence shown when the pointer is on the indicator. A blocker is its recovery-catalogue
+    /// entry as `Problem — Action` (S11: P01, P03, P04, M01 — the menu's own lines); a download in
+    /// progress is not a failure and keeps its progress sentence.
     public var detail: String {
         switch self {
-        case .microphoneDenied: return "VoicePlus can't hear — grant Microphone in System Settings"
-        case .hotkeyUnavailable: return "Dictation key is off — grant Input Monitoring in System Settings"
-        case .relaunchNeeded: return "macOS isn't sending keys to VoicePlus — quit and reopen it"
         case .modelDownloading(let p): return "Downloading the speech model — \(Int((min(max(p, 0), 1)) * 100))%"
-        case .modelMissing: return "No speech model installed — dictation is off until one is downloaded"
+        case .microphoneDenied, .hotkeyUnavailable, .relaunchNeeded, .modelMissing:
+            return MenuCopy.blockedLine(self)
         }
     }
 

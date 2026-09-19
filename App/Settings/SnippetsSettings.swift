@@ -61,8 +61,9 @@ public final class SnippetsViewModel: ObservableObject {
         return true
     }
 
+    /// S11 — S04 as `Problem — Action` ("Some items couldn’t be deleted — Retry deletion"); the row stays.
     static func notDeleted(_ trigger: String?) -> String {
-        "\(trigger.map { "“\($0)”" } ?? "The snippet") wasn’t deleted — \(SectionCopy.tryAgain)"
+        RecoveryCatalog.entry(for: .deletionPartial).problemAction
     }
 
     /// S7d — the inline sentence for a save that did not happen (Problem — Action; no raw error
@@ -73,7 +74,7 @@ public final class SnippetsViewModel: ObservableObject {
         case .emptyBody?: return "Add the text to type first."
         case .duplicateTrigger(let trigger)?: return "“\(trigger)” is already a trigger — choose another phrase."
         case .notFound?: return "That snippet is gone — add it again."
-        case nil: return "\(SectionCopy.notSaved) — \(SectionCopy.tryAgain)"
+        case nil: return RecoveryCatalog.entry(for: .changesNotSaved).problemAction   // S11: S02
         }
     }
 }

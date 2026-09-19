@@ -144,10 +144,14 @@ public enum OnboardingCopy {
     public static let practiceFieldName = "the practice field"
     public static let practiceFieldNote = "Safe to type in: nothing here is sent anywhere."
     public static let example = "Example"
-    public static let notInserted = "Heard you, but nothing reached the practice field. Click into it and hold the key again."
+    /// S11 — D02 ("Choose a text field" · "Your words are ready here."): the practice text was heard
+    /// and reached no field; the words stay on this step.
+    public static let notInserted = RecoveryCatalog.entry(.D02).headline + ". " + RecoveryCatalog.entry(.D02).consequence
+        + " Click into the practice field and hold the key again."
     public static let buttonFallback = "Key not working? Dictate with a button instead."
     public static let reviewed = "Reviewed"
-    public static let correctionRefused = "The practice field changed, so the word was left as it is."
+    /// S11 — D10: "The text has changed. Your correction has not replaced anything."
+    public static let correctionRefused = RecoveryCatalog.entry(.D10).headline + ". " + RecoveryCatalog.entry(.D10).consequence
 
     // MARK: Ready
 

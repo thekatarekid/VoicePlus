@@ -302,7 +302,8 @@ public final class MeetingsSectionViewModel: ObservableObject {
             if selected?.id == id { selected = recovered }
         } catch {
             rowProblems[id] = SectionBanner(headline: MeetingsCopy.recoverFailed, actionTitle: MeetingsCopy.recover,
-                                            diagnostics: "\(error)", body: MeetingsCopy.recoverFailedDetail)
+                                            diagnostics: "\(error)", body: MeetingsCopy.recoverFailedDetail,
+                                            recoveryID: .X02)
         }
         refreshUnfinished()
         refreshDetail()
@@ -324,7 +325,7 @@ public final class MeetingsSectionViewModel: ObservableObject {
         guard let text = files.text(for: id), var record = MeetingTextRecovery.parse(text, id: id) else {
             rowProblems[id] = SectionBanner(headline: MeetingsCopy.recoverFailed, actionTitle: MeetingsCopy.showInFinder,
                                             diagnostics: "no readable \(MeetingFilesStore.textFileName) for \(id)",
-                                            body: MeetingsCopy.unreadableNotRecovered)
+                                            body: MeetingsCopy.unreadableNotRecovered, recoveryID: .X02)
             return
         }
         var captureFacts = files.facts(for: id)
@@ -343,7 +344,8 @@ public final class MeetingsSectionViewModel: ObservableObject {
             try? files.save(captureFacts, for: id)
         } catch {
             rowProblems[id] = SectionBanner(headline: MeetingsCopy.recoverFailed, actionTitle: MeetingsCopy.recover,
-                                            diagnostics: "\(error)", body: MeetingsCopy.recoverFailedDetail)
+                                            diagnostics: "\(error)", body: MeetingsCopy.recoverFailedDetail,
+                                            recoveryID: .X02)
             return
         }
         unreadableIDs.removeAll { $0 == id }
@@ -498,8 +500,7 @@ public final class MeetingsSectionViewModel: ObservableObject {
             refreshUnfinished()
             state = resolved()
         } catch {
-            rowProblems[id] = SectionBanner(headline: MeetingsCopy.deleteFailed, actionTitle: SectionCopy.tryAgain,
-                                            diagnostics: "\(error)")
+            rowProblems[id] = .recovery(.deletionPartial, diagnostics: "\(error)")   // S11: S04
         }
     }
 

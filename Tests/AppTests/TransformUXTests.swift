@@ -283,6 +283,7 @@ struct TransformLandingTests {
         let r = await lander.land(spans, startedAt: Date(), focus: system.frontmost)
         guard case .transformed(.failed)? = r.transform else { Issue.record("expected failed, got \(String(describing: r.transform))"); return }
         #expect(system.field.value == "a b c")
-        #expect(events.contains { if case .failed(let why) = $0 { return why.contains("formal") }; return false })
+        // S11: the refusal is the catalogue's T05 ("Review this phrase"); the unheard word goes to the log.
+        #expect(events.contains { if case .failed(let why) = $0 { return why == RecoveryCatalog.entry(.T05).headline }; return false })
     }
 }
