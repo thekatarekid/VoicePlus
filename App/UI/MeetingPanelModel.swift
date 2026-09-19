@@ -54,6 +54,8 @@ public struct MeetingCaptureState: Equatable, Sendable {
     public var phase: Phase = .idle
     public var title = ""
     public var meetingID: String?
+    /// When capture opened; `nil` until it has.
+    public var startedAt: Date?
     /// Capture time banked by earlier recording stretches (before the last pause).
     public var accumulated: TimeInterval = 0
     /// When the current recording stretch began; `nil` unless recording.
@@ -94,6 +96,13 @@ public struct MeetingCaptureState: Equatable, Sendable {
     }
 
     public var transcript: MeetingTranscript { MeetingTranscript(utterances: utterances) }
+
+    /// The meeting being captured, as the library lists it before (and while) its words reach disk:
+    /// title, start and the words so far, never an end. `nil` when no meeting is on screen.
+    public var liveRecord: MeetingRecord? {
+        guard isActive, let meetingID else { return nil }
+        return MeetingRecord(id: meetingID, title: title, startedAt: startedAt ?? Date(), transcript: transcript)
+    }
 
     /// Adds one utterance, merging it into the previous one when the same speaker continues within a
     /// second (the rule `MeetingSession.append` stores).
@@ -321,10 +330,12 @@ public final class MeetingCaptureController: ObservableObject {
                 onSystemAudioLost: { [weak self] in
                     Task { @MainActor in self?.systemAudioLost() }
                 })
+            let opened = now()
             state.meetingID = started.meetingID
             state.systemAudio = started.systemAudio
             state.phase = .recording
-            state.stretchStartedAt = now()
+            state.startedAt = opened
+            state.stretchStartedAt = opened
             state.problem = started.systemAudio ? nil : .systemAudioMissing
             publish()
             startTicker()

@@ -770,6 +770,7 @@ final class ScriptedMeetingDriver: MeetingCaptureDriving, @unchecked Sendable {
     var startError: Error?
     var resumeError: Error?
     var stopGate: MeetingStopGate?
+    var stopError: Error?
     private(set) var summary: MeetingCaptureSummary?
     let record = MeetingRecord(id: "scripted", title: "Scripted", startedAt: Date(), endedAt: Date())
     private var onUtterance: (@Sendable (MeetingUtterance) -> Void)?
@@ -797,6 +798,7 @@ final class ScriptedMeetingDriver: MeetingCaptureDriving, @unchecked Sendable {
         log("stop")
         self.summary = summary
         if let stopGate { await stopGate.wait() }
+        if let stopError { throw stopError }
         return record
     }
 

@@ -17,7 +17,8 @@ struct MeetingsSectionView: View {
     var open: (WindowRoute) -> Void
     var expandPanel: () -> Void
 
-    @State private var discardCandidate: UnfinishedRecording?
+    /// The removal waiting for confirmation: every one deletes the only saved copy.
+    @State private var pending: MeetingRemoval?
 
     init(model: MeetingsSectionViewModel, hotkey: String, open: @escaping (WindowRoute) -> Void,
          expandPanel: @escaping () -> Void) {
@@ -38,13 +39,13 @@ struct MeetingsSectionView: View {
             }
             detectionFooter
         }
-        .confirmationDialog(MeetingsCopy.discardTitle,
-                            isPresented: Binding(get: { discardCandidate != nil }, set: { if !$0 { discardCandidate = nil } }),
-                            presenting: discardCandidate) { recording in
-            Button(MeetingsCopy.discardConfirm, role: .destructive) { model.discard(id: recording.id) }
+        .confirmationDialog(pending?.title ?? "",
+                            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+                            presenting: pending) { removal in
+            Button(removal.confirm, role: .destructive) { model.delete(id: removal.id) }
             Button(MeetingsCopy.cancel, role: .cancel) {}
-        } message: { recording in
-            Text(recording.discardMessage)
+        } message: { removal in
+            Text(removal.message)
         }
     }
 
@@ -93,7 +94,7 @@ struct MeetingsSectionView: View {
                                           showsTitle: model.unfinished.count > 1,
                                           isRecovering: model.recoveringID == recording.id,
                                           recover: { Task { await model.recover(id: recording.id) } },
-                                          discard: { discardCandidate = recording })
+                                          discard: { pending = .discard(recording) })
             }
             if model.searchHidesEverything {
                 noMatches
@@ -103,10 +104,7 @@ struct MeetingsSectionView: View {
                         rowView(row)
                     }
                     ForEach(model.unreadableIDs, id: \.self) { id in
-                        RowView(SectionCopy.meetingUnreadableRow, detail: id) {
-                            Button("Delete", role: .destructive) { model.delete(id: id) }
-                        }
-                        .accessibilityIdentifier("meetings.unreadableRow")
+                        unreadableRow(id)
                     }
                 }
                 .accessibilityIdentifier("meetings.list")
@@ -129,30 +127,61 @@ struct MeetingsSectionView: View {
                 }
             }
             if let problem = model.rowProblems[row.id] {
-                HStack(spacing: Tokens.Spacing.s) {
-                    Label(problem.headline, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(WindowColor.attention)
-                    if let body = problem.body {
-                        Text(body).foregroundStyle(WindowColor.secondaryInk)
-                    }
-                    Spacer(minLength: 0)
-                    if let diagnostics = problem.diagnostics {
-                        Button(SectionCopy.copyDiagnostics) { Pasteboard.copy(diagnostics) }
-                    }
-                }
-                .windowFont(Tokens.Typography.meta)
-                .padding(.horizontal, Tokens.Spacing.l)
-                .padding(.bottom, Tokens.Spacing.m)
-                .accessibilityIdentifier("meetings.row.problem")
+                rowProblem(problem, id: row.id)
             }
         }
         .contextMenu {
-            if let record = model.meetings.first(where: { $0.id == row.id }) {
+            // The meeting being captured is neither exported nor deleted mid-recording: Stop it first.
+            if !row.isLive, let record = model.meetings.first(where: { $0.id == row.id }) {
                 Button(MeetingsCopy.export) { MeetingExport.save(record, markdown: model.markdown(for: record)) }
+                Button(MeetingsCopy.delete, role: .destructive) { pending = .delete(id: row.id, title: row.title) }
             }
-            Button("Delete", role: .destructive) { model.delete(id: row.id) }
         }
         .accessibilityIdentifier("meetings.row")
+    }
+
+    /// A meeting whose saved file can't be read (X02): its own row, Recover from the text copy, or
+    /// Delete… after confirmation. The other rows are untouched.
+    @ViewBuilder private func unreadableRow(_ id: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RowView(SectionCopy.meetingUnreadableRow, detail: model.unreadableDetails[id] ?? MeetingsCopy.savedOnThisMac) {
+                HStack(spacing: Tokens.Spacing.s) {
+                    Button(MeetingsCopy.recover) { Task { await model.recoverUnreadable(id: id) } }
+                        .disabled(model.recoveringID != nil)
+                        .accessibilityIdentifier("meetings.unreadableRow.recover")
+                    Button(MeetingsCopy.delete, role: .destructive) { pending = .deleteUnreadable(id: id) }
+                        .disabled(model.recoveringID == id)
+                        .accessibilityIdentifier("meetings.unreadableRow.delete")
+                }
+            }
+            if let problem = model.rowProblems[id] {
+                rowProblem(problem, id: id)
+            }
+        }
+        .accessibilityIdentifier("meetings.unreadableRow")
+    }
+
+    /// A failure on one row, under that row only.
+    private func rowProblem(_ problem: SectionBanner, id: String) -> some View {
+        HStack(spacing: Tokens.Spacing.s) {
+            Label(problem.headline, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(WindowColor.attention)
+            if let body = problem.body {
+                Text(body).foregroundStyle(WindowColor.secondaryInk)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if problem.actionTitle == MeetingsCopy.showInFinder {
+                Button(MeetingsCopy.showInFinder) { NSWorkspace.shared.activateFileViewerSelecting([model.directory(for: id)]) }
+            }
+            if let diagnostics = problem.diagnostics {
+                Button(SectionCopy.copyDiagnostics) { Pasteboard.copy(diagnostics) }
+            }
+        }
+        .windowFont(Tokens.Typography.meta)
+        .padding(.horizontal, Tokens.Spacing.l)
+        .padding(.bottom, Tokens.Spacing.m)
+        .accessibilityIdentifier("meetings.row.problem")
     }
 
     @ViewBuilder private func trailing(_ row: MeetingRow) -> some View {
@@ -245,6 +274,44 @@ struct UnfinishedRecordingBanner: View {
         .overlay(shape.strokeBorder(WindowColor.attention.opacity(ScopedBannerStyle.outlineOpacity), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("meetings.unfinished")
+    }
+}
+
+/// A removal the user confirms first. Discard (an unfinished recording), Delete… (a saved meeting)
+/// and Delete… on an unreadable row all remove the only saved copy.
+enum MeetingRemoval: Equatable, Identifiable {
+    case discard(UnfinishedRecording)
+    case delete(id: String, title: String)
+    case deleteUnreadable(id: String)
+
+    var id: String {
+        switch self {
+        case .discard(let recording): return recording.id
+        case .delete(let id, _), .deleteUnreadable(let id): return id
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .discard: return MeetingsCopy.discardTitle
+        case .delete(_, let title): return MeetingsCopy.deleteTitle(title)
+        case .deleteUnreadable: return MeetingsCopy.deleteUnreadableTitle
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .discard(let recording): return recording.discardMessage
+        case .delete: return MeetingsCopy.deleteMessage
+        case .deleteUnreadable: return MeetingsCopy.deleteUnreadableMessage
+        }
+    }
+
+    var confirm: String {
+        switch self {
+        case .discard: return MeetingsCopy.discardConfirm
+        case .delete, .deleteUnreadable: return MeetingsCopy.deleteConfirm
+        }
     }
 }
 

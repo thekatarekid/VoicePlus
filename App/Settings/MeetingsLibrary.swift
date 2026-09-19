@@ -25,17 +25,39 @@ public struct MeetingCaptureFacts: Codable, Equatable, Sendable {
     public var notesFailure: String?
     /// Rebuilt from a saved transcript after an interrupted recording.
     public var recovered: Bool
+    /// Rebuilt from the text copy (`meeting.md`) because `meeting.json` no longer decoded. The text
+    /// copy keeps speakers, timestamps and words, not confidence, so no line carries a mark.
+    public var rebuiltFromText: Bool
     /// Action items the user ticked, by their text.
     public var completedActionItems: [String]
 
     public init(systemAudioCaptured: Bool = true, pauseCount: Int = 0, pausedSeconds: TimeInterval = 0,
-                notesFailure: String? = nil, recovered: Bool = false, completedActionItems: [String] = []) {
+                notesFailure: String? = nil, recovered: Bool = false, rebuiltFromText: Bool = false,
+                completedActionItems: [String] = []) {
         self.systemAudioCaptured = systemAudioCaptured
         self.pauseCount = pauseCount
         self.pausedSeconds = max(0, pausedSeconds)
         self.notesFailure = notesFailure
         self.recovered = recovered
+        self.rebuiltFromText = rebuiltFromText
         self.completedActionItems = completedActionItems
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case systemAudioCaptured, pauseCount, pausedSeconds, notesFailure, recovered, rebuiltFromText, completedActionItems
+    }
+
+    /// Every field is optional on disk, so a file written before a field existed still reads (a
+    /// missing key is its default, never "the facts are gone").
+    public init(from decoder: any Swift.Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(systemAudioCaptured: try c.decodeIfPresent(Bool.self, forKey: .systemAudioCaptured) ?? true,
+                  pauseCount: try c.decodeIfPresent(Int.self, forKey: .pauseCount) ?? 0,
+                  pausedSeconds: try c.decodeIfPresent(TimeInterval.self, forKey: .pausedSeconds) ?? 0,
+                  notesFailure: try c.decodeIfPresent(String.self, forKey: .notesFailure),
+                  recovered: try c.decodeIfPresent(Bool.self, forKey: .recovered) ?? false,
+                  rebuiltFromText: try c.decodeIfPresent(Bool.self, forKey: .rebuiltFromText) ?? false,
+                  completedActionItems: try c.decodeIfPresent([String].self, forKey: .completedActionItems) ?? [])
     }
 
     /// True when part of the meeting is missing: a track was not captured or it was rebuilt after an
@@ -50,6 +72,36 @@ public struct MeetingFilesStore: Sendable {
     public init(store: MeetingStore) { self.store = store }
 
     public static let factsFileName = "capture.json"
+    /// The text copy `MeetingStore.save` writes beside `meeting.json`.
+    public static let textFileName = "meeting.md"
+    /// Where an undecodable `meeting.json`, and the text copy it was rebuilt from, are set aside when
+    /// the meeting is rebuilt, so nothing saved is overwritten.
+    public static let setAsideFileName = "meeting.unreadable.json"
+    public static let setAsideTextFileName = "meeting.unreadable.md"
+
+    /// The text copy of a meeting, if one was saved and can be read.
+    public func text(for id: String) -> String? {
+        try? String(contentsOf: store.directory(for: id).appendingPathComponent(Self.textFileName), encoding: .utf8)
+    }
+
+    /// Moves an undecodable `meeting.json` aside, and keeps a copy of the text it is rebuilt from,
+    /// before the rebuilt meeting is written in their place.
+    public func setAsideUnreadable(for id: String) throws {
+        let dir = store.directory(for: id)
+        let manager = FileManager.default
+        let text = dir.appendingPathComponent(Self.textFileName)
+        let textAside = dir.appendingPathComponent(Self.setAsideTextFileName)
+        if manager.fileExists(atPath: text.path) {
+            if manager.fileExists(atPath: textAside.path) { try manager.removeItem(at: textAside) }
+            try manager.copyItem(at: text, to: textAside)
+        }
+        let json = dir.appendingPathComponent("meeting.json")
+        let aside = dir.appendingPathComponent(Self.setAsideFileName)
+        guard manager.fileExists(atPath: json.path) else { return }
+        if manager.fileExists(atPath: aside.path) { try manager.removeItem(at: aside) }
+        try manager.moveItem(at: json, to: aside)
+    }
+
     /// Audio a recording may have kept, in the order they are looked for. Nothing writes these yet;
     /// audio seeking appears only when one exists (design §8.2).
     public static let audioFileNames = ["audio.m4a", "audio.caf", "audio.wav"]
@@ -127,6 +179,18 @@ public enum MeetingsCopy {
     public static let cancel = "Cancel"
     public static let recoverFailed = "That recording wasn't recovered"
     public static let recoverFailedDetail = "The saved transcript is unchanged. Try again, or copy diagnostics."
+    /// An unreadable meeting whose text copy is missing or unreadable too.
+    public static let unreadableNotRecovered = "No readable copy of this transcript was found. Its files are unchanged on this Mac."
+    public static let showInFinder = "Show in Finder"
+
+    // Delete (every delete is confirmed: it removes the only saved copy)
+    public static let delete = "Delete…"
+    public static func deleteTitle(_ title: String) -> String { "Delete “\(title)”?" }
+    public static let deleteMessage = "This deletes its transcript and notes from this Mac. It can't be undone."
+    public static let deleteUnreadableTitle = "Delete this meeting?"
+    public static let deleteUnreadableMessage = "This deletes its saved files from this Mac, including any text that could still be recovered. It can't be undone."
+    public static let deleteConfirm = "Delete meeting"
+    public static let deleteFailed = "That meeting wasn't deleted"
 
     // Detail (prototype `meeting-detail`)
     public static let savedOnThisMac = "Saved on this Mac"
@@ -136,6 +200,8 @@ public enum MeetingsCopy {
     public static let decisions = "Decisions"
     public static let actionItems = "Action items"
     public static let nothingNoted = "Nothing noted."
+    /// The Notes tab of a meeting still being recorded.
+    public static let notesAfterStop = "Notes are prepared when you stop recording."
     public static let preparingTranscript = "Preparing transcript…"
     public static let audioOnlyWhenRetained = "Audio playback appears only when audio is retained."
     public static let playFromHere = "Play from here"
@@ -147,6 +213,7 @@ public enum MeetingsCopy {
     public static let tracksBoth = "Microphone and system audio were recorded."
     public static let tracksMicrophoneOnly = "System audio was not recorded — only your microphone was."
     public static let recoveredNote = "Rebuilt from the transcript saved before the recording stopped."
+    public static let rebuiltFromTextNote = "Rebuilt from the text copy saved beside it. Uncertainty marks were not kept."
     public static let pausedNote = "Capture was paused during this meeting."
 
     // Ask (prototype Ask tab; build doc: disabled until a service exists, route disclosed)
@@ -193,6 +260,9 @@ public struct MeetingRow: Equatable, Identifiable, Sendable {
 
     /// Recovery belongs to the affected row only (design §8.9, §9 "Affected row shows Recover").
     public var offersRecovery: Bool { status == .needsRecovery }
+
+    /// The meeting being captured now: Expand, never Export or Delete.
+    public var isLive: Bool { status == .recording || status == .paused || status == .preparingNotes }
 }
 
 /// The unfinished-recording banner (prototype `banner('An unfinished recording was found', '3:24 of
@@ -213,10 +283,13 @@ public struct UnfinishedRecording: Equatable, Identifiable, Sendable {
 public struct MeetingLiveCapture: Equatable, Sendable {
     public var meetingID: String
     public var phase: MeetingCaptureState.Phase
+    /// False once the capture fell back to the microphone alone: the live row says so already.
+    public var systemAudio: Bool
 
-    public init(meetingID: String, phase: MeetingCaptureState.Phase) {
+    public init(meetingID: String, phase: MeetingCaptureState.Phase, systemAudio: Bool = true) {
         self.meetingID = meetingID
         self.phase = phase
+        self.systemAudio = systemAudio
     }
 }
 
@@ -258,6 +331,16 @@ public enum MeetingsLibrary {
         record.transcript.utterances.map(\.range.upperBound).max() ?? 0
     }
 
+    /// The library with the meeting being captured listed once: in place of its saved copy, or first
+    /// (it is the newest meeting) while nothing of it has been saved yet.
+    public static func merge(_ records: [MeetingRecord], live: MeetingRecord?) -> [MeetingRecord] {
+        guard let live else { return records }
+        guard let index = records.firstIndex(where: { $0.id == live.id }) else { return [live] + records }
+        var merged = records
+        merged[index] = live
+        return merged
+    }
+
     /// True when a record on disk was never finished and is not the capture running now.
     public static func isUnfinished(_ record: MeetingRecord, live: MeetingLiveCapture?) -> Bool {
         record.endedAt == nil && record.id != live?.meetingID
@@ -284,7 +367,8 @@ public enum MeetingsLibrary {
         if let seconds = duration(record, facts: facts) { parts.append(durationText(seconds)) }
         parts.append(status.word)
         let label: String?
-        if !facts.systemAudioCaptured {
+        let microphoneOnlyNow = live.map { $0.meetingID == record.id && !$0.systemAudio } ?? false
+        if !facts.systemAudioCaptured || microphoneOnlyNow {
             label = MeetingsCopy.microphoneOnly
         } else if facts.recovered {
             label = MeetingsCopy.partialCapture
@@ -419,5 +503,83 @@ public struct MeetingAskRoute: Equatable, Sendable {
     /// The disclosure for an optional route.
     public static func disclosure(_ route: MeetingAskRoute?) -> String {
         route?.disclosure ?? MeetingsCopy.askRouteNone
+    }
+}
+
+// MARK: - Rebuilding an unreadable meeting from its text copy
+
+/// X02 for a meeting whose `meeting.json` no longer decodes: "Preserve saved audio/text; never
+/// fabricate speaker turns". `MeetingStore.save` writes a text copy beside the JSON (`meeting.md`:
+/// `# Title`, `_start – end_`, notes, then `- **Speaker** [mm:ss] words` per turn); the meeting is
+/// rebuilt from exactly that. Speakers, timestamps and words are read as written — a line whose
+/// speaker cannot be named, or a copy with no title or start, rebuilds nothing. The copy keeps no
+/// confidence, so every line is read at the review threshold (no uncertainty mark is claimed or
+/// invented), and the meeting says it was rebuilt. Notes are prepared again from the transcript.
+public enum MeetingTextRecovery {
+    public static func parse(_ markdown: String, id: String) -> MeetingRecord? {
+        let lines = markdown.components(separatedBy: .newlines)
+        guard let titleLine = lines.first(where: { $0.hasPrefix("# ") }) else { return nil }
+        let title = String(titleLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        guard !title.isEmpty,
+              let dateLine = lines.first(where: { $0.hasPrefix("_") && $0.hasSuffix("_") && $0.count > 2 }),
+              let (startedAt, endedAt) = dates(dateLine) else { return nil }
+        guard let header = lines.firstIndex(of: "## Transcript") else { return nil }
+        var turns: [(speaker: MeetingSpeaker, start: TimeInterval, text: String)] = []
+        for line in lines[(header + 1)...] where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let turn = turn(line) else { return nil }
+            turns.append(turn)
+        }
+        let utterances = turns.enumerated().map { index, turn -> MeetingUtterance in
+            let next = index + 1 < turns.count ? turns[index + 1].start : turn.start
+            return MeetingUtterance(speaker: turn.speaker, text: turn.text, range: turn.start...max(turn.start, next),
+                                    confidence: MeetingTranscriptLine.uncertainBelow)
+        }
+        let transcript = MeetingTranscript(utterances: utterances)
+        let reach = utterances.last?.range.upperBound ?? 0
+        return MeetingRecord(id: id, title: title, startedAt: startedAt,
+                             endedAt: endedAt ?? startedAt.addingTimeInterval(reach), transcript: transcript)
+    }
+
+    /// `_2026-09-18T12:00:00Z – 2026-09-18T12:24:00Z_`, the end optional.
+    static func dates(_ line: String) -> (Date, Date?)? {
+        let inner = line.dropFirst().dropLast()
+        let parts = inner.components(separatedBy: " – ")
+        let formatter = ISO8601DateFormatter()
+        guard let first = parts.first, let start = formatter.date(from: first.trimmingCharacters(in: .whitespaces)) else {
+            return nil
+        }
+        let end = parts.count > 1 ? formatter.date(from: parts[1].trimmingCharacters(in: .whitespaces)) : nil
+        return (start, end)
+    }
+
+    /// `- **Others 2** [12:04] words` → (.others(2), 724, "words").
+    static func turn(_ line: String) -> (speaker: MeetingSpeaker, start: TimeInterval, text: String)? {
+        guard line.hasPrefix("- **"), let close = line.range(of: "** [") else { return nil }
+        let label = String(line[line.index(line.startIndex, offsetBy: 4)..<close.lowerBound])
+        let afterLabel = line[close.upperBound...]
+        guard let bracket = afterLabel.firstIndex(of: "]"), let speaker = speaker(label) else { return nil }
+        let clock = afterLabel[..<bracket].split(separator: ":")
+        guard clock.count == 2, let minutes = Int(clock[0]), let seconds = Int(clock[1]), seconds < 60 else { return nil }
+        var text = afterLabel[afterLabel.index(after: bracket)...]
+        if text.hasPrefix(" ") { text = text.dropFirst() }
+        return (speaker, TimeInterval(minutes * 60 + seconds), String(text))
+    }
+
+    /// The inverse of `MeetingSpeaker.label`; `nil` for a name that is not one of its labels.
+    static func speaker(_ label: String) -> MeetingSpeaker? {
+        if label == MeetingSpeaker.you.label { return .you }
+        if label == MeetingSpeaker.others(1).label { return .others(1) }
+        let prefix = "Others "
+        guard label.hasPrefix(prefix), let n = Int(label.dropFirst(prefix.count)), n > 1 else { return nil }
+        return .others(n)
+    }
+
+    /// What an unreadable row says about the meeting when its text copy names it: "Product standup ·
+    /// 18 September"; otherwise that its files are still on this Mac.
+    public static func rowDetail(_ markdown: String?, now: Date, calendar: Calendar = .current,
+                                 locale: Locale = .current) -> String {
+        guard let markdown, let record = parse(markdown, id: "") else { return MeetingsCopy.savedOnThisMac }
+        let day = MeetingsLibrary.dayText(record.startedAt, now: now, calendar: calendar, locale: locale)
+        return [record.title, day].joined(separator: PillCopy.statusSeparator)
     }
 }

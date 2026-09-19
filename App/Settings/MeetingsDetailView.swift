@@ -93,10 +93,12 @@ struct MeetingsDetailView: View {
                     MeetingNotesSections(notes: notes, completed: model.completedActionItems,
                                          onToggle: { item, done in model.setActionItem(item, done: done) }, dark: false)
                 }
-            } else if model.live?.meetingID == record.id {
-                Text(MeetingsCopy.preparingNotes + "…")
+            } else if let live = model.live, live.meetingID == record.id {
+                // Labelled progress, never a spinner (design §8.9); notes exist only once capture stops.
+                Text(live.phase == .preparingNotes ? MeetingsCopy.preparingNotes + "…" : MeetingsCopy.notesAfterStop)
                     .windowFont(Tokens.Typography.body)
                     .foregroundStyle(WindowColor.secondaryInk)
+                    .accessibilityIdentifier("meetings.detail.notesPending")
             }
         }
     }

@@ -55,34 +55,48 @@ public final class MeetingPromptPanel {
     }
 }
 
+/// The prompt in the pill's own always-dark inks (`Tokens.Pill`): a notch surface, so it looks like
+/// the pill it hangs beside. Record choices use the pill's primary fill; Ignore its quiet control.
 struct MeetingPromptView: View {
     let prompt: MeetingPrompt
     let choose: (MeetingPrompt.Choice) -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "video.fill").foregroundStyle(.teal)
-            Text(prompt.title).font(.callout).lineLimit(1)
-            Spacer(minLength: 6)
+        HStack(spacing: Tokens.Spacing.m) {
+            Image(systemName: "video.fill")
+                .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)
+                .accessibilityHidden(true)
+            Text(prompt.title)
+                .windowFont(Tokens.Typography.pillStatus)
+                .fontWeight(.semibold)
+                .foregroundStyle(Tokens.Pill.Token.ink.color)
+                .lineLimit(1)
+            Spacer(minLength: Tokens.Spacing.s)
             ForEach(prompt.choices, id: \.rawValue) { choice in
-                Button(label(for: choice)) { choose(choice) }
-                    .buttonStyle(.bordered)
+                Button(Self.label(for: choice)) { choose(choice) }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Self.isPrimary(choice) ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color)
+                    .foregroundStyle(Self.isPrimary(choice) ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
                     .controlSize(.small)
-                    .tint(choice == .ignore ? nil : .teal)
                     .accessibilityIdentifier("meeting.choice.\(choice.rawValue)")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, Tokens.Spacing.l)
+        .padding(.vertical, Tokens.Spacing.m)
+        .background(RoundedRectangle(cornerRadius: Tokens.Radius.pill, style: .continuous)
+            .fill(Tokens.Pill.Token.background.color))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("meeting.prompt")
     }
 
-    private func label(for choice: MeetingPrompt.Choice) -> String {
+    static func label(for choice: MeetingPrompt.Choice) -> String {
         switch choice {
         case .joinAndRecord: return "Join & Record"
         case .record: return "Record"
         case .ignore: return "Ignore"
         }
     }
+
+    /// Recording is the prompt's purpose; Ignore stays quiet.
+    static func isPrimary(_ choice: MeetingPrompt.Choice) -> Bool { choice != .ignore }
 }
