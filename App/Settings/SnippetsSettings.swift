@@ -7,10 +7,31 @@ import SwiftUI
 public final class SnippetsViewModel: ObservableObject {
     @Published public private(set) var snippets: [Snippet] = []
     @Published public var lastError: String?
+    /// S7d — the last read failed. The group says so with a scoped Try again and keeps what it last
+    /// showed; an unreadable store never reads as "no snippets" (design §9: loading/error never
+    /// looks like empty).
+    @Published public private(set) var loadFailed = false
     public let store: any SnippetStoring
     public init(store: any SnippetStoring) { self.store = store; reload() }
 
-    public func reload() { snippets = (try? store.all()) ?? [] }
+    public static let unreadable = "Snippets can’t be read"
+    public static let unreadableDetail = "Your saved snippets haven’t been cleared."
+
+    /// The scoped banner the group shows while the store cannot be read.
+    public var loadFailureBanner: SectionBanner? {
+        loadFailed ? SectionBanner(headline: Self.unreadable, actionTitle: SectionCopy.tryAgain,
+                                   body: Self.unreadableDetail) : nil
+    }
+
+    public func reload() {
+        do {
+            snippets = try store.all()
+            loadFailed = false
+        } catch {
+            Log.app.error("snippets: read failed: \(error)")
+            loadFailed = true
+        }
+    }
 
     /// Adds or updates (by id) a snippet; validation errors surface in `lastError`.
     @discardableResult
@@ -21,7 +42,28 @@ public final class SnippetsViewModel: ObservableObject {
         } catch { lastError = Self.describe(error); return false }
     }
 
-    public func delete(id: String) { try? store.delete(id: id); reload() }
+    /// Deletes a snippet. A delete that fails keeps the row and says so; one that finds the snippet
+    /// already gone is what the user asked for.
+    @discardableResult
+    public func delete(id: String) -> Bool {
+        let trigger = snippets.first { $0.id == id }?.trigger
+        do {
+            try store.delete(id: id)
+        } catch SnippetError.notFound {
+            // Already gone: the reload below drops the row.
+        } catch {
+            Log.app.error("snippets: delete failed: \(error)")
+            lastError = Self.notDeleted(trigger)
+            return false
+        }
+        lastError = nil
+        reload()
+        return true
+    }
+
+    static func notDeleted(_ trigger: String?) -> String {
+        "\(trigger.map { "“\($0)”" } ?? "The snippet") wasn’t deleted — \(SectionCopy.tryAgain)"
+    }
 
     /// S7d — the inline sentence for a save that did not happen (Problem — Action; no raw error
     /// tokens in copy, `DESIGN.md` §7.1). The entered trigger and expansion stay in the form.
@@ -64,6 +106,12 @@ struct SnippetsSettingsTab: View {
                 .padding(.horizontal, Tokens.Spacing.l)
                 .padding(.vertical, Tokens.Spacing.m)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let failure = model.loadFailureBanner {
+                ScopedBanner(failure) { model.reload() }
+                    .padding(.horizontal, Tokens.Spacing.l)
+                    .padding(.bottom, Tokens.Spacing.m)
+                    .accessibilityIdentifier("dictionary.snippets.unreadable")
+            }
             ForEach(shown) { snippet in
                 RowView(snippet.trigger, detail: snippet.body) {
                     HStack(spacing: Tokens.Spacing.s) {

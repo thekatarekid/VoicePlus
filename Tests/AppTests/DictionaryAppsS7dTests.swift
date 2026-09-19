@@ -776,4 +776,59 @@ struct SnippetsRowsS7dTests {
         #expect(!vm.save(trigger: "", body: "x"))
         #expect(vm.lastError?.contains("emptyTrigger") == false)
     }
+
+    @Test("an unreadable store is a scoped Try again that keeps the rows shown — never 'no snippets'")
+    func unreadableSnippets() {
+        let store = FlakySnippetStore([Snippet(id: "a", trigger: "my address", body: "1 Main St")])
+        store.failReads = true
+        let vm = SnippetsViewModel(store: store)
+        #expect(vm.loadFailed && vm.snippets.isEmpty)
+        #expect(vm.loadFailureBanner?.headline == "Snippets can’t be read")
+        #expect(vm.loadFailureBanner?.actionTitle == "Try again")
+        store.failReads = false
+        vm.reload()
+        #expect(!vm.loadFailed && vm.loadFailureBanner == nil && vm.snippets.map(\.trigger) == ["my address"])
+        store.failReads = true
+        vm.reload()
+        #expect(vm.loadFailed && vm.snippets.map(\.trigger) == ["my address"])
+    }
+
+    @Test("a failed delete keeps the row and says so; a snippet already gone is simply removed")
+    func failedSnippetDelete() {
+        let store = FlakySnippetStore([Snippet(id: "a", trigger: "my address", body: "1 Main St"),
+                                       Snippet(id: "b", trigger: "sig", body: "Best, A")])
+        let vm = SnippetsViewModel(store: store)
+        store.failDeletes = true
+        #expect(!vm.delete(id: "a"))
+        #expect(vm.snippets.count == 2)
+        #expect(vm.lastError == "“my address” wasn’t deleted — Try again")
+        store.failDeletes = false
+        #expect(vm.delete(id: "a"))
+        #expect(vm.lastError == nil && vm.snippets.map(\.id) == ["b"])
+        _ = try? store.delete(id: "b") // removed elsewhere meanwhile
+        #expect(vm.delete(id: "b"))
+        #expect(vm.snippets.isEmpty && vm.lastError == nil)
+    }
+}
+
+/// A snippet store whose reads or deletes can be made to fail.
+final class FlakySnippetStore: SnippetStoring, @unchecked Sendable {
+    struct Failure: Error {}
+    private let inner: InMemorySnippetStore
+    var failReads = false
+    var failDeletes = false
+
+    init(_ seed: [Snippet]) { inner = InMemorySnippetStore(seed) }
+
+    func all() throws -> [Snippet] {
+        if failReads { throw Failure() }
+        return try inner.all()
+    }
+
+    func save(_ snippet: Snippet) throws { try inner.save(snippet) }
+
+    func delete(id: String) throws {
+        if failDeletes { throw Failure() }
+        try inner.delete(id: id)
+    }
 }
