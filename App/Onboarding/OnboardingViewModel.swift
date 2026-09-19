@@ -56,6 +56,9 @@ public final class OnboardingViewModel: ObservableObject {
     private var insertionTimer: Timer?
     private var keyPromptTimer: Timer?
     private var modelLoadTask: Task<Void, Never>?
+    /// FX3 — the app's engine swaps, and whether this window already spent its automatic retry.
+    private var engineChangeCancellable: AnyCancellable?
+    private var autoRetriedModelLoad = false
     /// Seconds a prompted-press window stays open before it counts as a press with no fn event.
     public static let keyPromptWindow: TimeInterval = 5
 
@@ -101,6 +104,9 @@ public final class OnboardingViewModel: ObservableObject {
         contactsOffer = ContactsImportOffer(store: dependencies.contacts, database: dependencies.database,
                                             settings: dependencies.settingsStore)
         observeAppActivation()
+        engineChangeCancellable = dependencies.engineChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in MainActor.assumeIsolated { self?.engineDidChange() } }
         dependencies.keyEvents.onFnEvent = { [weak self] in
             MainActor.assumeIsolated { self?.fnKeyEvent() }
         }
@@ -253,6 +259,7 @@ public final class OnboardingViewModel: ObservableObject {
         downloadTask?.cancel()
         downloadTask = nil
         modelLoadTask?.cancel(); modelLoadTask = nil
+        engineChangeCancellable = nil
         stopPractice()
         keyPromptTimer?.invalidate(); keyPromptTimer = nil
         enrollment = nil
@@ -414,7 +421,27 @@ public final class OnboardingViewModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             self.modelLoadTask = nil
             Log.app.notice("onboarding: model load \(String(describing: outcome))")
+            if case .loaded = outcome { self.autoRetriedModelLoad = false }
             self.send(.modelLoadFinished(outcome))
+        }
+    }
+
+    /// FX3 — the app swapped its engine. A load that failed while the stack is on disk gets one
+    /// automatic retry (a failure caused by a swap still in flight never needs the user), and a
+    /// load that is owed but not running starts. One retry per failure run, so a model that really
+    /// cannot load stops at M07 instead of looping on every swap.
+    func engineDidChange() {
+        guard machine.stackInstalled else { return }
+        switch machine.modelLoad {
+        case .failed:
+            guard !autoRetriedModelLoad else { return }
+            autoRetriedModelLoad = true
+            Log.app.notice("onboarding: the engine changed after a failed model load — retrying once")
+            send(.retryModelLoad)
+        case .notLoaded:
+            if machine.needsModelLoad { startModelLoad() }
+        case .loading, .loaded:
+            return
         }
     }
 
@@ -478,6 +505,9 @@ public final class OnboardingViewModel: ObservableObject {
         case .listening:
             wordReview = nil
             correctionRefused = false
+            // FX3 — a new hold is a new attempt: the last verdict ("Heard you", an error) goes with
+            // it, so the screen never shows a stale result beside a fresh turn.
+            if machine.dictation != nil { send(.retryDictation) }
         case .noSpeech:
             send(.dictationFinished(.failed(reason: RecoveryCatalog.entry(.A06).headline)))
         case .failed(let message):

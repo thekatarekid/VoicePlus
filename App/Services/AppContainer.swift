@@ -70,8 +70,8 @@ public final class AppContainer {
     /// things that hang off the *audio pipeline* (waveform, mic-quality) rather than off the engine.
     public var onEngineChanged: ((AppContainer) -> Void)?
     private let environment: [String: String]
-    private let refreshLock = NSLock()
-    private var refreshingEngine = false
+    /// FX3 — one engine refresh at a time, and a caller that arrives mid-refresh waits for it.
+    private let refreshGate = RefreshGate()
     private var zeroEditTimer: Timer?
     private var adaptTimer: Timer?
     /// V4.7 — re-prewarms the capture graph when the input route changes (see `startBackgroundWork`).
@@ -449,18 +449,26 @@ public final class AppContainer {
     ///
     /// Both directions are handled: unavailable → real when a download lands, and real →
     /// unavailable when the models directory is emptied under a running app.
+    ///
+    /// FX3: returning means the engine is settled. A caller that arrives while another refresh is
+    /// running *waits for that refresh* (`RefreshGate`) instead of returning at once — the early
+    /// return is what let onboarding's model step look at the box 7 ms before the swap, find
+    /// `UnavailableEngine`, and say "The speech model isn't ready" for a verified stack on disk.
     public func refreshEngineIfNeeded() async {
         // The mock engine is an explicit developer opt-in; never take it away from them.
         if case .mock = engineKind { return }
-        guard let modelManager else { return }
-        let begin = refreshLock.withLock { () -> Bool in
-            if refreshingEngine { return false }
-            refreshingEngine = true
-            return true
-        }
-        guard begin else { return }
-        defer { refreshLock.withLock { refreshingEngine = false } }
+        guard modelManager != nil else { return }
+        await refreshGate.run { [weak self] in await self?.performEngineRefresh() }
+    }
 
+    /// Posted (object: the container) after `refreshEngineIfNeeded` swapped the engine, from
+    /// whichever thread the refresh ran on. Onboarding listens so a model load that failed while a
+    /// swap was pending retries itself.
+    public static let engineDidChangeNotification = Notification.Name("VoicePlus.AppContainer.engineDidChange")
+
+    /// One refresh pass; only ever run inside `refreshGate`.
+    private func performEngineRefresh() async {
+        guard let modelManager else { return }
         let choice = await RecognizerFactory.chooseFinal(manager: modelManager)
         switch Self.refreshDecision(kind: engineKind, canRecognize: choice != nil) {
         case .activate:
@@ -474,6 +482,52 @@ public final class AppContainer {
         case .none:
             return
         }
+        NotificationCenter.default.post(name: Self.engineDidChangeNotification, object: self)
+    }
+
+    /// One engine refresh at a time — and a caller that arrives while one is running waits for it.
+    ///
+    /// Until FX3 the guard was `if refreshingEngine { return }`: the second caller returned while
+    /// the first was still between `chooseFinal` and the swap, and so saw the engine as it was
+    /// *before* a refresh it had every reason to believe had happened. After a first-run download
+    /// that second caller was onboarding's model load.
+    ///
+    /// A caller that joined a run already in flight also runs one more pass once it ends: the run it
+    /// joined may have read the disk before this caller's reason to refresh existed (a download
+    /// landing mid-run). The pass is cheap — `chooseFinal` is a few file lookups, and only an
+    /// availability flip rebuilds anything — so correctness does not depend on who asked first.
+    public final class RefreshGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var inFlight: Task<Void, Never>?
+
+        public init() {}
+
+        /// True while a pass is running.
+        public var isRefreshing: Bool { lock.withLock { inFlight != nil } }
+
+        /// Runs `pass`, or waits for the pass already running and then runs one more.
+        public func run(_ pass: @escaping @Sendable () async -> Void) async {
+            let first = claim(pass)
+            await first.task.value
+            guard first.joined else { return }
+            await claim(pass).task.value
+        }
+
+        private func claim(_ pass: @escaping @Sendable () async -> Void) -> (task: Task<Void, Never>, joined: Bool) {
+            lock.withLock {
+                if let inFlight { return (inFlight, true) }
+                // Created under the lock, so the pass's own `finish()` (which takes the lock) can
+                // only clear this task, never one assigned after it.
+                let task = Task { [weak self] in
+                    await pass()
+                    self?.finish()
+                }
+                inFlight = task
+                return (task, false)
+            }
+        }
+
+        private func finish() { lock.withLock { inFlight = nil } }
     }
 
     /// What a refresh should do, given what the app is running and what is on disk. Pure so the
@@ -526,8 +580,12 @@ public final class AppContainer {
             // The moment a model lands, the engine stops being `UnavailableEngine`. Without this
             // the download finishes, onboarding says "Using Parakeet TDT 0.6B v3." and every
             // dictation still reports "No speech model installed" until the app is relaunched.
+            //
+            // FX3: awaited, not spawned. `downloadStack` returns only once the engine has been
+            // re-resolved, so onboarding's "download finished" → "Loading" can never look at the
+            // engine before the swap.
             tiers.onModelsChanged = { [weak self] in
-                Task { await self?.refreshEngineIfNeeded() }
+                await self?.refreshEngineIfNeeded()
             }
             return tiers
         }

@@ -409,6 +409,9 @@ public struct OnboardingDependencies {
     /// Loads the installed stack into memory for the Model step's "Loading" → "Ready". Nil means
     /// nothing in this window can load it, and the step says so (M07) rather than claiming Ready.
     public var loadModel: (@MainActor () async -> OnboardingStateMachine.ModelLoadOutcome)?
+    /// FX3 — fires (on any thread) after the app swapped its engine. The Model step uses it to retry
+    /// a load that failed, or never ran, while that swap was still pending. Silent by default.
+    public var engineChanges: AnyPublisher<Void, Never> = Empty(completeImmediately: false).eraseToAnyPublisher()
     /// V4.48 — the recorder-backed enrollment view model that Voice › Enrollment runs. Nil (or a
     /// nil result) means no recorder is wired, which the Voice step states (X03).
     public var makeEnrollment: (@MainActor () -> SpeakerEnrollmentViewModel?)?

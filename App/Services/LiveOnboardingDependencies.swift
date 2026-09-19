@@ -194,26 +194,37 @@ public final class ModelStackInstaller: ModelManaging {
     public var appleSpeechAvailable: () -> Bool = { AppleSpeechRecognizer.isAvailable() }
     /// Fired after `refresh()` has re-read the models directory — a download landing, or a model
     /// that turned out to be installed already. `AppContainer` uses it to re-resolve the engine.
-    public var onModelsChanged: (() -> Void)?
+    ///
+    /// FX3: async, and awaited by `refresh()` (so by `downloadStack`). Until then it was fired and
+    /// forgotten, and the install returned while the engine swap was still in flight — the window
+    /// in which onboarding's model load found no engine and reported M07 for a verified stack.
+    public var onModelsChanged: (@Sendable () async -> Void)?
 
     public init(manager: ModelManager) {
         self.manager = manager
         Task { await refresh() }
     }
 
-    public func refresh() async {
+    public func refresh() async { await refresh(notifyAlways: false) }
+
+    /// - Parameter notifyAlways: fire (and await) `onModelsChanged` even when this pass saw no change.
+    ///   `downloadStack` passes true after fetching: another refresh (the one `init` starts, say) may
+    ///   have noticed the new files first, and the install must still not return before the engine
+    ///   has been re-resolved.
+    private func refresh(notifyAlways: Bool) async {
         var models: [ModelID: Bool] = [:]
         for id in ModelID.allCases { models[id] = await manager.isPresent(id) }
         let perModel = models
-        await MainActor.run {
+        let hook = await MainActor.run { () -> (@Sendable () async -> Void)? in
             let before = Set(modelPresence.filter(\.value).keys)
             let after = Set(perModel.filter(\.value).keys)
-            let changed = before != after
             modelPresence = perModel
             // Only when what is on disk actually moved: the first refresh (from `init`) and every
             // no-op poll must not make the composition root re-resolve the engine.
-            if changed { onModelsChanged?() }
+            return (before != after || notifyAlways) ? onModelsChanged : nil
         }
+        // Awaited, off the main actor: the engine swap it triggers hops to main itself.
+        if let hook { await hook() }
     }
 
     public var isStackInstalled: Bool { missingModels.isEmpty }
@@ -264,7 +275,8 @@ public final class ModelStackInstaller: ModelManaging {
             _ = try? EgressGate.shared.log(stage: "model", provider: d.hfRepo, host: host, bytesOut: 0,
                                            bytesIn: Int(d.approxBytes), purpose: "model download \(d.displayName)")
         }
-        await refresh()
+        // FX3: returns only once the app has re-resolved the engine over what just landed.
+        await refresh(notifyAlways: true)
     }
 
     /// Mirrors `RecognizerFactory.chooseFinal` — full TDT v3, else the tiny one, else Apple Speech —
