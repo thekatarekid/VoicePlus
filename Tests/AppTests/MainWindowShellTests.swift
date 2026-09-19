@@ -206,14 +206,17 @@ struct MainWindowShellTests {
         return MeetingStore(root: root)
     }
 
-    @Test("capture off, Calendar denied and nothing recorded are three different empties")
+    // S7c: design §8.2 / §9 — one empty ("No meetings yet" + Start recording) whatever the detection
+    // opt-in and Calendar say; neither ever blocks manual recording. `MeetingsS7cTests` covers the rest.
+    @Test("capture off, Calendar denied and nothing recorded share the design's empty with Start recording")
     func meetingEmpties() async {
         let store = InMemorySettingsStore()
         let off = MeetingsSectionViewModel(store: meetingsStore(), settings: store,
                                            calendarAuthorized: { false },
                                            list: { _ in (records: [], unreadable: []) })
         await off.reload()
-        #expect(off.state.headline == SectionCopy.meetingCaptureOff)
+        #expect(off.state.headline == DesignScreen.meetings.empty.headline)
+        #expect(off.state.actionTitle == DesignScreen.meetings.empty.action)
         #expect(off.state.isWellFormed)
 
         store.set(true, for: SettingsKeys.meetingCaptureEnabled)
@@ -221,14 +224,15 @@ struct MainWindowShellTests {
                                               calendarAuthorized: { false },
                                               list: { _ in (records: [], unreadable: []) })
         await denied.reload()
-        #expect(denied.state.headline == SectionCopy.calendarOff)
-        #expect(denied.state.actionTitle == SectionCopy.openSystemSettings)
+        #expect(denied.state.headline == DesignScreen.meetings.empty.headline)
+        #expect(denied.state.actionTitle == DesignScreen.meetings.empty.action)
+        #expect(denied.calendarNote != nil)
 
         let nothing = MeetingsSectionViewModel(store: meetingsStore(), settings: store,
                                                calendarAuthorized: { true },
                                                list: { _ in (records: [], unreadable: []) })
         await nothing.reload()
-        #expect(nothing.state.headline == SectionCopy.noMeetings)
+        #expect(nothing.state.headline == DesignScreen.meetings.empty.headline)
     }
 
     @Test("meetings: loading, content, a per-meeting row error, and a whole-store error")
@@ -253,8 +257,9 @@ struct MainWindowShellTests {
                                                list: { _ in throw Boom() })
         await broken.reload()
         #expect(broken.state.rendering == .error)
-        #expect(broken.state.headline == SectionCopy.meetingsUnreadable)
-        #expect(broken.state.actionTitle == SectionCopy.copyDiagnostics)
+        #expect(broken.state.recoveryID == DesignScreen.meetings.errorID)
+        #expect(broken.state.headline == RecoveryCatalog.entry(.X02).headline)
+        #expect(broken.state.actionTitle == RecoveryCatalog.entry(.X02).action)
     }
 
     @Test("a meeting with no words says so instead of showing an empty transcript pane")
