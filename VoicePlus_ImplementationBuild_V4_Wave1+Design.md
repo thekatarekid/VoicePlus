@@ -770,7 +770,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 - [ ] **R1** `swift build` clean; `swift test --no-parallel` all green; `RecordingReplayTests` on `Fixtures/real-room/builtin` — WER unchanged ± 0.01 vs the 1.10.0 number in `DECISIONS.md`.
 - [ ] **R2** `Fixtures/prosody/script.md` written (15 questions, 15 two-clause sentences, 10 exclamations; punctuation omitted from what the owner reads) for the owner's Wave 2 recording.
-- [ ] **R3** `Packaging/release.sh V4-w1 1.11.0` from a clean worktree; `verify_install.sh`; DMG retained, none overwritten.
+- [x] **R3** `Packaging/release.sh V4-w1 1.11.0` from a clean worktree; `verify_install.sh`; DMG retained, none overwritten. — `VoicePlus_V4-w1_1.11.0.dmg` from `928551d` (`--no-github`), 19 MB, sha256 `e80a1b58…`, verify OK; 25 DMGs retained.
 - [ ] **R4** `progress.md` (wave summaries, test count, DMG sha), `DECISIONS.md` (fn default, unknown-caret rule, SNR thresholds as hypothesis, pill geometry change, preview-before-insert), §7 of this document filled in; §5 handed to the owner with the numbers to collect.
 
 ---
