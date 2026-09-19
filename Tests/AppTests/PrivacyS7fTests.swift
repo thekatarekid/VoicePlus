@@ -584,6 +584,8 @@ struct PrivacyS7fTests {
         #expect(store.bool(SettingsKeys.dictationHistory) == false)
         #expect(TodayHistorySettings.isEnabled(store) == false, "S7b's Today reads the same switch")
         #expect(model.dictationHistorySwitchSentence.hasPrefix("Off."))
+        #expect(model.dictationHistorySwitchSentence == "Off. New dictations aren’t saved, and Today doesn’t list or search past ones. Recovery drafts are kept separately until resolved.",
+                "says all the switch does: DictationHistoryGate stops new writes, Today lists nothing")
         #expect(model.persistsRecovery, "held text persistence is not the history switch")
         #expect(model.historyState.isContent, "a held text is kept: never “Nothing is saved” over it")
         #expect(model.diagnosticsFacts(now: Date()).settings.contains("Save dictation history: off"))
