@@ -23,41 +23,103 @@ public final class SnippetsViewModel: ObservableObject {
 
     public func delete(id: String) { try? store.delete(id: id); reload() }
 
+    /// S7d — the inline sentence for a save that did not happen (Problem — Action; no raw error
+    /// tokens in copy, `DESIGN.md` §7.1). The entered trigger and expansion stay in the form.
     static func describe(_ e: Error) -> String {
-        if let s = e as? SnippetError { return "\(s)".replacingOccurrences(of: "(", with: " (") }
-        return "\(e)"
+        switch e as? SnippetError {
+        case .emptyTrigger?: return "Add a trigger phrase first."
+        case .emptyBody?: return "Add the text to type first."
+        case .duplicateTrigger(let trigger)?: return "“\(trigger)” is already a trigger — choose another phrase."
+        case .notFound?: return "That snippet is gone — add it again."
+        case nil: return "\(SectionCopy.notSaved) — \(SectionCopy.tryAgain)"
+        }
     }
 }
 
+/// S7d — spoken snippets as rows of Dictionary & Apps › Dictionary (design §8.3: "Snippets and
+/// personas as rows here"): the design's group and rows, one Edit / Delete per row, and the add form
+/// as the group's last row. The search query filters triggers and expansions.
 struct SnippetsSettingsTab: View {
     @ObservedObject var model: SnippetsViewModel
+    /// The section's search (toolbar / "Search your words").
+    var query: String = ""
     @State private var editingID: String?
     @State private var trigger = ""
     @State private var body_ = ""
 
+    static let help = "Say the trigger exactly and the expansion is typed instead. Example: “my address” → your street address."
+
+    private var shown: [Snippet] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        return q.isEmpty ? model.snippets : model.snippets.filter {
+            $0.trigger.localizedCaseInsensitiveContains(q) || $0.body.localizedCaseInsensitiveContains(q)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Say the trigger exactly and the expansion is typed instead. Example: “my address” → your street address.")
-                .font(.caption).foregroundStyle(.secondary)
-            List(model.snippets) { s in
-                VStack(alignment: .leading) {
-                    Text(s.trigger).font(.callout.weight(.semibold))
-                    Text(s.body).font(.caption).lineLimit(2).foregroundStyle(.secondary)
+        GroupBox(DictionaryAppsCopy.snippetsTitle, layout: .rows) {
+            Text(Self.help)
+                .windowFont(Tokens.Typography.meta)
+                .foregroundStyle(WindowColor.secondaryInk)
+                .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.m)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(shown) { snippet in
+                RowView(snippet.trigger, detail: snippet.body) {
+                    HStack(spacing: Tokens.Spacing.s) {
+                        Button(DictionaryAppsCopy.edit) {
+                            editingID = snippet.id
+                            trigger = snippet.trigger
+                            body_ = snippet.body
+                        }
+                        Button(role: .destructive) { model.delete(id: snippet.id) } label: {
+                            Image(systemName: "trash").accessibilityLabel("Delete “\(snippet.trigger)”")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .controlSize(.small)
                 }
-                .contextMenu { Button("Delete") { model.delete(id: s.id) } }
-                .onTapGesture { editingID = s.id; trigger = s.trigger; body_ = s.body }
+                .accessibilityIdentifier("dictionary.snippets.row.\(snippet.id)")
             }
+            form
+        }
+        .accessibilityIdentifier("dictionary.snippets")
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
             TextField("Trigger phrase (e.g. my address)", text: $trigger)
-            TextEditor(text: $body_).frame(height: 60).border(.quaternary)
-            HStack {
-                if let err = model.lastError { Text(err).font(.caption).foregroundStyle(.red) }
-                Spacer()
-                if editingID != nil { Button("New") { editingID = nil; trigger = ""; body_ = "" } }
-                Button(editingID == nil ? "Add" : "Save") {
-                    if model.save(id: editingID, trigger: trigger, body: body_) { editingID = nil; trigger = ""; body_ = "" }
+                .accessibilityIdentifier("dictionary.snippets.trigger")
+            TextField("Expansion", text: $body_, axis: .vertical)
+                .lineLimit(2...4)
+                .accessibilityIdentifier("dictionary.snippets.body")
+            HStack(spacing: Tokens.Spacing.s) {
+                if let error = model.lastError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .windowFont(Tokens.Typography.meta)
+                        .foregroundStyle(WindowColor.attention)
                 }
+                Spacer()
+                if editingID != nil {
+                    Button(DictionaryAppsCopy.cancel) { reset() }
+                }
+                Button(editingID == nil ? DictionaryAppsCopy.add : "Save") {
+                    if model.save(id: editingID, trigger: trigger, body: body_) { reset() }
+                }
+                .disabled(trigger.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityIdentifier("dictionary.snippets.save")
             }
         }
+        .textFieldStyle(.roundedBorder)
+        .padding(.horizontal, Tokens.Spacing.l)
+        .padding(.vertical, Tokens.Spacing.m)
+        .overlay(alignment: .top) { Rectangle().fill(WindowColor.separator).frame(height: 1) }
+    }
+
+    private func reset() {
+        editingID = nil
+        trigger = ""
+        body_ = ""
     }
 }
 
