@@ -424,3 +424,25 @@ winner" and that B "misses the 300 ms first-word budget" as though A met it:
 build-doc rule 5. The measurement is recorded here so the decision is made on evidence rather than on
 the flag comment's incorrect premise; an interval shorter than 1 s (0.4 s was started and abandoned by
 the killed agent) is the obvious third arm and is not yet measured.
+
+## 2026-09-19 — F1, mic-quality thresholds (V4.18) · status: hypothesis
+
+`MicQualityAnalyzer` v2 (commit `06dc150`) grades a real signal-to-noise ratio instead of v1's
+syllabic modulation depth inside 300 ms of speech:
+
+- **Noise floor** = p10 of 10 ms frame RMS over the pre-speech window (capture start → first VAD
+  `speechStart`), when that window holds at least 200 ms (`minimumPreSpeech`,
+  `Engine/Audio/MicQualityAnalyzer.swift:40`); otherwise the running minimum over the last 4 s
+  (`runningFloorWindow`, `:42`). Frames below −100 dBFS are digital silence and never count.
+- **Signal** = p90 of frame RMS over the VAD-speech frames of the first 1 s of speech
+  (`signalWindow`, `:44`).
+- **Emitted once**, as soon as both exist; `flush()` at stop grades only if speech was seen, so a
+  pause is never graded. `lowLevel` only when speech peaks below −40 dBFS.
+- **Verdict:** poor < 10 dB (`poorBelowSNR`, `:46`), bad < 5 dB (`badBelowSNR`, `:48`). The clipping
+  bounds are kept from v1 (> 0.2 % poor, > 2 % bad).
+
+**Status: hypothesis.** The 10 dB / 5 dB bounds are reasoned, not measured: they separate the
+`Fixtures/audio/clean` set (every file ≥ 20 dB, `.good`) from `Fixtures/audio/noisy` (< 10 dB) in
+`MicQualityV2Tests`, but no real-room recording has been graded against them. They are to be
+calibrated on the `Fixtures/real-room` corpus in Wave 2 (per built-in / headset / far-field device,
+the SNR at which WER starts to climb), and this entry updated with the measured bounds.

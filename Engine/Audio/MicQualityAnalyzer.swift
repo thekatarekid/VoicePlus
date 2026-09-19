@@ -42,9 +42,9 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
     public static let runningFloorWindow: TimeInterval = 4
     /// Speech graded for the signal estimate: the first second of VAD speech.
     public static let signalWindow: TimeInterval = 1
-    /// `hypothesis` (V4.18; DECISIONS.md entry pending): the Wave 2 corpus sets it.
+    /// `hypothesis` (V4.18; DECISIONS.md 2026-09-19 "F1, mic-quality thresholds"): the Wave 2 corpus sets it.
     public static let poorBelowSNR: Float = 10
-    /// `hypothesis` (V4.18; DECISIONS.md entry pending): the Wave 2 corpus sets it.
+    /// `hypothesis` (V4.18; DECISIONS.md 2026-09-19 "F1, mic-quality thresholds"): the Wave 2 corpus sets it.
     public static let badBelowSNR: Float = 5
     public static let lowLevelPeakDB: Float = -40
     public static let clipThreshold: Float = 0.985
