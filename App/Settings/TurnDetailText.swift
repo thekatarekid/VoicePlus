@@ -11,12 +11,10 @@ import SwiftUI
 /// The marks, as data: each uncertain span clamped to the text and ordered. What the view underlines.
 enum TurnTextMarks {
     /// UTF-16 spans → `NSRange`s inside `text`; empty, negative or out-of-range spans are dropped.
+    /// S10: each mark covers whole grapheme clusters, so a span never splits an emoji, a flag or a
+    /// letter from its combining marks (`GraphemeMarks`).
     static func ranges(in text: String, spans: [Range<Int>]) -> [NSRange] {
-        let length = (text as NSString).length
-        return spans
-            .filter { $0.lowerBound >= 0 && $0.upperBound <= length && !$0.isEmpty }
-            .sorted { $0.lowerBound < $1.lowerBound }
-            .map { NSRange(location: $0.lowerBound, length: $0.count) }
+        GraphemeMarks.ranges(in: text, utf16Spans: spans)
     }
 
     static func attributed(_ text: String, spans: [Range<Int>], scale: CGFloat = 1) -> NSAttributedString {
