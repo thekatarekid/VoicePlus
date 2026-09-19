@@ -53,6 +53,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory) // LSUIElement equivalent until Packaging installs Info.plist
         AppContainer.ensureSupportDirectories()
+        // ── FX1 · main-thread stall watchdog ─────────────────────────────────────────────────────
+        // A main thread gone for 2 s logs one fault naming the turn stage and destination (the
+        // 1.11 onboarding freeze left no trace at all). Background timer; nothing else.
+        MainThreadWatchdog.shared.start()
+        // ── end FX1 ────────────────────────────────────────────────────────────────────────────
         // A3 / V4.6 — the hotkey is armed *before* the container is built (VAD on the ANE, engine,
         // providers). A press made meanwhile shows "Starting microphone…" and is replayed through the
         // real handler once the container is wired: one press at most, and a released one lands

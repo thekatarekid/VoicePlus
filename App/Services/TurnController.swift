@@ -1026,6 +1026,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         }
         guard proceed else { return payload }
         fx.run(self)
+        // FX1 — the watchdog's breadcrumb: if the main thread stops during the write, the fault
+        // names this turn, this stage and this destination.
+        MainThreadWatchdog.note(turn: id.description, stage: TurnStage.inserting.rawValue, destination: target.focus)
         let result = await lander.inject(payload: payload, commit: key)
         let delivery = result.delivery
         let stage: TurnStage
@@ -1034,6 +1037,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         case .some(.delivered), .some(.partial): stage = .landed
         case .some(.failed), .none: stage = .failed
         }
+        MainThreadWatchdog.note(turn: id.description, stage: stage.rawValue, destination: target.focus)
         let escaped = lock.withLock { turns[id]?.escapeDuringWrite ?? false }
         end(id, stage: stage) { $0.outcome = delivery }
         // Escape arrived after the write began: the outcome is resolved (above); now a safe Undo.
