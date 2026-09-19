@@ -246,7 +246,9 @@ public final class AppContainer {
         lander.personaManager = personas
         lander.transform = transform
         lander.correction = correction
-        lander.contextAugmenter = { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }
+        // S7d — the app's Dictionary & Apps rule applies last: Verbatim switches the style pass and
+        // writing instructions off; contextual reading off drops what was read from the screen.
+        lander.contextAugmenter = AppRules.applying(after: { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx })
         // R4.2 — the AX hints the field-role formatter classifies on, read once per utterance.
         let fieldContextReader = FieldContextReader(system: system)
         lander.fieldContextProvider = { [fieldContextReader] bundleID in fieldContextReader.fieldContext(bundleID: bundleID) }

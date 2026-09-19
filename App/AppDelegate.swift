@@ -458,6 +458,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.statusItem?.refreshIcon()
             }
         }
+        // S7f — Privacy's hard-mute row acts on the same mute as the menu bar and the pill.
+        PrivacyWiring.mute = container.latchController.mute
 
         // P5.5 — meeting capture: detector effects → notch prompt / recording / notes notification.
         let meetingPanel = MeetingPromptPanel()
@@ -473,6 +475,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // this line asked TCC for Calendar — and, via EKEventStore's initialiser, Reminders — on
         // every single launch, with no user intent anywhere in the chain.
         container.meeting.startMonitoring()
+        // S7c — manual meeting capture (Meetings › Start recording, the expanded panel, the pill's
+        // Q0 / Q1 / Q2 rows) runs over the same coordinator; the pill's meeting buttons reach it first.
+        MeetingCaptureWiring.install(coordinator: container.meeting, pill: pill.model)
 
         let status = StatusItemController(flags: container.flags, database: container.database, coordinator: coordinator,
                                           hotkey: hotkey, updater: updater)
@@ -594,6 +599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.presenceState = { [weak presence = self.presence] in presence?.substance ?? .ready }
         let turnButtons = pillModel.onAction   // `TurnWiring` routes the turn's own buttons
         pillModel.onAction = { [weak self, weak container, weak pillModel] action, shown in
+            if MeetingCaptureWiring.handle(action) { return }   // S7c: a manual meeting's own buttons
             turnButtons?(action, shown)
             let effect = PillActionRoute.effect(for: action, shown: shown, text: pillModel?.actionText ?? "")
             guard !effect.isTurnEffect, let self, let container else { return }

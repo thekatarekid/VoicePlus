@@ -251,6 +251,19 @@ public enum AppRules {
     public static func current(defaults: UserDefaults = .standard) -> AppRuleBook {
         (try? UserDefaultsAppRuleStore(defaults: defaults).load()) ?? AppRuleBook()
     }
+
+    /// The lander's context augmenter with the destination app's rule applied last, so nothing
+    /// `base` adds (window text, box lines) survives a rule that turns contextual reading off.
+    /// Rules are read on every run: a change in the pane applies to the next utterance.
+    public static func applying(after base: @escaping ([TranscriptSpan], StageContext) -> StageContext,
+                                rules: @escaping () -> AppRuleBook = { AppRules.current() })
+        -> ([TranscriptSpan], StageContext) -> StageContext {
+        { spans, context in
+            let augmented = base(spans, context)
+            guard let bundleID = augmented.appBundleID, !bundleID.isEmpty else { return augmented }
+            return rules().resolved(for: bundleID).apply(to: augmented)
+        }
+    }
 }
 
 // MARK: - Word marks (S5 overlay capability)

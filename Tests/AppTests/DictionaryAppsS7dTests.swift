@@ -643,6 +643,33 @@ struct AppsPaneS7dTests {
         #expect(untouched.extra == context.extra, "the defaults change nothing in a run")
     }
 
+    @Test("W2 gate: the lander's augmenter applies the destination app's rule after the screen read")
+    func augmenterAppliesRuleLast() {
+        var book = AppRuleBook()
+        book.rules["com.apple.mail"] = AppRule(bundleID: "com.apple.mail", style: .verbatim, contextualReading: false)
+        let screenRead: ([TranscriptSpan], StageContext) -> StageContext = { _, ctx in
+            var ctx = ctx
+            ctx.extra[DeixisService.windowTextKey] = "Dear Mira"
+            ctx.extra[DeixisService.contextLineKey] = "box 1: Mira"
+            return ctx
+        }
+        var reads = 0
+        let augmenter = AppRules.applying(after: screenRead, rules: { reads += 1; return book })
+
+        let mail = augmenter([], StageContext(appBundleID: "com.apple.mail"))
+        #expect(mail.extra[StyleStage.enabledKey] == "false")
+        #expect(mail.extra[DeixisService.windowTextKey] == nil, "reading off drops what the screen read added")
+        #expect(mail.extra[DeixisService.contextLineKey] == nil)
+
+        let notes = augmenter([], StageContext(appBundleID: "com.apple.Notes"))
+        #expect(notes.extra[StyleStage.enabledKey] == nil, "an app on the defaults keeps its style pass")
+        #expect(notes.extra[DeixisService.windowTextKey] == "Dear Mira")
+
+        let unknown = augmenter([], StageContext())
+        #expect(unknown.extra[DeixisService.windowTextKey] == "Dear Mira", "no destination, no rule")
+        #expect(reads == 2, "rules are read per run, so a pane change applies to the next utterance")
+    }
+
     @Test("word marks: 'No overlay' until S5 records the app as validated")
     func wordMarks() throws {
         let model = S7dFixture.model(marks: ["com.apple.Notes"])
