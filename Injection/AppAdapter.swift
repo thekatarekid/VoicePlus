@@ -226,6 +226,32 @@ public final class FigmaAdapter: AppAdapter {
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
 }
 
+/// FX1 — VoicePlus's own windows: the onboarding practice field, Settings' text fields.
+///
+/// Never AX. An AX write aimed at our own process runs AppKit's handler on the calling thread;
+/// from the turn's background thread that edits an `NSTextView` off the main thread and deadlocks
+/// TextKit 2 against the main thread's layout (the 1.11 onboarding freeze). The `.adapter` method
+/// inserts through `InProcessTextDelivering` — `NSTextView.insertText` on the main thread, the
+/// same path as typing. Keystrokes are the fallback when the first responder is not text: they
+/// arrive through the main run loop like any key press.
+///
+/// `TextInjector` picks this adapter itself for a focus `OwnProcess.owns`; it is not in
+/// `AdapterRegistry.standard()`, so no other bundle ID can ever match it.
+public final class OwnProcessAdapter: AppAdapter {
+    public let id = "own-process"
+    public init() {}
+    public func matches(bundleID: String) -> Bool {
+        guard let own = Bundle.main.bundleIdentifier, !own.isEmpty else { return false }
+        return bundleID == own
+    }
+    public var methodOrder: [InjectionMethod] { [.adapter, .keystroke] }
+
+    public func injectViaAdapter(_ text: String, focus: FocusSnapshot, focused: FocusedElementInfo?, system: SystemAccess) throws -> Bool {
+        guard let local = system as? InProcessTextDelivering else { return false }
+        return try local.insertIntoOwnFocusedText(text)
+    }
+}
+
 /// Ordered registry; first match wins, `DefaultAdapter` is the catch-all.
 public final class AdapterRegistry {
     public private(set) var adapters: [AppAdapter]

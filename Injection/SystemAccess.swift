@@ -125,6 +125,11 @@ public enum SystemAccessError: Error, Equatable, Sendable {
     case attributeNotSettable(String)
     case axError(Int32)
     case eventPostFailed
+    /// FX1 — the focused element belongs to this process and the call is not on the main thread.
+    /// Thrown before anything is posted; `LiveSystemAccess` retries the call on the main thread.
+    case ownProcessOffMain
+    /// FX1 — the main thread did not pick up a `MainThreadHop` in time. Nothing ran, nothing will.
+    case mainThreadBusy
 }
 
 /// Every OS touch-point the injection stack uses. Real implementation: `LiveSystemAccess`
@@ -258,5 +263,117 @@ public extension FocusedElementInfo {
         guard let value, let range = selectedRange,
               let (before, after) = CaretWindow.split(value: value, range: range, window: window) else { return nil }
         return range.upperBound == value.utf16.count ? .endOfField(before: before) : .known(before: before, after: after)
+    }
+}
+
+// MARK: - FX1 — never drive our own UI through Accessibility from a background thread
+
+/// FX1 — what "our own process" is, decided without an AX round trip.
+///
+/// AX calls whose target is this process do not go through the main run loop: macOS runs AppKit's
+/// accessibility handler **in-process, on the calling thread**. From a background thread that edits
+/// an `NSTextView` off the main thread while the main thread lays the same view out — TextKit 2
+/// takes its two locks in opposite orders and both threads stop for good. That was the onboarding
+/// "Try your first sentence" freeze (1.11.0 / 1.11.1): the practice field is VoicePlus's own
+/// `TextEditor`, and the turn's write ran `AXUIElementSetAttributeValue(kAXSelectedText)` from the
+/// Swift concurrency pool.
+public enum OwnProcess {
+    public static let pid: Int32 = ProcessInfo.processInfo.processIdentifier
+
+    /// True when `focus` is VoicePlus itself: our pid, or our bundle ID (a snapshot taken by a
+    /// different instance of the app still names our windows).
+    public static func owns(_ focus: FocusSnapshot?, pid: Int32 = OwnProcess.pid,
+                            bundleID: String? = Bundle.main.bundleIdentifier) -> Bool {
+        guard let focus else { return false }
+        if focus.pid == pid { return true }
+        guard let bundleID, !bundleID.isEmpty else { return false }
+        return focus.bundleID == bundleID
+    }
+}
+
+/// FX1 — the text path into VoicePlus's **own** focused text view, which never goes through AX.
+///
+/// `LiveSystemAccess` conforms: it drives the key window's first responder (`NSTextView`, or a text
+/// field's field editor) directly. A separate protocol, like `TextMarkerCaretReading`, so every
+/// existing `SystemAccess` conformer keeps compiling: callers ask `system as? InProcessTextDelivering`.
+///
+/// **Main thread only.** Both methods refuse off the main thread (`ownFocusedText()` returns `nil`,
+/// `insertIntoOwnFocusedText` throws `.ownProcessOffMain` before touching anything).
+public protocol InProcessTextDelivering: AnyObject {
+    /// Our first responder's text as a `FocusedElementInfo` (value, selection, role); `nil` when
+    /// the first responder is not text, or off the main thread.
+    func ownFocusedText() -> FocusedElementInfo?
+    /// Inserts `text` at our first responder's selection, exactly as typing would (undo, delegate,
+    /// SwiftUI bindings). `false` when the first responder is not editable text. Counts as a post.
+    func insertIntoOwnFocusedText(_ text: String) throws -> Bool
+}
+
+/// FX1 — runs work on the main thread from any thread, and never waits on it forever.
+///
+/// The caller waits at most `startTimeout` for the main thread to *start* the work. If it has not
+/// started by then the work is cancelled — it will never run — and `.mainThreadBusy` is thrown, so
+/// a write that timed out can never land late (the readback rule's "nothing posted" still holds).
+/// Once the work has started, the caller waits for it to finish: it is running on the main thread
+/// right now, and a started write must report what it did.
+///
+/// On the main thread the work runs inline.
+public enum MainThreadHop {
+    /// How long a read waits for the main thread to pick it up.
+    public static let readStartTimeout: TimeInterval = 1.0
+    /// How long a write waits. Longer: giving up on a write holds the user's text.
+    public static let writeStartTimeout: TimeInterval = 3.0
+
+    public static func run<T>(startTimeout: TimeInterval = readStartTimeout,
+                              _ work: @escaping () throws -> T) throws -> T {
+        if Thread.isMainThread { return try work() }
+        let hop = Hop<T>()
+        DispatchQueue.main.async {
+            guard hop.begin() else { return }
+            hop.finish(Result { try work() })
+        }
+        if hop.started.wait(timeout: .now() + max(0, startTimeout)) == .timedOut, hop.cancel() {
+            throw SystemAccessError.mainThreadBusy
+        }
+        hop.done.wait()
+        return try hop.outcome()
+    }
+
+    private final class Hop<T>: @unchecked Sendable {
+        private enum State { case pending, running, cancelled }
+        private let lock = NSLock()
+        private var state = State.pending
+        private var result: Result<T, Error>?
+        let started = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+
+        /// Main thread: claim the work. `false` when the caller already gave up.
+        func begin() -> Bool {
+            let claimed = lock.withLock { () -> Bool in
+                guard state == .pending else { return false }
+                state = .running
+                return true
+            }
+            if claimed { started.signal() }
+            return claimed
+        }
+
+        /// Caller: give up. `false` when the main thread has already begun (then wait for it).
+        func cancel() -> Bool {
+            lock.withLock {
+                guard state == .pending else { return false }
+                state = .cancelled
+                return true
+            }
+        }
+
+        func finish(_ value: Result<T, Error>) {
+            lock.withLock { result = value }
+            done.signal()
+        }
+
+        func outcome() throws -> T {
+            guard let result = lock.withLock({ result }) else { throw SystemAccessError.mainThreadBusy }
+            return try result.get()
+        }
     }
 }

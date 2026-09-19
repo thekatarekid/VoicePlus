@@ -4,8 +4,44 @@ import Foundation
 import Shared
 
 /// Real AX / CGEvent / NSPasteboard implementation. Every AX call is guarded by `AXIsProcessTrusted()`.
+///
+/// FX1 — every AX call that could land in **this** process runs on the main thread (`onSafeThread`):
+/// macOS runs an AX request aimed at ourselves in-process on the calling thread, and AppKit off the
+/// main thread deadlocks TextKit 2 against the main thread's layout. Our own focused text view is
+/// read and written directly (`InProcessTextDelivering`), never through AX.
 public final class LiveSystemAccess: SystemAccess {
     public init() {}
+
+    /// FX1 — the frontmost application. Live: `NSWorkspace`. A test points it at this process.
+    public var frontmostApplication: () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication }
+    /// FX1 — our own focused text (main thread only). Live: the key window's first responder,
+    /// when it is text. A test points it at a view in an off-screen window.
+    public var ownTextResponder: @MainActor () -> NSText? = { OwnTextResponder.keyWindowText() }
+    /// FX1 — how long a read / a write aimed at our own process waits for the main thread to pick
+    /// it up before giving up (`.mainThreadBusy`, nothing done). See `MainThreadHop`.
+    public var mainThreadReadTimeout = MainThreadHop.readStartTimeout
+    public var mainThreadWriteTimeout = MainThreadHop.writeStartTimeout
+
+    /// FX1 — true when an AX request for "the focused element" would be answered by this process.
+    /// No AX round trip: `NSRunningApplication` is thread-safe.
+    func ownProcessHasFocus() -> Bool {
+        frontmostApplication()?.processIdentifier == OwnProcess.pid || NSRunningApplication.current.isActive
+    }
+
+    /// FX1 — the guard every AX entry point goes through. Off the main thread, work that targets
+    /// this process runs on the main thread (`MainThreadHop`, bounded: it never waits forever).
+    /// Work that turns out to target us only once the element is resolved (a panel of ours holding
+    /// AX focus while another app is frontmost) throws `.ownProcessOffMain` from
+    /// `focusedAXElement` before touching it, and is retried on the main thread.
+    func onSafeThread<T>(ownProcess: Bool, startTimeout: TimeInterval? = nil,
+                         _ work: @escaping () throws -> T) throws -> T {
+        if Thread.isMainThread { return try work() }
+        let startTimeout = startTimeout ?? mainThreadReadTimeout
+        if ownProcess { return try MainThreadHop.run(startTimeout: startTimeout, work) }
+        do { return try work() } catch let error as SystemAccessError where error == .ownProcessOffMain {
+            return try MainThreadHop.run(startTimeout: startTimeout, work)
+        }
+    }
 
     public var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
@@ -16,16 +52,26 @@ public final class LiveSystemAccess: SystemAccess {
     // MARK: Focus
 
     public func frontmostApp() -> FocusSnapshot? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        guard let app = frontmostApplication() else { return nil }
+        let pid = app.processIdentifier
         var token: String?
-        if isAccessibilityTrusted, let element = try? focusedAXElement(pid: app.processIdentifier) {
-            token = String(CFHash(element))
+        if isAccessibilityTrusted {
+            token = try? onSafeThread(ownProcess: pid == OwnProcess.pid) { [self] in
+                String(CFHash(try focusedAXElement(pid: pid)))
+            }
         }
-        return FocusSnapshot(pid: app.processIdentifier, bundleID: app.bundleIdentifier ?? "unknown",
+        return FocusSnapshot(pid: pid, bundleID: app.bundleIdentifier ?? "unknown",
                              appName: app.localizedName ?? "", elementToken: token)
     }
 
     public func focusedElement() throws -> FocusedElementInfo {
+        try onSafeThread(ownProcess: ownProcessHasFocus()) { [self] in try readFocusedElement() }
+    }
+
+    private func readFocusedElement() throws -> FocusedElementInfo {
+        // FX1 — our own text view is read directly, on the main thread: no AX round trip into
+        // ourselves, and no accessibility permission needed for it.
+        if Thread.isMainThread, ownProcessHasFocus(), let own = ownFocusedText() { return own }
         let element = try focusedAXElement()
         let role = (copyAttribute(element, kAXRoleAttribute) as? String) ?? "unknown"
         let subrole = copyAttribute(element, kAXSubroleAttribute) as? String
@@ -173,7 +219,16 @@ public final class LiveSystemAccess: SystemAccess {
         let err = AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &focused)
         guard err == .success, let focused else { throw SystemAccessError.noFocusedElement }
         // swiftlint:disable:next force_cast
-        return focused as! AXUIElement
+        let element = focused as! AXUIElement
+        // FX1 — every later read or write on this element would run our AppKit handlers on this
+        // thread. Refuse before touching it; `onSafeThread` retries on the main thread.
+        if !Thread.isMainThread, Self.pid(of: element) == OwnProcess.pid { throw SystemAccessError.ownProcessOffMain }
+        return element
+    }
+
+    static func pid(of element: AXUIElement) -> Int32? {
+        var pid: pid_t = 0
+        return AXUIElementGetPid(element, &pid) == .success ? pid : nil
     }
 
     private func copyAttribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -189,6 +244,12 @@ public final class LiveSystemAccess: SystemAccess {
     /// `counts: true` for the two attributes that can put text in the user's field. The count is
     /// bumped *before* the write, so a write that fails halfway still reads as "possibly posted".
     private func set(_ name: String, _ value: CFTypeRef, counts: Bool = false) throws {
+        try onSafeThread(ownProcess: ownProcessHasFocus(), startTimeout: mainThreadWriteTimeout) { [self] in
+            try setNow(name, value, counts: counts)
+        }
+    }
+
+    private func setNow(_ name: String, _ value: CFTypeRef, counts: Bool) throws {
         let element = try focusedAXElement()
         guard isSettable(element, name) else { throw SystemAccessError.attributeNotSettable(name) }
         if counts { postCount += 1 }
@@ -220,8 +281,14 @@ extension LiveSystemAccess: TextMarkerCaretReading {
     /// *document's* edges, so "before" would carry the page's text above an empty input — the
     /// very "always starts with a space" bug this rung exists to remove (V4 §5).
     public func caretByTextMarkers() -> TextMarkerCaret? {
-        guard let element = try? focusedAXElement(),
-              let selection = copyAttribute(element, MarkerAttribute.selectedRange),
+        (try? onSafeThread(ownProcess: ownProcessHasFocus()) { [self] in try readCaretByTextMarkers() }) ?? nil
+    }
+
+    private func readCaretByTextMarkers() throws -> TextMarkerCaret? {
+        // FX1 — our own text view answers the first rung (value + selected range) directly.
+        if Thread.isMainThread, ownProcessHasFocus(), ownFocusedText() != nil { return nil }
+        let element = try focusedAXElement()
+        guard let selection = copyAttribute(element, MarkerAttribute.selectedRange),
               let selectionStart = parameterized(element, MarkerAttribute.startOfRange, selection),
               let selectionEnd = parameterized(element, MarkerAttribute.endOfRange, selection),
               let whole = parameterized(element, MarkerAttribute.rangeForElement, element),
@@ -239,4 +306,66 @@ extension LiveSystemAccess: TextMarkerCaretReading {
         let err = AXUIElementCopyParameterizedAttributeValue(element, name as CFString, parameter, &value)
         return err == .success ? value : nil
     }
+}
+
+// MARK: - FX1 — our own focused text, driven directly (never through AX)
+
+extension LiveSystemAccess: InProcessTextDelivering {
+    public func ownFocusedText() -> FocusedElementInfo? {
+        guard Thread.isMainThread else { return nil }
+        return MainActor.assumeIsolated { ownTextResponder().map { OwnTextResponder.element(of: $0) } }
+    }
+
+    public func insertIntoOwnFocusedText(_ text: String) throws -> Bool {
+        guard Thread.isMainThread else { throw SystemAccessError.ownProcessOffMain }
+        return MainActor.assumeIsolated { () -> Bool in
+            guard let view = ownTextResponder(), view.isEditable else { return false }
+            postCount += 1
+            return OwnTextResponder.insert(text, into: view)
+        }
+    }
+}
+
+/// FX1 — VoicePlus's own focused text view (an `NSTextView`, or a text field's field editor),
+/// read and written on the main thread with AppKit's own editing API.
+@MainActor
+public enum OwnTextResponder {
+    /// The key (else main) window's first responder, when it is text.
+    public static func keyWindowText() -> NSText? {
+        guard let app = NSApp else { return nil }
+        return (app.keyWindow ?? app.mainWindow)?.firstResponder as? NSText
+    }
+
+    /// What the injector's readback and the field-context reader need, as `focusedElement()` would
+    /// report it. A secure text field's field editor reports the secure role and no value.
+    public static func element(of view: NSText) -> FocusedElementInfo {
+        let value = view.string as NSString
+        let selection = view.selectedRange
+        let lower = min(max(0, selection.location), value.length)
+        let upper = min(lower + max(0, selection.length), value.length)
+        let secure = isSecure(view)
+        let role = secure ? FocusedElementInfo.secureRole : (view.isFieldEditor ? "AXTextField" : "AXTextArea")
+        return FocusedElementInfo(role: role, value: secure ? nil : value as String, selectedRange: lower..<upper,
+                                  isValueSettable: view.isEditable, isSelectedTextSettable: view.isEditable,
+                                  selectedText: secure ? nil : value.substring(with: NSRange(location: lower, length: upper - lower)),
+                                  hints: FocusedElementInfo.hints(from: [view.accessibilityIdentifier(), view.accessibilityLabel()]))
+    }
+
+    /// Inserts `text` at the selection exactly as typing does: `insertText(_:replacementRange:)`
+    /// runs `shouldChangeText`, registers undo, updates the delegate — so a SwiftUI `TextEditor` /
+    /// `TextField` binding sees the change. `false` when the view is not editable.
+    public static func insert(_ text: String, into view: NSText) -> Bool {
+        guard view.isEditable else { return false }
+        let range = view.selectedRange
+        if let textView = view as? NSTextView {
+            textView.insertText(text, replacementRange: range)
+        } else {
+            view.replaceCharacters(in: range, with: text)
+            view.selectedRange = NSRange(location: range.location + (text as NSString).length, length: 0)
+        }
+        return true
+    }
+
+    /// A secure text field's field editor: its delegate is the `NSSecureTextField` being edited.
+    static func isSecure(_ view: NSText) -> Bool { view.delegate is NSSecureTextField }
 }

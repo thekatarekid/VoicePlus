@@ -107,6 +107,10 @@ public final class TextInjector: Injector {
     /// the attempt posted and *then* threw — part of the payload may be in the field (design §12,
     /// `DeliveryOutcome.partial`). `turnID` rides onto any text this attempt holds.
     private func deliverReport(_ request: InjectionRequest, segmentID: SegmentID?, turnID: TurnID?) -> TurnCommitReport {
+        // FX1 — a write into VoicePlus's own window runs on the main thread, start to finish.
+        if !Thread.isMainThread, targetsOwnProcess(request) {
+            return deliverOnMain(request, segmentID: segmentID, turnID: turnID)
+        }
         guard focusGuard.matches(request.expectedFocus) else {
             return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID))
         }
@@ -118,12 +122,14 @@ public final class TextInjector: Injector {
         if let policy, policy.neverInjectBundleIDs.contains(focus.bundleID) {
             return TurnCommitReport(refuse(.neverInject, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
         }
-        let focusedBefore = try? system.focusedElement()
+        let own = OwnProcess.owns(focus)
+        let focusedBefore = readFocused(own: own)
         if focusedBefore?.isSecure == true {
             return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
         }
 
-        let adapter = registry.adapter(for: focus.bundleID)
+        // FX1 — our own window never gets the AX-first default: it gets the in-process path.
+        let adapter = own ? ownProcessAdapter : registry.adapter(for: focus.bundleID)
         let text = adapter.prepare(request.text, focused: focusedBefore)
         let methods = router.order(adapter.methodOrder, for: focus.bundleID)
         var attempts: [InjectionMethod] = []
@@ -134,8 +140,11 @@ public final class TextInjector: Injector {
             guard focusGuard.matches(request.expectedFocus) else {
                 return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID))
             }
-            let before = try? system.focusedElement()
+            let before = readFocused(own: own)
             let postsBefore = system.postCount
+            // FX1 — kept at notice (info/debug are not persisted), so the last write before a freeze
+            // is always in the log: what, where, how.
+            Log.injection.notice("write: \(text.count) chars into \(focus.bundleID) via \(method.rawValue)\(own ? " (own process, in-process)" : "")")
             let started = clock()
             var claimed = false
             var thrown: Error?
@@ -157,7 +166,7 @@ public final class TextInjector: Injector {
             }
 
             // Posted, or claimed success: possibly landed. No second method may run — that is the rule.
-            let verdict = adapter.verifyReadback(text: text, before: before, after: try? system.focusedElement())
+            let verdict = adapter.verifyReadback(text: text, before: before, after: readFocused(own: own))
             let detail = thrown.map { "posted, then threw: \($0) — \(verdict.detail)" } ?? verdict.detail
             // `succeeded` is the router's signal, not the delivery verdict: it means "worth trying
             // first again". Confirmed counts, and so does *unavailable* — an app that exposes
@@ -170,6 +179,39 @@ public final class TextInjector: Injector {
                                     postedThenThrew: thrown != nil)
         }
         return TurnCommitReport(.failed(attempts: attempts))
+    }
+
+    // MARK: FX1 — our own process
+
+    /// FX1 — the adapter for VoicePlus's own windows (in-process insert, never AX).
+    let ownProcessAdapter = OwnProcessAdapter()
+    /// FX1 — how long an own-process write waits for the main thread before holding the text.
+    public var mainThreadWriteTimeout = MainThreadHop.writeStartTimeout
+
+    /// FX1 — the request is aimed at, or would land in, VoicePlus itself. Either side is enough:
+    /// the snapshot says where the text was meant to go, the frontmost app where it would go now.
+    func targetsOwnProcess(_ request: InjectionRequest) -> Bool {
+        OwnProcess.owns(request.expectedFocus) || OwnProcess.owns(system.frontmostApp())
+    }
+
+    /// FX1 — the focused element for readback. Our own text view is read in-process (main thread).
+    private func readFocused(own: Bool) -> FocusedElementInfo? {
+        if own, let local = system as? InProcessTextDelivering, let info = local.ownFocusedText() { return info }
+        return try? system.focusedElement()
+    }
+
+    /// FX1 — runs the whole stack on the main thread. If the main thread does not pick it up in
+    /// time nothing was posted and nothing will be: the text is held for Insert here / Copy, never
+    /// written late and never lost.
+    private func deliverOnMain(_ request: InjectionRequest, segmentID: SegmentID?, turnID: TurnID?) -> TurnCommitReport {
+        do {
+            return try MainThreadHop.run(startTimeout: mainThreadWriteTimeout) { [self] in
+                deliverReport(request, segmentID: segmentID, turnID: turnID)
+            }
+        } catch {
+            Log.injection.fault("own-process write: the main thread did not take it (\(error)); \(request.text.count) chars held, nothing posted")
+            return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID))
+        }
     }
 
     // MARK: Internals
@@ -227,7 +269,8 @@ public final class TextInjector: Injector {
             try system.postUnicodeKeystrokes(text, toPID: focus.pid)
             return true
         case .adapter:
-            guard system.isAccessibilityTrusted else { return false }
+            // The own-process path is AppKit's own editing API: it needs no accessibility permission.
+            guard system.isAccessibilityTrusted || adapter is OwnProcessAdapter else { return false }
             return try adapter.injectViaAdapter(text, focus: focus, focused: focused, system: system)
         case .paste:
             try paster.paste(text, toPID: focus.pid)

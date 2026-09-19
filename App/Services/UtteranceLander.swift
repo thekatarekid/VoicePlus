@@ -356,26 +356,32 @@ public final class UtteranceLander: @unchecked Sendable {
         let id = result.utteranceID
         let focus = pending.focus
         let bundleID = pending.bundleID
-        let caret = (try? system.focusedElement())?.selectedRange?.lowerBound ?? 0
         let request = InjectionRequest(text: text, utteranceID: id.uuidString, expectedFocus: focus)
-        let outcome: InjectionOutcome
-        if let key {
-            let committed = (injector as? TurnCommitting)?.commit(request, key: key)
-                ?? commitGuard.commit(key) { TurnCommitReport(injector.inject(request)) }
-            switch committed {
-            case .committed(let report):
-                outcome = report.outcome
-                result.partialWrite = report.postedThenThrew
-            case .duplicate(_, let previous):
-                // Nothing was posted by this call, so nothing else here may run a second time.
-                result.duplicateCommit = true
-                result.injection = previous?.outcome
-                result.partialWrite = previous?.postedThenThrew ?? false
-                Log.app.notice("lander: duplicate commit for turn \(key.description) refused")
-                return result
-            }
+        // FX1 — a write into VoicePlus's own window (the onboarding practice field) runs on the main
+        // actor: AppKit may only be touched there, and an AX write aimed at ourselves from this
+        // background task deadlocked TextKit 2 (the 1.11 onboarding freeze). Awaited, so no thread
+        // blocks waiting for the main one. Every other destination is written from here, as before.
+        let step: WriteStep
+        if OwnProcess.owns(focus ?? system.frontmostApp()) {
+            step = await MainActor.run { self.writeStep(request, key: key) }
         } else {
-            outcome = injector.inject(request)
+            step = writeStep(request, key: key)
+        }
+        let caret = step.caret
+        let outcome: InjectionOutcome
+        switch step.committed {
+        case .some(.committed(let report)):
+            outcome = report.outcome
+            result.partialWrite = report.postedThenThrew
+        case .some(.duplicate(_, let previous)):
+            // Nothing was posted by this call, so nothing else here may run a second time.
+            result.duplicateCommit = true
+            result.injection = previous?.outcome
+            result.partialWrite = previous?.postedThenThrew ?? false
+            Log.app.notice("lander: duplicate commit for turn \(key?.description ?? "-") refused")
+            return result
+        case .none:
+            outcome = step.outcome ?? .failed(attempts: [])
         }
         result.injection = outcome
 
@@ -403,6 +409,22 @@ public final class UtteranceLander: @unchecked Sendable {
         result.totalMs = ms(since: pending.landStarted)
         Log.app.info("landed \(pending.spans.count) spans (\(text.count) chars) route=\(result.route.rawValue) register=\(result.register.rawValue) via \(String(describing: outcome)) in \(String(format: "%.0f", result.totalMs)) ms")
         return result
+    }
+
+    /// The write itself: the caret read the repair session keys on, then the one insert (through the
+    /// commit guard when there is a key). FX1 — runs on the main actor for our own window.
+    struct WriteStep: Sendable {
+        var caret: Int
+        var committed: TurnCommitResult?
+        var outcome: InjectionOutcome?
+    }
+
+    private func writeStep(_ request: InjectionRequest, key: TurnCommitKey?) -> WriteStep {
+        let caret = (try? system.focusedElement())?.selectedRange?.lowerBound ?? 0
+        guard let key else { return WriteStep(caret: caret, committed: nil, outcome: injector.inject(request)) }
+        let committed = (injector as? TurnCommitting)?.commit(request, key: key)
+            ?? commitGuard.commit(key) { TurnCommitReport(injector.inject(request)) }
+        return WriteStep(caret: caret, committed: committed, outcome: nil)
     }
 
     /// S3 — the payload could not go in safely (the destination changed during the preview): it is
