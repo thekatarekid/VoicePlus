@@ -52,12 +52,22 @@ public final class TextInjector: Injector {
         // against whatever has focus now.
         focusGuard.inserter = { [weak self] item in
             guard let self else { return .failed(attempts: []) }
-            return self.deliver(item.request, segmentID: item.segmentID)
+            return self.deliverReport(item.request, segmentID: item.segmentID, turnID: item.turnID).outcome
         }
     }
 
     public func inject(_ request: InjectionRequest) -> InjectionOutcome {
         deliver(request, segmentID: nil)
+    }
+
+    // MARK: Turn commit guard (S3)
+
+    /// S3 — "inserted exactly once": every commit that goes through `commit(_:key:)` is keyed by
+    /// `TurnID` + target revision, and a second commit for the same key posts nothing.
+    public let turnCommits = TurnCommitGuard()
+
+    public func commit(_ request: InjectionRequest, key: TurnCommitKey) -> TurnCommitResult {
+        turnCommits.commit(key) { deliverReport(request, segmentID: nil, turnID: key.turnID) }
     }
 
     // MARK: Ordered commit (R2.3)
@@ -90,18 +100,27 @@ public final class TextInjector: Injector {
     // MARK: The stack
 
     private func deliver(_ request: InjectionRequest, segmentID: SegmentID?) -> InjectionOutcome {
-        guard focusGuard.matches(request.expectedFocus) else { return abort(request, segmentID: segmentID) }
+        deliverReport(request, segmentID: segmentID, turnID: nil).outcome
+    }
+
+    /// The stack, with the one fact `InjectionOutcome` cannot carry: whether the method that ended
+    /// the attempt posted and *then* threw — part of the payload may be in the field (design §12,
+    /// `DeliveryOutcome.partial`). `turnID` rides onto any text this attempt holds.
+    private func deliverReport(_ request: InjectionRequest, segmentID: SegmentID?, turnID: TurnID?) -> TurnCommitReport {
+        guard focusGuard.matches(request.expectedFocus) else {
+            return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID))
+        }
         guard let focus = system.frontmostApp() ?? request.expectedFocus else {
             Log.injection.error("no frontmost app; nothing injected")
-            return .failed(attempts: [])
+            return TurnCommitReport(.failed(attempts: []))
         }
         // Both refusals happen before any method runs, so nothing can have been posted.
         if let policy, policy.neverInjectBundleIDs.contains(focus.bundleID) {
-            return refuse(.neverInject, request: request, segmentID: segmentID, focus: focus)
+            return TurnCommitReport(refuse(.neverInject, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
         }
         let focusedBefore = try? system.focusedElement()
         if focusedBefore?.isSecure == true {
-            return refuse(.secureField, request: request, segmentID: segmentID, focus: focus)
+            return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
         }
 
         let adapter = registry.adapter(for: focus.bundleID)
@@ -112,7 +131,9 @@ public final class TextInjector: Injector {
 
         for method in methods {
             // Safe to obey a focus change here: on this path nothing has been posted yet.
-            guard focusGuard.matches(request.expectedFocus) else { return abort(request, segmentID: segmentID) }
+            guard focusGuard.matches(request.expectedFocus) else {
+                return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID))
+            }
             let before = try? system.focusedElement()
             let postsBefore = system.postCount
             let started = clock()
@@ -145,18 +166,19 @@ public final class TextInjector: Injector {
             record(method: method.rawValue, request: request, bundleID: focus.bundleID, started: started,
                    latency: latency, succeeded: verdict != .unconfirmed, detail: detail)
             Log.injection.info("\(method.rawValue) posted into \(focus.bundleID): \(detail)")
-            return .injected(method: method, verified: verdict.isConfirmed)
+            return TurnCommitReport(.injected(method: method, verified: verdict.isConfirmed),
+                                    postedThenThrew: thrown != nil)
         }
-        return .failed(attempts: attempts)
+        return TurnCommitReport(.failed(attempts: attempts))
     }
 
     // MARK: Internals
 
     /// Focus moved before anything was posted: hold the text and let the user place it.
-    private func abort(_ request: InjectionRequest, segmentID: SegmentID?) -> InjectionOutcome {
+    private func abort(_ request: InjectionRequest, segmentID: SegmentID?, turnID: TurnID? = nil) -> InjectionOutcome {
         let actual = system.frontmostApp()
         focusGuard.hold(request, reason: DeliveryReason.destinationChanged,
-                        segmentID: segmentID, destination: request.expectedFocus)
+                        segmentID: segmentID, destination: request.expectedFocus, turnID: turnID)
         return .abortedFocusChanged(expected: request.expectedFocus, actual: actual)
     }
 
@@ -164,12 +186,12 @@ public final class TextInjector: Injector {
     /// it somewhere); a password field does not — dictation into one is never what was wanted, and
     /// holding it would keep a secret in memory.
     private func refuse(_ refusal: InjectionRefusal, request: InjectionRequest,
-                        segmentID: SegmentID?, focus: FocusSnapshot) -> InjectionOutcome {
+                        segmentID: SegmentID?, focus: FocusSnapshot, turnID: TurnID? = nil) -> InjectionOutcome {
         Log.injection.notice("refused to inject into \(focus.bundleID): \(refusal.rawValue)")
         record(method: Self.refusedMethodTag, request: request, bundleID: focus.bundleID, started: clock(),
                latency: 0, succeeded: false, detail: refusal.rawValue)
         if refusal.holdsText {
-            focusGuard.hold(request, reason: refusal.rawValue, segmentID: segmentID, destination: focus)
+            focusGuard.hold(request, reason: refusal.rawValue, segmentID: segmentID, destination: focus, turnID: turnID)
         }
         return .refused(refusal)
     }
@@ -211,5 +233,106 @@ public final class TextInjector: Injector {
             try paster.paste(text, toPID: focus.pid)
             return true
         }
+    }
+}
+
+// MARK: - S3 — the turn commit guard
+
+/// What a turn's one insert is keyed by: the turn, and the revision of the destination it was
+/// validated against. The turn controller passes the key-down snapshot's revision; an explicit
+/// re-target (Insert here into a new field) is a new revision. The same key never posts twice.
+public struct TurnCommitKey: Hashable, Sendable, CustomStringConvertible {
+    public var turnID: TurnID
+    public var revision: Int
+
+    public init(turnID: TurnID, revision: Int) {
+        self.turnID = turnID
+        self.revision = revision
+    }
+
+    public var description: String { "\(turnID.description)@\(revision)" }
+}
+
+/// One commit's result as the stack saw it.
+public struct TurnCommitReport: Equatable, Sendable {
+    public var outcome: InjectionOutcome
+    /// The method that ended the attempt posted and then threw: some of the text may be in the
+    /// field. Never "nothing was typed", never retried (design §12).
+    public var postedThenThrew: Bool
+
+    public init(_ outcome: InjectionOutcome, postedThenThrew: Bool = false) {
+        self.outcome = outcome
+        self.postedThenThrew = postedThenThrew
+    }
+
+    /// The delivery outcome, with the partial case `InjectionOutcome` cannot express: a method that
+    /// posted, threw, and could not be confirmed by readback is `.partial` (D07), not a clean
+    /// unconfirmed delivery (D06).
+    public var delivery: DeliveryOutcome {
+        if postedThenThrew, case let .injected(method, verified) = outcome, !verified {
+            return .partial(method: method.rawValue)
+        }
+        return outcome.delivery
+    }
+}
+
+public enum TurnCommitResult: Equatable, Sendable {
+    /// The first commit for this key: the stack ran.
+    case committed(TurnCommitReport)
+    /// This key was already committed (or is being committed right now): nothing was posted.
+    /// `previous` is the first commit's report once it is known.
+    case duplicate(TurnCommitKey, previous: TurnCommitReport?)
+
+    public var report: TurnCommitReport? {
+        switch self {
+        case .committed(let report): return report
+        case .duplicate(_, let previous): return previous
+        }
+    }
+
+    public var isDuplicate: Bool {
+        if case .duplicate = self { return true }
+        return false
+    }
+}
+
+/// An injector that can commit once per turn. `TextInjector` is one; the lander wraps any other
+/// injector (a test spy, a holding injector) in its own `TurnCommitGuard`.
+public protocol TurnCommitting: AnyObject {
+    func commit(_ request: InjectionRequest, key: TurnCommitKey) -> TurnCommitResult
+}
+
+extension TextInjector: TurnCommitting {}
+
+/// S3 — the idempotent commit guard: the first `commit` for a key runs the delivery, every later one
+/// (a duplicate key-up, a stale callback, a retry from anywhere) returns `.duplicate` without
+/// running anything. The key is claimed *before* the delivery runs, so two racing commits cannot
+/// both post. Remembers the last `memory` keys.
+public final class TurnCommitGuard: @unchecked Sendable {
+    public var memory = 256
+    private let lock = NSLock()
+    private var order: [TurnCommitKey] = []
+    private var reports: [TurnCommitKey: TurnCommitReport?] = [:]
+
+    public init() {}
+
+    public func hasCommitted(_ key: TurnCommitKey) -> Bool { lock.withLock { reports[key] != nil } }
+
+    /// Runs `deliver` only for the first commit of `key`.
+    public func commit(_ key: TurnCommitKey, _ deliver: () -> TurnCommitReport) -> TurnCommitResult {
+        let duplicate = lock.withLock { () -> TurnCommitResult? in
+            if let previous = reports[key] { return .duplicate(key, previous: previous) }
+            reports[key] = .some(nil)
+            order.append(key)
+            while order.count > max(1, memory) { reports[order.removeFirst()] = nil }
+            return nil
+        }
+        if let duplicate {
+            Log.injection.notice("commit guard: turn \(key.description) already committed; nothing posted")
+            return duplicate
+        }
+        let report = deliver()
+        lock.withLock { if reports[key] != nil { reports[key] = .some(report) } }
+        return .committed(report)
     }
 }
