@@ -36,13 +36,41 @@ struct TransformPreviewControlsTests {
         #expect(TransformPreviewDwell.fromSetting(seconds: 0.6) == TransformPreviewDwell(seconds: 0.6))
         #expect(TransformPreviewDwell.fromSetting(seconds: 0.9) == .standard)
         #expect(TransformPreviewDwell.fromSetting(seconds: 1.5) == TransformPreviewDwell(seconds: 1.5))
-        // Manual: the longest timed dwell, still frozen by hover, until the pill can draw
-        // "Replace text" — never a preview nothing can confirm.
+        // Manual ("Until I insert"): waits for the pill's Replace text, never replaces on time alone.
         let manual = TransformPreviewDwell.fromSetting(seconds: nil)
-        #expect(manual == .longestTimed && !manual.manual && manual.seconds == 1.5)
+        #expect(manual == .manualReview && manual.manual)
         var gate = TransformPreviewGate(dwell: manual)
-        gate.begin(); gate.showPreview(); gate.setPaused(true); gate.advance(by: 600)
-        #expect(!gate.isDue, "hover holds it as long as the pointer stays")
+        gate.begin(); gate.showPreview(); gate.advance(by: 600)
+        #expect(!gate.isDue, "no timed replacement in manual review")
+        gate.confirm()
+        #expect(gate.isDue)
+    }
+
+    /// Settings › "Until I insert" read the way AppContainer reads it: the preview rows carry
+    /// Replace text / Cancel, the pill draws them, and nothing is replaced until Replace text.
+    @Test func manualSettingShowsReplaceTextAndWaitsForIt() async {
+        let settings = InMemorySettingsStore()
+        TurnSettings.setPreviewDwell(.manual, store: settings)
+        let h = TransformPreviewGateTests.harness()
+        h.landing.previewDwell = { TransformPreviewDwell.fromSetting(seconds: TurnSettings.previewDwell(settings).seconds) }
+        let sleeps = Box(0), seen = Box<[String]>([]), rows = Box<TransformPreviewRows?>(nil)
+        h.landing.sleep = { [landing = h.landing, system = h.system] _ in
+            sleeps.value += 1
+            seen.value.append(system.field.value)
+            if sleeps.value == 1 { rows.value = landing.rows }
+            if sleeps.value == 300 { landing.confirmPreview() }
+        }
+        _ = await TransformPreviewGateTests.instruct(h.landing)
+        #expect(sleeps.value == 300, "300 slices (15 s of 50 ms) and still waiting until Replace text")
+        #expect(seen.value.allSatisfy { $0 == Self.original }, "nothing replaced before Replace text")
+        #expect(h.system.field.value == Self.edited)
+        let preview = try? #require(rows.value)
+        #expect(preview?.buttons.map(\.label) == [TransformPreviewCopy.replaceButton, TransformPreviewCopy.cancelButton])
+        #expect(preview?.buttons.first?.primary == true)
+        // The pill draws those buttons over the edited preview (W3H `drawingTransform`).
+        let drawn = PillContent.make(.transform(.init(editingWords: 4, stage: .notice("Preview"))), context: PillTurnContext())
+            .drawingTransform(preview)
+        #expect(drawn.buttons.map(\.label) == [TransformPreviewCopy.replaceButton, TransformPreviewCopy.cancelButton])
     }
 
     @Test func landingReadsTheDwellEachTurn() async {

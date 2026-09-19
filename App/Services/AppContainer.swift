@@ -278,7 +278,8 @@ public final class AppContainer {
         // instead of running first with an undo toast. Nothing sends because text was inserted.
         let previewedCatalog = ActionPreviewPolicy.previewingOutbound(catalog)
         // Selected-text transforms (R1): the edited preview dwells as long as Settings' preview
-        // dwell, read per turn, before the target is revalidated and replaced.
+        // dwell, read per turn, before the target is revalidated and replaced. "Until I insert"
+        // (manual) replaces nothing on time: the pill draws Replace text / Cancel and waits.
         transform.previewDwell = { [settings] in
             TransformPreviewDwell.fromSetting(seconds: TurnSettings.previewDwell(settings).seconds)
         }

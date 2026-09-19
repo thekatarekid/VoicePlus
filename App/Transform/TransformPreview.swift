@@ -216,14 +216,11 @@ public struct TransformPreviewDwell: Equatable, Sendable {
     /// The longest timed choice in Settings (build doc §2: 600 / 900 / 1500 ms / manual).
     public static let longestTimed = TransformPreviewDwell(seconds: 1.5)
 
-    /// The Settings dwell (`preview.dwell`) in seconds; `nil` is the manual choice.
-    ///
-    /// Manual maps to the longest timed dwell, which hover still freezes for as long as the pointer
-    /// stays on the pill: the pill's transform row draws no "Replace text" button yet (its renderer
-    /// is S2's `PillContent.transform`), and a preview that no control can confirm would never end.
-    /// `manualReview` and `TransformPreviewRows.preview(_:manual: true)` are ready for that button.
+    /// The Settings dwell (`preview.dwell`) in seconds; `nil` is the manual choice ("Until I
+    /// insert"), which waits for the pill's "Replace text" (or Cancel / Escape) and replaces nothing
+    /// on its own: the rows are `TransformPreviewRows.preview(_:manual: true)`.
     public static func fromSetting(seconds: TimeInterval?) -> TransformPreviewDwell {
-        seconds.map { TransformPreviewDwell(seconds: $0) } ?? longestTimed
+        seconds.map { TransformPreviewDwell(seconds: $0) } ?? .manualReview
     }
 }
 
