@@ -20,6 +20,9 @@ public final class DictationCoordinator {
     /// Focus snapshot source; taken at key release so injection can abort on focus churn.
     public var focusSnapshot: (() -> FocusSnapshot?)?
     public var onLanded: ((LandingResult) -> Void)?
+    /// W3H — Privacy's "Save dictation history" (`DictationHistoryGate`), read per landing: off keeps
+    /// the shell path's text out of `dictation_history`.
+    public var recordsHistory: () -> Bool = { true }
     public private(set) var lastMicQuality: MicQuality?
     /// R3.1 — **latched** (V3 §4.3/§4.7): the double-tap mode where capture continues across
     /// endpoints.
@@ -507,7 +510,7 @@ public final class DictationCoordinator {
         guard !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        if let database {
+        if let database, recordsHistory() {
             let record = DictationRecord(startedAt: startedAt, endedAt: Date(), register: "unknown", route: "dictate",
                                          appBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
                                          rawText: text, finalText: text,

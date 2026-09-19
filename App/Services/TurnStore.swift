@@ -182,6 +182,10 @@ public final class TurnStore: @unchecked Sendable {
     public var onRemove: ((TurnID) -> Void)?
     /// A save that failed: the row now reads "Kept for this session only".
     public var onPersistFailure: ((TurnID, String) -> Void)?
+    /// W3H — Privacy's "Save dictation history" (`DictationHistoryGate`), read per save. Off: only a
+    /// recoverable row (held, partial) is written, under recovery persistence; every other row lives
+    /// in memory for this session, and a row written earlier leaves the database once it settles.
+    public var historyEnabled: () -> Bool = { true }
 
     public init(database: AppDatabase?, persistsRecovery: @escaping () -> Bool = { true },
                 clock: @escaping () -> Date = Date.init) {
@@ -232,20 +236,45 @@ public final class TurnStore: @unchecked Sendable {
     /// Writes (inserts or replaces) the row for `record.turnID`.
     @discardableResult
     public func save(_ record: TurnRecord, stage: TurnStage) -> TurnEntry {
-        let persisting = persistence == .keptUntilResolved
+        // W3H — with history off only a recoverable row reaches the database.
+        let keepsRow = historyEnabled() || stage == .held || record.outcome?.isPartial == true
+        let persisting = persistence == .keptUntilResolved && keepsRow
         let now = clock()
+        var mayBeStored = false
         let entry = lock.withLock { () -> TurnEntry in
+            // A row written before (or read from the database) that no longer qualifies must go.
+            let previous = memory[record.turnID]
+            mayBeStored = previous.map { $0.persisted || $0.isRecoverable } ?? !stage.isLive
             // Claimed only once the database has said so (`written`): until then, and for good
             // when persistence is off, the row is this session's only.
             let entry = TurnEntry(record: record, stage: stage, updatedAt: now,
-                                  persisted: persisting && (memory[record.turnID]?.persisted ?? false))
+                                  persisted: persisting && (previous?.persisted ?? false))
             memory[record.turnID] = entry
             pruneMemoryLocked()
             return entry
         }
-        if persisting { write(entry) }
+        if persisting { write(entry) } else if !keepsRow, mayBeStored { forgetStored(entry.id) }
         onChange?(entry)
         return entry
+    }
+
+    /// W3H — history off: takes a settled row out of the database, after any write queued before it,
+    /// and stops the in-memory row claiming to be on disk. The in-memory row stays for this session.
+    private func forgetStored(_ id: TurnID) {
+        guard let database, tableReady else { return }
+        queue.async { [weak self] in
+            do {
+                try database.writer.write { db in
+                    try db.execute(sql: "DELETE FROM \(Self.table) WHERE id = ?", arguments: [id.rawValue.uuidString])
+                }
+            } catch { Log.db.error("turn store: history-off delete failed: \(error)") }
+            guard let self else { return }
+            self.lock.withLock {
+                guard var entry = self.memory[id], entry.persisted, !entry.isRecoverable else { return }
+                entry.persisted = false
+                self.memory[id] = entry
+            }
+        }
     }
 
     /// Changes the row for `id` in place. `nil` when the store has no such turn.

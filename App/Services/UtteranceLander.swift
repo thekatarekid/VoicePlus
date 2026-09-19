@@ -114,6 +114,9 @@ public final class UtteranceLander: @unchecked Sendable {
     public let repair: RepairSession?
     public let flags: FeatureFlagService
     public let database: AppDatabase?
+    /// W3H — Privacy's "Save dictation history" (`DictationHistoryGate`), read per landing: off keeps
+    /// landed and held text out of `dictation_history`. Held text itself is untouched (focus guard).
+    public var recordsHistory: () -> Bool = { true }
     public let zeroEdit: ZeroEditTracker?
     public let recentWords: RecentWordsRing?
     public var stylePersonaProvider: ((String?) -> String?)?
@@ -398,7 +401,7 @@ public final class UtteranceLander: @unchecked Sendable {
     }
 
     private func recordHistory(_ utterance: Utterance, text: String, bundleID: String?) {
-        guard let database else { return }
+        guard let database, recordsHistory() else { return }
         do { try database.insert(try DictationRecord(utterance: utterance, finalText: text, appBundleID: bundleID)) }
         catch { Log.db.error("history insert failed: \(error)") }
     }

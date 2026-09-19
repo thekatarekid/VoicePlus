@@ -124,6 +124,9 @@ public final class PillViewModel: ObservableObject {
     /// P2.3 — transform ghost + morph; the ghost's Undo is the design's undo row action.
     @Published public var ghost: TransformGhost?
     @Published public var morph: MorphAnimationModel?
+    /// W3H — S12's rows for the transform on screen (`TransformLanding.rows`); drawn only while they
+    /// match the transform stage shown (`drawnTransformRows`, the W3H region below).
+    @Published public var transformRows: TransformPreviewRows?
     /// P6.3 — script indicator ("EN" / "हि" / "EN·हि"); empty = hidden. Drawn in the status row.
     @Published public var scriptBadge: String = ""
     /// S2 — everything about the turn the state does not carry (destination, timer, live words…).
@@ -315,7 +318,7 @@ public final class PillViewModel: ObservableObject {
 
     /// The rendered pill for the current state at `date`.
     public func content(at date: Date? = nil) -> PillContent {
-        PillContent.make(state, context: context(at: date))
+        PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)   // W3H
     }
 
     func context(at date: Date? = nil) -> PillTurnContext {
@@ -636,8 +639,12 @@ struct PillBody: View {
                     .allowsHitTesting(false)
             }
             statusRow.place(lanes.statusRow)
-            PillWordsLane(lines: lines, words: content.words, uncertain: model.turn.uncertainWords)
-                .place(lanes.wordsLane)
+            if let transform = PillTransformLane.Model(rows: model.drawnTransformRows, lineCount: lanes.lineCount) {
+                PillTransformLane(model: transform).place(lanes.wordsLane)   // W3H: S12 before / after
+            } else {
+                PillWordsLane(lines: lines, words: content.words, uncertain: model.turn.uncertainWords)
+                    .place(lanes.wordsLane)
+            }
             if let chipRow = lanes.chipRow {
                 PillChipRow(chips: model.deixisChips, note: model.laneNote).place(chipRow)
             }
@@ -862,5 +869,113 @@ struct PillKeyCap: View {
             .padding(.horizontal, 4)
             .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.keyCap)
                 .strokeBorder(Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+    }
+}
+
+// MARK: - W3H · transform before / after rows (S12 R1 / R2; design §4, §6, §8.8)
+//
+// S12's `TransformPreviewRows` drawn in the pill's own anatomy: R1 while the edit runs (the instruction,
+// "Microphone closed · original text unchanged"), R1's edited final preview (the original struck
+// through over the edited text, nothing replaced yet; Replace text / Cancel only in manual review), and
+// R2 "✓ Updated in <app>" with the edited text and Undo. The rows come from the transform landing
+// (AppDelegate's W3H block publishes `PillViewModel.transformRows`); this region only decides which
+// rows describe the stage on screen and how they are laid out.
+
+/// Which of S12's rows the pill draws for the transform stage it shows. Rows left over from another
+/// phase (the previous edit's "Updated", a preview that was cancelled) are never drawn over a stage
+/// they do not describe.
+public enum PillTransformRows {
+    public static func drawn(for state: PillState, rows: TransformPreviewRows?) -> TransformPreviewRows? {
+        guard case .transform(let info) = state, let rows else { return nil }
+        switch info.stage {
+        case .editing:
+            return rows.designStateKey == "editing" && rows.before == nil ? rows : nil
+        case .notice:
+            // R1's edited final preview: S12's reducer shows it as a notice line while it dwells.
+            return rows.designStateKey == "editing" && rows.before != nil ? rows : nil
+        case .done(let changed):
+            return changed > 0 && rows.designStateKey == "undo" ? rows : nil
+        case .warm:
+            return nil
+        }
+    }
+}
+
+extension PillViewModel {
+    /// S12's rows for the transform on screen, when they describe it.
+    public var drawnTransformRows: TransformPreviewRows? { PillTransformRows.drawn(for: state, rows: transformRows) }
+}
+
+extension PillContent {
+    /// The transform's own status, words, helper and buttons (S12 `TransformPreviewRows`) in place of
+    /// the reducer's one-line summary ("Preview · removed → added"). The words are drawn live-styled:
+    /// an edit carries no confidence marks and no "Review all". Nil rows change nothing.
+    public func drawingTransform(_ rows: TransformPreviewRows?) -> PillContent {
+        guard let rows else { return self }
+        var content = self
+        content.status = rows.status
+        content.helper = rows.helper
+        content.words = rows.text.isEmpty ? .none : .live(rows.text)
+        content.buttons = rows.buttons.compactMap { button in
+            PillActionKind(rawValue: button.action).map { PillButton(button.label, $0, primary: button.primary) }
+        }
+        content.spoolKey = rows.designStateKey
+        return content
+    }
+}
+
+/// The text lane of R1's edited preview: the original, struck through in secondary ink, over the
+/// edited text in ink. Both start two words before the first difference (a leading "…" when earlier
+/// words are unchanged), so the lane shows the change rather than the unchanged start of a long
+/// selection. One line each; when a deixis chip row takes the second line, the edited text alone.
+struct PillTransformLane: View {
+    struct Model: Equatable {
+        var before: String?
+        var after: String
+
+        init?(rows: TransformPreviewRows?, lineCount: Int) {
+            guard let rows, let original = rows.before else { return nil }
+            let lines = Self.excerpt(before: original, after: rows.text)
+            before = lineCount >= 2 ? lines.before : nil
+            after = lines.after
+        }
+
+        /// Both texts from `lead` words before the first word that differs.
+        static func excerpt(before: String, after: String, lead: Int = 2) -> (before: String, after: String) {
+            let old = before.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
+            let new = after.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
+            var same = 0
+            while same < min(old.count, new.count), old[same] == new[same] { same += 1 }
+            let start = max(0, same - lead)
+            let prefix = start > 0 ? "…" : ""
+            return (prefix + old[start...].joined(separator: " "), prefix + new[start...].joined(separator: " "))
+        }
+    }
+
+    let model: Model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let before = model.before {
+                Text(before)
+                    .font(Tokens.Typography.pillTranscript.font())
+                    .strikethrough(true, color: Tokens.Pill.Token.secondaryInk.color)
+                    .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(height: PillLaneLayout.lineHeight, alignment: .leading)
+                    .accessibilityLabel("Original: \(before)")
+                    .accessibilityIdentifier("pill.transform.before")
+            }
+            Text(model.after)
+                .font(Tokens.Typography.pillTranscript.font())
+                .foregroundStyle(Tokens.Pill.Token.ink.color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(height: PillLaneLayout.lineHeight, alignment: .leading)
+                .accessibilityLabel("Edited: \(model.after)")
+                .accessibilityIdentifier("pill.transform.after")
+        }
+        .accessibilityIdentifier("pill.words")
     }
 }

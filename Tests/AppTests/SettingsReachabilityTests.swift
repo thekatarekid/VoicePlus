@@ -114,8 +114,10 @@ struct SettingsReachabilityTests {
         #expect(enrollment.contains("MainWindowController.showEnrollment"))
         let lab = try Self.source("App/Services/LabWiring.swift")
         #expect(!lab.contains("NSWindow("))
-        #expect(lab.contains("MainWindowController.show(section: .voice)"))
-        #expect(lab.contains("MainWindowController.show(section: .privacy)"))
+        // W3H — the shims open the disclosure itself: Voice › Benchmarks, Privacy › Diagnostics.
+        #expect(lab.contains("labRoute = WindowRoute(.voice, disclosure: .benchmarks)"))
+        #expect(lab.contains("dataPanelRoute = WindowRoute(.privacy, disclosure: .diagnostics)"))
+        #expect(lab.contains("MainWindowController.show(route: $0)"))
         // Onboarding is the one allowed exception, and it is still there.
         #expect(try Self.source("App/Onboarding/OnboardingWindowController.swift").contains("NSWindow("))
     }

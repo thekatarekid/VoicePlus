@@ -652,6 +652,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // ── end S2 ───────────────────────────────────────────────────────────────────────────────
 
+        // ── W3H · wave-2 gate hand-offs (HandoffWiring.swift, PillReviewRouting.swift) ─────────────
+        // The saved window theme before any window or menu is drawn; "Double-tap to latch" on the live
+        // key and in the chin's hint; sound cues at the turn's cue points (off by default, no success
+        // sound before a verified insertion); "Save dictation history" off honoured by every writer;
+        // the pill's Review / Check → Today's recovery sheet (or the turn's detail); the transform
+        // preview's before/after rows and its Replace text / Cancel.
+        let w3hSettings = container.settings
+        LaunchAppearance.apply(settings: w3hSettings)
+        let dictationKey = hotkey.onAction
+        let latchGesture = LatchGestureHook(isEnabled: { LatchGestureSettings.isEnabled(w3hSettings) },
+                                            resetGesture: { [weak hotkey = self.hotkey] in hotkey?.resetGesture() },
+                                            forward: { dictationKey?($0) })
+        hotkey.onAction = { latchGesture.handle($0) }
+        presence.readyHint = { [weak hotkey = self.hotkey] in
+            LatchGestureHook.readyHint(binding: hotkey?.binding ?? .default, settings: w3hSettings)
+        }
+        DictationHistoryGate.attach(settings: w3hSettings, lander: container.lander, coordinator: coordinator,
+                                    store: TurnStore.current)
+        if let turnStore = TurnStore.current { TurnSoundCues().attach(to: turnStore, settings: w3hSettings) }
+        TransformRowsFeed.attach(to: container.transform, pill: pillModel)
+        PillReviewWiring.install(
+            on: pillModel,
+            openToday: { [weak self, weak container] in
+                guard let self, let container else { return nil }
+                _ = MainWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
+                                              route: WindowRoute(.today),
+                                              connectedProviders: container.connectedProviderNames)
+                return PillReviewWiring.liveToday()
+            },
+            transform: { [weak landing = container.transform] button in
+                switch button {
+                case .confirm: landing?.confirmPreview()
+                case .cancel: landing?.cancelPreview()
+                }
+            })
+        // ── end W3H ──────────────────────────────────────────────────────────────────────────────
+
         // The hotkey and its capability watcher were armed at launch, before the container (A3):
         // see `armHotkeys()`.
 

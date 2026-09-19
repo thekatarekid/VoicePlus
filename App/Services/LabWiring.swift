@@ -48,20 +48,29 @@ public struct PipelineStageChain: PipelineStage {
 }
 
 /// R7.2 — the Lab and the Data Panel are sections of the one window now (`DESIGN.md` §9.4, §9.5):
-/// Lab → Voice › Benchmark, Data Panel → Privacy. This enum is the shim the composition root still
-/// calls; it forwards what it was handed to `MainWindowController.environment` and selects the
-/// section. Neither function creates an `NSWindow` any more.
+/// Lab → Voice › Benchmarks, Data Panel → Privacy › Diagnostics. This enum is the shim the composition
+/// root still calls; it forwards what it was handed to `MainWindowController.environment` and opens
+/// the window at the disclosure itself (W3H), not merely its section — the menu's "Lab…" and "Data
+/// Panel…" land on what they name, expanded. Neither function creates an `NSWindow` any more.
 @MainActor
 public enum LabWindowController {
-    public static func showLab(registry: LabRegistry, database: AppDatabase?, personalWER: PersonalWERTracker? = nil) {
+    /// Voice › Benchmarks (design §8.4): stage, result and diagnostics — the old Lab window.
+    public static let labRoute = WindowRoute(.voice, disclosure: .benchmarks)
+    /// Privacy › Diagnostics (design §8.5): feature flags and the data panel — the old Data Panel.
+    public static let dataPanelRoute = WindowRoute(.privacy, disclosure: .diagnostics)
+
+    /// `open` defaults to the live window; tests pass a recorder.
+    public static func showLab(registry: LabRegistry, database: AppDatabase?, personalWER: PersonalWERTracker? = nil,
+                               open: @MainActor (WindowRoute) -> Void = { _ = MainWindowController.show(route: $0) }) {
         MainWindowController.environment.labRegistry = registry
         MainWindowController.environment.personalWER = personalWER
-        MainWindowController.show(section: .voice)
+        open(labRoute)
     }
 
-    public static func showDataPanel(database: AppDatabase?, gate: EgressGate) {
+    public static func showDataPanel(database: AppDatabase?, gate: EgressGate,
+                                     open: @MainActor (WindowRoute) -> Void = { _ = MainWindowController.show(route: $0) }) {
         MainWindowController.environment.egressGate = gate
-        MainWindowController.show(section: .privacy)
+        open(dataPanelRoute)
     }
 }
 
