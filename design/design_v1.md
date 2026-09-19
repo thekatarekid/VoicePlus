@@ -423,11 +423,11 @@ Provenance references below are repository symbols or explicitly proposed defens
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | P01 · Permissions | Microphone denied or revoked | Microphone access is off | Recording cannot start. Nothing was typed. | Open Microphone settings | No new audio | PermissionMatrix; AudioCaptureSource | Setup latch |
 | P02 · Permissions | Accessibility denied or revoked | Allow VoicePlus to type | Dictation can be reviewed here; automatic insertion is unavailable. | Open Accessibility settings | Keep completed text in recovery | PermissionMatrix; SystemAccess | Scoped screen notice |
-| P03 · Permissions | Legacy event tap lacks Input Monitoring | The shortcut needs permission | Only the selected legacy listener needs this grant. | Open Input Monitoring | Keep existing drafts; request relaunch after grant | HotkeyStateMachine; PermissionMatrix | Setup latch |
-| P04 · Permissions | Permission granted but process has stale grant | Reopen VoicePlus to finish setup | Save held text before relaunch. | Reopen VoicePlus | Persist recovery first; block relaunch if save fails | PermissionMatrix | Setup latch |
+| P03 · Permissions | Legacy event tap lacks Input Monitoring | The shortcut needs permission | Your shortcut won’t work until Input Monitoring is allowed. | Open Input Monitoring | Keep existing drafts; request relaunch after grant | HotkeyStateMachine; PermissionMatrix | Setup latch |
+| P04 · Permissions | Permission granted but process has stale grant | Reopen VoicePlus to finish setup | The new permission takes effect after VoicePlus reopens. | Reopen VoicePlus | Persist recovery first; block relaunch if save fails | PermissionMatrix | Setup latch |
 | K01 · Shortcut | Hotkey collision or registration failure | This shortcut is already in use | Your previous shortcut stays active. | Choose another shortcut | Preserve prior binding | SettingsView; HotkeyStateMachine | Setup latch |
 | K02 · Shortcut | Missing key-up, lock, sleep or listener interruption | Dictation stopped | Recording is closed. Start again when ready. | Review recovered text | Keep completed segments; label incomplete segment | SessionCoordinator | Held tape |
-| K03 · Shortcut | Press shorter than 250 ms | Hold Right Control a little longer | Nothing was typed. First isolated tap is quiet; teach only after repeated misses. | Try again | Discard sub-threshold capture | HotkeyStateMachine | Quiet return |
+| K03 · Shortcut | Press shorter than 250 ms | Hold Right Control a little longer | Nothing was typed. | Try again | Discard sub-threshold capture | HotkeyStateMachine | Quiet return |
 | K04 · Shortcut | Start while processing or session owned elsewhere | Finishing your previous dictation | A second session has not started. | Wait or cancel | Keep active turn | SessionCoordinator | Keep current turn |
 | K05 · Shortcut | Hard mute is enabled | VoicePlus is muted | The microphone stays closed until you unmute. | Unmute | No capture | SessionCoordinator; MuteController | Closed shutters |
 | A01 · Audio | No input device | No microphone found | Recording has not started. | Choose microphone | No new audio | AudioCaptureSource | Setup latch |
@@ -437,21 +437,21 @@ Provenance references below are repository symbols or explicitly proposed defens
 | A05 · Audio | Recorder opens but receives no samples | No audio is reaching VoicePlus | Check the selected input and its mute switch. | Test microphone | Do not invent transcript | AudioCaptureSource.noAudio | Setup latch |
 | A06 · Audio | Samples arrive but no speech is detected | No speech detected | Nothing was typed. | Try again | Discard silence; retain no fake transcript | DeliveryCopy | Quiet return |
 | A07 · Audio | Too little usable audio for decoder | That was too short to transcribe | Nothing was typed. Hold the key through the sentence. | Try again | No usable text | EngineErrorMessage; invalidAudioData regression | Quiet return |
-| A08 · Audio | Quiet, clipped or noisy input | Your microphone sounds unclear | Keep live words visible with a small quality warning. | Check microphone | Capture continues; do not hide transcript | PillState.warning | Live warning |
-| A09 · Audio | Another internal recorder owns input | Microphone is in use | Do not start a second conflicting audio session. | Open active session | Keep active recording | SessionCoordinator.busy | Setup latch |
+| A08 · Audio | Quiet, clipped or noisy input | Your microphone sounds unclear | VoicePlus may miss some of your words. | Check microphone | Capture continues; do not hide transcript | PillState.warning | Live warning |
+| A09 · Audio | Another internal recorder owns input | Microphone is in use | Another recording is using it right now. | Open active session | Keep active recording | SessionCoordinator.busy | Setup latch |
 | M01 · Models | No usable recognizer installed | Install a speech model | Dictation is off until a model is ready. | Open Models | No capture advertised as ready | EngineFactory; ModelManager | Setup latch |
 | M02 · Models | Download incomplete or scratch file missing | The speech model didn’t finish downloading | Dictation needs a complete model. | Download again | Keep a previously working model | ModelManager.incomplete; EngineErrorMessage | Setup latch |
 | M03 · Models | Checksum or size verification fails | The model download couldn’t be verified | The incomplete model will not be loaded. | Download again | Quarantine invalid model; preserve working model | HFDownloader; ModelManager | Setup latch |
 | M04 · Models | Network or HTTP download failure | Model download paused | Your connection interrupted the download. | Retry download | Resume only verified resumable data | HFDownloader.httpStatus | Setup latch |
 | M05 · Models | Disk is full or files cannot be written | Not enough space to finish setup | The current working model stays available. | Manage storage | Keep existing usable files | Defensive coverage: filesystem failures | Setup latch |
 | M06 · Models | Model unsupported on this Mac | This model can’t run on this Mac | Choose a model compatible with this system. | Choose another model | Preserve current selection until replacement works | ModelManager.unsupported; RefinementError | Setup latch |
-| M07 · Models | Warm-up slow or loading fails | The speech model isn’t ready | After 2 seconds name the wait; after failure offer recovery. | Retry loading | Hold partial text only if it exists | EngineState.prewarming; EngineFactory | Setup latch |
+| M07 · Models | Warm-up slow or loading fails | The speech model isn’t ready | The model is installed but hasn’t finished loading. | Retry loading | Hold partial text only if it exists | EngineState.prewarming; EngineFactory | Setup latch |
 | M08 · Models | Model disappears during active use | The speech model became unavailable | Recording has stopped. Your completed words are kept. | Open Models | Keep completed text; no silent model switch | ModelManager.notPresent | Held tape |
 | T01 · Transcription | Decoder throws or returns invalid output | Couldn’t finish this dictation | Review the words recovered so far, if any. | Review recovered text | Keep valid partial text; Try again if none | EngineErrorMessage; defensive partial recovery | Held tape |
 | T02 · Transcription | Final recognition exceeds deadline | This is taking longer than usual | Recording has stopped. Nothing has been inserted yet. | Use available text | Offer available text after 10 s; never insert late result twice | Proposed timeout policy | Held tape |
 | T03 · Transcription | Rewrite or provider refinement fails | Cleanup is unavailable | The original transcript is still ready to review. | Use original text | Preserve original and discard invalid rewrite | RefinementSession; RefinementGate | Attentive review |
-| T04 · Transcription | Confidence metadata unavailable | Confidence isn’t available for this result | Do not claim that unmarked words were checked. | Review text | Preserve transcript; no invented confidence | Defensive coverage: backend capabilities | Attentive review |
-| T05 · Transcription | Rewrite changes uncertain word alignment | Review this phrase | Uncertainty belongs to the smallest reliably aligned phrase. | Review phrase | Keep source-to-final provenance | WordConfidence; WordAligner | Attentive review |
+| T04 · Transcription | Confidence metadata unavailable | Confidence isn’t available for this result | Unmarked words haven’t been checked. | Review text | Preserve transcript; no invented confidence | Defensive coverage: backend capabilities | Attentive review |
+| T05 · Transcription | Rewrite changes uncertain word alignment | Review this phrase | VoicePlus isn’t sure about part of this phrase. | Review phrase | Keep source-to-final provenance | WordConfidence; WordAligner | Attentive review |
 | D01 · Delivery | Focus, selection or target content changes | Destination changed — text held | Nothing was typed into the new destination. | Insert here | Keep final text and uncertainty spans | PillDelivery; UtteranceLander | Held tape |
 | D02 · Delivery | No editable target or read-only field | Choose a text field | Your words are ready here. | Copy text | Keep final text; explicit insertion only | DeliveryCopy; SystemAccess | Held tape |
 | D03 · Delivery | Password or secure field | VoicePlus is paused in this field | No dictation is inserted into secure fields. | Dismiss | No new secure-field capture; prior draft remains private | DeliveryCopy; defensive preflight | Closed shutters |
@@ -466,20 +466,37 @@ Provenance references below are repository symbols or explicitly proposed defens
 | S01 · Storage | History or timeline read fails | History can’t be read | Other working sections remain available. | Try again | Do not clear store or claim it is empty | SectionCopy.timelineUnreadable | Scoped screen notice |
 | S02 · Storage | Setting, dictionary or app rule save fails | Changes weren’t saved | Your previous setting is still active. | Try again | Keep entered value and indicate unsaved state | SectionCopy.notSaved | Scoped screen notice |
 | S03 · Storage | Draft or transcript persistence fails | This text hasn’t been saved | Keep this window open until you copy it. | Copy text | Keep in memory; do not claim crash-safe recovery | Defensive storage coverage | Held tape |
-| S04 · Storage | Deletion succeeds only for some items | Some items couldn’t be deleted | Show precisely which items remain. | Retry deletion | Preserve accurate count and failure list | SectionCopy.deleteAllPartial | Scoped screen notice |
-| S05 · Storage | App quits or crashes during capture | An unfinished recording was found | Recover only audio or text that is actually on disk. | Recover | Show retained duration and location; never imply missing audio exists | Recording reference at ~320 s; proposed recovery | Held tape |
+| S04 · Storage | Deletion succeeds only for some items | Some items couldn’t be deleted | The other items were deleted. | Retry deletion | Preserve accurate count and failure list | SectionCopy.deleteAllPartial | Scoped screen notice |
+| S05 · Storage | App quits or crashes during capture | An unfinished recording was found | Only what was saved before VoicePlus closed can be recovered. | Recover | Show retained duration and location; never imply missing audio exists | Recording reference at ~320 s; proposed recovery | Held tape |
 | N01 · Services | Remote provider offline or timeout | The service isn’t responding | Local transcription still works when its model is ready. | Retry service | Keep local result; no silent cloud fallback | ProviderError.unavailable/timeout | Scoped screen notice |
 | N02 · Services | Credentials rejected | Reconnect this service | The current request was not completed. | Reconnect | Keep local drafts; never show API key in error | ProviderError.unauthorized | Scoped screen notice |
-| N03 · Services | Rate limit, quota or billing rejection | This service is temporarily unavailable | Show retry time when the provider supplies one. | Use local option | Keep local transcript; no automatic paid upgrade | ProviderError.http; defensive classification | Scoped screen notice |
+| N03 · Services | Rate limit, quota or billing rejection | This service is temporarily unavailable | The provider isn’t accepting requests right now. | Use local option | Keep local transcript; no automatic paid upgrade | ProviderError.http; defensive classification | Scoped screen notice |
 | N04 · Services | Malformed, unsupported or disabled provider response | This service couldn’t complete the request | The original text has been preserved. | Review service settings | No partial rewrite replaces original | ProviderError.malformedResponse/capabilityMissing/flagDisabled | Scoped screen notice |
-| X01 · Meetings | System audio or Calendar permission absent | Meeting setup needs attention | Name the missing permission; microphone-only capture may still work. | Review permissions | Keep available mic track; label missing track | Meetings SectionCopy; DualCapture | Scoped screen notice |
-| X02 · Meetings | Recording interrupted or transcript unreadable | This meeting needs recovery | Keep other meetings visible and isolate the affected row. | Recover meeting | Preserve saved audio/text; never fabricate speaker turns | SectionCopy.meetingUnreadableRow; recording reference | Held tape |
+| X01 · Meetings | System audio or Calendar permission absent | Meeting setup needs attention | Calendar or system audio access is off. Microphone-only recording may still work. | Review permissions | Keep available mic track; label missing track | Meetings SectionCopy; DualCapture | Scoped screen notice |
+| X02 · Meetings | Recording interrupted or transcript unreadable | This meeting needs recovery | Saved audio and text are kept. | Recover meeting | Preserve saved audio/text; never fabricate speaker turns | SectionCopy.meetingUnreadableRow; recording reference | Held tape |
 | X03 · Voice | Enrollment too short or speaker model unavailable | Couldn’t finish voice setup | Hold-to-talk still works; speaker filtering stays off. | Try voice setup again | Keep prior enrollment until replacement succeeds | SpeakerError; SpeakerFilter | Scoped screen notice |
 | X04 · Dictionary | Contacts denied or import malformed | Couldn’t import these words | Existing dictionary entries are unchanged. | Review import | Preview valid entries and list rejected rows | SectionCopy.contactsDenied; BiasVocabulary.LoadError | Scoped screen notice |
 | X05 · Sync | Pairing mismatch, bad key or tampered payload | Devices couldn’t be paired safely | Nothing from this transfer was applied. | Pair again | Keep local data; do not weaken verification | PairingError; SyncCryptoError | Scoped screen notice |
 | X06 · Sync | Peer offline or concurrent edits conflict | Sync needs attention | Local dictation continues. Review conflicting edits. | Review sync | Keep both versions until resolved | SyncEngine; defensive conflict coverage | Scoped screen notice |
 | X07 · System | Update fails or is interrupted | The update didn’t finish | Keep using the installed version. | Retry update | Do not discard drafts or replace working app early | SettingsView Updates; defensive coverage | Scoped screen notice |
-| X08 · System | Unexpected unmapped error | VoicePlus couldn’t finish this step | Say whether text exists and whether anything may have been inserted. | Open recovery | Preserve available data; technical details in diagnostics | EngineErrorMessage; proposed catch-all | Held tape |
+| X08 · System | Unexpected unmapped error | VoicePlus couldn’t finish this step | Any text captured so far is kept. Check the result before trying again. | Open recovery | Preserve available data; technical details in diagnostics | EngineErrorMessage; proposed catch-all | Held tape |
+
+**Behaviour rules, not copy (FX4).** The consequence column is shown to users verbatim. Until 1.11.1 some rows carried instructions for the builder there, and the app displayed them. Those rules now live here. The column holds only user-facing text, and `DesignCopyLintTests` enforces this:
+
+- M07: if warm-up takes longer than 2 s, name the wait; after a failure, offer Retry loading.
+- K03: the first isolated short tap stays quiet; teach only after repeated misses.
+- A08: keep live words visible, with a small quality warning.
+- A09: never start a second conflicting audio session.
+- T04: never claim unmarked words were checked.
+- T05: attach uncertainty to the smallest reliably aligned phrase.
+- S04: show exactly which items remain.
+- S05: recover only the audio or text that is on disk.
+- N03: show a retry time when the provider supplies one.
+- X01: name the missing permission.
+- X02: keep other meetings visible and isolate the affected row.
+- X08: say whether text exists and whether anything may have been inserted.
+- P03: only the selected legacy listener needs the grant.
+- P04: save held text before relaunching.
 
 ### Spool recovery rules
 

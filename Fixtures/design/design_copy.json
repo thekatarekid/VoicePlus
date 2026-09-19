@@ -742,7 +742,7 @@
       "family": "Permissions",
       "trigger": "Legacy event tap lacks Input Monitoring",
       "headline": "The shortcut needs permission",
-      "consequence": "Only the selected legacy listener needs this grant.",
+      "consequence": "Your shortcut won’t work until Input Monitoring is allowed.",
       "action": "Open Input Monitoring",
       "data": "Keep existing drafts; request relaunch after grant",
       "evidence": "HotkeyStateMachine; PermissionMatrix"
@@ -752,7 +752,7 @@
       "family": "Permissions",
       "trigger": "Permission granted but process has stale grant",
       "headline": "Reopen VoicePlus to finish setup",
-      "consequence": "Save held text before relaunch.",
+      "consequence": "The new permission takes effect after VoicePlus reopens.",
       "action": "Reopen VoicePlus",
       "data": "Persist recovery first; block relaunch if save fails",
       "evidence": "PermissionMatrix"
@@ -782,7 +782,7 @@
       "family": "Shortcut",
       "trigger": "Press shorter than 250 ms",
       "headline": "Hold Right Control a little longer",
-      "consequence": "Nothing was typed. First isolated tap is quiet; teach only after repeated misses.",
+      "consequence": "Nothing was typed.",
       "action": "Try again",
       "data": "Discard sub-threshold capture",
       "evidence": "HotkeyStateMachine"
@@ -882,7 +882,7 @@
       "family": "Audio",
       "trigger": "Quiet, clipped or noisy input",
       "headline": "Your microphone sounds unclear",
-      "consequence": "Keep live words visible with a small quality warning.",
+      "consequence": "VoicePlus may miss some of your words.",
       "action": "Check microphone",
       "data": "Capture continues; do not hide transcript",
       "evidence": "PillState.warning"
@@ -892,7 +892,7 @@
       "family": "Audio",
       "trigger": "Another internal recorder owns input",
       "headline": "Microphone is in use",
-      "consequence": "Do not start a second conflicting audio session.",
+      "consequence": "Another recording is using it right now.",
       "action": "Open active session",
       "data": "Keep active recording",
       "evidence": "SessionCoordinator.busy"
@@ -962,7 +962,7 @@
       "family": "Models",
       "trigger": "Warm-up slow or loading fails",
       "headline": "The speech model isn’t ready",
-      "consequence": "After 2 seconds name the wait; after failure offer recovery.",
+      "consequence": "The model is installed but hasn’t finished loading.",
       "action": "Retry loading",
       "data": "Hold partial text only if it exists",
       "evidence": "EngineState.prewarming; EngineFactory"
@@ -1012,7 +1012,7 @@
       "family": "Transcription",
       "trigger": "Confidence metadata unavailable",
       "headline": "Confidence isn’t available for this result",
-      "consequence": "Do not claim that unmarked words were checked.",
+      "consequence": "Unmarked words haven’t been checked.",
       "action": "Review text",
       "data": "Preserve transcript; no invented confidence",
       "evidence": "Defensive coverage: backend capabilities"
@@ -1022,7 +1022,7 @@
       "family": "Transcription",
       "trigger": "Rewrite changes uncertain word alignment",
       "headline": "Review this phrase",
-      "consequence": "Uncertainty belongs to the smallest reliably aligned phrase.",
+      "consequence": "VoicePlus isn’t sure about part of this phrase.",
       "action": "Review phrase",
       "data": "Keep source-to-final provenance",
       "evidence": "WordConfidence; WordAligner"
@@ -1172,7 +1172,7 @@
       "family": "Storage",
       "trigger": "Deletion succeeds only for some items",
       "headline": "Some items couldn’t be deleted",
-      "consequence": "Show precisely which items remain.",
+      "consequence": "The other items were deleted.",
       "action": "Retry deletion",
       "data": "Preserve accurate count and failure list",
       "evidence": "SectionCopy.deleteAllPartial"
@@ -1182,7 +1182,7 @@
       "family": "Storage",
       "trigger": "App quits or crashes during capture",
       "headline": "An unfinished recording was found",
-      "consequence": "Recover only audio or text that is actually on disk.",
+      "consequence": "Only what was saved before VoicePlus closed can be recovered.",
       "action": "Recover",
       "data": "Show retained duration and location; never imply missing audio exists",
       "evidence": "Recording reference at ~320 s; proposed recovery"
@@ -1212,7 +1212,7 @@
       "family": "Services",
       "trigger": "Rate limit, quota or billing rejection",
       "headline": "This service is temporarily unavailable",
-      "consequence": "Show retry time when the provider supplies one.",
+      "consequence": "The provider isn’t accepting requests right now.",
       "action": "Use local option",
       "data": "Keep local transcript; no automatic paid upgrade",
       "evidence": "ProviderError.http; defensive classification"
@@ -1232,7 +1232,7 @@
       "family": "Meetings",
       "trigger": "System audio or Calendar permission absent",
       "headline": "Meeting setup needs attention",
-      "consequence": "Name the missing permission; microphone-only capture may still work.",
+      "consequence": "Calendar or system audio access is off. Microphone-only recording may still work.",
       "action": "Review permissions",
       "data": "Keep available mic track; label missing track",
       "evidence": "Meetings SectionCopy; DualCapture"
@@ -1242,7 +1242,7 @@
       "family": "Meetings",
       "trigger": "Recording interrupted or transcript unreadable",
       "headline": "This meeting needs recovery",
-      "consequence": "Keep other meetings visible and isolate the affected row.",
+      "consequence": "Saved audio and text are kept.",
       "action": "Recover meeting",
       "data": "Preserve saved audio/text; never fabricate speaker turns",
       "evidence": "SectionCopy.meetingUnreadableRow; recording reference"
@@ -1302,7 +1302,7 @@
       "family": "System",
       "trigger": "Unexpected unmapped error",
       "headline": "VoicePlus couldn’t finish this step",
-      "consequence": "Say whether text exists and whether anything may have been inserted.",
+      "consequence": "Any text captured so far is kept. Check the result before trying again.",
       "action": "Open recovery",
       "data": "Preserve available data; technical details in diagnostics",
       "evidence": "EngineErrorMessage; proposed catch-all"
