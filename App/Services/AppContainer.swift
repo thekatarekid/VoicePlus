@@ -271,13 +271,23 @@ public final class AppContainer {
             Log.app.error("action catalog missing: \(error)")
             catalog = ActionCatalog(entries: [])
         }
+        // ── S12 · outbound action preview (design §8.8) ─────────────────────────────────────────
+        // Sends, posts and submits wait behind the preview card (destination + proposed action)
+        // instead of running first with an undo toast. Nothing sends because text was inserted.
+        let previewedCatalog = ActionPreviewPolicy.previewingOutbound(catalog)
+        // Selected-text transforms (R1): the edited preview dwells as long as Settings' preview
+        // dwell, read per turn, before the target is revalidated and replaced.
+        transform.previewDwell = { [settings] in
+            TransformPreviewDwell.fromSetting(seconds: TurnSettings.previewDwell(settings).seconds)
+        }
+        // ── end S12 ─────────────────────────────────────────────────────────────────────────────
         let consent = ConsentEngine()
         consentEngine = consent
         let executor = ActionExecutor(system: actionSystem)
         let agent = NativeAgentBackend(planner: ProviderPlanner(providers: providerRouting),
                                        executor: executor, consent: consent)
         agentBackend = agent
-        let parser = ActIntentParser(catalog: catalog, activation: actState)
+        let parser = ActIntentParser(catalog: previewedCatalog, activation: actState)   // S12
         actRouter = ActRouter(parser: parser, consent: consent, executor: executor, agent: agent)
         actHook.parser = parser
 

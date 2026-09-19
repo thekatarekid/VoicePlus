@@ -9,13 +9,25 @@ import SwiftUI
 /// One controller owns both panels. Deterministic-path cards resolve through the `ActRouter`
 /// (so its pending token clears); agent-path cards resolve a continuation the
 /// `NativeAgentBackend.confirmation` closure is awaiting.
+///
+/// S12 — every card is an outbound action preview (`ActionPreview`, design §8.8): it names the
+/// destination and the proposed action, and it resolves only through `ActionPreviewGate` — an
+/// explicit click or the spoken grammar, once. Outbound catalogue actions reach it before they run
+/// (`ActionPreviewPolicy.previewingOutbound`), never after.
 @MainActor
 public final class ConsentPanelsController {
     public var consent: ConsentEngine?
     public var router: ActRouter?
+    /// S12 — the destination a card names: the app the action runs in.
+    public var destinationName: () -> String? = { NSWorkspace.shared.frontmostApplication?.localizedName }
     private var toastPanel: NSPanel?
     private var cardPanel: NSPanel?
     private var agentContinuation: CheckedContinuation<Bool, Never>?
+    /// S12 — the preview on screen and its gate.
+    public private(set) var visiblePreview: ActionPreviewGate?
+    private var resolveVisible: ((Bool) -> Void)?
+    /// Off in tests: a headless test process cannot host an `NSPanel`. The gate works either way.
+    var panelsEnabled = true
 
     public init() {}
 
@@ -66,8 +78,12 @@ public final class ConsentPanelsController {
         }
     }
 
-    /// Spoken answers resolve whatever card is showing.
+    /// Spoken answers resolve whatever card is showing — through the preview's gate when one is up.
     public func resolveVisibleCard(confirmed: Bool) {
+        if visiblePreview != nil {
+            handlePreviewEvent(.spoken(confirmed ? "confirm" : "cancel"))
+            return
+        }
         if let continuation = agentContinuation {
             agentContinuation = nil
             continuation.resume(returning: confirmed)
@@ -75,13 +91,36 @@ public final class ConsentPanelsController {
         dismissCard()
     }
 
+    /// S12 — one event for the preview on screen. It runs (or cancels) only on what the gate says:
+    /// an explicit click or the spoken grammar. A dictation landing, time passing or focus moving
+    /// leave it waiting — nothing is sent because text was inserted.
+    @discardableResult
+    public func handlePreviewEvent(_ event: ActionPreviewGate.Event) -> ActionPreviewGate.Decision {
+        guard var gate = visiblePreview else { return .keepWaiting }
+        let decision = gate.handle(event)
+        visiblePreview = gate
+        switch decision {
+        case .run: resolveVisible?(true)
+        case .cancel: resolveVisible?(false)
+        case .keepWaiting: break
+        }
+        return decision
+    }
+
     private func presentCard(_ card: ConfirmationCard, resolve: @escaping (Bool) -> Void) {
         dismissCard()
-        let view = ConfirmationCardView(card: card) { [weak self] confirmed in
+        let preview = ActionPreview(card: card, destination: destinationName())
+        visiblePreview = ActionPreviewGate(preview: preview)
+        resolveVisible = { [weak self] confirmed in
+            self?.resolveVisible = nil
             resolve(confirmed)
             self?.dismissCard()
         }
-        let panel = Self.makePanel(hosting: view, size: NSSize(width: 340, height: 120))
+        guard panelsEnabled else { return }
+        let view = ActionPreviewView(preview: preview,
+                                     onConfirm: { [weak self] in self?.handlePreviewEvent(.confirmClicked) },
+                                     onCancel: { [weak self] in self?.handlePreviewEvent(.cancelClicked) })
+        let panel = Self.makePanel(hosting: view, size: NSSize(width: 360, height: 128))
         position(panel, corner: .topRight)
         panel.orderFrontRegardless()
         cardPanel = panel
@@ -90,6 +129,8 @@ public final class ConsentPanelsController {
     public func dismissCard() {
         cardPanel?.orderOut(nil)
         cardPanel = nil
+        visiblePreview = nil
+        resolveVisible = nil
     }
 
     // MARK: Panel plumbing
@@ -155,31 +196,6 @@ struct UndoToastView: View {
     }
 }
 
-/// Slide-out card for irreversible actions: title, detail, Confirm / Cancel.
-struct ConfirmationCardView: View {
-    let card: ConfirmationCard
-    let resolve: (Bool) -> Void
+/// S12 — the irreversible card is `ActionPreviewView` (ActionPreviewView.swift): it names the
+/// destination and the proposed action, and Return is never its default button.
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(card.title, systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-            if !card.detail.isEmpty {
-                Text(card.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
-            HStack {
-                Text("Say “confirm” or click").font(.caption2).foregroundStyle(.tertiary)
-                Spacer()
-                Button("Cancel") { resolve(false) }
-                    .accessibilityIdentifier("consent.card.cancel")
-                Button("Confirm") { resolve(true) }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("consent.card.confirm")
-            }
-        }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .accessibilityIdentifier("consent.card")
-    }
-}
