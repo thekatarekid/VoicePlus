@@ -118,7 +118,10 @@ public enum ModelCatalog {
             folderName: "parakeet-tdt-0.6b-v3", legacyFolderNames: ["parakeet-tdt-0.6b-v3-coreml"],
             hfRepo: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
             requiredPaths: ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc", "parakeet_vocab.json"],
-            approxBytes: 500_000_000, displayName: "Parakeet TDT 0.6B v3", license: "CC-BY-4.0"),
+            // FX3: the real size — the sum of the 23 files a verified 1.11.1 install recorded in its
+            // manifest (483,257,242 bytes). It was 500 MB, and with EOU's 400 MB the first-run
+            // screen quoted 914 MB for a ~721 MB download.
+            approxBytes: 483_257_242, displayName: "Parakeet TDT 0.6B v3", license: "CC-BY-4.0"),
         // No `folderName` override, and deliberately so: `StreamingEouAsrManager.loadModels(from:)`
         // opens `<directory>/streaming_encoder.mlmodelc` and friends *directly* — it never goes
         // through `ModelHub`, never re-derives a parent, and so never re-downloads. The EOU model is
@@ -128,7 +131,9 @@ public enum ModelCatalog {
         .parakeetEOU160: ModelDescriptor(
             id: .parakeetEOU160, kind: .streamingEOU, hfRepo: "FluidInference/parakeet-realtime-eou-120m-coreml", hfSubdirectory: "160ms",
             requiredPaths: ["streaming_encoder.mlmodelc", "decoder.mlmodelc", "joint_decision.mlmodelc", "vocab.json"],
-            approxBytes: 400_000_000, displayName: "Parakeet Realtime EOU 120M (160 ms)", license: "other"),
+            // FX3: the real size of the 160 ms variant — 16 files, 224,047,838 bytes in a verified
+            // 1.11.1 install's manifest (it was quoted as 400 MB).
+            approxBytes: 224_047_838, displayName: "Parakeet Realtime EOU 120M (160 ms)", license: "other"),
         .parakeetTDTCTC110m: ModelDescriptor(
             id: .parakeetTDTCTC110m, kind: .finalTDT,
             // = `Repo.parakeetTdtCtc110m.folderName` (an explicit case in `ModelNames.folderName`).

@@ -52,13 +52,19 @@ public enum DownloadProgressText {
     /// And below this much elapsed time there is not enough of a rate to extrapolate from.
     public static let minimumElapsedForEstimate: TimeInterval = 3
 
-    /// e.g. `Downloading Parakeet TDT 0.6B v3 — 412 MB of 900 MB (46%), about 2 min left`
+    /// e.g. `Downloading model 3 of 3 · WeSpeaker v2 speaker embedding · 707 MB of 721 MB overall (98%), a few seconds left`
+    ///
+    /// FX3: the bytes are the whole install's, never the model's, so with more than one model they
+    /// are labelled "overall" and kept apart from the name. The 1.11.1 line read "WeSpeaker v2
+    /// speaker embedding (3 of 3) — 900 MB of 914 MB", which says a 14 MB model weighs 914 MB.
     public static func line(_ progress: ModelDownloadProgress, elapsed: TimeInterval) -> String {
-        var text = "Downloading \(progress.modelName)"
-        if progress.count > 1 { text += " (\(progress.index) of \(progress.count))" }
-        text += " — "
+        var text = "Downloading "
+        if progress.count > 1 { text += "model \(progress.index) of \(progress.count) · " }
+        text += "\(progress.modelName) · "
         if progress.bytesExpected > 0 {
-            text += "\(ByteText.short(progress.bytesReceived)) of \(ByteText.short(progress.bytesExpected)) (\(progress.percent)%)"
+            text += "\(ByteText.short(progress.bytesReceived)) of \(ByteText.short(progress.bytesExpected))"
+            if progress.count > 1 { text += " overall" }
+            text += " (\(progress.percent)%)"
         } else {
             text += "\(progress.percent)%"
         }

@@ -82,7 +82,7 @@ struct SpeakerModelCatalogTests {
     @Test("it is a required download with Parakeet, after both speech models")
     func requiredWithTheStack() {
         #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding])
-        #expect(ModelStack.approximateBytes == 900_000_000 + 13_720_676)
+        #expect(ModelStack.approximateBytes == 483_257_242 + 224_047_838 + 13_720_676)  // FX3: real sizes
         #expect(ModelCatalog.userVisible(qwenRefinementEnabled: false).contains(.speakerEmbedding),
                 "Settings › Models lists it (the speaker-embedding row)")
     }

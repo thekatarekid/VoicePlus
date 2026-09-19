@@ -457,7 +457,7 @@ struct DownloadProgressTextTests {
 
     @Test func theLineNamesTheModelTheBytesAndThePosition() {
         let line = DownloadProgressText.line(progress(0.42), elapsed: 60)
-        #expect(line.hasPrefix("Downloading Parakeet TDT 0.6B v3 (1 of 2) — 378 MB of 900 MB (42%)"))
+        #expect(line.hasPrefix("Downloading model 1 of 2 · Parakeet TDT 0.6B v3 · 378 MB of 900 MB overall (42%)"))
     }
 
     @Test func anEstimateAppearsOnlyOnceItMeansSomething() {
@@ -510,8 +510,9 @@ struct ModelStackNamingTests {
         // H3: the speaker-embedding weights install with the speech models.
         #expect(ModelStack.displayNames == ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)",
                                             "WeSpeaker v2 speaker embedding"])
-        #expect(ModelStack.approximateBytes == 913_720_676)
-        #expect(ByteText.short(ModelStack.approximateBytes) == "914 MB")
+        // FX3: the real on-disk sizes (483 + 224 + 14 MB), not the old 500 + 400 + 14 estimate.
+        #expect(ModelStack.approximateBytes == 721_025_756)
+        #expect(ByteText.short(ModelStack.approximateBytes) == "721 MB")
         #expect(ModelStack.approximateBytes == ModelStack.descriptors.reduce(0) { $0 + $1.approxBytes },
                 "the size is a sum over the catalog, so it cannot drift")
     }

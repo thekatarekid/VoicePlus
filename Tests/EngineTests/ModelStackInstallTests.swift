@@ -60,7 +60,7 @@ struct ModelStackInstallTests {
     @Test("the stack is TDT v3 + EOU + the speaker-embedding weights (H3), and nothing else")
     func theStackIsTwoModels() {
         #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding])
-        #expect(ModelStack.approximateBytes == 900_000_000 + 13_720_676)
+        #expect(ModelStack.approximateBytes == 483_257_242 + 224_047_838 + 13_720_676)  // FX3: real sizes
         // The two entries that used to be tiers of their own are fallbacks now: still in the
         // catalog (the recognizer walks down to them), never offered in the UI.
         #expect(ModelCatalog.descriptor(.parakeetTDTCTC110m).role == .fallback)
