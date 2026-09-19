@@ -51,10 +51,11 @@ struct SettingsViewModelTests {
     @Test func hotkeyPersists() {
         let store = InMemorySettingsStore()
         let vm = GeneralSettingsViewModel(store: store)
-        #expect(vm.hotkey == .rightOption)
-        vm.hotkey = .fn
-        #expect(store.string(SettingsKeys.hotkey) == "fn")
-        #expect(GeneralSettingsViewModel(store: store).hotkey == .fn)
+        // V4.51 (I1): fn / 🌐 is the default dictation key, the one `HotkeyService` listens on.
+        #expect(vm.hotkey == .fn)
+        vm.hotkey = .rightOption
+        #expect(store.string(SettingsKeys.hotkey) == "rightOption")
+        #expect(GeneralSettingsViewModel(store: store).hotkey == .rightOption)
     }
 
     @Test func routingDefaultsToAutoAndPersistsOverrides() {

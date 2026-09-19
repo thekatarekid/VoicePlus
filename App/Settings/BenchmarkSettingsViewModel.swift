@@ -2,8 +2,9 @@ import Combine
 import Foundation
 import Lab
 
-/// R4.3 — Benchmark tab: renders R4.1b's ranked-context-list counters
-/// (`Lab/Harness/ContextRecallReport.swift`).
+/// R4.3 — the benchmark counters: renders R4.1b's ranked-context-list counters
+/// (`Lab/Harness/ContextRecallReport.swift`). The old Settings › Benchmark tab is re-homed to the
+/// Voice section's benchmarks disclosure (design §8.4, S7a routing); Settings has no subpage for it.
 ///
 /// This view model does not run the corpus measurement — `Tests/EngineTests/
 /// ContextRecallCorpusTests.swift` owns that, against real audio and a real model, and `Lab`

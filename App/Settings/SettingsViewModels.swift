@@ -3,6 +3,7 @@ import Combine
 import Engine
 import Foundation
 import GRDB
+import Pipeline
 import Shared
 
 // MARK: - Hotkey
@@ -18,9 +19,9 @@ public enum HotkeyChoice: String, CaseIterable, Identifiable, Sendable {
     case controlOptionD, controlOptionA
     public var id: String { rawValue }
 
-    public var binding: HotkeyBinding.Kind { HotkeyBinding.Kind(rawValue: rawValue) ?? .rightOption }
+    public var binding: HotkeyBinding.Kind { HotkeyBinding.Kind(rawValue: rawValue) ?? HotkeyService.defaultBinding.kind }
 
-    public init(binding: HotkeyBinding.Kind) { self = HotkeyChoice(rawValue: binding.rawValue) ?? .rightOption }
+    public init(binding: HotkeyBinding.Kind) { self = HotkeyChoice(rawValue: binding.rawValue) ?? .default }
 
     public var title: String {
         switch binding.style {
@@ -41,7 +42,13 @@ public enum HotkeyChoice: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    public static let `default`: HotkeyChoice = .rightOption
+    /// V4.51 (owner decision, build doc §0): fn / 🌐, the same default `HotkeyService` listens on.
+    /// It was Right ⌥ through 1.10, which made Settings and Today name a key the service no longer
+    /// used (wave 1 I1 hand-off).
+    public static let `default` = HotkeyChoice(rawValue: HotkeyService.defaultBinding.kind.rawValue) ?? .fn
+
+    /// The key as every hint names it ("fn / 🌐", "Right Option").
+    public var label: String { binding.label }
 }
 
 /// What the **act key** (Bet 5's second key, the one that opens a voice-command session) is bound
@@ -106,6 +113,7 @@ public final class GeneralSettingsViewModel: ObservableObject {
         didSet {
             store.set(hotkey.rawValue, for: SettingsKeys.hotkey)
             store.set(hotkey.binding.rawValue, for: HotkeyService.bindingDefaultsKey)
+            refreshKeyStatus()
         }
     }
     /// P4.2 — the act key, including Off. Writes the same `actHotkeyBinding` key `HotkeyService`
@@ -157,9 +165,80 @@ public final class GeneralSettingsViewModel: ObservableObject {
     @Published public var presenceHideInFullScreen: Bool {
         didSet { PresenceSettings.setHidesInFullScreen(presenceHideInFullScreen, store: store) }
     }
+
+    // MARK: S7g · General (design §8.6)
+
+    /// Design §5 step 4: 900 ms default, 600 / 1500 or manual review. Read by `TurnController`.
+    @Published public var previewDwell: PreviewDwell {
+        didSet { TurnSettings.setPreviewDwell(previewDwell, store: store) }
+    }
+    /// Off by default; never a success sound before a verified insertion (`SoundCuePolicy`).
+    @Published public var soundCues: Bool {
+        didSet { SoundCueSettings.setEnabled(soundCues, store: store) }
+    }
+    /// D6 (V4.17) — read by `UtteranceLander` at every landing.
+    @Published public var spacing: SpacingPreference {
+        didSet { FormattingSettings.setSpacing(spacing, store: store) }
+    }
+    /// D3 (V4.2) — how text lands when the caret could not be read.
+    @Published public var unknownCaretStyle: UnknownCaretStyle {
+        didSet { FormattingSettings.setUnknownCaretStyle(unknownCaretStyle, store: store) }
+    }
+
+    // MARK: S7g · Shortcuts
+
+    /// "Double-tap to latch" (design §8.6). On by default.
+    @Published public var latchDoubleTap: Bool {
+        didSet { LatchGestureSettings.setEnabled(latchDoubleTap, store: store) }
+    }
+    /// B2 (V4.33) — "Insert after a pause of", 1–5 s. Written through `LatchSettings`, which clamps
+    /// and posts its change notification so a latched session re-times without a restart.
+    @Published public var latchPauseSeconds: TimeInterval {
+        didSet {
+            let clamped = LatchSettings.clamp(latchPauseSeconds)
+            guard clamped == latchPauseSeconds else { latchPauseSeconds = clamped; return }
+            guard clamped != oldValue else { return }
+            LatchSettings.setPauseSeconds(clamped, store: store)
+        }
+    }
+    /// G1 (V4.28) — in Latch, a bare drag draws a box. Never applies to hold.
+    @Published public var drawWithoutKey: Bool {
+        didSet { DeixisSettings.setDrawsWithoutKey(drawWithoutKey, store: store) }
+    }
+    /// I1 — macOS's own 🌐 action when it fights an fn binding; nil otherwise. Read fresh on every
+    /// `refreshKeyStatus()` (the user may have just changed it in System Settings).
+    @Published public private(set) var fnConflict: FnKeyConflict?
+
+    // MARK: S7g · Appearance (windows only; the pill stays dark)
+
+    @Published public var theme: WindowTheme {
+        didSet {
+            AppearanceSettings.setTheme(theme, store: store)
+            applyTheme(theme)
+        }
+    }
+    @Published public var reduceMotion: Bool {
+        didSet { AppearanceSettings.setReducesMotion(reduceMotion, store: store) }
+    }
+    @Published public var textSize: WindowTextSize {
+        didSet { AppearanceSettings.setTextSize(textSize, store: store) }
+    }
+
     private let store: SettingsStore
-    public init(store: SettingsStore) {
+    private let fnConflictReader: (HotkeyBinding.Kind) -> FnKeyConflict?
+    private let keyboardSettingsOpener: () -> Void
+    private let applyTheme: @MainActor (WindowTheme) -> Void
+
+    /// `fnConflict`, `openKeyboardSettings` and `applyTheme` default to the live system; tests and
+    /// the window pass `OnboardingDependencies`' readers or recorders.
+    public init(store: SettingsStore,
+                fnConflict: @escaping (HotkeyBinding.Kind) -> FnKeyConflict? = { HotkeyService.fnConflict(for: HotkeyBinding(kind: $0)) },
+                openKeyboardSettings: @escaping () -> Void = { NSWorkspace.shared.open(FnKeyConflict.keyboardSettingsURL) },
+                applyTheme: @escaping @MainActor (WindowTheme) -> Void = { AppearanceSettings.apply($0) }) {
         self.store = store
+        self.fnConflictReader = fnConflict
+        self.keyboardSettingsOpener = openKeyboardSettings
+        self.applyTheme = applyTheme
         // The binding key wins: it is what the menu-bar submenu writes and what the service reads,
         // so a user who changed the key from the menu sees that choice reflected here.
         hotkey = store.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyChoice.init(rawValue:))
@@ -171,6 +250,37 @@ public final class GeneralSettingsViewModel: ObservableObject {
         forceEventTap = store.bool(HotkeyService.forceEventTapDefaultsKey) ?? false
         presenceIndicator = PresenceSettings.isEnabled(store)
         presenceHideInFullScreen = PresenceSettings.hidesInFullScreen(store)
+        previewDwell = TurnSettings.previewDwell(store)
+        soundCues = SoundCueSettings.isEnabled(store)
+        spacing = FormattingSettings.spacing(store)
+        unknownCaretStyle = FormattingSettings.unknownCaretStyle(store)
+        latchDoubleTap = LatchGestureSettings.isEnabled(store)
+        latchPauseSeconds = LatchSettings.pauseSeconds(store)
+        drawWithoutKey = DeixisSettings.drawsWithoutKey(store)
+        theme = AppearanceSettings.theme(store)
+        reduceMotion = AppearanceSettings.reducesMotion(store)
+        textSize = AppearanceSettings.textSize(store)
+        self.fnConflict = fnConflict(hotkey.binding)
+        // The window is built when it first opens, so this is where a remembered theme reaches it.
+        applyTheme(theme)
+    }
+
+    /// Re-reads the key's own state: the fn system action can change behind the app's back.
+    public func refreshKeyStatus() { fnConflict = fnConflictReader(hotkey.binding) }
+
+    /// I1 — System Settings › Keyboard ("Press 🌐 key to").
+    public func openKeyboardSettings() { keyboardSettingsOpener() }
+
+    /// The prototype's General "Shortcut" row button and the Shortcuts page's key cap.
+    public var hotkeyLabel: String { hotkey.label }
+
+    /// Applies a key the recorder captured, or keeps the previous one (design §8.6: "A conflict
+    /// keeps your previous shortcut active"). Returns what happened, for the row to say.
+    @discardableResult
+    public func apply(_ capture: ShortcutCapture) -> ShortcutChange? {
+        guard let change = ShortcutRecorder.resolve(capture, current: hotkey.binding, actKey: actKey) else { return nil }
+        if case .changed(_, let to) = change { hotkey = HotkeyChoice(binding: to) }
+        return change
     }
 }
 
@@ -489,7 +599,9 @@ public final class AudioInputSettingsViewModel: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(at: recordingsDirectory, includingPropertiesForKeys: nil)) ?? []
         let count = Set(files.map(UtteranceRecorder.stamp(of:))).count
         guard count > 0 else { return "No recordings saved yet." }
-        let retain = UtteranceRecorder.retainedUtterances
+        // J1 (V4.52): the retention in force for *this* model's defaults — `Keep all` (0) reads as
+        // "All of them are kept.", never "the most recent 0".
+        let retain = UtteranceRecorder.retention(defaults)
         let policy = retain > 0 ? "Only the most recent \(retain) are kept." : "All of them are kept."
         return "\(count) recording\(count == 1 ? "" : "s") saved on this Mac. \(policy)"
     }
