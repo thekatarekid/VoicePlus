@@ -768,10 +768,10 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ### Wave 4 — R · Release 1.11.0
 
-- [ ] **R1** `swift build` clean; `swift test --no-parallel` all green; `RecordingReplayTests` on `Fixtures/real-room/builtin` — WER unchanged ± 0.01 vs the 1.10.0 number in `DECISIONS.md`.
-- [ ] **R2** `Fixtures/prosody/script.md` written (15 questions, 15 two-clause sentences, 10 exclamations; punctuation omitted from what the owner reads) for the owner's Wave 2 recording.
+- [x] **R1** `swift build` clean; `swift test --no-parallel` all green; `RecordingReplayTests` on `Fixtures/real-room/builtin` — WER unchanged ± 0.01 vs the 1.10.0 number in `DECISIONS.md`. — at `5ec671b`: build exit 0; **3156 tests, all passing** `--no-parallel` (one recorded known issue, `RealRoomMicQualityTests`); real-room WER 0.100 raw / 0.100 processed vs 0.099 (+0.001).
+- [x] **R2** `Fixtures/prosody/script.md` written (15 questions, 15 two-clause sentences, 10 exclamations; punctuation omitted from what the owner reads) for the owner's Wave 2 recording. — `928551d`, 40 lines, read text + target column.
 - [x] **R3** `Packaging/release.sh V4-w1 1.11.0` from a clean worktree; `verify_install.sh`; DMG retained, none overwritten. — `VoicePlus_V4-w1_1.11.0.dmg` from `928551d` (`--no-github`), 19 MB, sha256 `e80a1b58…`, verify OK; 25 DMGs retained.
-- [ ] **R4** `progress.md` (wave summaries, test count, DMG sha), `DECISIONS.md` (fn default, unknown-caret rule, SNR thresholds as hypothesis, pill geometry change, preview-before-insert), §7 of this document filled in; §5 handed to the owner with the numbers to collect.
+- [x] **R4** `progress.md` (wave summaries, test count, DMG sha), `DECISIONS.md` (fn default, unknown-caret rule, SNR thresholds as hypothesis, pill geometry change, preview-before-insert), §7 of this document filled in; §5 handed to the owner with the numbers to collect. — this commit.
 
 ---
 
@@ -799,21 +799,21 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ## 5. Owner hardware checklist (agent writes the numbers to collect; owner runs it)
 
-1. Built-in mic, AirPods in mid-sentence, input switched in System Settings while latched, AirPods case open/close ×3, music through AirPods then dictate, 10 min idle then dictate (§12.7 A of V4). Pass: zero "needs reconnecting" / "couldn't start"; every start < 1 s on built-in.
-2. Key-down → first buffer p95 from the log over 50 presses (`audio: key-down → first buffer N ms`, `.info`, category `engine`); cold launch → first landing p95 over 20 cold launches, each followed by one hold into Notes (`timing: cold launch → first landing N ms`, `.info`, category `app`, once per process: `LaunchLandingTiming`). Collect with `log show --info --predicate 'subsystem == "in.adityakatare.voiceplus"' --last 1h | grep -E "first buffer|first landing"`.
-3. Mic indicator (orange dot) is **off** between turns while the graph is paused (A4).
-4. 50 silent holds: 0 landings; "No speech detected" fades.
-5. Latch in Docs, Claude, Notes: 5 minutes, pauses of 2–3 s, move the caret between pauses; count wrong placements and "another voice" chips.
-6. Draw a box with the key held in Docs, Sheets, Figma: chip shows crop + text; deny Screen Recording once and confirm the AX-only fallback copy.
-7. Spool side by side with `design/design_v1.html` (Spool studio, every state chip): same silhouette, colours, blink, lean, mouth and lamp per state; reels counterclockwise while listening, clockwise while inserting, still in preview/held/error, parked in silence (deliberate difference); inlet width continuous; nothing drawn behind the notch; floating pill on an external display.
-8. Preview-before-insert: final text visible ≥ 900 ms before it lands; hover freezes it; Escape during preview inserts nothing; low-confidence word extends to 1.8 s.
-9. "Inserted in Mail" with tick in Mail/Notes; "Inserted · not confirmed" in Docs; held row after an app switch during dwell, Insert here re-targets.
-10. New press while finishing → "Finishing your previous dictation"; duplicate key-up cannot double-insert (hold, release, tap again fast).
-11. Every window section in light and dark, high contrast, Larger Text; every empty/loading/error state reachable (history off, log unreadable, model missing).
-12. Fresh user account: onboarding closable, under three minutes, fn system-action prompt appears when the key is set to Emoji/Dictation, voice step skippable, first dictation lands in the test field with one red-dotted word corrected.
-13. Tape flight from the pill mouth to the caret in Notes; suppressed in a secure field and under Reduce Motion.
-14. Red dotted marks in Notes/TextEdit/Mail; "Word marks aren't available in this app" in Docs; correction replaces only the marked word.
-15. Mute → quit → relaunch still muted; lock/sleep clears latch; no auto-resume.
+1. Built-in mic, AirPods in mid-sentence, input switched in System Settings while latched, AirPods case open/close ×3, music through AirPods then dictate, 10 min idle then dictate (§12.7 A of V4). Pass: zero "needs reconnecting" / "couldn't start"; every start < 1 s on built-in. **Collect:** starts per device (count) and every "needs reconnecting" / "couldn't start" (target 0); start time per press from `audio: key-down → first buffer N ms` (built-in max < 1000).
+2. Key-down → first buffer p95 from the log over 50 presses (`audio: key-down → first buffer N ms`, `.info`, category `engine`); cold launch → first landing p95 over 20 cold launches, each followed by one hold into Notes (`timing: cold launch → first landing N ms`, `.info`, category `app`, once per process: `LaunchLandingTiming`). Collect with `log show --info --predicate 'subsystem == "in.adityakatare.voiceplus"' --last 1h | grep -E "first buffer|first landing"`. **Collect:** both p95s and the raw lists (targets: first buffer p95 < 150 ms, first landing p95 < 2.5 s).
+3. Mic indicator (orange dot) is **off** between turns while the graph is paused (A4). **Collect:** yes/no per idle gap over 10 turns (target 10 × off).
+4. 50 silent holds: 0 landings; "No speech detected" fades. **Collect:** landings / 50 (target 0); stop reasons from the `engine` log (expect `.noSpeech`). Fixture side already 0/2 (`SpeechGateTests.silenceFixturesLandNothing`).
+5. Latch in Docs, Claude, Notes: 5 minutes, pauses of 2–3 s, move the caret between pauses; count wrong placements and "another voice" chips. **Collect:** segments landed, wrong placements (target ≤ 2 in 30 per app, right caret ≥ 95 %), "another voice" chips (target 0 alone).
+6. Draw a box with the key held in Docs, Sheets, Figma: chip shows crop + text; deny Screen Recording once and confirm the AX-only fallback copy. **Collect:** per app: chip crop + text shown (y/n); AX-only fallback copy seen after denial (y/n).
+7. Spool side by side with `design/design_v1.html` (Spool studio, every state chip): same silhouette, colours, blink, lean, mouth and lamp per state; reels counterclockwise while listening, clockwise while inserting, still in preview/held/error, parked in silence (deliberate difference); inlet width continuous; nothing drawn behind the notch; floating pill on an external display. **Collect:** per state chip, match / mismatch + screenshot of each mismatch.
+8. Preview-before-insert: final text visible ≥ 900 ms before it lands; hover freezes it; Escape during preview inserts nothing; low-confidence word extends to 1.8 s. **Collect:** preview-visible time on 10 turns (screen recording, ≥ 900 ms; ≥ 1800 ms with a red-dotted word); Escape-in-preview inserts (target 0); hover freeze (y/n).
+9. "Inserted in Mail" with tick in Mail/Notes; "Inserted · not confirmed" in Docs; held row after an app switch during dwell, Insert here re-targets. **Collect:** row shown per app (verified / not confirmed / held); Insert here lands once (y/n).
+10. New press while finishing → "Finishing your previous dictation"; duplicate key-up cannot double-insert (hold, release, tap again fast). **Collect:** K04 row seen (y/n); double inserts over 20 fast tap-agains (target 0).
+11. Every window section in light and dark, high contrast, Larger Text; every empty/loading/error state reachable (history off, log unreadable, model missing). **Collect:** section × appearance grid, one screenshot per state that looks wrong.
+12. Fresh user account: onboarding closable, under three minutes, fn system-action prompt appears when the key is set to Emoji/Dictation, voice step skippable, first dictation lands in the test field with one red-dotted word corrected. **Collect:** onboarding wall time (target < 3 min); prompt seen (y/n); first dictation landed + corrected (y/n).
+13. Tape flight from the pill mouth to the caret in Notes; suppressed in a secure field and under Reduce Motion. **Collect:** flight seen in Notes (y/n); suppressed in a secure field and under Reduce Motion (y/n each); tape cue fades, never over a mark.
+14. Red dotted marks in Notes/TextEdit/Mail; "Word marks aren't available in this app" in Docs; correction replaces only the marked word. **Collect:** marks drawn in Notes / TextEdit / Mail (y/n each); D09 copy in Docs; correction changed only the marked word (y/n).
+15. Mute → quit → relaunch still muted; lock/sleep clears latch; no auto-resume. **Collect:** muted after relaunch (y/n); latch cleared on lock and sleep (y/n); any auto-resume (target 0); lost key-up → K02 row (y/n).
 
 ---
 
@@ -832,6 +832,17 @@ Unverified: Chromium marker-range read on a real page
 ---
 
 ## 7. Execution status (agent-maintained)
+
+**Final status (2026-09-19).** Release **1.11.0** built: `Packaging/releases/VoicePlus_V4-w1_1.11.0.dmg`
+(19 MB, sha256 `e80a1b58715c68f31661886001899246914657f03cc7ca02477caf618165cf92`, ad-hoc signed,
+`verify_install.sh` OK). All waves 0–4 done; `swift test --no-parallel`: **3156 tests, all passing** at
+`5ec671b` (one recorded known issue). Real-room WER 0.100 (1.10.0: 0.099). V4 gates: silent holds 0 landings
+and digits WER 0.062 / 0.094 are **fixture-verified**; the quiet-room mic gate **fails 2 / 20** (energy-VAD
+onset, known issue, open). Everything else is **implemented** (unit/mock-tested). **Hardware-only** and still
+the owner's: every §5 item — live latency p95s (key-down → first buffer, cold launch → first landing), 50 live
+silent holds, latch placement in Docs/Claude/Notes, AX word-mark overlays and D09, tape flight to a real caret,
+the live K02 modifier poll, VoiceOver / high contrast / Reduce Motion on the real pill, external-monitor
+onboarding, the orange mic dot between turns.
 
 Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + tests green + acceptance addressed).
 
@@ -870,9 +881,9 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 3 | S5 | [x] | 434b755, 83a3473 | S5 50 (+50), WordAlignerTextS5 6 (+6), related 126 | implemented; §5 item 14 | review count from spans, not mapped marks; lexicon at retrain |
 | 3 | S10 | [x] | 0df97a6, 1a334b8 | S10 suites 41 (+41), related 188 | implemented; VoiceOver / Reduce Motion hardware-only | EscapeHotkey layers (additive); colour crossfade and undo ring left ungated |
 | 3 | S11 | [x] | d54b588 | RecoveryCatalogWiring 12 (+12), 9 copy suites updated | implemented; all 59 ids walked through pill + window | SessionCoordinator.onRefusal unassigned; meeting panel writes own consequence lines |
-| 4 | R1–R4 | [ ] | | | | |
+| 4 | R1–R4 | [x] | R1 none (at `5ec671b`), R2 `928551d`, R3 `19c22ea`, R4 this commit | 3156 `--no-parallel`, all passing (W4 fixes +48 over W3's 3108) | R1 build + tests + real-room WER 0.100 (±0.001 vs 1.10.0); R3 DMG verified; hardware §5 | `--no-github`; tag `release/phase-V4-w1/v1.11.0` not yet created; quiet-room mic gate 2 / 20 (known issue) |
 
-Design §13 acceptance mapping: scenario → test (suite › test) or §5 line. Evidence as labelled in §0; "open" = not yet covered.
+Design §13 acceptance mapping: scenario → test (suite › test) or §5 line. Evidence as labelled in §0; "open" = not yet covered. Re-checked at R4 (2026-09-19): no scenario is open on the agent side; the two gaps the W4 audit found (destination tape cue, lost key-up) are closed by `e7705a7` and `563b67a`, and scenario 3 also covers the manual dwell (`ef04bc8`: manual transform preview ends only by Cancel, Escape or a revalidated Replace text) and the focus pause (`f3b72d9`, `DwellFocusPauseTests`). Remaining work per row is the §5 hardware line.
 
 | # | Design §13 scenario | Tests | §5 | Status |
 |---|---|---|---|---|

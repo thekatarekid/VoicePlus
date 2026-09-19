@@ -446,3 +446,38 @@ syllabic modulation depth inside 300 ms of speech:
 `MicQualityV2Tests`, but no real-room recording has been graded against them. They are to be
 calibrated on the `Fixtures/real-room` corpus in Wave 2 (per built-in / headset / far-field device,
 the SNR at which WER starts to climb), and this entry updated with the measured bounds.
+
+## 2026-09-19 — V4 Wave 1 + Spool design (1.11.0)
+
+Build doc: `VoicePlus_ImplementationBuild_V4_Wave1+Design.md`. Five decisions this release rests on.
+
+- **Default key is fn / 🌐 (I1, owner decision).** Was Right Control (and the verified design's
+  copy says so). Why: fn is the one key every Mac keyboard has that no app binds. How: new installs
+  get `.fn`; a stored binding always wins; every hint renders the configured key label. When macOS
+  owns fn (`AppleFnUsageType` ≠ 0) onboarding and Settings › Shortcuts show the system-action prompt;
+  no fn event in 3 onboarding presses offers Right ⌥. Revisit if the §5 item 12 fresh-account run
+  shows the prompt confusing people or fn events missing on external keyboards.
+- **Unknown caret is its own state (D1/D3).** `CaretState` = `known` · `endOfField` · `unknown`; a
+  missing range is never read as end of field (the old `?? count` fallback is gone). With `unknown`:
+  no leading space, ≥ 3 words keep the model's casing and punctuation, 1–2 words are stripped,
+  StyleStage is off; landing memory (30 s, invalidated by any click/key/scroll/app switch) can
+  upgrade it to `known`. Setting `formatting.unknownCaretStyle` = `sentence` (default) | `asSpoken`.
+  Why: a guessed "end of field" added spaces and capitals mid-sentence. Revisit on §5 item 5 counts
+  (> 2 wrong placements in 30 per app).
+- **SNR thresholds are a hypothesis.** Poor < 10 dB, bad < 5 dB (entry above, F1). The replay of
+  `Fixtures/real-room/builtin` now fails the "0 warnings" gate 2 / 20 — not because of the bounds:
+  the energy VAD opens at capture start and the analyzer grades the room as speech. Fix the VAD
+  onset / signal window first, then calibrate per device class and update the F1 entry.
+- **Pill geometry follows the design (S2).** The pre-V4 ceiling of 560 × 96 (`absoluteMaximumSize`)
+  is replaced by idle chin 64 × 14, hover hint 360 × 38 (≥ 190), active 560 × 164, actionable
+  560 × 204, compact ceiling `min(560, usable − 32) × 204`, narrow < 460 with an 84 pt cameo bay;
+  132 pt character bay, never text under Spool; floating 8 pt below the menu bar on external
+  displays. Why: the design needs a tape lane, marks and an action row the 96 pt pill could not
+  hold. Revisit if §5 item 7 shows the pill covering content on 13" displays.
+- **Preview before insert (S3).** The final payload is shown for a dwell before any write: 900 ms
+  default, 1800 ms when a span is low-confidence, 600 / 900 / 1500 / manual in Settings; hover,
+  keyboard/VoiceOver focus or Review pause it; Escape during the preview inserts nothing; the
+  destination is revalidated before the write (changed → held, D01). Manual waits for Insert /
+  Replace text. Why: the user sees exactly what will be typed and can stop it; costs ~0.9 s per
+  turn. Revisit with the §5 item 8 timings — if owners find 900 ms slow, lower the default before
+  removing the preview.
