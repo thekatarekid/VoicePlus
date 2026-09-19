@@ -97,3 +97,86 @@ public enum WordAligner {
         return p.firstIndex { $0.audioRange.lowerBound >= start } ?? p.count
     }
 }
+
+// MARK: - S5 · text-only alignment (uncertainty marks through formatting)
+
+public extension WordAligner {
+    /// One run of words with no reliable word-for-word mapping between two matched anchors (or an end
+    /// of either text): the `source` words there became the `target` words. Empty `source` is a pure
+    /// insertion (at `source.lowerBound`), empty `target` a pure deletion.
+    struct Region: Equatable, Sendable {
+        public var source: Range<Int>
+        public var target: Range<Int>
+
+        public init(source: Range<Int>, target: Range<Int>) {
+            self.source = source
+            self.target = target
+        }
+    }
+
+    /// Word-for-word alignment of two texts of the same speech when one side has no timing (the words
+    /// the recogniser produced against the words that were formatted, cleaned up and code-switched).
+    /// Same edit-distance DP as `align(preview:final:)`: words are equal when their `normalize`d forms
+    /// are, a substitution costs 1 and a gap 0.6. In each `Pair`, `preview` indexes `source` and
+    /// `final` indexes `target`.
+    static func align(source s: [String], target t: [String]) -> [Pair] {
+        let a = s.map(normalize), b = t.map(normalize)
+        let n = a.count, m = b.count
+        let gap = 0.6
+        var cost = [[Double]](repeating: [Double](repeating: 0, count: m + 1), count: n + 1)
+        for i in stride(from: 1, through: n, by: 1) { cost[i][0] = Double(i) * gap }
+        for j in stride(from: 1, through: m, by: 1) { cost[0][j] = Double(j) * gap }
+        for i in stride(from: 1, through: n, by: 1) {
+            for j in stride(from: 1, through: m, by: 1) {
+                let sub: Double = a[i - 1] == b[j - 1] ? 0 : 1
+                cost[i][j] = min(cost[i - 1][j - 1] + sub, cost[i - 1][j] + gap, cost[i][j - 1] + gap)
+            }
+        }
+        var pairs: [Pair] = []
+        var i = n, j = m
+        while i > 0 || j > 0 {
+            if i > 0, j > 0 {
+                let equal = a[i - 1] == b[j - 1]
+                if abs(cost[i][j] - (cost[i - 1][j - 1] + (equal ? 0 : 1))) < 1e-9 {
+                    pairs.append(Pair(op: equal ? .match : .substitute, preview: i - 1, final: j - 1)); i -= 1; j -= 1; continue
+                }
+            }
+            if i > 0, abs(cost[i][j] - (cost[i - 1][j] + gap)) < 1e-9 {
+                pairs.append(Pair(op: .delete, preview: i - 1, final: nil)); i -= 1
+            } else {
+                pairs.append(Pair(op: .insert, preview: nil, final: j - 1)); j -= 1
+            }
+        }
+        return pairs.reversed()
+    }
+
+    /// The runs of non-matching pairs of an alignment, in order. Consecutive substitutions,
+    /// insertions and deletions form one region: inside it nothing maps word for word, so it is the
+    /// smallest stretch a mark can be moved onto reliably.
+    static func regions(of pairs: [Pair]) -> [Region] {
+        var out: [Region] = []
+        var nextSource = 0, nextTarget = 0
+        var run: [Pair] = []
+        func flush() {
+            guard !run.isEmpty else { return }
+            let si = run.compactMap(\.preview), ti = run.compactMap(\.final)
+            let source = (si.first ?? nextSource)..<((si.last.map { $0 + 1 }) ?? nextSource)
+            let target = (ti.first ?? nextTarget)..<((ti.last.map { $0 + 1 }) ?? nextTarget)
+            out.append(Region(source: source, target: target))
+            nextSource = source.upperBound
+            nextTarget = target.upperBound
+            run.removeAll()
+        }
+        for pair in pairs {
+            if pair.op == .match {
+                flush()
+                nextSource = (pair.preview ?? nextSource - 1) + 1
+                nextTarget = (pair.final ?? nextTarget - 1) + 1
+            } else {
+                run.append(pair)
+            }
+        }
+        flush()
+        return out
+    }
+}

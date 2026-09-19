@@ -296,13 +296,64 @@ public final class PillViewModel: ObservableObject {
     }
 
     /// S3 — the final payload's spans: low-confidence words get the dotted marks, the count drives
-    /// "N words to review" in the inserted row.
+    /// "N words to review" in the inserted row. S5 — the marks themselves are mapped onto the shown
+    /// text through formatting (`UncertaintyMarkMapper`, design §7), never by matching words.
     public func setFinalSpans(_ spans: [TranscriptSpan]) {
         let low = spans.filter(\.isLowConfidence)
         turn.uncertainCount = low.count
         turn.uncertainWords = Set(low.flatMap { $0.text.split(whereSeparator: \.isWhitespace) }
             .map { PillTextLane.normalized(String($0)) }.filter { !$0.isEmpty })
+        finalSpans = spans
+        resolvedMarks = []
+        markCache = nil
+        WordMarksWiring.adoptIfNeeded(self)
     }
+
+    // MARK: S5 — uncertainty marks and review (design §7)
+
+    /// The final payload's spans as published (formatted; confidence carried through every stage).
+    public private(set) var finalSpans: [TranscriptSpan] = []
+    /// Marks the user resolved on this turn (kept, or a spelling chosen): no longer drawn.
+    @Published public private(set) var resolvedMarks: Set<Int> = []
+    private var markCache: MarkMapping?
+    /// A dotted word was clicked or activated: its mark, the turn's marks, the word's screen rect.
+    public var onReviewMark: ((UncertainMark, MarkMapping, CGRect?) -> Void)?
+    /// "Review all" opened the Review surface for the final text.
+    public var onReviewAll: ((MarkMapping) -> Void)?
+
+    /// Where the marks go in `text` (the final payload on screen). Nothing for a text the spans did not
+    /// produce (another turn's words, a notice): `UncertaintyMarkMapper.belongs`.
+    public func markMapping(for text: String) -> MarkMapping {
+        if let cache = markCache, cache.text == text { return cache.removing(resolvedMarks) }
+        let available = finalSpans.contains { UncertaintyMarkMapper.carriesConfidence($0) }
+        let mapping = !text.isEmpty && UncertaintyMarkMapper.belongs(finalSpans, to: text)
+            ? UncertaintyMarkMapper.map(source: finalSpans, finalText: text)
+            : MarkMapping(text: text, marks: [], confidenceAvailable: available)
+        markCache = mapping   // one text at a time; redrawn every second while a timer is up
+        return mapping.removing(resolvedMarks)
+    }
+
+    /// The marks drawn in the text lane: final text only, never live words.
+    public func marks(for words: PillContent.Words) -> MarkMapping {
+        guard case .final(let text) = words else { return .empty }
+        return markMapping(for: text)
+    }
+
+    /// A dotted word was clicked (or activated from the keyboard / VoiceOver).
+    public func reviewMark(_ id: Int, anchor: CGRect? = nil) {
+        let mapping = marks(for: content().words)
+        guard let mark = mapping.mark(id: id) else { return }
+        onReviewMark?(mark, mapping, anchor)
+    }
+
+    /// Kept or corrected: the mark clears for this turn only.
+    public func resolveMarks(_ ids: Set<Int>) {
+        guard !ids.isSubset(of: resolvedMarks) else { return }
+        resolvedMarks.formUnion(ids)
+    }
+
+    /// The Review surface closed: the row leaves review mode (the dwell resumes, design §5 / F2).
+    public func endReview() { turn.reviewing = false }
 
     /// G3 → S2 — the boxes drawn this turn, with their crops.
     public func showDeixis(_ regions: [DeixisRegion], image: (DeixisRegion) -> CGImage?) {
@@ -366,6 +417,8 @@ public final class PillViewModel: ObservableObject {
             // so a paused payload is never stranded.
             turn.reviewing = true
             onAction?(action, shown)
+            // S5 — the Review surface: the whole final text with its marks.
+            if case .finalPreview(let info) = shown { onReviewAll?(markMapping(for: info.text)) }
         default:
             onAction?(action, shown)
             // A row the user acted on comes down; the handler has taken the next step.
@@ -648,7 +701,8 @@ struct PillBody: View {
             if let transform = PillTransformLane.Model(rows: model.drawnTransformRows, lineCount: lanes.lineCount) {
                 PillTransformLane(model: transform).place(lanes.wordsLane)   // W3H: S12 before / after
             } else {
-                PillWordsLane(lines: lines, words: content.words, uncertain: model.turn.uncertainWords)
+                PillWordsLane(lines: lines, words: content.words, marks: model.marks(for: content.words),   // S5
+                              onReview: { model.reviewMark($0, anchor: $1) })
                     .place(lanes.wordsLane)
             }
             if let chipRow = lanes.chipRow {
@@ -744,27 +798,63 @@ private extension View {
 }
 
 /// The text lane: natural-language words, the newest lines only, a leading fade when earlier lines
-/// scrolled away, and a 2 px dotted underline 3 px below the baseline on each uncertain word.
+/// scrolled away, and a 2 px dotted underline 3 px below the baseline on every wrapped fragment of an
+/// uncertain word or phrase. S5: the marks come from `MarkMapping` (spans aligned through formatting),
+/// placed on whole grapheme clusters (S10), and each opens word review on click or from VoiceOver.
 struct PillWordsLane: View {
     let lines: PillTextLane.Lines?
     let words: PillContent.Words
-    let uncertain: Set<String>
+    /// S5 — the final text's marks (`PillViewModel.marks(for:)`); empty for live or fixed words.
+    var marks: MarkMapping = .empty
+    var onReview: (Int, CGRect?) -> Void = { _, _ in }
 
     var body: some View {
+        let fragments = markFragments
         VStack(alignment: .leading, spacing: 0) {
             if let lines {
                 ForEach(Array(lines.lines.enumerated()), id: \.offset) { index, line in
-                    Text(attributed(line))
-                        .font(Tokens.Typography.pillTranscript.font())
-                        .foregroundStyle(ink)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                        .frame(height: PillLaneLayout.lineHeight, alignment: .leading)
-                        .mask(fadeMask(first: index == 0 && lines.clippedLeading))
+                    let onLine = fragments.filter { $0.line == index }
+                    ZStack(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline)) {
+                        Text(line)
+                            .font(Tokens.Typography.pillTranscript.font())
+                            .foregroundStyle(ink)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                        if !onLine.isEmpty {
+                            PillMarkUnderlines(fragments: onLine)
+                                .alignmentGuide(.firstTextBaseline) { _ in -MarkStyle.baselineOffset }
+                        }
+                    }
+                    .frame(height: PillLaneLayout.lineHeight, alignment: .leading)
+                    .overlay(alignment: .topLeading) { targets(onLine) }
+                    .mask(fadeMask(first: index == 0 && lines.clippedLeading))
                 }
             }
         }
         .accessibilityIdentifier("pill.words")
+    }
+
+    /// The marks' pieces on the drawn lines, measured in the lane's font.
+    private var markFragments: [MarkFragment] {
+        guard case .final(let text) = words, let lines, !marks.isEmpty else { return [] }
+        let font = Tokens.Typography.pillTranscript.nsFont()
+        return MarkFragments.layout(text: text, lines: lines.lines, marks: marks.marks) { s in
+            ceil((s as NSString).size(withAttributes: [.font: font]).width)
+        }
+    }
+
+    @ViewBuilder
+    private func targets(_ fragments: [MarkFragment]) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(fragments.enumerated()), id: \.offset) { _, fragment in
+                if let mark = marks.mark(id: fragment.markID) {
+                    PillMarkTarget(mark: mark, width: fragment.width, height: PillLaneLayout.lineHeight) { rect in
+                        onReview(mark.id, rect)
+                    }
+                    .offset(x: fragment.x)
+                }
+            }
+        }
     }
 
     private var ink: Color {
@@ -777,21 +867,6 @@ struct PillWordsLane: View {
                         ? [.init(color: .clear, location: 0), .init(color: .black, location: 0.18)]
                         : [.init(color: .black, location: 0), .init(color: .black, location: 1)],
                        startPoint: .leading, endPoint: .trailing)
-    }
-
-    private func attributed(_ line: String) -> AttributedString {
-        guard case .final = words, !uncertain.isEmpty else { return AttributedString(line) }
-        var out = AttributedString()
-        let parts = line.split(separator: " ", omittingEmptySubsequences: false)
-        for (i, part) in parts.enumerated() {
-            var run = AttributedString(String(part))
-            if uncertain.contains(PillTextLane.normalized(String(part))) {
-                run.underlineStyle = Text.LineStyle(pattern: .dot, color: Tokens.Pill.Token.uncertainty.color)
-            }
-            out += run
-            if i < parts.count - 1 { out += AttributedString(" ") }
-        }
-        return out
     }
 }
 
