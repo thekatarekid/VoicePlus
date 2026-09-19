@@ -78,6 +78,59 @@ struct TransformPreviewControlsTests {
         #expect(drawn.buttons.map(\.label) == [TransformPreviewCopy.replaceButton, TransformPreviewCopy.cancelButton])
     }
 
+    /// A manual preview ends only by the user: Cancel and Escape keep the original, and Replace text
+    /// still revalidates the target first — a field changed meanwhile is held, never overwritten.
+    @Test func manualPreviewEndsByCancelEscapeOrARevalidatedReplace() async {
+        // Cancel (the pill's button → `TransformLanding.cancelPreview`).
+        let cancel = TransformPreviewGateTests.harness()
+        cancel.landing.previewDwell = { .fromSetting(seconds: nil) }
+        let slices = Box(0)
+        cancel.landing.sleep = { [landing = cancel.landing] _ in
+            slices.value += 1
+            if slices.value == 40 { landing.cancelPreview() }
+        }
+        let cancelled = await TransformPreviewGateTests.instruct(cancel.landing)
+        #expect(cancelled == .transformed(.failed(.unavailable(reason: "cancelled"))))
+        #expect(slices.value == 40 && cancel.system.field.value == Self.original && cancel.system.postCount == 0)
+        #expect(cancel.landing.phase == .cancelled)
+
+        // Escape (the driver borrows it for R1 in manual review too).
+        let (d, _, escape, _) = driver()
+        let esc = TransformPreviewGateTests.harness()
+        esc.landing.previewDwell = { .fromSetting(seconds: nil) }
+        let pending = Box<[TransformPillReducer.Event]>([])
+        esc.landing.onEvent = { e in pending.value.append(e) }
+        d.onCancel = { [landing = esc.landing] in landing.cancelPreview() }
+        let escSlices = Box(0)
+        esc.landing.sleep = { _ in
+            escSlices.value += 1
+            await MainActor.run {
+                for e in pending.value { d.handle(e) }
+                pending.value.removeAll()
+                if escSlices.value == 25 { escape.press() }
+            }
+        }
+        let escaped = await TransformPreviewGateTests.instruct(esc.landing)
+        #expect(escaped == .transformed(.failed(.unavailable(reason: "cancelled"))))
+        #expect(escSlices.value == 25 && esc.system.field.value == Self.original && esc.system.postCount == 0)
+
+        // Replace text after the field changed under the preview: revalidation holds it.
+        let changed = TransformPreviewGateTests.harness()
+        changed.landing.previewDwell = { .fromSetting(seconds: nil) }
+        let other = "Can we meet Saturday"
+        let changedSlices = Box(0)
+        changed.landing.sleep = { [landing = changed.landing, system = changed.system] _ in
+            changedSlices.value += 1
+            if changedSlices.value == 10 { system.field = .init(value: other, selection: 0..<other.utf16.count) }
+            if changedSlices.value == 20 { landing.confirmPreview() }
+        }
+        let held = await TransformPreviewGateTests.instruct(changed.landing)
+        #expect(held == .transformed(.failed(.mismatch(actual: nil))))
+        #expect(changed.system.field.value == other, "the changed field is never overwritten")
+        #expect(changed.recoveries.value.count == 1 && changed.recoveries.value.first?.text == Self.edited)
+        #expect(changed.landing.phase == .held(.textChanged))
+    }
+
     @Test func landingReadsTheDwellEachTurn() async {
         let h = TransformPreviewGateTests.harness()
         let slept = Box<TimeInterval>(0)
