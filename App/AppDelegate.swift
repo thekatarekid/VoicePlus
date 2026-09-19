@@ -251,6 +251,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.transformPill = transformPill
 
+        // ── S12 · selected-text transform recovery (design §6 R1/R2, §8.8) ─────────────────────
+        // An edit whose target changed before the replacement, or an undo whose range changed, is
+        // never written: the text goes to the held row (Insert here · Copy · Discard) and the menu.
+        container.transform.onRecovery = { [weak self] recovery in
+            Task { @MainActor in
+                self?.deliveryPill?.handle(.held(reason: recovery.heldReason), text: recovery.text,
+                                           destination: recovery.destination)
+            }
+        }
+        // Nothing is written during R1, so Escape (borrowed only while the edit runs or is previewed)
+        // keeps the original, and the pointer on the pill freezes the preview's dwell.
+        transformPill.onCancel = { [weak container] in container?.transform.cancelPreview() }
+        transformPill.onPause = { [weak container] on in container?.transform.pausePreview(on) }
+        let transformEscape = EscapeHotkey()
+        transformEscape.observeMenuTracking()
+        transformPill.escape = transformEscape
+        // ── end S12 ─────────────────────────────────────────────────────────────────────────────
+
         // P1.5.2 — shimmer/underline + hover "was: …" + one-tap revert on silent corrections.
         let overlay = CorrectionOverlayController(ledger: container.correction.ledger)
         overlay.revertSink = container.repair.replaceSink
