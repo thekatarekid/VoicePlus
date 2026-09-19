@@ -1,4 +1,35 @@
-# VoicePlus 1.11.0 — V4 wave 1 and the Spool design
+# VoicePlus 1.11.1 — V4 wave 1 and the Spool design
+
+## 1.11.1 — a pause before the first word no longer triggers a mic warning
+
+`VoicePlus_V4-w1_1.11.1.dmg` · sha256 `8a2edfd55e788854c72f39361bb828787b25ae23bdbbfa0a387aa46cedcbf7a5`
+Built from `82ef429` in a clean worktree (`Packaging/release.sh V4-w1 1.11.1 --no-github`), `verify_install.sh` OK.
+The only change since 1.11.0 is the mic gate fix (`82ef429`). Everything from "1.11.0" down is unchanged in 1.11.1.
+
+**What changed for the user.** On the built-in mic in a quiet room, waiting about a second before the
+first word could bring up "Mic level is very low" in the pill and a bad mic status in the menu. The
+speech itself was fine. The cause was the start of capture. For 30–45 ms the mic reads 10–20 dB below
+the room, and the energy VAD took that dip as the room's noise floor. The room then counted as speech,
+so the mic check graded the room instead of the voice. Now a level has to last 60 ms before it can
+become the floor, so the check grades the first second of real speech. The energy VAD is what
+dictation uses when the Silero VAD model is not on disk, and it is always what onboarding and the
+microphone self-test use. Silero was not measured on this corpus. The verdict also no longer depends
+on how busy the machine is, whichever VAD runs: the check now receives audio one VAD frame at a time
+and gives its verdict at a fixed frame. The mic-quality thresholds are unchanged.
+
+**Gate.** 0 mic warnings on the quiet-room corpus: **passes 20 / 20** (1.11.0: 2 / 20). The results
+are identical whether the audio is fed in 50 ms blocks, 10 ms blocks or the whole file at once.
+`swift test --no-parallel` at `82ef429`: 3161 tests, all passing.
+
+**Cost, and what is still open.**
+- In a real room the steady noise floor reads about 2–3 dB higher, so speech needs that much more level
+  to start a segment.
+- The mic check's own floor estimate has no 60 ms hold yet. On 9 of the 20 corpus files its SNR reads
+  6–26 dB too high. This never causes a warning, but it has to be fixed before Wave 2 uses the corpus
+  to set the SNR bounds.
+- The Settings microphone test still runs its own analyzer on whole blocks.
+
+## 1.11.0
 
 `VoicePlus_V4-w1_1.11.0.dmg` · sha256 `e80a1b58715c68f31661886001899246914657f03cc7ca02477caf618165cf92`
 Built from `928551d` in a clean worktree (`Packaging/release.sh V4-w1 1.11.0 --no-github`), `verify_install.sh` OK.
@@ -7,7 +38,7 @@ Every wave 1 item of `VoicePlus_Improvements_V4.md` §14.2 and the whole Spool d
 (3108 tests at the wave 3 gate); the release-candidate test run is R1's, recorded in `progress.md`.
 This is a **candidate**: every hardware check in build doc §5 is still unrun.
 
-## What changed for the user
+### What changed for the user
 
 **Spool.** The app has a face: a cassette whose reels turn counterclockwise while you speak and
 clockwise while text is written, with one oxide tape running from the live-words ribbon into the pill.
@@ -61,17 +92,17 @@ onboarding and the menu. Unconfirmed or partial deliveries are never retried aut
 start, "Microphone closed", "Final text ready · N words to review" and the result once each; Larger Text
 reflows the window; marks are placed on whole graphemes (CJK, RTL, emoji).
 
-## V4 wave 1 gates
+### V4 wave 1 gates
 
 | Gate | Result |
 |---|---|
 | digits class WER < 0.20 | **passes** — raw 0.062, processed 0.094 (lines 04 / 05 / 11) |
-| 0 mic warnings on the quiet-room corpus | **fails — 2 / 20.** Lines 02 and 14 open with ~1.1 s of room; the energy VAD opens a segment on it and the analyzer grades room as speech. Known issue; the fix belongs to VAD onset, not the thresholds. |
+| 0 mic warnings on the quiet-room corpus | **fails — 2 / 20.** Lines 02 and 14 open with ~1.1 s of room; the energy VAD opens a segment on it and the analyzer grades room as speech. Known issue; the fix belongs to VAD onset, not the thresholds. **Fixed in 1.11.1: 20 / 20.** |
 | 0 phantom landings on silent holds | fixture-verified; owner repeats live |
 | cold launch → first landing p95 < 2.5 s; key-down → first buffer p95 < 150 ms | now logged once per process at `.info`; owner measures |
 | latch lands every ≥ 2 s pause; mid-sentence placement ≤ 2 wrong in 30 × 5 apps | mock / pipeline tests only; owner session |
 
-## Not verified
+### Not verified
 
 Everything needing a microphone, a display, real apps or TCC grants: the tape flight and mark overlays on
 real carets, notch placement, VoiceOver and high-contrast passes, onboarding on a clean account and on an

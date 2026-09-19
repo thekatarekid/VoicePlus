@@ -770,7 +770,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 - [x] **R1** `swift build` clean; `swift test --no-parallel` all green; `RecordingReplayTests` on `Fixtures/real-room/builtin` — WER unchanged ± 0.01 vs the 1.10.0 number in `DECISIONS.md`. — at `5ec671b`: build exit 0; **3156 tests, all passing** `--no-parallel` (one recorded known issue, `RealRoomMicQualityTests`); real-room WER 0.100 raw / 0.100 processed vs 0.099 (+0.001).
 - [x] **R2** `Fixtures/prosody/script.md` written (15 questions, 15 two-clause sentences, 10 exclamations; punctuation omitted from what the owner reads) for the owner's Wave 2 recording. — `928551d`, 40 lines, read text + target column.
-- [x] **R3** `Packaging/release.sh V4-w1 1.11.0` from a clean worktree; `verify_install.sh`; DMG retained, none overwritten. — `VoicePlus_V4-w1_1.11.0.dmg` from `928551d` (`--no-github`), 19 MB, sha256 `e80a1b58…`, verify OK; 25 DMGs retained.
+- [x] **R3** `Packaging/release.sh V4-w1 1.11.0` from a clean worktree; `verify_install.sh`; DMG retained, none overwritten. — `VoicePlus_V4-w1_1.11.0.dmg` from `928551d` (`--no-github`), 19 MB, sha256 `e80a1b58…`, verify OK; 25 DMGs retained. **1.11.1** (mic gate fix): `VoicePlus_V4-w1_1.11.1.dmg` from `82ef429` (`--no-github`), 19 MB, sha256 `8a2edfd5…`, verify OK; 26 DMGs retained, none overwritten.
 - [x] **R4** `progress.md` (wave summaries, test count, DMG sha), `DECISIONS.md` (fn default, unknown-caret rule, SNR thresholds as hypothesis, pill geometry change, preview-before-insert), §7 of this document filled in; §5 handed to the owner with the numbers to collect. — this commit.
 
 ---
