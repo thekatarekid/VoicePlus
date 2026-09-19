@@ -45,14 +45,42 @@ final class MockVoiceCapture: VoiceTestCapturing, @unchecked Sendable {
 @MainActor
 @Suite("S7e — Voice: microphone test, Spool, enrollment, language, benchmarks")
 struct VoiceSectionS7eTests {
-    /// A hang guard, not a latency assertion: a full parallel AppTests run can stall the main actor
-    /// for 20 s and more (see OnboardingS8Tests' waiter).
+    /// The hang guard gave up: the condition never held in `checks` looks at it.
+    struct WaitGaveUp: Error, CustomStringConvertible {
+        let checks: Int
+        var description: String { "condition still false after \(checks) checks on the main actor" }
+    }
+
+    /// A hang guard, not a latency assertion. It counts its own checks, not wall time: a full parallel
+    /// AppTests run (`-j 3`, or several verifier runs at once) can stall the main actor for minutes
+    /// (see OnboardingS8Tests' waiter), and every hop the model under test needs to make the condition
+    /// true is stalled with it. A wall-clock deadline then expired with the condition still false and
+    /// threw `CancellationError` — the wave-3 flake. A stalled main actor runs no checks, so it spends
+    /// none of this budget; `timeout` of an unstalled run is 20 ms × checks, as before.
     static func waitUntil(timeout: TimeInterval = 120, _ condition: @MainActor () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let limit = max(1, Int((timeout / 0.02).rounded()))
+        var checks = 0
         while !condition() {
-            if Date() > deadline { throw CancellationError() }
+            checks += 1
+            if checks >= limit { throw WaitGaveUp(checks: checks) }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
+    }
+
+    /// The wave-3 flake, reproduced in miniature: the main actor stalls for longer than the whole
+    /// budget and the condition needs one more main-actor hop after the stall. A wall-clock deadline
+    /// expired here with the condition still false; a stalled main actor spends no checks.
+    @Test("the hang guard counts its checks, not wall time: a stalled main actor does not spend it")
+    func hangGuardSurvivesAStalledMainActor() async throws {
+        final class Flag: @unchecked Sendable { var ready = false }
+        let flag = Flag()
+        Task { @MainActor in
+            Thread.sleep(forTimeInterval: 0.3)            // a busy neighbour holding the main actor
+            Task { @MainActor in flag.ready = true }      // the hop the condition waits for
+        }
+        try await Self.waitUntil(timeout: 0.1) { flag.ready }
+        #expect(flag.ready)
+        await #expect(throws: WaitGaveUp.self) { try await Self.waitUntil(timeout: 0.06) { false } }
     }
 
     /// Speech-like audio: a 220 Hz tone at `amplitude`, `seconds` long, 16 kHz.
