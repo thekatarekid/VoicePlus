@@ -274,24 +274,30 @@ struct MainWindowShellTests {
     // MARK: - Dictionary / Apps (§9.3)
 
     private func dictionaryApps(defaults: UserDefaults, database: AppDatabase?) -> DictionaryAppsSectionViewModel {
-        DictionaryAppsSectionViewModel(dictionary: DictionaryViewModel(database: database),
-                                       learned: LearnedDictionaryViewModel(loop: nil, store: nil),
-                                       personas: PersonasViewModel(database: database),
-                                       snippets: SnippetsViewModel(store: InMemorySnippetStore()),
-                                       defaults: defaults)
+        let model = DictionaryAppsSectionViewModel(dictionary: DictionaryViewModel(database: database),
+                                                   learned: LearnedDictionaryViewModel(loop: nil, store: nil),
+                                                   personas: PersonasViewModel(database: database),
+                                                   snippets: SnippetsViewModel(store: InMemorySnippetStore()),
+                                                   defaults: defaults)
+        // S7d: words go through the store the screen connects on appear (`DictionaryAppsScreen`).
+        model.connect(database: database)
+        return model
     }
 
+    // S7d: design §8.3 / §9 copy — Dictionary "Make it sound like you" · "Add a word VoicePlus keeps
+    // getting wrong." · Add a word; Apps "Every app uses your defaults". `DictionaryAppsS7dTests` has the rest.
     @Test("dictionary and apps have their own empties, and adding to either turns it into content")
     func dictionaryAndAppsStates() throws {
         let database = try AppDatabase.inMemory()
         let defaults = Self.defaults()
         let model = dictionaryApps(defaults: defaults, database: database)
-        #expect(model.dictionaryState.headline == SectionCopy.noTerms)
-        #expect(model.dictionaryState.actionTitle == SectionCopy.importFromContacts)
-        #expect(model.appsState.headline == SectionCopy.noAppSettings)
+        #expect(model.dictionaryState.headline == DesignScreen.dictionary.empty.headline)
+        #expect(model.dictionaryState.detail == "Add a word VoicePlus keeps getting wrong.")
+        #expect(model.dictionaryState.actionTitle == DesignScreen.dictionary.empty.action)
+        #expect(model.appsState.headline == "Every app uses your defaults")
         #expect(model.appsState.isWellFormed)
 
-        #expect(model.dictionary.add(term: "Katare"))
+        #expect(DictionaryViewModel(database: database).add(term: "Katare"))
         model.reload()
         #expect(model.dictionaryState.isContent)
 
