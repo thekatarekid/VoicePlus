@@ -1,4 +1,32 @@
-# VoicePlus 1.11.1 — V4 wave 1 and the Spool design
+# VoicePlus 1.11.2 — V4 wave 1 and the Spool design
+
+## 1.11.2 — fixes from the first fresh-install run
+
+`VoicePlus_V4-w1_1.11.2.dmg` · sha256 `86d8cdd5c4f2914e36dc7748ea274ebfe3a436c3e27bb95d52ae522713b37ae9`
+Built from `5a02a51` in a clean worktree (`Packaging/release.sh V4-w1 1.11.2 --no-github`), `verify_install.sh` OK.
+1.11.2 is 1.11.1 plus five fixes for problems the owner hit on a fresh install (FX1–FX5). Everything from
+"1.11.1" down is unchanged.
+
+**What changed for the user.**
+- **Onboarding no longer freezes on "Try your first sentence".** Writing the practice sentence into
+  VoicePlus's own text field went through Accessibility from a background thread, which locked up the
+  app. Text for VoicePlus's own windows is now inserted directly on the main thread, and a watchdog logs
+  any main-thread stall longer than 2 s. (FX1)
+- **The chin no longer sticks on "Working…" after fn is released.** It now follows every end of a turn,
+  including ones the filtered feed used to hide. (FX2)
+- **No false "The speech model isn't ready" right after the first download.** The app now waits for the
+  new model to finish loading before it says anything, and onboarding retries once. Download sizes are
+  now real (721 MB for the stack, not 914 MB), and the progress line reads "Downloading model N of 3 ·
+  name · X of Y MB overall". (FX3)
+- **Designer notes are no longer shown as captions.** 14 recovery messages that showed internal notes
+  (such as "After 2 s, name the wait") were rewritten as plain user text, and a test now blocks such notes. (FX4)
+- **The chin's pulse stays centred.** (FX5)
+
+**Gate.** `swift test --no-parallel` at `5a02a51`: 3215 tests, all passing (+54 over 1.11.1).
+
+**Not verified.** Each fix is still to be checked by the owner on the installed app. Still open: other
+Accessibility callers have no own-process guard, and the pill stays up about 27 s after a landing.
+
 
 ## 1.11.1 — a pause before the first word no longer triggers a mic warning
 
