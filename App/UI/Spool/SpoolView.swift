@@ -113,12 +113,15 @@ struct SpoolView: View {
     /// Overrides the system setting (S10 adds the Appearance preference).
     var reduceMotion: Bool?
     var onAnchorsChange: ((SpoolAnchors) -> Void)?
+    /// S4 — follows the anchors on screen (the pill's tape flight source); `nil` on window surfaces.
+    var anchorTracker: SpoolAnchorTracker?
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var animator = SpoolAnimator()
 
     init(key: SpoolStateKey, stateStartedAt: Date, level: Double = 0, style: Style = .pill, hidden: Bool = false,
-         reduceMotion: Bool? = nil, onAnchorsChange: ((SpoolAnchors) -> Void)? = nil) {
+         reduceMotion: Bool? = nil, onAnchorsChange: ((SpoolAnchors) -> Void)? = nil,
+         anchorTracker: SpoolAnchorTracker? = nil) {
         self.key = key
         self.stateStartedAt = stateStartedAt
         self.level = level
@@ -126,6 +129,7 @@ struct SpoolView: View {
         self.hidden = hidden
         self.reduceMotion = reduceMotion
         self.onAnchorsChange = onAnchorsChange
+        self.anchorTracker = anchorTracker
     }
 
     var body: some View {
@@ -139,7 +143,12 @@ struct SpoolView: View {
             }
         }
         .onPreferenceChange(SpoolAnchorsPreferenceKey.self) { anchors in
-            if let anchors { onAnchorsChange?(anchors) }
+            guard let anchors else { return }
+            onAnchorsChange?(anchors)
+            anchorTracker?.update(anchors)
+        }
+        .background {
+            if let anchorTracker { SpoolWindowProbe(tracker: anchorTracker) }
         }
         .accessibilityHidden(true)
     }

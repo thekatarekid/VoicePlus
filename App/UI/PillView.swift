@@ -142,6 +142,11 @@ public final class PillViewModel: ObservableObject {
     @Published public private(set) var spoolStartedAt = Date()
     /// Advances once a second while a timer or the finishing offer is on screen.
     @Published public private(set) var clockTick = Date()
+    /// S4 — Spool's mouth on screen (the tape flight's source). The first time the pill's Spool is drawn
+    /// in a window, the live tape flight installs itself on this pill (App/Overlay/TapeFlight*).
+    lazy var spoolAnchors = SpoolAnchorTracker { [weak self] _ in
+        if let self { TapeFlightWiring.installLive(on: self) }
+    }
 
     public var onGhostAction: ((TransformGhost.Action) -> Void)?
     /// R2.4 — Insert here / Copy / Discard from the held row.
@@ -634,7 +639,8 @@ struct PillBody: View {
             UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
                 .fill(Tokens.Pill.Token.background.color)
             if content.showsSpool, let key = SpoolStateKey(rawValue: content.spoolKey) {
-                SpoolView(key: key, stateStartedAt: model.spoolStartedAt, level: model.captureLevel, style: .pill)
+                SpoolView(key: key, stateStartedAt: model.spoolStartedAt, level: model.captureLevel, style: .pill,
+                          anchorTracker: model.spoolAnchors)   // S4: the tape flight's mouth anchor
                     .frame(width: size.width, height: PillLaneLayout.sceneHeight)
                     .allowsHitTesting(false)
             }
