@@ -646,8 +646,9 @@ public struct PillView: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .onHover { model.setPointerInside($0) }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(content.accessibilityLabel)
+        .accessibilityLabel(PillSpeech.containerLabel(content))   // S10: never live words or the ticking timer
         .accessibilityIdentifier("pill.\(model.state.caseName)")
+        .pillAnnouncements(model)                                 // S10: start, stop, final, delivery
     }
 }
 
@@ -675,6 +676,8 @@ struct PillBody: View {
     let content: PillContent
     let size: CGSize
     let attached: Bool
+    /// S10 — Reduce Motion (system or Settings › Appearance).
+    @ObservedObject var motion = MotionPreference.shared
 
     private var lanes: PillLaneLayout {
         PillLaneLayout(size: size, hasChip: hasChipRow, hasActions: content.hasActions)
@@ -698,23 +701,34 @@ struct PillBody: View {
                     .allowsHitTesting(false)
             }
             statusRow.place(lanes.statusRow)
+                .accessibilitySortPriority(PillReadingOrder.priority(.status))   // S10
             if let transform = PillTransformLane.Model(rows: model.drawnTransformRows, lineCount: lanes.lineCount) {
                 PillTransformLane(model: transform).place(lanes.wordsLane)   // W3H: S12 before / after
+                    .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             } else {
                 PillWordsLane(lines: lines, words: content.words, marks: model.marks(for: content.words),   // S5
                               onReview: { model.reviewMark($0, anchor: $1) })
                     .place(lanes.wordsLane)
+                    .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             }
             if let chipRow = lanes.chipRow {
                 PillChipRow(chips: model.deixisChips, note: model.laneNote).place(chipRow)
+                    .accessibilitySortPriority(PillReadingOrder.priority(.chips))   // S10
+            }
+            if let key = SpoolStateKey(rawValue: content.spoolKey), motion.policy.showsLevelReadout(for: key) {
+                // S10 — Reduce Motion: a numeric level stands in for the tape's capture motion.
+                PillLevelReadout(level: model.captureLevel).place(LevelReadout.rect(in: lanes))
+                    .accessibilitySortPriority(PillReadingOrder.priority(.levelReadout))
             }
             helperRow(overflow: overflowLabel(lines)).place(lanes.helperRow)
+                .accessibilitySortPriority(PillReadingOrder.priority(.helper))   // S10
             if let actionRow = lanes.actionRow {
                 PillActionRow(buttons: content.buttons) { model.perform($0) }.place(actionRow)
+                    .accessibilitySortPriority(PillReadingOrder.priority(.actions))   // S10
             }
         }
         .clipShape(UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached)))
-        .animation(.easeOut(duration: 0.18), value: content.designKey)
+        .animation(motion.policy.transition, value: content.designKey)   // S10: none under Reduce Motion
     }
 
     private var statusRow: some View {
@@ -934,9 +948,13 @@ struct PillActionRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(button.identifier)
+                // S10 — reading order: left to right, the primary recovery first as drawn.
+                .accessibilitySortPriority(PillReadingOrder.actionPriority(index: buttons.firstIndex(of: button) ?? 0,
+                                                                           count: buttons.count))
             }
             Spacer(minLength: 0)
         }
+        .accessibilityElement(children: .contain)   // S10
     }
 }
 

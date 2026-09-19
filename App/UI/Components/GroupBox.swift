@@ -81,7 +81,8 @@ struct RowView<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: Tokens.Spacing.l) {
+        // S10 — under Larger Text the trailing control moves under the text when both no longer fit.
+        ReflowingRow(spacing: Tokens.Spacing.l) {
             VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
                 Text(title)
                     .windowFont(Tokens.Typography.body)
@@ -93,8 +94,8 @@ struct RowView<Trailing: View>: View {
                         .foregroundStyle(WindowColor.secondaryInk)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            trailing.fixedSize()
+        } trailing: {
+            self.trailing
         }
         .padding(.vertical, Tokens.Spacing.m)
         .padding(.horizontal, Tokens.Spacing.l)

@@ -18,6 +18,8 @@ struct PresenceIndicatorView: View {
     let attached: Bool
     /// The I1 hint for the configured key; also the chin's accessible description (design §4).
     let readyHint: String
+    /// S10 — Reduce Motion (system or Settings › Appearance).
+    @ObservedObject private var motion = MotionPreference.shared
 
     init(state: PresenceState, hovered: Bool, cornerRadius: CGFloat, hint: String, rowText: String? = nil,
          attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint()) {
@@ -39,7 +41,7 @@ struct PresenceIndicatorView: View {
             .background(background)
             .clipShape(UnevenRoundedRectangle(cornerRadii: corners))
             .foregroundStyle(Tokens.Pill.Token.ink.color)
-            .animation(.easeOut(duration: 0.18), value: hovered)
+            .animation(motion.policy.transition, value: hovered)   // S10: none under Reduce Motion
             .accessibilityIdentifier("presence.\(state.caseName)")
             .accessibilityLabel(state == .ready ? readyHint : state.detail)
     }
@@ -114,6 +116,8 @@ private struct ReadyDot: View {
 private struct LevelBar: View {
     let level: Float?
     @State private var phase: CGFloat = 0.25
+    /// S10 — under Reduce Motion the processing bar holds still (no shimmer) and levels step.
+    @ObservedObject private var motion = MotionPreference.shared
 
     var body: some View {
         GeometryReader { geo in
@@ -124,9 +128,9 @@ private struct LevelBar: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .padding(.horizontal, 4)
-        .animation(.linear(duration: 0.08), value: level)
+        .animation(motion.reduced ? nil : .linear(duration: 0.08), value: level)
         .onAppear {
-            guard level == nil else { return }
+            guard level == nil, !motion.reduced else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { phase = 0.85 }
         }
     }

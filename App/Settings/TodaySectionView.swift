@@ -116,6 +116,10 @@ struct TodaySectionView: View {
         .accessibilityLabel("\(row.excerpt), \(row.subtitle()), \(row.tag.label)")
         .accessibilityAction { model.openTurn(row.id) }
         .accessibilityIdentifier("today.recent.row")
+        // S10 — a keyboard stop in reading order that Return opens, and where focus comes back to
+        // when its turn detail closes.
+        .focusReturnTarget(TodayFocus.row(row.id), in: .today)
+        .onKeyPress(.return) { model.openTurn(row.id); return .handled }
     }
 
     /// The recent group's empty or error when drafts keep the page as content.

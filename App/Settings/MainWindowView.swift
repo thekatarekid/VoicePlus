@@ -77,6 +77,7 @@ public struct MainWindowView: View {
             }
         }
         .background(windowShortcuts)
+        .windowTextScaleRoot(model.general)   // S10: Larger Text reflows the whole window, not only Settings
     }
 
     /// Each visited section's screen, kept alive and stacked; only the selected one is visible,

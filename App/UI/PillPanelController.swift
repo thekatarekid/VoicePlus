@@ -158,8 +158,9 @@ public final class PillPanelController {
 
     private func animate(to frame: NSRect, completion: (() -> Void)? = nil) {
         NSAnimationContext.runAnimationGroup({ ctx in
-            // design §11: 160–220 ms ease-out geometry transitions; Reduce Motion expands instantly.
-            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.18
+            // design §11: 160–220 ms ease-out geometry transitions; Reduce Motion (macOS or Settings ›
+            // Appearance, S10) expands instantly.
+            ctx.duration = MotionPreference.shared.policy.transitionDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             ctx.allowsImplicitAnimation = true
             panel.animator().setFrame(frame, display: true)

@@ -110,13 +110,15 @@ struct SpoolView: View {
     var level: Double = 0
     var style: Style = .pill
     var hidden: Bool = false
-    /// Overrides the system setting (S10 adds the Appearance preference).
+    /// Overrides the Reduce Motion preference (`nil` follows it: macOS or Settings › Appearance, S10).
     var reduceMotion: Bool?
     var onAnchorsChange: ((SpoolAnchors) -> Void)?
     /// S4 — follows the anchors on screen (the pill's tape flight source); `nil` on window surfaces.
     var anchorTracker: SpoolAnchorTracker?
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    /// S10 — the app's own Reduce Motion switch joins the system's.
+    @ObservedObject private var motion = MotionPreference.shared
     @State private var animator = SpoolAnimator()
 
     init(key: SpoolStateKey, stateStartedAt: Date, level: Double = 0, style: Style = .pill, hidden: Bool = false,
@@ -133,7 +135,7 @@ struct SpoolView: View {
     }
 
     var body: some View {
-        let reduced = reduceMotion ?? systemReduceMotion
+        let reduced = Self.reducesMotion(explicit: reduceMotion, system: systemReduceMotion, policy: motion.policy)
         GeometryReader { proxy in
             TimelineView(schedule(reduced: reduced)) { context in
                 let frame = self.frame(at: context.date, reduced: reduced, size: proxy.size)

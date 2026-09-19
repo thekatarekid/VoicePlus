@@ -23,7 +23,10 @@ struct TodayScreen: SectionScreen {
     var body: some View {
         Group {
             if let detail = today.detail {
-                TurnDetailView(model: detail, hotkey: context.hotkey, back: { today.closeTurn() })
+                TurnDetailView(model: detail, hotkey: context.hotkey, back: {
+                    today.closeTurn()
+                    FocusReturn.today.restore(TodayFocus.row(detail.turnID))   // S10: back to the row it came from
+                })
             } else {
                 TodaySectionView(model: today, hotkey: context.hotkey, open: { context.open($0) })
             }

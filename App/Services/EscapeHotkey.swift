@@ -154,6 +154,11 @@ public final class EscapeHotkey {
     /// Presses swallowed because this turn already fired.
     public private(set) var swallowedCount = 0
 
+    /// S10 — popovers and panels shown over the turn. A press closes the newest one first and
+    /// stays with it (design §11: Escape dismisses a popover before cancelling a parent operation);
+    /// the turn keeps its one Escape for the press after that.
+    public var layers: EscapeLayerStack = .shared
+
     private let backend: EscapeKeyBackend
     private var installed: InstalledHotkeySource?
     private var token: Int?
@@ -215,6 +220,7 @@ public final class EscapeHotkey {
     /// Follows every menu the process tracks via `NSMenu.didBegin/EndTrackingNotification`, so the
     /// status menu needs no hook of its own. Nested menus count. Idempotent.
     public func observeMenuTracking(center: NotificationCenter = .default) {
+        layers.observePopovers(center: center)
         guard menuObservers.isEmpty else { return }
         menuCenter = center
         menuObservers = [
@@ -249,6 +255,11 @@ public final class EscapeHotkey {
     /// One Escape press from the hot key. Internal so tests can press without Carbon.
     func press() {
         guard isRegistered, let resolution = EscapeResolution(phase) else { return }
+        // S10 — an open popover takes this press; the turn is untouched and not marked as fired.
+        if layers.dismissTop() {
+            Log.app.notice("escape: closed a popover over the turn")
+            return
+        }
         guard !firedThisTurn else {
             swallowedCount += 1
             return
