@@ -594,6 +594,34 @@ struct PrivacyS7fTests {
         #expect(store.bool(SettingsKeys.dictationHistory) == true)
     }
 
+    @Test("Save dictation history: each state says what the switch does, and a toggle re-reads the counts")
+    func saveDictationHistorySentencesAndRecount() throws {
+        let store = InMemorySettingsStore()
+        let data = FakeData()
+        let model = Self.model(store: store, data: data)
+        model.refreshInventory()
+        #expect(model.dictationHistorySwitchSentence == PrivacyCopy.saveHistoryOn)
+        #expect(PrivacyCopy.saveHistoryOn == "On. Past dictations are kept as text on this Mac for Today and search. Recovery drafts are kept separately until resolved.")
+
+        // Dictations saved while the page was open: turning history off must not claim "Nothing is saved".
+        data.counts[.dictationHistory] = PrivacyScopeCount(items: 3)
+        model.savesDictationHistory = false
+        #expect(model.dictationHistorySwitchSentence == PrivacyCopy.saveHistoryOff)
+        #expect(PrivacyCopy.saveHistoryOff.contains("New dictations aren’t saved"),
+                "Off stops new dictations being saved (DictationHistoryGate), not only Today's list")
+        #expect(PrivacyCopy.saveHistoryOff.contains("Recovery drafts are kept separately until resolved."))
+        #expect(!PrivacyCopy.saveHistoryOff.lowercased().contains("nothing is kept"))
+        #expect(model.historyState.isContent, "what is already kept stays until deleted")
+        #expect(model.dictationHistorySentence == PrivacyCopy.dictationHistoryDetail(3))
+
+        // Deleted elsewhere, then turned back on: the fresh count again.
+        data.counts[.dictationHistory] = .zero
+        model.savesDictationHistory = true
+        #expect(model.dictationHistorySentence == PrivacyCopy.dictationHistoryDetail(0))
+        model.savesDictationHistory = false
+        #expect(model.historyState.rendering == .empty, "history off and nothing kept: the design's empty state")
+    }
+
     @Test("unwired mute follows the persisted mute while the page is open (menu bar or pill mutes)")
     func unwiredMuteFollowsStore() async throws {
         guard PrivacyWiring.mute == nil else { return }

@@ -312,11 +312,14 @@ public final class PrivacySectionViewModel: ObservableObject {
     /// "Save dictation history" (design §8.5 prototype row). The key is S7b's
     /// (`TodayHistorySettings`, `history.dictation.enabled`): Today and its search read it, and
     /// Today's history-off "Review retention" lands on this switch. Held text is not history — it
-    /// stays under `persistsRecovery`, whatever this says.
+    /// stays under `persistsRecovery`, whatever this says. Off stops new dictations being saved (W3H
+    /// `DictationHistoryGate`); what is already kept stays until deleted, so the counts are read again
+    /// on every toggle — the History group's "Nothing is saved" is never claimed from an old count.
     public var savesDictationHistory: Bool {
         get { TodayHistorySettings.isEnabled(settings) }
         set {
             TodayHistorySettings.setEnabled(newValue, store: settings)
+            refreshInventory()
             objectWillChange.send()
         }
     }
