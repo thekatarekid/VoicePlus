@@ -108,6 +108,8 @@ public final class FinalTextReviewPanel {
     private let state = FinalTextReviewState()
     public var onReviewMark: ((Int) -> Void)?
     public var onClose: (() -> Void)?
+    /// Escape closes this layer before it cancels the turn under it (S10).
+    public var escapeLayers: EscapeLayerStack = .shared
 
     public init() {
         panel = FinalTextReviewPanelWindow(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -135,6 +137,7 @@ public final class FinalTextReviewPanel {
         let screen = (NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.main)?.visibleFrame ?? .zero
         panel.setFrame(CorrectionPopoverLayout.frame(anchoredTo: anchor, size: size, in: screen), display: true)
         panel.makeKeyAndOrderFront(nil)
+        escapeLayers.push(ObjectIdentifier(self)) { [weak self] in self?.close() }
     }
 
     /// Marks resolved while it is open.
@@ -147,6 +150,7 @@ public final class FinalTextReviewPanel {
         guard state.model != nil else { return }
         state.model = nil
         panel.orderOut(nil)
+        escapeLayers.remove(ObjectIdentifier(self))
         onClose?()
     }
 }

@@ -440,6 +440,25 @@ struct CorrectionPopoverS5Tests {
         #expect(m.stage == .textChanged(replacement: "Meera", copied: true))
     }
 
+    @Test("Escape over a turn closes the popover first (an Escape layer), then the Review surface, then the turn")
+    @MainActor
+    func escapeLayers() {
+        let layers = EscapeLayerStack()
+        let popover = CorrectionPopoverController(), review = FinalTextReviewPanel()
+        popover.escapeLayers = layers
+        review.escapeLayers = layers
+        var decisions: [WordReviewDecision] = []
+        popover.onDecision = { d, _ in decisions.append(d) }
+        review.show(FinalTextReviewModel(mapping: MarkMapping(text: "Meet Mira.", marks: [Self.mark], confidenceAvailable: true)),
+                    below: CGRect(x: 100, y: 400, width: 10, height: 10))
+        popover.show(CorrectionPopoverModel(mark: Self.mark, origin: .preview), anchoredTo: CGRect(x: 100, y: 400, width: 30, height: 18))
+        #expect(layers.topID == ObjectIdentifier(popover))
+        #expect(layers.dismissTop() && !popover.isShown && decisions == [.dismiss])
+        #expect(review.isShown && layers.topID == ObjectIdentifier(review))
+        #expect(layers.dismissTop() && !review.isShown)
+        #expect(!layers.dismissTop(), "nothing left: the next press is the turn's")
+    }
+
     @Test("placement: under the word, above it at the bottom of the screen, inside the screen")
     func layout() {
         let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)

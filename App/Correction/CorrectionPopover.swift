@@ -317,6 +317,8 @@ public final class CorrectionPopoverController {
     public var onNext: (() -> Void)?
     /// The popover went away, whatever the reason.
     public var onClose: (() -> Void)?
+    /// During a turn Escape is a global hot key: the open popover is a layer it closes first (S10).
+    public var escapeLayers: EscapeLayerStack = .shared
 
     public init() {
         panel = CorrectionPopoverPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -341,9 +343,11 @@ public final class CorrectionPopoverController {
         let screen = (NSScreen.screens.first { $0.frame.intersects(word) } ?? NSScreen.main)?.visibleFrame ?? .zero
         let fitting = panel.contentView?.fittingSize ?? CorrectionPopoverLayout.size
         let size = CGSize(width: CorrectionPopoverLayout.size.width, height: max(120, fitting.height))
-        if !panel.isVisible { previousKey = NSApp.keyWindow }
+        if !panel.isVisible { previousKey = NSApplication.shared.keyWindow }
         panel.setFrame(CorrectionPopoverLayout.frame(anchoredTo: word, size: size, in: screen), display: true)
         panel.makeKeyAndOrderFront(nil)
+        // During a turn Escape is a global hot key: this layer takes the press before the turn does (S10).
+        escapeLayers.push(ObjectIdentifier(self)) { [weak self] in self?.decide(.dismiss) }
         NSAccessibility.post(element: panel, notification: .focusedUIElementChanged)
     }
 
@@ -356,6 +360,7 @@ public final class CorrectionPopoverController {
         guard state.model != nil || panel.isVisible else { return }
         state.model = nil
         panel.orderOut(nil)
+        escapeLayers.remove(ObjectIdentifier(self))
         // Focus goes back where it was: our own window if one was key, else the destination app,
         // which never stopped being frontmost (the panel does not activate VoicePlus).
         if let previousKey, previousKey.isVisible { previousKey.makeKey() }
