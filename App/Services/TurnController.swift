@@ -1404,6 +1404,27 @@ public final class TurnWiring {
         self.escape = escape
     }
 
+    /// Keyboard / VoiceOver focus on the pill's final text or its actions freezes the dwell like
+    /// hover (build doc §2, design §5 step 4, §11): `PillViewModel.onKeyboardFocusChange` →
+    /// `pauseDwell(.focus)` / `resumeDwell(.focus)`. A preview that opens with focus already on the
+    /// text lane (the VoiceOver cursor was reading the live words) starts frozen. The pill's final
+    /// text is not selectable, so the pill reports no `.selection`.
+    @MainActor
+    public static func wireFocusPause(pill: PillViewModel, controller: TurnController,
+                                      scheduler: DispatchQueue = .main) -> AnyCancellable {
+        let previousFocus = pill.onKeyboardFocusChange
+        pill.onKeyboardFocusChange = { [weak controller] focused in
+            previousFocus?(focused)
+            if focused { controller?.pauseDwell(.focus) } else { controller?.resumeDwell(.focus) }
+        }
+        return pill.$state
+            .receive(on: scheduler)
+            .sink { [weak controller, weak pill] state in
+                guard case .finalPreview = state, pill?.focusInside == true else { return }
+                controller?.pauseDwell(.focus)
+            }
+    }
+
     /// `finishLatch`: the latched pill's "Finish" (the same as a tap while latched).
     @MainActor
     @discardableResult
@@ -1470,6 +1491,7 @@ public final class TurnWiring {
             previousHover?(inside)
             if inside { controller?.pauseDwell(.hover) } else { controller?.resumeDwell(.hover) }
         }
+        Self.wireFocusPause(pill: pill, controller: controller).store(in: &wiring.subscriptions)
         if pill.destinationProvider == nil {
             pill.destinationProvider = { [weak controller] in
                 controller?.currentDestinationName ?? NSWorkspace.shared.frontmostApplication?.localizedName

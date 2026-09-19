@@ -138,6 +138,11 @@ public final class PillViewModel: ObservableObject {
     @Published public private(set) var laneNote: String?
     /// The pointer is on the pill (hover pauses the final preview's dwell; S3 reads it).
     @Published public private(set) var pointerInside = false
+    /// Keyboard or VoiceOver focus is on the pill's text lane or actions (focus pauses the final
+    /// preview's dwell like hover; S3 reads it through `onKeyboardFocusChange`).
+    @Published public private(set) var focusInside = false
+    /// The pill pieces that hold focus now (`PillFocusReport` element names).
+    private var focusedElements: Set<String> = []
     /// When the drawn Spool pose began; persists across same-pose updates so reels never reset.
     @Published public private(set) var spoolStartedAt = Date()
     /// Advances once a second while a timer or the finishing offer is on screen.
@@ -156,6 +161,9 @@ public final class PillViewModel: ObservableObject {
     public var onAction: ((PillActionKind, PillState) -> Void)?
     /// S2 — hover entered / left the pill (S3 freezes the preview dwell while inside).
     public var onPointerInsideChange: ((Bool) -> Void)?
+    /// S3 — keyboard or VoiceOver focus entered / left the pill's text lane and actions (S3 freezes
+    /// the preview dwell while it is inside, design §11).
+    public var onKeyboardFocusChange: ((Bool) -> Void)?
     /// P5 — the persistent presence indicator listens to the same engine feed the pill reduces.
     public var onEngineState: ((EngineState) -> Void)?
     /// The configured dictation key as hints name it; read whenever content is built.
@@ -378,6 +386,16 @@ public final class PillViewModel: ObservableObject {
         onPointerInsideChange?(inside)
     }
 
+    /// One piece of the pill (`element`) gained or lost keyboard / VoiceOver focus. The pill is
+    /// focused while any piece is; `onKeyboardFocusChange` fires only when that changes.
+    public func setFocus(_ focused: Bool, element: String = "pill") {
+        if focused { focusedElements.insert(element) } else { focusedElements.remove(element) }
+        let inside = !focusedElements.isEmpty
+        guard inside != focusInside else { return }
+        focusInside = inside
+        onKeyboardFocusChange?(inside)
+    }
+
     // MARK: Content
 
     /// The rendered pill for the current state at `date`.
@@ -523,6 +541,7 @@ public final class PillViewModel: ObservableObject {
             deixisChips = []
             laneNote = nil
             if pointerInside { setPointerInside(false) }
+            if focusInside { focusedElements.removeAll(); setFocus(false) }
             return
         case .idle, .starting:
             // Key-down: a new turn unless this is still the same turn's pre-capture.
@@ -716,7 +735,8 @@ struct PillBody: View {
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             } else {
                 PillWordsLane(lines: lines, words: content.words, marks: model.marks(for: content.words),   // S5
-                              onReview: { model.reviewMark($0, anchor: $1) })
+                              onReview: { model.reviewMark($0, anchor: $1) },
+                              onFocus: { model.setFocus($0, element: $1) })   // S3: focus pauses the dwell
                     .place(lanes.wordsLane)
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             }
@@ -732,7 +752,9 @@ struct PillBody: View {
             helperRow(overflow: overflowLabel(lines)).place(lanes.helperRow)
                 .accessibilitySortPriority(PillReadingOrder.priority(.helper))   // S10
             if let actionRow = lanes.actionRow {
-                PillActionRow(buttons: content.buttons) { model.perform($0) }.place(actionRow)
+                PillActionRow(buttons: content.buttons, perform: { model.perform($0) },
+                              onFocus: { model.setFocus($0, element: $1) })   // S3: focus pauses the dwell
+                    .place(actionRow)
                     .accessibilitySortPriority(PillReadingOrder.priority(.actions))   // S10
             }
         }
@@ -830,6 +852,8 @@ struct PillWordsLane: View {
     /// S5 — the final text's marks (`PillViewModel.marks(for:)`); empty for live or fixed words.
     var marks: MarkMapping = .empty
     var onReview: (Int, CGRect?) -> Void = { _, _ in }
+    /// S3 — keyboard / VoiceOver focus on a line or an uncertain word (`PillFocusReport`).
+    var onFocus: ((Bool, String) -> Void)? = nil
 
     var body: some View {
         let fragments = markFragments
@@ -843,6 +867,7 @@ struct PillWordsLane: View {
                             .foregroundStyle(ink)
                             .lineLimit(1)
                             .truncationMode(.head)
+                            .pillFocusReport("words.line.\(index)", onFocus)
                         if !onLine.isEmpty {
                             PillMarkUnderlines(fragments: onLine)
                                 .alignmentGuide(.firstTextBaseline) { _ in -MarkStyle.baselineOffset }
@@ -874,6 +899,7 @@ struct PillWordsLane: View {
                     PillMarkTarget(mark: mark, width: fragment.width, height: PillLaneLayout.lineHeight) { rect in
                         onReview(mark.id, rect)
                     }
+                    .pillFocusReport("words.mark.\(mark.id).\(fragment.line)", onFocus)
                     .offset(x: fragment.x)
                 }
             }
@@ -940,6 +966,8 @@ struct PillChipRow: View {
 struct PillActionRow: View {
     let buttons: [PillButton]
     let perform: (PillActionKind) -> Void
+    /// S3 — keyboard / VoiceOver focus on a button (`PillFocusReport`): it pauses the preview dwell.
+    var onFocus: ((Bool, String) -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -957,6 +985,7 @@ struct PillActionRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(button.identifier)
+                .pillFocusReport("action.\(button.identifier)", onFocus)
                 // S10 — reading order: left to right, the primary recovery first as drawn.
                 .accessibilitySortPriority(PillReadingOrder.actionPriority(index: buttons.firstIndex(of: button) ?? 0,
                                                                            count: buttons.count))
