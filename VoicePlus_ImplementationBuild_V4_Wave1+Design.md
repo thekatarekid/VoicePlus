@@ -833,7 +833,13 @@ Unverified: Chromium marker-range read on a real page
 
 ## 7. Execution status (agent-maintained)
 
-**Final status (2026-09-19).** Release **1.11.1** built: `Packaging/releases/VoicePlus_V4-w1_1.11.1.dmg`
+**Final status (2026-09-20): 1.11.2 supersedes 1.11.1.** 1.11.2 = 1.11.1 + post-release fixes FX1–FX5 (§9) from
+the owner's fresh-install report. FX gate: `swift build --build-tests` clean; `swift test --no-parallel`:
+**3215 tests, all passing** (+54 over 1.11.1's 3161; the first run was 3214 / 3215, and its one midnight-clock
+failure was fixed at the gate). DMG: filled in by the release step. Owner decisions from the same report (#1
+bundling, #2 Qwen, #5 notch) and the known gaps are in `VoicePlus_ImplementationBuild_V4_Wave1+Design_Pending.md`.
+
+**Previous final status (2026-09-19).** Release **1.11.1** built: `Packaging/releases/VoicePlus_V4-w1_1.11.1.dmg`
 (19 MB, sha256 `8a2edfd55e788854c72f39361bb828787b25ae23bdbbfa0a387aa46cedcbf7a5`, ad-hoc signed,
 `verify_install.sh` OK), from `82ef429`: 1.11.0 plus the F1 fix. 1.11.0 (`VoicePlus_V4-w1_1.11.0.dmg`, sha256
 `e80a1b58…`, from `928551d`) is retained. All waves 0–4 done; `swift test --no-parallel`: **3161 tests, all
@@ -885,6 +891,12 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 3 | S11 | [x] | d54b588 | RecoveryCatalogWiring 12 (+12), 9 copy suites updated | implemented; all 59 ids walked through pill + window | SessionCoordinator.onRefusal unassigned; meeting panel writes own consequence lines |
 | 4 | R1–R4 | [x] | R1 none (at `5ec671b`), R2 `928551d`, R3 `19c22ea`, R4 this commit | 3156 `--no-parallel`, all passing (W4 fixes +48 over W3's 3108) | R1 build + tests + real-room WER 0.100 (±0.001 vs 1.10.0); R3 DMG verified; hardware §5 | `--no-github`; tag `release/phase-V4-w1/v1.11.0` not yet created; quiet-room mic gate 2 / 20 (known issue) |
 | 4 | F1 fix → 1.11.1 | [x] | F1 fix `82ef429`, R3 `897888a`, docs this commit | 3161 `--no-parallel`, all passing (+5: `MicQualityDeterminismTests`, `EnergyVADStartUpDipTests`) | quiet-room mic gate 20 / 20, same result at every block size; 1.11.1 DMG verified | `--no-github`; tag `release/phase-V4-w1/v1.11.1` on this commit; the analyzer's own floor has no hold (SNR 6–26 dB high on 9 / 20, never a warning) |
+| 5 | FX1 own-process write | [x] | `16fa305`, `bdc2513` | OwnProcessRouting + OwnProcessTurn + MainThreadWatchdog 20 (+20); InjectionTests 150 | implemented (in-process E2E into a TextKit 2 view and the practice TextEditor); installed-app onboarding re-check = owner | AX callers outside Injection/LiveSystemAccess not own-pid guarded (see §9) |
+| 5 | FX2 chin ends at rest | [x] | `3181dc5` | PresenceTurnEndTests (+new); presence/turn filter 106 | implemented (mock-engine hold turns through DictationCoordinator + TurnController) | real-notch check = owner; pill up ~27 s after a landing not investigated |
+| 5 | FX3 model ready after download | [x] | `150963e`, `6fa07b6`, `875b584` | FX3ModelReadyTests (+new); onboarding/model filters 178 + 305 | implemented (slow fake factory; real InstalledModelLoader in the onboarding flow) | `AppContainer.refreshEngineIfNeeded` itself untested (thin wrapper over tested RefreshGate) |
+| 5 | FX4 no designer notes in copy | [x] | `7a32896` | DesignCopyLintTests 6 (+6); copy/onboarding filter 381 | fixture-verified (design_v1 → `design_copy.json` regenerated; spool fixtures unchanged) | behaviour rules (M07 2 s named wait, K03 quiet first tap) not checked as coded |
+| 5 | FX5 centred chin pulse | [x] | `5b03e94` | PresenceLevelBarTests (+new) | implemented (pure pulse geometry + rendered frame) | on-screen look = owner |
+| 5 | FX gate → 1.11.2 | [x] | FX gate this commit | 3215 `--no-parallel`, all passing (+54 over 3161) | build clean; full serial run | gate fix: AmbientTimeline grouping test anchored at noon (failed 00:00–01:00); DMG by the release step |
 
 Design §13 acceptance mapping: scenario → test (suite › test) or §5 line. Evidence as labelled in §0; "open" = not yet covered. Re-checked at R4 (2026-09-19): no scenario is open on the agent side; the two gaps the W4 audit found (destination tape cue, lost key-up) are closed by `e7705a7` and `563b67a`, and scenario 3 also covers the manual dwell (`ef04bc8`: manual transform preview ends only by Cancel, Escape or a revalidated Replace text) and the focus pause (`f3b72d9`, `DwellFocusPauseTests`). Remaining work per row is the §5 hardware line.
 
@@ -917,3 +929,87 @@ voice-processing IO / level gate / VAD-region decode / speaker gate defaults (§
 corpus, turn-anchored voice (V4.41–V4.42), meetings-owns-the-mic (V4.46–V4.47), Notes mode (V4.35) beyond
 the held queue, mobile companion, "Ask" in Meetings. Each is built behind a flag when its wave arrives; nothing
 in this document should make them harder.
+
+---
+
+## 9. Post-release fixes → 1.11.2 (owner fresh-install report, 2026-09-19)
+
+The owner's fresh install of 1.11.1 raised six items. Three are **owner decisions**, not bugs: #1 bundle the models
+in the DMG, #2 Qwen3-ASR alongside Parakeet, #5 notch look. They are written up with options and a recommendation in
+`VoicePlus_ImplementationBuild_V4_Wave1+Design_Pending.md` (§A), along with the known gaps carried from the release
+(§B) and the open items from these fixes. The bugs are FX1–FX5 below. Evidence labels as in §0. **Implemented** means
+covered by unit, mock or in-process tests. **Fixture-verified** means checked against the design fixtures. The
+**hardware re-check on the installed 1.11.2 app is the owner's** for every item.
+
+- [x] **FX1: onboarding "Try your first sentence" froze VoicePlus.**
+  - Root cause: the turn's write ran on the Swift concurrency pool and set text through Accessibility in VoicePlus's
+    own TextKit 2 practice field. That is a lock-order deadlock with the main thread.
+  - Fix: a write into our own pid runs on the main actor through `NSTextView.insertText` (`OwnProcessAdapter`) and is
+    read back in-process. Every `LiveSystemAccess` AX call that can target our own pid hops to main (bounded
+    `MainThreadHop`). A main-thread stall watchdog logs a `.fault` with the turn stage and destination after 2 s, and
+    a `.notice` is logged before each write.
+  - Commits: `16fa305`, `bdc2513`.
+  - Tests: `OwnProcessRoutingTests`, `OwnProcessTurnTests` (hold turns into a TextKit 2 `NSTextView` and into the
+    onboarding practice `TextEditor` complete, the text lands, one insert on main, no AX write) and
+    `MainThreadWatchdogTests`: 20 tests. InjectionTests: 150.
+  - Evidence: implemented. The real onboarding freeze was not reproduced on the installed app.
+- [x] **FX2: the chin stayed on "Working…" after fn was released.**
+  - Root cause: the presence chin only saw the engine states `TurnController` admits (`88fc1e1`). Key-up moves the
+    turn to `.finishing` before `engine.stop()`, so `.finalizing`, `.landed` and `.idle` were filtered out.
+  - Fix: the chin is bound to the unfiltered `DictationCoordinator.engineStates` plus turn ends. The pill stays on the
+    admitted stream. The reducer treats `.starting` and `.previewing` as live capture, a turn end resets turn-scoped
+    phases, and a `presence engine:` log line is added.
+  - Commit: `3181dc5`.
+  - Tests: `PresenceTurnEndTests` runs full hold turns with a mock engine that end landed, held, failed, cancelled and
+    silent; the chin ends at rest every time. The presence, microphone-ownership and turn filter passes 106 tests.
+  - Evidence: implemented.
+- [x] **FX3: "The speech model isn't ready" appeared right after the first-run download.**
+  - Root cause: a race. `onModelsChanged` started an unstructured engine refresh, and onboarding's model load ran at
+    the same time. The busy guard in `refreshEngineIfNeeded` made the load return early and see no engine. The race
+    came from S8 `b22cf26` meeting the guard added in `d4f804d`.
+  - Fix:
+    - Callers join the refresh already in flight (`RefreshGate`, plus one follow-up pass).
+    - `downloadStack` awaits `onModelsChanged`.
+    - The loader waits up to 10 s while a swap is pending, and the real reason goes into M07 Details.
+    - Onboarding retries a failed load once when the engine changes.
+    - A new practice hold clears the stale "Heard you" verdict.
+    - `ModelCatalog` has the real sizes (TDT v3 483,257,242 B, EOU 224,047,838 B), so the stack is quoted as 721 MB
+      (was 914 MB).
+    - The progress line reads "Downloading model N of 3 · <name> · X of Y MB overall (P%)".
+  - Commits: `150963e`, `6fa07b6`, `875b584`.
+  - Tests: `FX3ModelReadyTests`. A load during a refresh held by a slow fake factory returns `.loaded`; by reading the code it
+    would fail on the old guard (not re-run on the old code). An onboarding flow runs over a real `InstalledModelLoader`, and a progress-line table is checked.
+    The onboarding and model filters pass 178 and 305 tests.
+  - Evidence: implemented.
+- [x] **FX4: designer notes were shown as user copy.** Under "The speech model isn't ready" the app showed "After 2
+  seconds name the wait; after failure offer recovery."
+  - Root cause: 14 catalogue consequences in `design_v1.html` and `design_v1.md` held spec notes, not user text, and
+    were copied verbatim into `RecoveryCatalog`. The affected entries are M07, P03, P04, K03, A08, A09, T04, T05, S04,
+    S05, N03, X01, X02 and X08.
+  - Fix: the 14 consequences are rewritten at the source in Problem — Action voice, `design_copy.json` is regenerated
+    and `RecoveryCatalog.swift` is updated. The behaviour rules those notes carried moved to design_v1.md §10.
+  - Commit: `7a32896` (its message lists every old → new string).
+  - Tests: `DesignCopyLintTests` fails on spec phrasing in any catalogue or fixture string and catches all 14 old notes.
+    The copy, parity and onboarding filter passes 381 tests, and the spool fixtures are unchanged.
+  - Evidence: fixture-verified.
+- [x] **FX5: the chin's pulse drifted off-centre.**
+  - Root cause: `LevelBar` animated with `onAppear` + `withAnimation(.repeatForever)`, which also animated layout and
+    position. The panel frame was set after `rootView`.
+  - Fix: a `TimelineView`-driven width centred on the chin (pure `LevelBarPulse` geometry), with inherited animations
+    stripped. The panel and hosting frames are set before `rootView`.
+  - Commit: `5b03e94`.
+  - Tests: `PresenceLevelBarTests` checks that the pulse is symmetric at every phase, stays within 0.25–0.85, is
+    continuous and is static under Reduce Motion, and that the rendered frame is centred.
+  - Evidence: implemented.
+- [x] **FX gate.** `swift build --build-tests` clean. `swift test --no-parallel`: **3215 tests, all passing** (+54 over 1.11.1's 3161; first run 3214 / 3215 with the midnight-clock failure fixed at the gate). Gate fix: `AmbientTimelineTests` grouping test anchored at noon today (it failed between 00:00 and 01:00 because "an hour ago" was yesterday; clock-dependent, not an FX regression).
+- [ ] **1.11.2 DMG.** Filled in by the release step.
+
+Open after the fixes (details in the Pending doc §B):
+- AX callers outside `Injection/LiveSystemAccess` still reach AX directly with no own-pid guard: SelectionDetector,
+  TapeFlightTarget, DestinationMarksOverlay, RecoverySheetServices, RepairFanoutPanel, LiveAXNodeAccess, Actions and
+  Engine LiveProviders.
+- The pill stays up for about 27 s after a landing. This was not investigated.
+- The behaviour rules behind M07 (name the wait after 2 s) and K03 (quiet first tap) have not been checked as coded.
+- `AppContainer.refreshEngineIfNeeded` is not called by any test directly.
+- The installed-app checks are the owner's: the onboarding first sentence lands, the chin rests after fn release,
+  the pulse is centred, and there is no "model isn't ready" after a fresh download.

@@ -412,8 +412,9 @@ struct AmbientTimelineTests {
 
     @Test("rows are grouped by day, newest day first, newest row first inside the day")
     func grouping() async {
-        let now = Date()
         let cal = Calendar.current
+        // Noon today, so "an hour ago" is still today when the suite runs between 00:00 and 01:00.
+        let now = cal.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
         let rows = [
             TimelineRow(id: "old", time: cal.date(byAdding: .day, value: -2, to: now)!, source: "ambient", text: "old"),
             TimelineRow(id: "early", time: now.addingTimeInterval(-3600), source: "ambient", text: "early"),

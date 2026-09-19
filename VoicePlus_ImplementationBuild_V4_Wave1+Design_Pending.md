@@ -5,7 +5,8 @@ Date: 2026-09-19 · Build: 1.11.1 (`VoicePlus_V4-w1_1.11.1.dmg`, sha256 `8a2edfd
 Purpose: items that need the owner's decision or were deliberately left open after 1.11.x.
 
 Numbers #1, #2 and #5 are the owner's issue numbers from the 1.11.1 fresh-install report. Issues #3, #4 and #6
-are bugs and are being fixed in code, so they are not listed here.
+are bugs. They were fixed in code as FX1–FX5 for 1.11.2 (build doc §9), so they are not listed here. The open items
+those fixes left are at the end of §B.
 
 ---
 
@@ -204,6 +205,21 @@ blocked.
 - **Out of scope for this wave** (build doc §8): caret OCR ladder, unified ITN and coverage, prosody punctuation,
   voice-processing IO / level gate / speaker-gate defaults, turn-anchored voice, Notes mode beyond the held queue,
   mobile companion.
+- **Left open by the 1.11.2 fixes (FX1–FX5, build doc §9):**
+  - AX callers outside `Injection/LiveSystemAccess` still call AX directly with no own-pid / main-thread guard:
+    SelectionDetector, TapeFlightTarget, DestinationMarksOverlay, RecoverySheetServices, RepairFanoutPanel,
+    LiveAXNodeAccess, Actions (LiveActionSystem, AXRegionText, AXHitTesting) and Engine LiveProviders.
+  - If the onboarding window is not key, the own-process write falls back to keystrokes to our own pid on main. It
+    does not deadlock, but the read-back may be unverified.
+  - The pill stays up for about 27 s after a landing. This was not investigated.
+  - The behaviour rules that used to sit in M07 and K03 copy (name the wait after 2 s; a quiet first isolated tap)
+    have not been checked as coded.
+  - `AppContainer.refreshEngineIfNeeded` is only tested through `RefreshGate`.
+  - To check on the installed 1.11.2 app:
+    - "Try your first sentence" lands its text with no freeze.
+    - The chin rests after fn is released and its pulse is centred.
+    - There is no "speech model isn't ready" after a fresh download.
+    - The new recovery captions read well on screen.
 
 ---
 
