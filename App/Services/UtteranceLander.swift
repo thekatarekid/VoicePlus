@@ -285,8 +285,20 @@ public final class UtteranceLander: @unchecked Sendable {
             }
         }
 
-        // Everything else types. (Transform / question routes arrive in Phase 2; until then the
-        // gatekeeper's decision is logged and the text lands verbatim — never silently dropped.)
+        // Everything else types — as dictation. A question / transform route with no selection to act
+        // on (Bet 5: the transform declined above), or a repair command nothing consumed, got only the
+        // gatekeeper from the runner; it is formatted now like any dictation (numbers, fillers, field
+        // role, style) instead of landing as the recognizer wrote it — "two three four zero rupees" was
+        // typed verbatim whenever the route model read a statement as a question (V4 digits gate).
+        if decision.route != .dictate, decision.route != .none {
+            do {
+                outSpans = try await pipeline.runDictationStages(outSpans, decision: decision, context: ctx)
+                Log.app.info("lander: \(decision.route.rawValue) route with nothing to act on — formatted as dictation")
+            } catch {
+                Log.pipeline.error("dictation stages failed for a \(decision.route.rawValue) route, landing raw text: \(error)")
+            }
+            result.route = .dictate
+        }
         let finalSpans = outSpans
         // V4.13 — `renderedText`: a blanked span (a removed filler, a number the ITN collapsed)
         // leaves no leading or doubled space.

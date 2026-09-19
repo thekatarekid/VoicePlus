@@ -54,18 +54,33 @@ public final class PipelineRunner: @unchecked Sendable {
         let decision = await gatekeeper.decide(input, context: context, providers: providers)
         var spans = try await ContractEnforcingStage(gatekeeper, policy: policy, sink: fanout).process(input, context: context)
 
-        var stageContext = context
-        stageContext.register = decision.register
-        stageContext.extra["gatekeeper.route"] = decision.route.rawValue
-        stageContext.extra["gatekeeper.confidence"] = String(decision.routeConfidence)
-
         if decision.route == .dictate {
-            for stage in stages {
-                spans = try await ContractEnforcingStage(stage, policy: policy, sink: fanout).process(spans, context: stageContext)
-            }
+            spans = try await runStages(spans, decision: decision, context: context, sink: fanout)
         }
         let total = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         if total > budgetMs { Log.pipeline.warning("pipeline over budget: \(String(format: "%.1f", total))ms > \(budgetMs)ms") }
         return PipelineResult(spans: spans, decision: decision, metrics: collector.all, totalLatencyMs: total)
+    }
+
+    /// The `.dictate` half of `run`: every stage over spans the gatekeeper already saw, for the
+    /// register `decision` detected. For a caller that serves a non-dictate route as dictation after
+    /// all — a question / transform route with no selection to act on (Bet 5) — so its text is
+    /// formatted like any dictation instead of landing as the recognizer wrote it.
+    public func runDictationStages(_ spans: [TranscriptSpan], decision: GatekeeperDecision,
+                                   context: StageContext) async throws -> [TranscriptSpan] {
+        try await runStages(spans, decision: decision, context: context, sink: sink)
+    }
+
+    private func runStages(_ input: [TranscriptSpan], decision: GatekeeperDecision, context: StageContext,
+                           sink: any LabSink) async throws -> [TranscriptSpan] {
+        var stageContext = context
+        stageContext.register = decision.register
+        stageContext.extra["gatekeeper.route"] = Utterance.Route.dictate.rawValue
+        stageContext.extra["gatekeeper.confidence"] = String(decision.routeConfidence)
+        var spans = input
+        for stage in stages {
+            spans = try await ContractEnforcingStage(stage, policy: policy, sink: sink).process(spans, context: stageContext)
+        }
+        return spans
     }
 }

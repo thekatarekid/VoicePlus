@@ -25,6 +25,13 @@ enum RealRoomCorpus {
         let reference: String
     }
 
+    /// V4 Wave 1 gate "digits class WER < 0.20" (build doc §4): the script lines that contain digits —
+    /// 04 "11:45", 05 "2,340 … 2,430", 11 "14 … 400050". Line 08 says its numbers as words ("two",
+    /// "one") and is not in the class. The gate is scored on the landed (formatted) text by
+    /// `Tests/AppTests/RealRoomDigitsClassTests.swift`; `scoreRealRoomCorpus` prints the same class on
+    /// the model's own text, before formatting, for comparison.
+    static let digitLines: Set<Int> = [4, 5, 11]
+
     static func root() -> URL? {
         AppPaths.fixturesDirectory()?.appendingPathComponent("real-room", isDirectory: true)
     }

@@ -122,12 +122,14 @@ struct RecordingReplayTests {
 
         var rawTotal = RealRoomCorpus.WERCounts()
         var processedTotal = RealRoomCorpus.WERCounts()
+        var digitsRaw = RealRoomCorpus.WERCounts()
         var rows: [String] = []
         for item in items {
             let raw = try SampleAudioSource.load16k(url: item.raw)
             let rawHyp = try await final.recognize(raw).joinedText
             let rawCounts = RealRoomCorpus.werCounts(reference: item.reference, hypothesis: rawHyp)
             rawTotal = rawTotal + rawCounts
+            if RealRoomCorpus.digitLines.contains(item.index) { digitsRaw = digitsRaw + rawCounts }
 
             var processedCell = "     -"
             if let url = item.processed {
@@ -151,6 +153,11 @@ struct RecordingReplayTests {
         print(String(format: "TOTAL  %d files, %d words | raw WER %.3f (%@) | processed WER %.3f",
                      items.count, rawTotal.referenceWords, rawTotal.wer,
                      RealRoomCorpus.errorBreakdown(rawTotal), processedTotal.wer))
+        // The digits class on the model's text, before formatting (it spells numbers out). The V4
+        // gate (< 0.20) is on the landed text: AppTests `RealRoomDigitsClassTests`.
+        print(String(format: "DIGITS lines %@ | %d words | raw model-text WER %.3f (%@) — gate is scored after formatting",
+                     RealRoomCorpus.digitLines.sorted().map { String(format: "%02d", $0) }.joined(separator: ","),
+                     digitsRaw.referenceWords, digitsRaw.wer, RealRoomCorpus.errorBreakdown(digitsRaw)))
         #expect(rawTotal.referenceWords > 0)
     }
 }
