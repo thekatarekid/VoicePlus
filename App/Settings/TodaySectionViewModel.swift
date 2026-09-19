@@ -6,6 +6,11 @@ import Shared
 // needs a hand, and what was said recently — in that order, because readiness and pending recovery
 // are what a person opens this window for (V3 §9.4).
 //
+// S7b adds the design's Today (design §8.1): held / recoverable turns first, then recent dictations
+// from the turn store, the turn detail and the recovery sheet — `TodaySectionViewModel+Turns.swift`.
+// The readiness strip below still feeds the sidebar footer and Today's "Needs attention" group; the
+// ambient Timeline below is one group of the page while ambient capture is on.
+//
 // The readiness strip is computed from cached state and is *never* blank: §9.1 forbids a loading
 // state for it. Only the Timeline list loads, and the Timeline's store does not exist yet (it is
 // R8's `AmbientTimeline`), so this view model takes a reader and renders "Timeline is off" until
@@ -84,21 +89,55 @@ public final class TodaySectionViewModel: ObservableObject {
     /// newer one (type a letter, then another: the first answer must not win).
     private var readGeneration = 0
 
-    private let deps: OnboardingDependencies
+    // MARK: S7b — held text first, then recent dictations (design §8.1; `TodaySectionViewModel+Turns`)
+
+    /// Held and partial text, newest first — shown before anything else, and kept on screen when
+    /// history is off or cannot be read.
+    @Published public internal(set) var drafts: [TodayDraft] = []
+    /// "Recent dictations": the turns history keeps, filtered by the search.
+    @Published public internal(set) var recent: [TodayTurnRow] = []
+    /// The recent list's own rendering: loading / empty (nothing yet, history off, no matches) /
+    /// error (S01) / content. `page` decides whether it is the whole page or one group of it.
+    @Published public internal(set) var history: SectionState = .loading(.today, headline: TodayCopy.loadingRecent)
+    /// A history read that failed with rows already on screen: they stay, the failure is scoped here.
+    @Published public internal(set) var historyBanner: SectionBanner?
+    /// A draft's own line: a copy that could not be verified (D08) keeps the draft and says so.
+    @Published public internal(set) var draftNotices: [String: TodayNotice] = [:]
+    /// The last page-level acknowledgement ("Copied…"), shown only after verification.
+    @Published public internal(set) var notice: TodayNotice?
+    /// Whether the ambient Timeline group is on the page (ambient capture on).
+    @Published public internal(set) var ambientVisible = false
+    /// The recovery sheet on screen, if any. Closing it keeps the draft (design §8.1).
+    @Published public var recovery: RecoverySheetModel?
+    /// The turn detail on screen instead of the list, if any.
+    @Published public var detail: TurnDetailModel?
+    /// Retry for the history read: scoped, disabled while it runs (design §9).
+    public let historyRetry = ScopedRetry()
+
+    let services: TodayServices
+    var historyEntries: [TurnEntry] = []
+    var historyGeneration = 0
+    var historyLoadedOnce = false
+    var turnsReload: Task<Void, Never>?
+
+    let deps: OnboardingDependencies
     private let mute: any MuteStore
     private let audio: AudioInputSettingsViewModel
     private let reader: (any AmbientTimelineReading)?
-    private let ambientCaptureOn: () -> Bool
-    private let heldProvider: () -> [HeldItem]
-    private let heldAction: (HeldItem, HeldAction) -> HeldActionResult
+    let ambientCaptureOn: () -> Bool
+    let heldProvider: () -> [HeldItem]
+    let heldAction: (HeldItem, HeldAction) -> HeldActionResult
 
+    /// `services` defaults to the app's (`TodayServices.live`): the turn store, the live held queue,
+    /// the general pasteboard and the real frontmost app.
     public init(deps: OnboardingDependencies,
                 audio: AudioInputSettingsViewModel? = nil,
                 mute: any MuteStore = UserDefaultsMuteStore(),
                 reader: (any AmbientTimelineReading)? = nil,
                 ambientCaptureOn: @escaping () -> Bool,
                 heldProvider: @escaping () -> [HeldItem] = { [] },
-                heldAction: @escaping (HeldItem, HeldAction) -> HeldActionResult = { _, _ in .unavailable }) {
+                heldAction: @escaping (HeldItem, HeldAction) -> HeldActionResult = { _, _ in .unavailable },
+                services: TodayServices? = nil) {
         self.deps = deps
         self.audio = audio ?? AudioInputSettingsViewModel()
         self.mute = mute
@@ -106,6 +145,7 @@ public final class TodaySectionViewModel: ObservableObject {
         self.ambientCaptureOn = ambientCaptureOn
         self.heldProvider = heldProvider
         self.heldAction = heldAction
+        self.services = services ?? .live(settings: deps.settingsStore, database: deps.database)
         refreshReadiness()
         refreshHeld()
     }
@@ -124,7 +164,13 @@ public final class TodaySectionViewModel: ObservableObject {
             ?? .default
     }
 
-    public var dictationKeyName: String { dictationKey.title }
+    /// The configured key's label ("fn / 🌐"), resolved the way the window's hints resolve it
+    /// (`MainWindowViewModel.hotkeyLabel`): the stored binding, else the default. Every "Right
+    /// Control" in design copy renders as this (owner decision, build doc §0).
+    public var dictationKeyName: String {
+        let stored = deps.settingsStore.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyBinding.Kind.init(rawValue:))
+        return (stored ?? HotkeyService.defaultBinding.kind).label
+    }
 
     private var keyRow: ReadinessRow {
         let note = dictationKey.permissionNote
@@ -187,6 +233,7 @@ public final class TodaySectionViewModel: ObservableObject {
     public func refreshHeld() {
         held = heldProvider()
         heldRowErrors = heldRowErrors.filter { id, _ in held.contains { $0.id == id } }
+        rebuildDrafts()
     }
 
     public func perform(_ action: HeldAction, on item: HeldItem) {
