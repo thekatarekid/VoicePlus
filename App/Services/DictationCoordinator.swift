@@ -492,7 +492,8 @@ public final class DictationCoordinator {
     /// Never writes to the pasteboard: a test the user ran to see whether dictation works should not
     /// silently replace what they had copied.
     public func guidedLanding(_ spans: [TranscriptSpan], startedAt: Date = Date()) async -> GuidedLanding {
-        let heard = spans.joinedText
+        // D4 (V4.13): what onboarding shows is rendered text — a blanked span leaves no stray space.
+        let heard = spans.renderedText
         // Same rule as `finalize()`, stated in both places rather than in one. This is the second
         // way spans reach `UtteranceLander`, and it must not be the way a fabricated utterance gets
         // typed just because it did not come in through the hotkey.
@@ -506,14 +507,16 @@ public final class DictationCoordinator {
     }
 
     private func land(_ spans: [TranscriptSpan]) {
-        let text = spans.joinedText
+        // D4 (V4.13): the copied and recorded text is rendered text, never the raw join (empty spans
+        // would leave double or leading spaces); the raw join stays in the record's `rawText`.
+        let text = spans.renderedText
         guard !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         if let database, recordsHistory() {
             let record = DictationRecord(startedAt: startedAt, endedAt: Date(), register: "unknown", route: "dictate",
                                          appBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-                                         rawText: text, finalText: text,
+                                         rawText: spans.joinedText, finalText: text,
                                          spansJSON: String(decoding: (try? JSONEncoder().encode(spans)) ?? Data("[]".utf8), as: UTF8.self))
             do { try database.insert(record) } catch { Log.db.error("history insert failed: \(error)") }
         }
