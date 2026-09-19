@@ -55,7 +55,7 @@ struct SettingsReachabilityTests {
         #expect(LegacySettingsTab.voice.home == .voice)
         #expect(LegacySettingsTab.general.home == .settings)
         #expect(LegacySettingsTab.models.home == .settings)
-        #expect(LegacySettingsTab.flags.home == .settings)
+        #expect(LegacySettingsTab.flags.home == .privacy) // S7a: re-homed to Privacy › Diagnostics (design §8.5)
         #expect(LegacySettingsTab.connectors.home == .settings)
         #expect(LegacySettingsTab.sync.home == .settings)
     }

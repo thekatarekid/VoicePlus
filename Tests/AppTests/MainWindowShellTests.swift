@@ -35,7 +35,7 @@ struct MainWindowShellTests {
             #expect(!section.subtitle.isEmpty)
             #expect(!section.systemImage.isEmpty)
         }
-        #expect(MainWindowSection.dictionary.detailTitle == "Dictionary / Apps")
+        #expect(MainWindowSection.dictionary.detailTitle == "Dictionary & Apps") // S7a: design_copy.json › screens
         // ⌘F needs somewhere to go in exactly the three sections that have a search field (§5.2).
         #expect(MainWindowSection.allCases.filter(\.hasSearchField) == [.today, .meetings, .dictionary])
     }

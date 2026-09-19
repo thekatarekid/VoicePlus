@@ -5,14 +5,14 @@ import Pipeline
 import Shared
 import SwiftUI
 
-// R7.1 / R7.2 — the one window. There is exactly one `NSWindow` in this file and none anywhere else
-// in the app except onboarding (`DESIGN.md` §5.1, §12.5): the Settings window, the Lab window, the
-// Data Panel window and the enrollment window are all gone, and the entry points that used to open
-// them now select a section here.
+// R7.1 / R7.2 / S7a — the one window. There is exactly one `NSWindow` in this file and none anywhere
+// else in the app except onboarding (`DESIGN.md` §5.1, §12.5): the Settings window, the Lab window,
+// the Data Panel window and the enrollment window are all gone, and the entry points that used to
+// open them now open a route here (`WindowRoute`: section + Settings subpage / pane / disclosure).
 //
-// The window remembers its frame (`setFrameAutosaveName`) and its section
-// (`MainWindowSection.remembered`), as §5.1 requires, and it is a normal resizable window — not a
-// panel, not a sheet.
+// The window opens at the design's preferred 1080 × 720 pt, never smaller than 820 × 560 pt
+// (`MainWindowLayout`), remembers its frame (`setFrameAutosaveName`), its section and its Settings
+// subpage, as §5.1 requires, and it is a normal resizable window — not a panel, not a sheet.
 
 @MainActor
 public enum MainWindowController {
@@ -56,9 +56,20 @@ public enum MainWindowController {
 
     // MARK: Show
 
+    /// Opens the window at a section (the menu, onboarding, the Lab shims). Same as `show(route:)`
+    /// with the section alone.
     @discardableResult
     public static func show(dependencies deps: OnboardingDependencies? = nil,
                             section: MainWindowSection? = nil,
+                            connectedProviders: [String]? = nil) -> Bool {
+        show(dependencies: deps, route: section.map { WindowRoute($0) }, connectedProviders: connectedProviders)
+    }
+
+    /// Opens the window at a full address — "Settings › Models", "Privacy › Diagnostics". `nil` opens
+    /// it where it was left (the remembered section and subpage).
+    @discardableResult
+    public static func show(dependencies deps: OnboardingDependencies? = nil,
+                            route: WindowRoute?,
                             connectedProviders: [String]? = nil) -> Bool {
         if let deps { dependencies = deps }
         if let connectedProviders { environment.connectedProviders = connectedProviders }
@@ -68,7 +79,7 @@ public enum MainWindowController {
         }
         let model = self.model ?? make(deps: resolved)
         self.model = model
-        if let section { model.open(section) } else { Task { await model.load(model.selection) } }
+        if let route { model.open(route) } else { Task { await model.load(model.selection) } }
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -76,13 +87,14 @@ public enum MainWindowController {
         }
         let host = NSHostingController(rootView: MainWindowView(model: model))
         let w = NSWindow(contentViewController: host)
-        w.title = "VoicePlus"
+        w.title = model.title
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         w.isReleasedWhenClosed = false
-        w.setContentSize(NSSize(width: 900, height: 620))
-        w.minSize = NSSize(width: 820, height: 560)
+        w.setContentSize(MainWindowLayout.preferredSize)
+        w.contentMinSize = MainWindowLayout.minimumSize
+        // A remembered frame wins over the preferred size; a first open is centred at 1080 × 720.
+        if !w.setFrameUsingName(frameAutosaveName) { w.center() }
         w.setFrameAutosaveName(frameAutosaveName)
-        if w.frame.isEmpty { w.center() }
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         window = w
@@ -156,6 +168,9 @@ public enum MainWindowController {
     /// For tests: the section the window would open at, without opening anything.
     public static var selectedSection: MainWindowSection? { model?.selection }
 
+    /// For tests: the full address the window is showing.
+    public static var currentRoute: WindowRoute? { model?.currentRoute }
+
     /// True while an `NSWindow` exists. Used by the "no standalone windows" assertions.
     public static var isOpen: Bool { window != nil }
 }
@@ -188,9 +203,11 @@ public enum SettingsWindowController {
         set { MainWindowController.trainingPairStore = newValue }
     }
 
+    /// A legacy tab opens its re-homed address (`LegacySettingsTab.route`): `.models` → Settings ›
+    /// Models, `.flags` → Privacy › Diagnostics, `.benchmark` → Voice › benchmarks, and so on.
     public static func show(dependencies: OnboardingDependencies, tab: SettingsTab = .general, connectedProviders: [String] = []) {
         MainWindowController.show(dependencies: dependencies,
-                                  section: MainWindowSection.section(for: tab),
+                                  route: tab.route,
                                   connectedProviders: connectedProviders)
     }
 
