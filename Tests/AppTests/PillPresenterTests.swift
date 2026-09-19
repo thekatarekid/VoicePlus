@@ -25,28 +25,28 @@ struct PillPresenterTests {
         #expect(p.displayed == .hidden)
     }
 
-    @Test func errorCannotBeDismissedBeforeItIsLegible() {
+    /// S2 (design §10): "Error notices remain until action/dismissal" — no timed dismissal at all.
+    @Test func errorStaysUntilTheUserActs() {
         var p = PillPresenter()
         #expect(p.request(.error(message: "boom"), now: t0) == .show(.error(message: "boom")))
-        for offset in [0.0, 0.5, 1.0, 3.9] {
+        for offset in [0.0, 0.5, 1.0, 3.9, 60, 3_600] {
             let now = t0.addingTimeInterval(offset)
             _ = p.request(.hidden, now: now)
             _ = p.flush(now: now)
             #expect(p.displayed == .error(message: "boom"), "error vanished after \(offset)s")
             #expect(p.isDwelling(now: now))
         }
-        let after = t0.addingTimeInterval(PillDwell.notice)
-        #expect(p.flush(now: after) == .show(.hidden))
+        #expect(p.dismiss(now: t0.addingTimeInterval(3_601)) == .show(.hidden))
     }
 
     @Test func repeatedRetractionRequestsDoNotExtendOrShortenTheWindow() {
         var p = PillPresenter()
-        _ = p.request(.error(message: "boom"), now: t0)
-        for offset in stride(from: 0.0, to: 3.5, by: 0.25) {
+        _ = p.request(.cancelled, now: t0)
+        for offset in stride(from: 0.0, to: 0.75, by: 0.25) {
             _ = p.request(.hidden, now: t0.addingTimeInterval(offset))
         }
-        #expect(p.displayed == .error(message: "boom"))
-        #expect(p.flush(now: t0.addingTimeInterval(PillDwell.notice)) == .show(.hidden))
+        #expect(p.displayed == .cancelled)
+        #expect(p.flush(now: t0.addingTimeInterval(PillDwell.cancelled)) == .show(.hidden))
     }
 
     @Test func aVisibleStateNeverWaitsBehindAnOlderOne() {
@@ -69,14 +69,16 @@ struct PillPresenterTests {
         }
     }
 
-    @Test func noticesAreTheStatesTheUserMustRead() {
+    @Test func noticesAreTheStatesTheUserMustActOn() {
         #expect(PillDwell.isNotice(.error(message: "x")))
         #expect(PillDwell.isNotice(.unavailable(reason: "x")))
-        #expect(PillDwell.isNotice(.warning(.unknownGood)))
+        // C5: a live warning keeps capture moving; it is not a notice that waits for an action.
+        #expect(!PillDwell.isNotice(.warning(.unknownGood)))
         #expect(!PillDwell.isNotice(.landing))
         #expect(!PillDwell.isNotice(.preview(text: "x")))
         #expect(PillDwell.minimum(for: .hidden) == 0)
-        #expect(PillDwell.notice >= 3, "an error the user cannot read is worse than no error")
+        // A quiet no-result return fades inside the design's 800–1600 ms window instead.
+        #expect(!PillDwell.isNotice(.error(message: DeliveryCopy.noSpeechDetected)))
     }
 
     @Test func viewModelRoutesEveryWriteThroughTheGate() {
@@ -90,8 +92,10 @@ struct PillPresenterTests {
         #expect(model.state == .error(message: "no model"))
         model.hide()
         #expect(model.state == .error(message: "no model"))
-        clock = clock.addingTimeInterval(PillDwell.notice + 0.1)
+        clock = clock.addingTimeInterval(3_600)
         model.flushPillHold()
+        #expect(model.state == .error(message: "no model"), "an error notice stays until the user acts")
+        model.dismissNotice()
         #expect(model.state == .hidden)
     }
 

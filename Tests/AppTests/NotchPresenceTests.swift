@@ -60,11 +60,13 @@ struct PresenceGeometryTests {
         }
     }
 
-    /// One rule for both surfaces: the top edge is the bottom of the forbidden band. If this ever
-    /// fails, the pill and the indicator have drifted apart and one of them is behind the housing.
+    /// One rule for both surfaces (S2): the top edge is the pill's — the bottom of the forbidden band
+    /// when attached, 8 pt below it when floating. If this ever fails, the pill and the indicator have
+    /// drifted apart and one of them is behind the housing.
     @Test func sharesTheTopBoundaryWithThePill() {
         for metrics in allFixtures {
-            let pillTop = NotchGeometry.layout(for: metrics).shown.maxY
+            let pillTop = NotchGeometry.pillLayout(for: metrics).shown.maxY
+            #expect(pillTop == NotchGeometry.pillTopEdge(on: metrics))
             for state in everyState {
                 for hovered in [false, true] {
                     #expect(PresenceGeometry.layout(for: metrics, state: state, hovered: hovered).frame.maxY == pillTop)
@@ -79,14 +81,15 @@ struct PresenceGeometryTests {
         #expect(notched.topBand == 39)
         #expect(notched.notchRect == CGRect(x: 790, y: 1131, width: 220, height: 38))
 
+        // S2 (design §4): the idle chin is 64 × 14, the hover hint 360 × 38 nominal.
         #expect(PresenceGeometry.frame(size: PresenceGeometry.restSize, on: notched)
-                == CGRect(x: 873, y: 1120, width: 54, height: 10))
+                == CGRect(x: 868, y: 1116, width: 64, height: 14))
         #expect(PresenceGeometry.frame(size: PresenceGeometry.activeSize, on: notched)
-                == CGRect(x: 840, y: 1120, width: 120, height: 10))
+                == CGRect(x: 840, y: 1116, width: 120, height: 14))
         #expect(PresenceGeometry.frame(size: PresenceGeometry.mutedSize, on: notched)
                 == CGRect(x: 858, y: 1114, width: 84, height: 16))
         #expect(PresenceGeometry.frame(size: PresenceGeometry.hoverSize, on: notched)
-                == CGRect(x: 805, y: 1106, width: 190, height: 24))
+                == CGRect(x: 720, y: 1092, width: 360, height: 38))
         // Every one of them hangs off the same boundary as the pill (visibleFrame.maxY).
         #expect(PresenceGeometry.allFrames(on: notched).allSatisfy { $0.rect.maxY == 1130 })
     }
@@ -95,35 +98,38 @@ struct PresenceGeometryTests {
     /// still not intersecting it (a shared edge is not an intersection).
     @Test func menuBarHiddenPutsItFlushUnderTheHousing() throws {
         let frame = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: autoHiddenMenuBar)
-        #expect(frame == CGRect(x: 873, y: 1121, width: 54, height: 10))
+        #expect(frame == CGRect(x: 868, y: 1117, width: 64, height: 14))
         #expect(frame.maxY == 1131)
         #expect(!frame.intersects(try #require(autoHiddenMenuBar.notchRect)))
     }
 
     @Test func offOriginStaysOnItsOwnScreen() {
         let frame = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: notchedOffOrigin)
-        #expect(frame == CGRect(x: -927, y: 1320, width: 54, height: 10))
+        #expect(frame == CGRect(x: -932, y: 1316, width: 64, height: 14))
         #expect(notchedOffOrigin.frame.contains(frame))
     }
 
     // MARK: - Non-notched displays
 
+    /// External displays float the chin 8 pt below the menu-bar band (design §4 diagram).
     @Test func notchlessDisplaysUseTheSameCompactChin() {
         let onExternal = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: external)
-        #expect(onExternal == CGRect(x: 2733, y: 1129, width: 54, height: 10))   // 1169 - 30 pt menu bar
+        #expect(onExternal == CGRect(x: 2728, y: 1117, width: 64, height: 14))   // 1169 - 30 pt menu bar - 8
         #expect(external.notchRect == nil)
         #expect(PresenceGeometry.clearsHousing(onExternal, on: external))
+        #expect(!PresenceGeometry.layout(for: external, state: .ready).attached)
+        #expect(PresenceGeometry.layout(for: notched, state: .ready).attached)
 
-        // No menu bar at all: flush with the very top of the panel.
+        // No menu bar at all: 8 pt below the very top of the panel.
         let flush = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: externalNoMenuBar)
-        #expect(flush == CGRect(x: 933, y: 1070, width: 54, height: 10))
+        #expect(flush == CGRect(x: 928, y: 1058, width: 64, height: 14))
     }
 
     @Test func clampsOnANarrowDisplayInsteadOfOverflowing() {
         let hover = PresenceGeometry.frame(size: PresenceGeometry.hoverSize, on: sliver)
         #expect(hover.width == 144)          // 160 - 2 * 8 pt edge margin
         #expect(sliver.frame.contains(hover))
-        #expect(hover.maxY == 576)           // still the one rule
+        #expect(hover.maxY == 568)           // still the one rule: 600 - 24 pt menu bar - 8 pt float
     }
 
     // MARK: - Multi-display
@@ -135,7 +141,7 @@ struct PresenceGeometryTests {
         // Lid closed — the built-in is gone from the list entirely; the external takes over.
         let clamshell = try #require(WindowPlacement.hostScreen(screens: [external], main: external))
         #expect(clamshell == external)
-        #expect(PresenceGeometry.frame(size: PresenceGeometry.restSize, on: clamshell).maxY == 1139)
+        #expect(PresenceGeometry.frame(size: PresenceGeometry.restSize, on: clamshell).maxY == 1131)
     }
 
     @Test func everyDisplayKeepsItsOwnFramesOnItself() {
@@ -289,7 +295,11 @@ struct PresenceInteractionTests {
         let rect = PresenceGeometry.hoverRect(on: notched)
         let housing = try #require(notched.notchRect)
         #expect(rect.contains(PresenceGeometry.frame(size: PresenceGeometry.restSize, on: notched)))
-        #expect(rect.contains(PresenceGeometry.frame(size: PresenceGeometry.hoverSize, on: notched)))
+        // S2: the hint is text-sized (min 190), so at rest the target covers the narrowest hint row;
+        // once expanded, the measured row width is passed in and the target covers that row.
+        #expect(rect.contains(PresenceGeometry.frame(size: PresenceGeometry.rowSize(width: 0, on: notched), on: notched)))
+        let measured = PresenceGeometry.hoverRect(on: notched, rowWidth: 300)
+        #expect(measured.contains(PresenceGeometry.frame(size: PresenceGeometry.rowSize(width: 300, on: notched), on: notched)))
         #expect(rect.contains(housing))   // pointing at the camera housing itself reveals it
 
         // Dead centre of the chin: hovering. Well clear of it: not.

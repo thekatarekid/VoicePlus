@@ -3,14 +3,16 @@ import Combine
 import Shared
 import SwiftUI
 
-/// Borderless, non-activating `NSPanel` that slides out from under the notch (T2).
-/// Slide in/out ≤150 ms; every animation is interruptible (each transition cancels the previous).
+/// Borderless, non-activating `NSPanel` that hangs the Spool pill below the notch (design §4).
+/// Geometry transitions are 180 ms ease-out and interruptible (each transition cancels the previous).
 public final class PillPanelController {
     public let model = PillViewModel()
     private let panel: NSPanel
     private var cancellable: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
-    private var lastState: PillState = .hidden
+    private var lastSurface: NotchGeometry.Surface = .hidden
+    /// The display chosen when the turn became visible; pinned for the turn (design §4).
+    private var pinnedMetrics: ScreenMetrics?
 
     public init() {
         panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -24,27 +26,29 @@ public final class PillPanelController {
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
         // ROOT CAUSE OF THE 1.7.9 "BLACK SLAB": `NSHostingView.sizingOptions` defaults to
-        // `.standardBounds` (min + intrinsic + max), which publishes the SwiftUI content's *minimum*
-        // size as the window's `contentMinSize`. A wrapping notice's minimum width is one word, so
-        // its minimum height is the fully wrapped paragraph — measured here at 1187 pt for a short
-        // error and 4727 pt for a long one — and AppKit then grew the panel to that on the next
-        // layout pass, straight through every frame `NotchGeometry` had computed. The pill's frame
-        // is placement math, never content: opt out entirely.
+        // `.standardBounds`, which publishes the SwiftUI content's *minimum* size as the window's
+        // `contentMinSize`; a wrapping notice's minimum is the fully wrapped paragraph, and AppKit grew
+        // the panel to it. The pill's frame is placement math (`NotchGeometry`), never content.
         let host = NSHostingView(rootView: PillView(model: model))
         host.sizingOptions = []
         panel.contentView = host
         panel.contentMinSize = .zero
         panel.contentMaxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
-        cancellable = model.$state.receive(on: DispatchQueue.main).sink { [weak self] state in self?.render(state) }
-        // Display arrangement can change mid-utterance (external display plugged in, resolution change,
-        // clamshell open/close): re-place the pill against the new geometry while it is on screen.
+        // State, turn (latched timer, chips, live words) and the clock can each change the surface
+        // (e.g. the finishing offer's buttons appear at 10 s); render when the surface or state does.
+        cancellable = model.$state
+            .combineLatest(model.$turn, model.$clockTick, model.$laneNote)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state, _, _, _ in self?.render(state) }
+        // Display arrangement can change mid-turn: re-place the pill against the new geometry.
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             guard let self else { return }
             Self.logPlacementDiagnostics()
+            self.pinnedMetrics = nil
             guard self.model.state.isVisible else { return }
-            self.reposition(self.model.state)
+            self.render(self.model.state, force: true)
         }
         Self.logPlacementDiagnostics()
     }
@@ -72,67 +76,78 @@ public final class PillPanelController {
                              visibleFrame: screen.visibleFrame)
     }
 
-    /// One-shot startup diagnostic: where the pill will land on every attached display, and whether that
-    /// rect clears the camera housing. Makes the notch bug verifiable from `log stream` without a screenshot.
+    /// One-shot startup diagnostic: where the pill lands on every display, attached or floating, and
+    /// whether both turn sizes clear the camera housing — verifiable from `log stream`.
     public static func logPlacementDiagnostics() {
         for screen in NSScreen.screens {
             let m = metrics(for: screen)
-            let l = NotchGeometry.layout(for: m, size: NotchGeometry.defaultSize)
-            let expanded = NotchGeometry.layout(for: m, size: NotchGeometry.expandedSize)
-            let clear = m.notchRect.map { !l.shown.intersects($0) && !expanded.shown.intersects($0) } ?? true
+            let active = NotchGeometry.pillLayout(for: m, size: NotchGeometry.size(for: .active, on: m))
+            let actionable = NotchGeometry.pillLayout(for: m, size: NotchGeometry.size(for: .actionable, on: m))
+            let clear = NotchGeometry.clearsHousing(active.shown, on: m) && NotchGeometry.clearsHousing(actionable.shown, on: m)
             Log.app.info("""
                 pill geometry: display=\(screen.localizedName) frame=\(NSStringFromRect(m.frame)) \
-                topInset=\(m.topInset) menuBar=\(m.menuBarHeight) topBand=\(m.topBand) \
-                notch=\(m.notchRect.map(NSStringFromRect) ?? "none") \
-                shown=\(NSStringFromRect(l.shown)) expanded=\(NSStringFromRect(expanded.shown)) \
-                retracted=\(NSStringFromRect(l.retracted)) clearsHousing=\(clear)
+                topInset=\(m.topInset) menuBar=\(m.menuBarHeight) topBand=\(m.topBand) attached=\(m.isAttached) \
+                notch=\(m.notchRect.map(NSStringFromRect) ?? "none") ceiling=\(NSStringFromSize(NotchGeometry.ceiling(on: m))) \
+                active=\(NSStringFromRect(active.shown)) actionable=\(NSStringFromRect(actionable.shown)) \
+                clearsHousing=\(clear)
                 """)
         }
     }
 
-    /// The pill's size for a state, widened in the real font to fit that state's own sentences.
-    static func pillSize(for state: PillState, on metrics: ScreenMetrics) -> CGSize {
-        let font = NSFont.preferredFont(forTextStyle: .callout)
-        return NotchGeometry.size(for: state, on: metrics) { text in
-            ceil((text as NSString).size(withAttributes: [.font: font]).width) + 1
+    /// The surface a content occupies, with the hint measured in its real font.
+    static func surface(for content: PillContent) -> NotchGeometry.Surface {
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        return content.surface { text in ceil((text as NSString).size(withAttributes: [.font: font]).width) + 1 }
+    }
+
+    /// Mouse policy (DESIGN.md §8.9): the pill ignores the pointer except its action row and the
+    /// hover-pause area while a preview dwells — the dictation's final preview, or a selected-text
+    /// edit's before/after preview (`.transform` notice, S12). It never takes keyboard focus.
+    static func acceptsMouse(_ state: PillState, content: PillContent) -> Bool {
+        if content.hasActions { return true }
+        switch state {
+        case .finalPreview, .held: return true
+        case .transform(let info):
+            if case .notice = info.stage { return true }
+            return false
+        default: return false
         }
     }
 
-    /// Re-place an already visible pill (screen parameters changed) without replaying the slide-in.
-    private func reposition(_ state: PillState) {
-        guard let metrics = Self.currentMetrics() else { return }
-        panel.setFrame(NotchGeometry.layout(for: metrics, size: Self.pillSize(for: state, on: metrics)).shown, display: true)
-    }
-
-    private func render(_ state: PillState) {
-        defer { lastState = state }
-        guard let metrics = Self.currentMetrics() else { return }
-        let layout = NotchGeometry.layout(for: metrics, size: Self.pillSize(for: state, on: metrics))
-        if state.isVisible, !lastState.isVisible {
+    private func render(_ state: PillState, force: Bool = false) {
+        let content = model.content()
+        let surface = Self.surface(for: content)
+        let wasVisible = lastSurface != .hidden
+        guard force || surface != lastSurface || state.isVisible != wasVisible else {
+            panel.ignoresMouseEvents = !Self.acceptsMouse(state, content: content)
+            return
+        }
+        defer { lastSurface = surface }
+        if !wasVisible || pinnedMetrics == nil { pinnedMetrics = Self.currentMetrics() }
+        guard let metrics = pinnedMetrics else { return }
+        let size = NotchGeometry.size(for: surface, on: metrics)
+        let layout = NotchGeometry.pillLayout(for: metrics, size: size == .zero ? NotchGeometry.activeSize : size)
+        if surface != .hidden, !wasVisible {
             Log.app.info("""
                 pill placement: screen=\(NSStringFromRect(metrics.frame)) topBand=\(metrics.topBand) \
-                notch=\(metrics.notchRect.map(NSStringFromRect) ?? "none") \
+                attached=\(layout.attached) notch=\(metrics.notchRect.map(NSStringFromRect) ?? "none") \
                 shown=\(NSStringFromRect(layout.shown)) retracted=\(NSStringFromRect(layout.retracted))
                 """)
         }
         if let host = panel.contentView as? NSHostingView<PillView> {
-            host.rootView = PillView(model: model, cornerRadius: layout.cornerRadius)
+            host.rootView = PillView(model: model, size: layout.shown.size, attached: layout.attached)
         }
-        // The transform ghost row ("↩ / try again") and — R2.4 — the held row's three recovery
-        // actions are the only clickable things on the pill; it ignores the mouse everywhere else.
-        switch state {
-        case .transform(let info): panel.ignoresMouseEvents = !info.showsGhost
-        case .held: panel.ignoresMouseEvents = false
-        default: panel.ignoresMouseEvents = true
-        }
-        switch (lastState.isVisible, state.isVisible) {
+        panel.ignoresMouseEvents = !Self.acceptsMouse(state, content: content)
+        switch (wasVisible, surface != .hidden) {
         case (false, true):
             panel.setFrame(layout.retracted, display: false)
             panel.orderFrontRegardless()
             animate(to: layout.shown)
         case (true, false):
             animate(to: layout.retracted) { [weak self] in
-                if self?.model.state.isVisible == false { self?.panel.orderOut(nil) }
+                guard let self, !self.model.state.isVisible else { return }
+                self.panel.orderOut(nil)
+                self.pinnedMetrics = nil
             }
         case (true, true):
             animate(to: layout.shown)
@@ -143,10 +158,28 @@ public final class PillPanelController {
 
     private func animate(to frame: NSRect, completion: (() -> Void)? = nil) {
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.14
+            // design §11: 160–220 ms ease-out geometry transitions; Reduce Motion expands instantly.
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.18
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             ctx.allowsImplicitAnimation = true
             panel.animator().setFrame(frame, display: true)
         }, completionHandler: completion)
+    }
+}
+
+/// S2 — the destination the pill names ("Ready for Mail", "✓ Inserted in Mail"): the frontmost app at
+/// key-down, by its localized name. Never VoicePlus itself, never a bundle identifier.
+public enum PillDestination {
+    public static func frontmostName(workspace: NSWorkspace = .shared,
+                                     ownBundleID: String? = Bundle.main.bundleIdentifier) -> String? {
+        guard let app = workspace.frontmostApplication else { return nil }
+        return name(localizedName: app.localizedName, bundleID: app.bundleIdentifier, ownBundleID: ownBundleID)
+    }
+
+    /// Pure half: nil for our own app and for an app with no display name.
+    public static func name(localizedName: String?, bundleID: String?, ownBundleID: String?) -> String? {
+        if let bundleID, let ownBundleID, bundleID == ownBundleID { return nil }
+        guard let name = localizedName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        return name
     }
 }

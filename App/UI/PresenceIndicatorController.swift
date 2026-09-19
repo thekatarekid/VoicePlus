@@ -26,8 +26,13 @@ public final class PresenceIndicatorController {
     /// status item from a crowded menu bar, the chin under the notch is the way back into
     /// Settings, permissions and Quit.
     public var onClick: (() -> Void)?
-    /// Where the hotkey hint in the hover row comes from ("hold Right ⌥").
+    /// Where the hotkey hint in a non-ready hover row comes from ("hold fn / 🌐").
     public var hotkeyHint: () -> String = { "" }
+    /// S2 — the I1 hover hint for the configured key: "Hold or Double Tap fn / 🌐 to dictate".
+    public var readyHint: () -> String = { HotkeyBinding.default.readyHint() }
+    /// The state before any suppression (pill showing, full screen) — the blockers the status menu
+    /// cannot derive on its own (S6's `presenceState`).
+    public private(set) var substance: PresenceState = .ready
     /// Read on every refresh so a Settings toggle takes effect without re-wiring anything.
     public var settings: SettingsStore? { didSet { refresh() } }
     /// Polled rather than pushed: `paused` is flipped from the status menu, the hard mute and the
@@ -46,12 +51,8 @@ public final class PresenceIndicatorController {
     private var state: PresenceState = .off
     private var hovered = false
     private var hoverTimer: Timer?
-    /// When the indicator last started announcing itself (see `PresenceIntroduction`).
-    private var introducedAt: Date?
     /// The width the expanded row currently needs; drives both the panel frame and the hover rect.
     private var rowWidth: CGFloat?
-    /// Pre-suppression state, so an announcement-worthy transition is not lost behind the pill.
-    private var lastSubstance: PresenceState?
     /// Last logged microphone ownership, so the 5 Hz refresh logs changes and not a stream.
     private var lastOwnership: MicrophoneOwnership?
     private var observers: [NSObjectProtocol] = []
@@ -80,7 +81,8 @@ public final class PresenceIndicatorController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
-        hosting = NSHostingView(rootView: PresenceIndicatorView(state: .off, hovered: false, cornerRadius: 0, hint: ""))
+        hosting = NSHostingView(rootView: PresenceIndicatorView(state: .off, hovered: false, cornerRadius: 0, hint: "",
+                                                                attached: true, readyHint: HotkeyBinding.default.readyHint()))
         // Same opt-out as the pill: the panel's frame comes from `PresenceGeometry`, and a hosting
         // view that publishes its content's minimum size can only fight that (see PillPanelController).
         hosting.sizingOptions = []
@@ -185,21 +187,23 @@ public final class PresenceIndicatorController {
         logOwnershipChange(microphone)
 
         let next = PresenceStateReducer.reduce(inputs, microphone: microphone)
-        // Announce on the transitions that carry news (launch, and recovery out of a blocked state —
-        // e.g. a speech model finishing its download and the engine being swapped in). `substance`
-        // rather than the reduced state so a pill or a full-screen Space cannot eat the transition.
-        let substance = PresenceStateReducer.substance(inputs, microphone: microphone)
-        if PresenceIntroduction.announces(from: lastSubstance, to: substance) { introducedAt = Date() }
-        lastSubstance = substance
-        let introducing = next == .ready && PresenceIntroduction.isShowing(since: introducedAt)
+        substance = PresenceStateReducer.substance(inputs, microphone: microphone)
 
+        // S2 (design §4): the hint is only ever a hover — pointer entry expands it, pointer exit
+        // collapses it, nothing expands unprompted, and keyboard focus never opens it.
         let pointerOn = next.isVisible
             && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics, rowWidth: rowWidth)
-        let expanded = pointerOn || introducing
+        let hint = readyHint()
+        let presentation = PresenceHover.presentation(state: next, pointerOn: pointerOn, readyHint: hint)
+        let expanded = presentation != .chin && presentation != .none
 
-        // Fit the message to the display *before* placing the panel: the row is sized to its text,
-        // which is the whole of the "…— hold R…" fix.
-        let width = expanded ? Self.fittedRow(state: next, hint: hotkeyHint(), on: metrics) : nil
+        // Fit the message to the display *before* placing the panel: the row is sized to its text.
+        let width: PresenceRow.Fit?
+        switch presentation {
+        case .hint(let text): width = Self.fittedHint(text, on: metrics)
+        case .row: width = Self.fittedRow(state: next, hint: hotkeyHint(), on: metrics)
+        case .chin, .none: width = nil
+        }
         guard force || next != state || expanded != hovered || width?.width != rowWidth else { return }
         let changed = next != state || expanded != hovered
         state = next
@@ -216,11 +220,9 @@ public final class PresenceIndicatorController {
         let layout = PresenceGeometry.layout(for: metrics, state: next, hovered: expanded, rowWidth: width?.width)
         hosting.rootView = PresenceIndicatorView(state: next, hovered: expanded,
                                                  cornerRadius: layout.cornerRadius, hint: hotkeyHint(),
-                                                 rowText: width?.text)
+                                                 rowText: width?.text, attached: layout.attached, readyHint: hint)
         // The panel can never swallow a click meant for the app underneath: it only takes the mouse
         // while the pointer is provably on it.
-        // Note `pointerOn`, not `expanded`: while the row is announcing itself unprompted it must
-        // still be click-through, or a launch-time announcement would eat the user's first click.
         panel.ignoresMouseEvents = PresenceInteraction.ignoresMouse(hovering: pointerOn)
         panel.setFrame(layout.frame, display: true)
         // Belt and braces on top of `PresenceContainerView.layout()`: the chin is 4 pt tall at rest
@@ -269,6 +271,15 @@ public final class PresenceIndicatorController {
                 screen=\(self.panel.screen?.localizedName ?? "none")
                 """)
         }
+    }
+
+    /// I1 — the ready hint, sized to its text in the hint's 12 pt face (min 190, display-clamped).
+    static func fittedHint(_ hint: String, on metrics: ScreenMetrics) -> PresenceRow.Fit {
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        let width = PresenceHover.hintWidth(hint, on: metrics) { text in
+            ceil((text as NSString).size(withAttributes: [.font: font]).width) + 1
+        }
+        return PresenceRow.Fit(text: hint, width: width, truncated: false)
     }
 
     /// The row's text and the panel width it needs, measured in the real font. `PresenceRow` does
@@ -328,7 +339,7 @@ public final class PresenceIndicatorController {
                 frame=\(NSStringFromRect(m.frame)) topInset=\(m.topInset) menuBar=\(m.menuBarHeight) \
                 topBand=\(m.topBand) notch=\(m.notchRect.map(NSStringFromRect) ?? "none") \
                 \(list) hoverRect=\(NSStringFromRect(PresenceGeometry.hoverRect(on: m))) \
-                pillShown=\(NSStringFromRect(NotchGeometry.layout(for: m).shown)) clearsHousing=\(clears)
+                pillShown=\(NSStringFromRect(NotchGeometry.pillLayout(for: m).shown)) clearsHousing=\(clears)
                 """)
         }
     }

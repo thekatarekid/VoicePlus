@@ -29,8 +29,8 @@ import Testing
         #expect(!fit.truncated)
         // The panel is wider than the text it has to draw — the whole point.
         #expect(fit.width >= Self.ruler(fit.text))
-        // …and the old fixed row could not have held it, which is the bug.
-        #expect(fit.width > PresenceGeometry.hoverSize.width)
+        // …and the old fixed 190 pt row could not have held it, which is the bug.
+        #expect(fit.width > NotchGeometry.hintMinimumWidth)
     }
 
     @Test func aMessageThatFitsIsNeverShortened() {
@@ -120,13 +120,13 @@ import Testing
             let wide = PresenceGeometry.rowSize(width: 5000, on: metrics)
             #expect(wide.width == PresenceGeometry.maxRowWidth(on: metrics))
             let narrow = PresenceGeometry.rowSize(width: 10, on: metrics)
-            // Never narrower than the nominal row (unless the display itself is).
-            #expect(narrow.width == min(PresenceGeometry.hoverSize.width, PresenceGeometry.maxRowWidth(on: metrics)))
+            // Never narrower than 190 pt (unless the display itself is): the hint is text-sized (S2).
+            #expect(narrow.width == min(NotchGeometry.hintMinimumWidth, PresenceGeometry.maxRowWidth(on: metrics)))
 
             let layout = PresenceGeometry.layout(for: metrics, state: .ready, hovered: true, rowWidth: 320)
             #expect(PresenceGeometry.clearsHousing(layout.frame, on: metrics))
-            // Same top boundary as everything else at this anchor.
-            #expect(layout.frame.maxY == metrics.frame.maxY - metrics.topBand)
+            // Same top boundary as everything else at this anchor (the pill's top edge).
+            #expect(layout.frame.maxY == NotchGeometry.pillTopEdge(on: metrics))
             // A row wider than the nominal size still counts as hovered under the pointer.
             #expect(layout.hoverRect.contains(CGPoint(x: layout.frame.midX, y: layout.frame.midY)))
             #expect(layout.hoverRect.contains(CGPoint(x: layout.frame.minX + 2, y: layout.frame.midY)))
@@ -136,7 +136,8 @@ import Testing
     @Test func noNotchDisplaysHangTheRowUnderTheMenuBar() {
         let layout = PresenceGeometry.layout(for: Self.external, state: .ready, hovered: true, rowWidth: 400)
         #expect(Self.external.notchRect == nil)
-        #expect(layout.frame.maxY == Self.external.frame.maxY - Self.external.menuBarHeight)
+        // Floating: 8 pt below the menu-bar band (design §4).
+        #expect(layout.frame.maxY == Self.external.frame.maxY - Self.external.menuBarHeight - 8)
         #expect(Self.external.frame.contains(layout.frame))
     }
 
@@ -158,51 +159,35 @@ import Testing
         #expect(PresenceGeometry.layout(for: Self.notched, state: state).visible)
     }
 
-    // MARK: - Announcement
+    // MARK: - No unprompted announcement (S2)
 
-    @Test func announcesAtLaunchAndOnRecoveryButNotAfterEveryUtterance() {
-        #expect(PresenceIntroduction.announces(from: nil, to: .ready))
-        #expect(PresenceIntroduction.announces(from: .blocked(.modelMissing), to: .ready))
-        #expect(PresenceIntroduction.announces(from: .blocked(.microphoneDenied), to: .ready))
-        // The ordinary end of a dictation must not re-announce.
-        #expect(!PresenceIntroduction.announces(from: .listening(level: 0.3), to: .ready))
-        #expect(!PresenceIntroduction.announces(from: .processing, to: .ready))
-        #expect(!PresenceIntroduction.announces(from: .ready, to: .ready))
-        // Nor does un-suppressing (pill hidden, full screen exited).
-        #expect(!PresenceIntroduction.announces(from: .off, to: .ready))
-        // Only `ready` ever announces.
-        #expect(!PresenceIntroduction.announces(from: nil, to: .muted))
-        #expect(!PresenceIntroduction.announces(from: .blocked(.modelMissing), to: .paused))
+    /// Design §4: the hint is only ever a hover. Nothing expands on launch or on recovery; the idle
+    /// chin's green dot is the at-rest affordance.
+    @Test func theHintNeverExpandsUnprompted() {
+        let hint = HotkeyBinding.default.readyHint()
+        for state: PresenceState in [.ready, .muted, .paused, .blocked(.modelMissing)] {
+            #expect(PresenceHover.presentation(state: state, pointerOn: false, readyHint: hint) == .chin)
+        }
+        #expect(PresenceGeometry.layout(for: Self.notched, state: .ready).frame.size == NotchGeometry.idleChinSize)
     }
 
-    @Test func theAnnouncementCollapsesOnItsOwn() {
-        let start = Date()
-        #expect(PresenceIntroduction.isShowing(since: start, now: start))
-        #expect(PresenceIntroduction.isShowing(since: start, now: start.addingTimeInterval(PresenceIntroduction.duration - 0.5)))
-        #expect(!PresenceIntroduction.isShowing(since: start, now: start.addingTimeInterval(PresenceIntroduction.duration + 0.1)))
-        #expect(!PresenceIntroduction.isShowing(since: nil, now: start))
-        // Long enough to read, short enough not to be furniture.
-        #expect(PresenceIntroduction.duration >= 3 && PresenceIntroduction.duration <= 10)
-    }
+    // MARK: - The pill's own sizing (S2: placement math, never content)
 
-    // MARK: - The pill's own sizing
-
-    @Test func thePillWidensToFitItsNotice() {
+    /// The pill no longer widens to fit a notice: every turn state takes the ceiling width, and a
+    /// display too narrow for it clamps the pill rather than letting it hang off an edge.
+    @Test func thePillIsTheCeilingWidthAndClampsToTheDisplay() {
         let reason = "No speech model installed"
-        let base = NotchGeometry.size(for: .unavailable(reason: reason))
         let fitted = NotchGeometry.size(for: .unavailable(reason: reason), on: Self.notched, measure: Self.ruler)
-        #expect(fitted.width >= base.width)
-        #expect(fitted.width >= Self.ruler(PillState.unavailableSubtitle))
-        #expect(fitted.width <= Self.notched.frame.width - 16)
-        // On a display too narrow for it, it is clamped rather than hanging off the edge.
+        #expect(fitted == NotchGeometry.actionableSize)
         let onSliver = NotchGeometry.size(for: .unavailable(reason: reason), on: Self.sliver, measure: Self.ruler)
         #expect(onSliver.width <= Self.sliver.frame.width - 16)
-        #expect(NotchGeometry.layout(for: Self.sliver, size: onSliver).shown.minX >= Self.sliver.frame.minX)
+        #expect(NotchGeometry.pillLayout(for: Self.sliver, size: onSliver).shown.minX >= Self.sliver.frame.minX)
     }
 
-    @Test func statesWithoutFixedTextKeepTheirNominalSize() {
+    @Test func liveTextNeverResizesThePill() {
         #expect(NotchGeometry.size(for: .listening(level: 0.5), on: Self.notched, measure: Self.ruler)
-                == NotchGeometry.size(for: .listening(level: 0.5)))
+                == NotchGeometry.size(for: .preview(text: String(repeating: "word ", count: 80)), on: Self.notched,
+                                      measure: Self.ruler))
         // A live transcript must not resize the pill on every syllable.
         #expect(PillState.preview(text: String(repeating: "word ", count: 80)).messageLines.isEmpty)
     }

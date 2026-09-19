@@ -3,9 +3,11 @@ import Shared
 import Testing
 @testable import VoicePlusApp
 
-/// Geometry values below are measured from real hardware (2026-08-29, MacBook with camera housing +
-/// AirPlay external display), so the regression guard matches the display the bug was reported on.
-@Suite("Notch geometry (T2)")
+/// S2 — the Spool pill's geometry (design §4, DESIGN.md §8.3): every state's size, the compact
+/// ceiling, the narrow review layout, attached vs floating placement, and the camera-housing guard.
+/// Display values are measured from real hardware (2026-08-29, MacBook with camera housing + AirPlay
+/// external display), so the regression guard matches the display the original bug was reported on.
+@Suite("Notch geometry (S2)")
 struct NotchGeometryTests {
     /// Built-in Retina display: frame 1800x1169, safeAreaInsets.top 38, aux areas 790 pt wide each
     /// (housing 220 pt), visibleFrame.maxY 1130 (menu-bar delta 39).
@@ -14,8 +16,7 @@ struct NotchGeometryTests {
     /// Same panel, but not at the global origin (built-in placed right of an external display).
     let notchedOffOrigin = ScreenMetrics(frame: CGRect(x: -1800, y: 200, width: 1800, height: 1169),
                                          topInset: 38, notchWidth: 220, menuBarHeight: 39)
-    /// Notched panel with the menu bar auto-hidden / a full-screen space: the visibleFrame delta
-    /// collapses to 0 but the camera housing does not go anywhere.
+    /// Notched panel with the menu bar auto-hidden / a full-screen space.
     let autoHiddenMenuBar = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 1800, height: 1169),
                                           topInset: 38, notchWidth: 220, menuBarHeight: 0)
     /// External display carrying the menu bar.
@@ -24,197 +25,254 @@ struct NotchGeometryTests {
     /// Secondary display with no menu bar ("Displays have separate Spaces" off).
     let externalNoMenuBar = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
                                           topInset: 0, notchWidth: nil, menuBarHeight: 0)
+    /// A small display: usable width 440, so the ceiling is 408 and the review layout is narrow.
+    let narrow = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 440, height: 700), topInset: 0, menuBarHeight: 24)
 
-    // MARK: - The regression guard for the reported bug
+    var all: [ScreenMetrics] { [notched, notchedOffOrigin, autoHiddenMenuBar, external, externalNoMenuBar, narrow] }
 
-    @Test func pillNeverIntersectsTheCameraHousing() throws {
-        for metrics in [notched, notchedOffOrigin, autoHiddenMenuBar] {
-            let housing = try #require(metrics.notchRect)
-            for size in [NotchGeometry.defaultSize, NotchGeometry.expandedSize, CGSize(width: 100, height: 40)] {
-                let l = NotchGeometry.layout(for: metrics, size: size)
-                #expect(!l.shown.intersects(housing))      // nothing drawn behind the camera housing
-                #expect(!l.retracted.intersects(housing))  // and not during the slide in/out either
-                #expect(l.shown.maxY <= metrics.frame.maxY - metrics.topInset)
-                #expect(metrics.frame.contains(l.shown))
+    // MARK: - Sizes
+
+    @Test func theDesignsNominalSizes() {
+        #expect(NotchGeometry.idleChinSize == CGSize(width: 64, height: 14))
+        #expect(NotchGeometry.hintSize == CGSize(width: 360, height: 38))
+        #expect(NotchGeometry.hintMinimumWidth == 190)
+        #expect(NotchGeometry.activeSize == CGSize(width: 560, height: 164))
+        #expect(NotchGeometry.actionableSize == CGSize(width: 560, height: 204))
+        #expect(NotchGeometry.characterBay == 132)
+        #expect(NotchGeometry.cameoBay == 84)
+        #expect(NotchGeometry.narrowBelow == 460)
+        #expect(NotchGeometry.cornerRadius == Tokens.Radius.pill)
+    }
+
+    /// Every pill state's size: 164 without actions, 204 with an action row, the hint text-sized,
+    /// hidden nothing.
+    @Test func everyStateSize() {
+        let active = NotchGeometry.activeSize, actionable = NotchGeometry.actionableSize
+        let poor = MicQuality(snr: 8, clipping: 0, lowLevel: false, verdict: .poor)
+        let expected: [(PillState, CGSize)] = [
+            (.hidden, .zero),
+            (.idle, active), (.starting, active), (.listening(level: 0.3), active), (.listeningQuiet, active),
+            (.latched(elapsed: 3), actionable),                       // Finish
+            (.warning(poor), actionable),                             // Check microphone
+            (.landing, active), (.finishing(elapsedWarning: false), active), (.finishing(elapsedWarning: true), active),
+            (.finalPreview(FinalPreviewInfo(text: "x", dwellRemaining: 0.9)), active),
+            (.finalPreview(FinalPreviewInfo(text: "x", dwellRemaining: 0, manual: true)), actionable),
+            (.finalPreview(FinalPreviewInfo(text: "x", uncertainCount: 1, dwellRemaining: 1.8)), active),
+            (.inserting(text: "x"), active),
+            (.landed(LandedPillInfo(text: "x", verified: true)), active),
+            (.landed(LandedPillInfo(text: "x", verified: false)), actionable),
+            (.landedPartial(text: "x"), actionable),
+            (.held(HeldPillInfo(text: "x", destination: "Mail", reason: "destination changed")), actionable),
+            (.cancelled, active),
+            (.muted, actionable),
+            (.unavailable(reason: "no model"), actionable),
+            (.error(message: "Text was not typed — Try again"), actionable),   // Dismiss
+            (.error(message: DeliveryCopy.noSpeechDetected), active),         // a quiet return has no actions
+            (.correcting, actionable), (.editing, active), (.undoAvailable, actionable),
+            (.transform(TransformPillInfo(editingWords: 3, stage: .editing)), active),
+            (.meeting(MeetingPillInfo(phase: .recording, elapsed: 1)), actionable),
+            (.meeting(MeetingPillInfo(phase: .paused, elapsed: 1)), actionable),
+            (.meeting(MeetingPillInfo(phase: .preparingNotes, elapsed: 1)), actionable),
+            (.ready(hint: "Hold or Double Tap fn / 🌐 to dictate"), CGSize(width: 190, height: 38)),
+        ]
+        for (state, size) in expected {
+            #expect(NotchGeometry.size(for: state) == size, "\(state.caseName)")
+        }
+    }
+
+    @Test func theHintIsTextSizedAndNeverUnder190() {
+        #expect(NotchGeometry.size(for: .hint(textWidth: 100), on: notched) == CGSize(width: 190, height: 38))
+        #expect(NotchGeometry.size(for: .hint(textWidth: 300), on: notched) == CGSize(width: 324, height: 38))
+        let measured = NotchGeometry.size(for: .ready(hint: "Hold or Double Tap fn / 🌐 to dictate"), on: notched) { _ in 236 }
+        #expect(measured == CGSize(width: 260, height: 38))
+        let sliver = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 160, height: 600), menuBarHeight: 24)
+        #expect(NotchGeometry.size(for: .hint(textWidth: 300), on: sliver).width == 144)
+    }
+
+    // MARK: - The compact ceiling
+
+    @Test func theCompactCeilingIsMin560UsableMinus32By204() {
+        #expect(NotchGeometry.ceiling(on: notched) == CGSize(width: 560, height: 204))
+        #expect(NotchGeometry.ceiling(on: external) == CGSize(width: 560, height: 204))
+        #expect(NotchGeometry.ceiling(on: narrow) == CGSize(width: 408, height: 204))
+        // The Dock on the side narrows the usable width, and the ceiling follows it.
+        let docked = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 520, height: 800), menuBarHeight: 24,
+                                   visibleFrame: CGRect(x: 60, y: 0, width: 460, height: 776))
+        #expect(NotchGeometry.ceiling(on: docked).width == 428)
+        // A short display: never taller than the room below the top edge.
+        let short = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 1200, height: 150), menuBarHeight: 24)
+        #expect(NotchGeometry.ceiling(on: short).height == CGFloat(150 - 24 - 8 - 8))
+        for metrics in all {
+            for surface: NotchGeometry.Surface in [.active, .actionable] {
+                let size = NotchGeometry.size(for: surface, on: metrics)
+                #expect(size.width <= NotchGeometry.ceiling(on: metrics).width)
+                #expect(size.height <= 204)
             }
         }
     }
 
-    // MARK: - Notched built-in display
+    @Test func turnStatesKeepStableDimensionsThroughTheTurn() {
+        let states: [PillState] = [.starting, .listening(level: 0.1), .listening(level: 0.9),
+                                   .preview(text: String(repeating: "word ", count: 200)), .finishing(elapsedWarning: true),
+                                   .finalPreview(FinalPreviewInfo(text: String(repeating: "long ", count: 300), dwellRemaining: 1)),
+                                   .inserting(text: "x"), .landed(LandedPillInfo(text: "x", verified: true))]
+        let sizes = Set(states.map { NotchGeometry.size(for: $0, on: notched) { $0.count > 0 ? 9_999 : 0 } }.map { "\($0)" })
+        #expect(sizes == ["\(NotchGeometry.activeSize)"])
+    }
 
-    @Test func notchedPillHangsOffTheBottomOfTheTopBand() {
-        #expect(notched.hasNotch)
-        #expect(notched.topBand == 39)
-        #expect(notched.notchRect == CGRect(x: 790, y: 1131, width: 220, height: 38))
+    // MARK: - Narrow review layout
 
-        let l = NotchGeometry.layout(for: notched)
-        #expect(l.shown == CGRect(x: 740, y: 1086, width: 320, height: 44))
-        #expect(l.shown.maxY == 1130) // == visibleFrame.maxY, i.e. flush under the menu bar
+    @Test func belowFourSixtyTheBayIsAnEightyFourPointCameo() {
+        #expect(NotchGeometry.bayWidth(forPillWidth: 560) == 132)
+        #expect(NotchGeometry.bayWidth(forPillWidth: 460) == 132)
+        #expect(NotchGeometry.bayWidth(forPillWidth: 459) == 84)
+        let size = NotchGeometry.size(for: .actionable, on: narrow)
+        #expect(size == CGSize(width: 408, height: 204))
+        #expect(NotchGeometry.isNarrow(width: size.width))
+        let lanes = PillLaneLayout(size: size, hasChip: false, hasActions: true)
+        #expect(lanes.bay.width == CGFloat(84 + 16))
+        #expect(lanes.wordsLane.width == CGFloat(408 - 32 - 84 - 6))
+        // The Spool scene agrees: scale 0.69 below the same width.
+        #expect(SpoolScene.placement(width: Double(size.width)).scale == 0.69)
+        #expect(SpoolScene.placement(width: 560).scale == 1)
+    }
+
+    // MARK: - Placement: attached vs floating
+
+    @Test func attachedUnderTheHousingWithSquareUpperCorners() throws {
+        let l = NotchGeometry.pillLayout(for: notched)
+        #expect(l.attached)
+        #expect(l.shown == CGRect(x: 620, y: 966, width: 560, height: 164))
+        #expect(l.shown.maxY == 1130)          // flush under the menu bar / housing band
+        #expect(l.retracted == CGRect(x: 620, y: 1129, width: 560, height: 1))
         #expect(l.cornerRadius == 18)
-        // Retracted rolls up to the band boundary instead of translating off the top of the screen.
-        #expect(l.retracted == CGRect(x: 740, y: 1129, width: 320, height: 1))
-
-        let expanded = NotchGeometry.layout(for: notched, size: NotchGeometry.expandedSize)
-        #expect(expanded.shown == CGRect(x: 690, y: 1066, width: 420, height: 64))
-        // A pill narrower than the notch still spans it (notch + 24).
-        #expect(NotchGeometry.layout(for: notched, size: CGSize(width: 100, height: 40)).shown.width == 244)
+        let corners = Tokens.Radius.pillCorners(attached: l.attached)
+        #expect(corners.topLeading == 0 && corners.topTrailing == 0)
+        #expect(corners.bottomLeading == 18 && corners.bottomTrailing == 18)
     }
 
-    @Test func notchedPillClearsTheHousingWithTheMenuBarHidden() {
-        let l = NotchGeometry.layout(for: autoHiddenMenuBar)
-        #expect(autoHiddenMenuBar.topBand == 38) // safe-area inset wins over the collapsed menu bar
-        #expect(l.shown.maxY == 1131)            // exactly the bottom edge of the housing
-        #expect(l.shown == CGRect(x: 740, y: 1087, width: 320, height: 44))
-    }
-
-    @Test func notchedPillOffTheGlobalOriginStaysOnItsOwnScreen() {
-        let l = NotchGeometry.layout(for: notchedOffOrigin)
-        #expect(l.shown == CGRect(x: -1060, y: 1286, width: 320, height: 44))
-        #expect(l.shown.maxY == notchedOffOrigin.frame.maxY - notchedOffOrigin.topBand)
-    }
-
-    // MARK: - Non-notched displays
-
-    @Test func externalDisplaySitsBelowTheMenuBar() {
-        #expect(!external.hasNotch)
-        #expect(external.notchRect == nil)
-        let l = NotchGeometry.layout(for: external)
-        #expect(l.shown.maxY == 1139) // frame.maxY 1169 - 30 pt menu bar
+    @Test func floatingEightPointsBelowAnExternalMenuBarWithAllCornersRounded() {
+        let l = NotchGeometry.pillLayout(for: external)
+        #expect(!l.attached)
+        #expect(l.shown.maxY == CGFloat(1169 - 30 - 8))
         #expect(l.shown.midX == 2760)
-        #expect(l.shown.width == 320) // no notch, so no widening
-        #expect(l.cornerRadius == 12)
         #expect(external.frame.contains(l.shown))
+        let corners = Tokens.Radius.pillCorners(attached: l.attached)
+        #expect(corners.topLeading == 18 && corners.topTrailing == 18 && corners.bottomLeading == 18)
+        // No menu bar at all: still floats 8 pt below the top edge.
+        #expect(NotchGeometry.pillLayout(for: externalNoMenuBar).shown.maxY == CGFloat(1080 - 8))
     }
 
-    @Test func secondaryDisplayWithoutMenuBarSitsFlushWithTheTop() {
-        let l = NotchGeometry.layout(for: externalNoMenuBar)
-        #expect(externalNoMenuBar.topBand == 0)
-        #expect(l.shown.maxY == 1080)
-        #expect(l.retracted == CGRect(x: 800, y: 1079, width: 320, height: 1))
+    @Test func menuBarHiddenStillClearsTheHousing() throws {
+        let l = NotchGeometry.pillLayout(for: autoHiddenMenuBar, size: NotchGeometry.actionableSize)
+        #expect(autoHiddenMenuBar.topBand == 38)
+        #expect(l.shown.maxY == 1131)              // exactly the bottom edge of the housing
+        #expect(!l.shown.intersects(try #require(autoHiddenMenuBar.notchRect)))
     }
 
-    @Test func narrowDisplayClampsInsteadOfOverflowing() {
-        let tiny = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 400, height: 600),
-                                 topInset: 0, notchWidth: nil, menuBarHeight: 24)
-        let l = NotchGeometry.layout(for: tiny, size: NotchGeometry.expandedSize)
-        #expect(l.shown.width == 384)
-        #expect(tiny.frame.contains(l.shown))
+    @Test func offTheGlobalOriginStaysOnItsOwnScreen() {
+        let l = NotchGeometry.pillLayout(for: notchedOffOrigin)
+        #expect(l.shown == CGRect(x: -1180, y: 1166, width: 560, height: 164))
+        #expect(notchedOffOrigin.frame.contains(l.shown))
+    }
+
+    // MARK: - The camera housing
+
+    /// Nothing is ever drawn behind the camera housing: every surface, shown or retracted, on every
+    /// notched fixture, and every surface lands on its own display.
+    @Test func nothingBehindTheCameraHousing() throws {
+        let surfaces: [NotchGeometry.Surface] = [.hint(textWidth: 200), .active, .actionable]
+        for metrics in all {
+            for surface in surfaces {
+                let l = NotchGeometry.pillLayout(for: metrics, size: NotchGeometry.size(for: surface, on: metrics))
+                #expect(NotchGeometry.clearsHousing(l.shown, on: metrics), "\(surface)")
+                #expect(metrics.frame.contains(l.shown))
+                if let housing = metrics.notchRect {
+                    #expect(!l.retracted.intersects(housing))
+                    #expect(l.shown.maxY <= metrics.frame.maxY - metrics.topInset)
+                }
+            }
+        }
+    }
+
+    /// The 1.7.9 "black slab": no message, at any length, and no requested size makes the pill bigger
+    /// than the compact ceiling.
+    @Test func noMessageAndNoRequestProducesASlab() {
+        let monstrous = String(repeating: "The file “weight.bin.partial” doesn’t exist and nothing was typed. ", count: 40)
+        for metrics in all {
+            let ceiling = NotchGeometry.ceiling(on: metrics)
+            for state: PillState in [.error(message: monstrous), .unavailable(reason: monstrous), .preview(text: monstrous)] {
+                let size = NotchGeometry.size(for: state, on: metrics) { CGFloat($0.count) * 7 }
+                #expect(size.width <= ceiling.width && size.height <= ceiling.height)
+            }
+            let absurd = NotchGeometry.pillLayout(for: metrics, size: CGSize(width: 9_000, height: 9_000))
+            #expect(absurd.shown.width <= ceiling.width && absurd.shown.height <= 204)
+            #expect(metrics.frame.contains(absurd.shown))
+        }
     }
 
     // MARK: - Display arrangement
-
-    @Test func clamshellUsesTheExternalDisplayOnly() throws {
-        // Lid closed: the built-in panel is absent from NSScreen.screens entirely.
-        let host = try #require(NotchGeometry.hostScreen(screens: [external], mouse: CGPoint(x: 2500, y: 500), main: external))
-        #expect(host == external)
-        let l = NotchGeometry.layout(for: host)
-        #expect(l.cornerRadius == 12)
-        #expect(l.shown.maxY == 1139)
-    }
 
     @Test func multiDisplayFollowsTheMouse() throws {
         let screens = [notched, external]
         let onBuiltIn = try #require(NotchGeometry.hostScreen(screens: screens, mouse: CGPoint(x: 900, y: 600), main: notched))
         #expect(onBuiltIn == notched)
-        #expect(NotchGeometry.layout(for: onBuiltIn).shown.maxY == 1130)
-        #expect(!NotchGeometry.layout(for: onBuiltIn).shown.intersects(try #require(onBuiltIn.notchRect)))
-
+        #expect(NotchGeometry.pillLayout(for: onBuiltIn).attached)
         let onExternal = try #require(NotchGeometry.hostScreen(screens: screens, mouse: CGPoint(x: 2700, y: 500), main: notched))
         #expect(onExternal == external)
-        #expect(NotchGeometry.layout(for: onExternal).shown.maxY == 1139)
-        #expect(NotchGeometry.layout(for: onExternal).shown.midX == 2760)
-    }
-
-    @Test func hostScreenPrefersMouseScreenThenMain() {
-        #expect(NotchGeometry.hostScreen(screens: [externalNoMenuBar, external],
-                                         mouse: CGPoint(x: -5, y: 10), main: external) == external)
+        #expect(!NotchGeometry.pillLayout(for: onExternal).attached)
+        #expect(NotchGeometry.hostScreen(screens: [externalNoMenuBar, external], mouse: CGPoint(x: -5, y: 10), main: external) == external)
         #expect(NotchGeometry.hostScreen(screens: [], mouse: .zero, main: nil) == nil)
     }
 
-    // MARK: - The regression guard for the "black slab" (1.7.9)
+    // MARK: - Lanes inside the pill
 
-    /// A ruler in the same shape as `PillPanelController.pillSize`, without AppKit: 7 pt per
-    /// character is wider than any real callout glyph, so the bound proved here is conservative.
-    private func measure(_ text: String) -> CGFloat { CGFloat(text.count) * 7 }
-
-    private func size(_ state: PillState, on metrics: ScreenMetrics) -> CGSize {
-        NotchGeometry.size(for: state, on: metrics, measure: measure)
-    }
-
-    /// The reported bug: a raw error string from deep in the stack sized the panel into a black slab
-    /// over half the display. Any message, at any length, must produce a pill inside the ceiling.
-    @Test func aVeryLongErrorMessageStaysABoundedPill() throws {
-        let monstrous = String(repeating: "The file “weight.bin.partial” doesn’t exist and nothing was typed. ", count: 40)
-        for metrics in [notched, autoHiddenMenuBar, external, externalNoMenuBar, notchedOffOrigin] {
-            let bounds = NotchGeometry.maximumSize(on: metrics)
-            for state: PillState in [.error(message: monstrous), .unavailable(reason: monstrous),
-                                     .error(message: String(repeating: "x", count: 5_000))] {
-                let s = size(state, on: metrics)
-                #expect(s.width <= bounds.width)
-                #expect(s.height <= bounds.height)
-                #expect(s.height <= NotchGeometry.absoluteMaximumSize.height)
-                let shown = NotchGeometry.layout(for: metrics, size: s).shown
-                #expect(metrics.frame.contains(shown))
-                // Comfortably a notice, not a panel: never more than a tenth of the display's height
-                // and never more than 60% of its width.
-                #expect(shown.height <= metrics.frame.height / 10)
-                #expect(shown.width <= max(NotchGeometry.expandedSize.width, metrics.frame.width * 0.6))
-                if let housing = metrics.notchRect { #expect(!shown.intersects(housing)) }
+    /// Never text under the face: the status row, the words lane and the chip row stay left of the
+    /// character bay at every width; the helper and action rows sit below it.
+    @Test func noTextIsLaidOutUnderTheCharacter() {
+        for width: CGFloat in [560, 500, 460, 459, 408, 300] {
+            for hasChip in [false, true] {
+                for hasActions in [false, true] {
+                    let lanes = PillLaneLayout(size: CGSize(width: width, height: hasActions ? 204 : 164),
+                                               hasChip: hasChip, hasActions: hasActions)
+                    for rect in lanes.textRects {
+                        #expect(!rect.intersects(lanes.bay), "width \(width): \(rect) under the bay \(lanes.bay)")
+                        #expect(rect.minX >= PillLaneLayout.inset)
+                    }
+                    #expect(lanes.helperRow.minY >= lanes.bay.maxY)
+                    if let actions = lanes.actionRow {
+                        #expect(actions.minY >= PillLaneLayout.sceneHeight)      // below the character bay
+                        #expect(actions.width == width - 32)                    // full width
+                        #expect(actions.maxY <= 204)
+                    }
+                    #expect(lanes.helperRow.maxY <= PillLaneLayout.sceneHeight)
+                }
             }
         }
+        let wide = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: false, hasActions: false)
+        #expect(wide.bay.width == CGFloat(132 + 16))
+        #expect(wide.statusRow.width == CGFloat(560 - 32 - 144))                         // ≈ 384 pt (DESIGN.md §8.3)
+        #expect(wide.wordsLane.height == 40)                                    // two 20 pt lines
     }
 
-    /// Not just `.error`: every state the pill can be in is bounded, including the two-line notices
-    /// that share the same wrapping layout and the ones that never measure their content at all.
-    @Test func everyPillStateStaysWithinTheCeiling() {
-        let long = String(repeating: "unreadably long reason ", count: 30)
-        let states: [PillState] = [.hidden, .idle, .listening(level: 1), .preview(text: long), .landing,
-                                   .warning(MicQuality(snr: 3, clipping: 0.9, lowLevel: true, verdict: .bad)),
-                                   .unavailable(reason: long), .error(message: long),
-                                   .transform(TransformPillInfo(editingWords: 9, stage: .editing))]
-        for metrics in [notched, external, externalNoMenuBar] {
-            let bounds = NotchGeometry.maximumSize(on: metrics)
-            for state in states {
-                let s = size(state, on: metrics)
-                #expect(s.width <= bounds.width, "\(state.caseName) width \(s.width)")
-                #expect(s.height <= bounds.height, "\(state.caseName) height \(s.height)")
-                #expect(s.height <= 96)
-                #expect(metrics.frame.contains(NotchGeometry.layout(for: metrics, size: s).shown))
-            }
+    /// Owner decision: the deixis chip sits in the text lane, under the transcript, above the tape lane.
+    @Test func theChipRowSitsUnderTheWordsAndAboveTheTape() throws {
+        let lanes = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: true, hasActions: false)
+        let chip = try #require(lanes.chipRow)
+        #expect(lanes.lineCount == 1)
+        #expect(chip.minY >= lanes.wordsLane.maxY)
+        #expect(chip.maxY <= lanes.tapeTop)
+        #expect(chip.minX == lanes.wordsLane.minX && chip.width == lanes.wordsLane.width)
+        #expect(!chip.intersects(lanes.bay))
+        #expect(PillLaneLayout(size: NotchGeometry.activeSize, hasChip: false, hasActions: false).chipRow == nil)
+        // The confidence dots sit between the words and the chip / tape, never under either.
+        for hasChip in [false, true] {
+            let l = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: hasChip, hasActions: false)
+            #expect(l.confidenceLane.minY == l.wordsLane.maxY)
+            #expect(l.confidenceLane.maxY <= (l.chipRow?.minY ?? l.tapeTop))
+            #expect(l.confidenceLane.maxY <= l.tapeTop)
         }
-    }
-
-    /// A message that fits gets exactly the room it needs — the widening the ceiling is protecting,
-    /// not replacing — and one that does not gets a second line and no more.
-    @Test func aMessageIsWidenedToFitAndThenWraps() {
-        // Sized to the widest of the *state's* sentences — here the fixed subtitle, not the message.
-        let short = PillState.error(message: "Mic went away")
-        #expect(size(short, on: notched) ==
-                CGSize(width: measure(PillState.errorSubtitle) + NotchGeometry.textChrome,
-                       height: NotchGeometry.expandedSize.height))
-        let mid = PillState.error(message: String(repeating: "a", count: 60))
-        let midSize = size(mid, on: notched)
-        #expect(midSize.width == 60 * 7 + NotchGeometry.textChrome) // widened to fit, still under the cap
-        #expect(midSize.height == NotchGeometry.expandedSize.height) // one line, no extra height
-        let over = PillState.error(message: String(repeating: "a", count: 400))
-        let overSize = size(over, on: notched)
-        #expect(overSize.width == NotchGeometry.maximumSize(on: notched).width)
-        #expect(overSize.height == NotchGeometry.expandedSize.height + NotchGeometry.wrapExtraHeight)
-    }
-
-    /// `layout(for:size:)` is the last gate: even a caller that asks for a slab directly gets a pill.
-    @Test func layoutClampsAnAbsurdRequestedSize() {
-        for metrics in [notched, external, externalNoMenuBar] {
-            let l = NotchGeometry.layout(for: metrics, size: CGSize(width: 9_000, height: 9_000))
-            #expect(metrics.frame.contains(l.shown))
-            #expect(l.shown.height <= NotchGeometry.absoluteMaximumSize.height)
-            #expect(l.shown.width <= NotchGeometry.absoluteMaximumSize.width)
-            if let housing = metrics.notchRect { #expect(!l.shown.intersects(housing)) }
-        }
-    }
-
-    @Test func sizeDependsOnState() {
-        #expect(NotchGeometry.size(for: .preview(text: "x")) == NotchGeometry.expandedSize)
-        #expect(NotchGeometry.size(for: .listening(level: 0)) == NotchGeometry.defaultSize)
+        // The tape lane is the Spool scene's (spool_spec.json › sceneGeometry › tapeStart.y).
+        #expect(lanes.tapeY == CGFloat(SpoolScene.tapeStart.y))
     }
 }

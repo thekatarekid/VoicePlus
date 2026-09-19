@@ -121,7 +121,7 @@ struct PillStateReducerTableTests {
         #expect(model.state == .cancelled)
         model.apply(.idle)
         #expect(model.state == .cancelled, "Cancelled must be legible before the pill retracts")
-        clock = clock.addingTimeInterval(PillDwell.acknowledgement + 0.05)
+        clock = clock.addingTimeInterval(PillDwell.cancelled + 0.05)
         model.flushPillHold()
         #expect(model.state == .hidden)
         #expect(seen.map(\.caseName) == ["starting", "listening", "cancelled", "idle"])

@@ -25,6 +25,10 @@ public struct ScreenMetrics: Equatable, Sendable {
 
     public var hasNotch: Bool { topInset > 0 }
 
+    /// S2 (design §4) — the pill hangs from the camera housing (upper corners square) on a notched
+    /// display, and floats 8 pt below the menu-bar band with all four corners rounded everywhere else.
+    public var isAttached: Bool { hasNotch }
+
     /// Area a regular window may occupy: the real `visibleFrame` when known, else the frame minus
     /// the forbidden top band (better than nothing — a window placed here still clears the notch).
     public var usableFrame: CGRect {
@@ -46,106 +50,260 @@ public struct ScreenMetrics: Equatable, Sendable {
     }
 }
 
-/// Pure placement math for the pill (T2 "notch-aware placement").
+/// S2 — pure placement and size math for the Spool pill (design §4, DESIGN.md §8.3).
+///
+/// Every size is the verified design's: the idle chin 64 × 14, the hover hint 360 × 38 (text-sized,
+/// never under 190), the active pill 560 × 164, the actionable pill 560 × 204, all bounded by the
+/// compact ceiling `min(560, usable width − 32) × 204`. Below 460 pt the character bay shrinks from 132
+/// to an 84 pt cameo bay. The ceiling replaces the old 560 × 96 `absoluteMaximumSize`: the pill's frame
+/// is placement math, never content, so no message length can make it a slab (the 1.7.9 bug).
 public enum NotchGeometry {
     public struct Layout: Equatable, Sendable {
         /// Pill frame when fully shown (global coordinates).
         public var shown: CGRect
-        /// Pill frame when retracted (slides up behind the notch / menu bar).
+        /// Pill frame when retracted (rolls up to the top edge).
         public var retracted: CGRect
-        /// Corner radius for the bottom corners.
+        /// Corner radius (`Tokens.Radius.pill`). Lower corners always; upper corners only when floating.
         public var cornerRadius: CGFloat
-    }
+        /// Hangs from the camera housing: upper corners square. False: floating, all corners rounded.
+        public var attached: Bool
 
-    public static let defaultSize = CGSize(width: 320, height: 44)
-    public static let expandedSize = CGSize(width: 420, height: 64)
-
-    public static func size(for state: PillState) -> CGSize {
-        switch state {
-        // R2.4: `.held` draws a headline, an excerpt and the three actions, and an unverified
-        // `.landed` draws a headline plus the committed text — both are notice-shaped, so both take
-        // the same reserved size every other two-line row already uses.
-        case .preview, .warning, .unavailable, .error, .transform, .landed, .held: return expandedSize
-        default: return defaultSize
+        public init(shown: CGRect, retracted: CGRect, cornerRadius: CGFloat, attached: Bool) {
+            self.shown = shown
+            self.retracted = retracted
+            self.cornerRadius = cornerRadius
+            self.attached = attached
         }
     }
 
-    /// Chrome around the pill's text: icon column + horizontal padding + the script badge's slot.
-    static let textChrome: CGFloat = 76
-
-    /// Hard ceiling on the pill in *any* state. The pill is a notice hanging off the notch, never a
-    /// panel: 1.7.9 shipped a content-measuring path with no upper bound, so a long error message
-    /// produced a black slab. Height allows two wrapped headline lines plus the subtitle and no more.
-    public static let absoluteMaximumSize = CGSize(width: 560, height: 96)
-
-    /// Extra height granted when the headline is too long for one line and has to wrap.
-    static let wrapExtraHeight: CGFloat = 20
-
-    /// The ceiling applied on a particular display: never wider than `absoluteMaximumSize`, never wider than
-    /// 60% of the display (a notice spanning a 6K screen is not a notice), never wider than the
-    /// display minus its margins, and never taller than the area below the forbidden top band.
-    /// Never *smaller* than `expandedSize` either, so a narrow display still gets the full pill it
-    /// always got — it is clamped by the display-width rule below instead.
-    public static func maximumSize(on metrics: ScreenMetrics) -> CGSize {
-        let displayLimit = max(64, metrics.frame.width - 2 * edgeMargin)
-        let width = min(min(absoluteMaximumSize.width, max(expandedSize.width, metrics.frame.width * 0.6)), displayLimit)
-        let room = max(1, metrics.frame.height - metrics.topBand - edgeMargin)
-        return CGSize(width: width, height: min(absoluteMaximumSize.height, room))
+    /// What the pill is drawing, as far as its frame is concerned.
+    public enum Surface: Equatable, Sendable {
+        case hidden
+        /// I1 — the hover hint, sized to its measured text width.
+        case hint(textWidth: CGFloat)
+        /// Status, text lane, tape lane and helper row: 164 pt.
+        case active
+        /// The same plus a full-width action row below the character bay: 204 pt.
+        case actionable
     }
 
-    /// Content-aware size: never narrower than `size(for:)`, widened to fit the state's own
-    /// sentences, and clamped to `maximumSize(on:)`. Without the widening a notice longer than the
-    /// fixed 420 pt is clipped; without the clamp (the 1.7.9 bug) an arbitrarily long message — a
-    /// raw error string from deep in the stack — sizes the panel off the screen.
-    public static func size(for state: PillState, on metrics: ScreenMetrics,
-                            measure: (String) -> CGFloat) -> CGSize {
-        let bounds = maximumSize(on: metrics)
-        var size = self.size(for: state)
-        size.width = min(size.width, bounds.width)
-        size.height = min(size.height, bounds.height)
-        guard let widest = state.messageLines.map(measure).max() else { return size }
-        size.width = min(max(size.width, widest + textChrome), bounds.width)
-        // Still too long for one line at the widest we allow: the view wraps it to a second line
-        // (`lineLimit(2)`, tail-truncated beyond that), so give it exactly one line's worth of room.
-        if widest > size.width - textChrome { size.height = min(size.height + wrapExtraHeight, bounds.height) }
-        return size
-    }
+    // MARK: - Sizes (design §4)
 
-    /// Horizontal margin kept between the pill and the edges of a narrow display.
+    public static let idleChinSize = CGSize(width: 64, height: 14)
+    /// Nominal hover hint. The real width follows the text (`hintSize(textWidth:on:)`).
+    public static let hintSize = CGSize(width: 360, height: 38)
+    public static let hintMinimumWidth: CGFloat = 190
+    /// Left + right padding inside the hint (prototype `.notch.ready { padding: 10px 12px }`).
+    public static let hintHorizontalPadding: CGFloat = 24
+    public static let activeSize = CGSize(width: 560, height: 164)
+    public static let actionableSize = CGSize(width: 560, height: 204)
+    /// Compact ceiling: `min(560, usable width − ceilingMargin) × 204`.
+    public static let ceilingMargin: CGFloat = 32
+    /// Narrowest a pill is ever made before the display clamp; below this nothing is legible.
+    public static let minimumPillWidth: CGFloat = 240
+    /// Below this width the review layout uses the 84 pt cameo bay and Spool at scale 0.69.
+    public static let narrowBelow: CGFloat = 460
+    public static let characterBay: CGFloat = 132
+    public static let cameoBay: CGFloat = 84
+    /// Floating pills sit this far below the menu-bar band (external displays).
+    public static let floatingGap: CGFloat = 8
+    /// `Tokens.Radius.pill`.
+    public static let cornerRadius: CGFloat = 18
+    /// Horizontal margin kept between any notch surface and the edges of a narrow display.
     static let edgeMargin: CGFloat = 8
 
-    /// Centers the pill horizontally and hangs it off the bottom edge of the display's forbidden top
-    /// band (`ScreenMetrics.topBand`), so it is never drawn beneath the camera housing on a notched
-    /// MacBook and sits just below the menu bar everywhere else. The pill still spans at least the
-    /// notch width so it reads as "attached to" the notch rather than floating under it.
-    public static func layout(for metrics: ScreenMetrics, size requested: CGSize = defaultSize) -> Layout {
+    /// The compact ceiling on a display: `min(560, usable width − 32) × 204`, and never taller than the
+    /// room below the pill's top edge.
+    public static func ceiling(on metrics: ScreenMetrics) -> CGSize {
+        let usable = metrics.usableFrame.width
+        let width = min(actionableSize.width, max(minimumPillWidth, usable - ceilingMargin))
+        let displayLimit = max(64, metrics.frame.width - 2 * edgeMargin)
+        let room = max(1, pillTopEdge(on: metrics) - metrics.frame.minY - edgeMargin)
+        return CGSize(width: min(width, displayLimit), height: min(actionableSize.height, room))
+    }
+
+    /// True when a pill this wide uses the narrow review layout (84 pt cameo bay, Spool at 0.69).
+    public static func isNarrow(width: CGFloat) -> Bool { width < narrowBelow }
+
+    /// The right-hand bay the character owns for a pill this wide; no text is ever laid out in it.
+    public static func bayWidth(forPillWidth width: CGFloat) -> CGFloat {
+        isNarrow(width: width) ? cameoBay : characterBay
+    }
+
+    /// Nominal size of a surface, before any display clamp.
+    public static func nominalSize(for surface: Surface) -> CGSize {
+        switch surface {
+        case .hidden: return .zero
+        case .hint(let textWidth): return CGSize(width: max(hintMinimumWidth, textWidth + hintHorizontalPadding),
+                                                 height: hintSize.height)
+        case .active: return activeSize
+        case .actionable: return actionableSize
+        }
+    }
+
+    /// A surface's size on a display: the hint follows its text (min 190), a turn state is the full
+    /// ceiling width with stable height (164, or 204 with actions), all clamped to the ceiling.
+    public static func size(for surface: Surface, on metrics: ScreenMetrics) -> CGSize {
+        let ceiling = ceiling(on: metrics)
+        switch surface {
+        case .hidden: return .zero
+        case .hint:
+            let nominal = nominalSize(for: surface)
+            let widest = max(64, metrics.frame.width - 2 * edgeMargin)
+            return CGSize(width: min(nominal.width, widest), height: min(nominal.height, ceiling.height))
+        case .active, .actionable:
+            let nominal = nominalSize(for: surface)
+            return CGSize(width: min(nominal.width, ceiling.width), height: min(nominal.height, ceiling.height))
+        }
+    }
+
+    /// Nominal size of a pill state with the default turn context (no display): 164 or 204 by whether
+    /// the state draws actions, the hint for `.ready`, zero when hidden.
+    public static func size(for state: PillState) -> CGSize {
+        nominalSize(for: PillContent.make(state, context: PillTurnContext()).surface(measure: { _ in 0 }))
+    }
+
+    /// A state's size on a display, measuring the hint text with `measure`.
+    public static func size(for state: PillState, on metrics: ScreenMetrics, context: PillTurnContext = PillTurnContext(),
+                            measure: (String) -> CGFloat) -> CGSize {
+        size(for: PillContent.make(state, context: context).surface(measure: measure), on: metrics)
+    }
+
+    // MARK: - Placement
+
+    /// The y of the pill's top edge: the bottom of the forbidden band when attached to the housing,
+    /// `floatingGap` below it when floating. Shared with the presence chin so the two never drift.
+    public static func pillTopEdge(on metrics: ScreenMetrics) -> CGFloat {
+        metrics.frame.maxY - metrics.topBand - (metrics.isAttached ? 0 : floatingGap)
+    }
+
+    /// S2 — the pill: centred, hanging off the housing (attached, upper corners square) or floating 8 pt
+    /// below the menu-bar band (all corners rounded). Clamped to the ceiling and the display, so no
+    /// caller can produce a slab, and never drawn behind the camera housing.
+    public static func pillLayout(for metrics: ScreenMetrics, size requested: CGSize = activeSize) -> Layout {
+        let bounds = ceiling(on: metrics)
+        var size = requested
+        size.width = min(max(1, size.width), bounds.width)
+        size.height = min(max(1, size.height), bounds.height)
+        let top = pillTopEdge(on: metrics)
+        let x = centredX(width: size.width, on: metrics)
+        let shown = CGRect(x: x, y: top - size.height, width: size.width, height: size.height)
+        // Retract by rolling up to the top edge rather than translating off the top of the screen: a
+        // retracted frame above the band would drag the pill through the camera housing.
+        let retracted = CGRect(x: x, y: top - 1, width: size.width, height: 1)
+        return Layout(shown: shown, retracted: retracted, cornerRadius: cornerRadius, attached: metrics.isAttached)
+    }
+
+    /// Generic anchor for other notch surfaces (the meeting prompt): top edge at the bottom of the
+    /// forbidden band, centred, at least as wide as the housing + 24 so it reads as attached, and
+    /// clamped to the display and the compact ceiling.
+    public static func layout(for metrics: ScreenMetrics, size requested: CGSize = activeSize) -> Layout {
         var size = requested
         if let notchWidth = metrics.notchWidth, metrics.hasNotch {
             size.width = max(size.width, notchWidth + 24)
         }
-        // Last line of defence, and the one that matters: whatever anybody asks for, the pill is
-        // clamped to `maximumSize(on:)` and therefore to the display. No caller can produce a slab.
-        let bounds = maximumSize(on: metrics)
-        size.width = min(min(size.width, bounds.width), max(64, metrics.frame.width - 2 * edgeMargin))
-        size.height = min(min(size.height, bounds.height), max(1, metrics.frame.height - metrics.topBand - edgeMargin))
-
-        // The one rule: the pill's top edge is the bottom of the forbidden band.
+        size.width = min(size.width, actionableSize.width, max(64, metrics.frame.width - 2 * edgeMargin))
+        size.height = min(size.height, actionableSize.height, max(1, metrics.frame.height - metrics.topBand - edgeMargin))
         let topBoundary = metrics.frame.maxY - metrics.topBand
-        var x = metrics.frame.midX - size.width / 2
-        let minX = metrics.frame.minX + edgeMargin
-        let maxX = metrics.frame.maxX - size.width - edgeMargin
-        if maxX >= minX { x = min(max(x, minX), maxX) }
-
+        let x = centredX(width: size.width, on: metrics)
         let shown = CGRect(x: x, y: topBoundary - size.height, width: size.width, height: size.height)
-        // Retract by rolling up to the band boundary rather than translating off the top of the screen:
-        // a retracted frame above `topBoundary` would drag the pill straight through the camera housing
-        // on every slide in/out.
         let retracted = CGRect(x: x, y: topBoundary - 1, width: size.width, height: 1)
-        return Layout(shown: shown, retracted: retracted, cornerRadius: metrics.hasNotch ? 18 : 12)
+        return Layout(shown: shown, retracted: retracted, cornerRadius: metrics.hasNotch ? cornerRadius : 12,
+                      attached: metrics.hasNotch)
+    }
+
+    static func centredX(width: CGFloat, on metrics: ScreenMetrics) -> CGFloat {
+        var x = metrics.frame.midX - width / 2
+        let minX = metrics.frame.minX + edgeMargin
+        let maxX = metrics.frame.maxX - width - edgeMargin
+        if maxX >= minX { x = min(max(x, minX), maxX) }
+        return x
+    }
+
+    /// True when `rect` is drawable: on the display, and not behind the camera housing.
+    public static func clearsHousing(_ rect: CGRect, on metrics: ScreenMetrics) -> Bool {
+        guard metrics.frame.contains(rect) else { return false }
+        guard let housing = metrics.notchRect else { return true }
+        return !rect.intersects(housing)
     }
 
     /// Pick the screen that should host the pill: the one containing the mouse, else the main screen.
     public static func hostScreen(screens: [ScreenMetrics], mouse: CGPoint, main: ScreenMetrics?) -> ScreenMetrics? {
         screens.first { $0.frame.contains(mouse) } ?? main ?? screens.first
     }
+}
+
+/// S2 — where each row of the pill sits inside a pill of a given size (design §4, DESIGN.md §8.3,
+/// prototype `.notch` rules). Pure, so "never text under the face" and "the chip sits in the text lane
+/// above the tape" are unit tests. Coordinates are the pill's own: origin top-left, y down.
+public struct PillLaneLayout: Equatable, Sendable {
+    public var size: CGSize
+    /// The character bay on the right: 132 pt (84 pt narrow) plus the 16 pt inset, from the top down
+    /// to the helper row (Spool is ~126 × 115 pt centred at y 80, design §4).
+    public var bay: CGRect
+    /// Status · destination / timer.
+    public var statusRow: CGRect
+    /// The newest transcript lines (two, or one when the deixis chip takes the second).
+    public var wordsLane: CGRect
+    /// The confidence-dots lane: the band right under the words where each uncertain word's 2 px
+    /// dotted mark sits (3 px below its baseline, design §7). Reserved, so the chip row and the tape
+    /// lane never draw over the marks.
+    public var confidenceLane: CGRect
+    /// Deixis chip row, under the transcript and above the tape lane; `nil` without a chip.
+    public var chipRow: CGRect?
+    /// Top of the tape's excursion band (the lane is at `tapeY`, bounded to ±12 pt, 8 pt ribbon).
+    public var tapeTop: CGFloat
+    public var tapeY: CGFloat
+    /// Helper · key hint, full width below the character.
+    public var helperRow: CGRect
+    /// Full-width action row below the character bay; `nil` on a 164 pt pill.
+    public var actionRow: CGRect?
+    public var lineCount: Int
+
+    public static let inset: CGFloat = 16
+    public static let top: CGFloat = 12
+    public static let statusHeight: CGFloat = 16
+    public static let wordsGap: CGFloat = 8
+    public static let lineHeight: CGFloat = 20
+    public static let chipHeight: CGFloat = 18
+    public static let chipGap: CGFloat = 4
+    /// Height of the confidence-dots lane under the last word line (fits in `chipGap`).
+    public static let confidenceHeight: CGFloat = 4
+    /// `spool_spec.json` › `sceneGeometry` › `tapeStart.y`.
+    public static let tapeY: CGFloat = 104
+    /// Tape amplitude bound (design §11) plus half the 8 pt ribbon.
+    public static let tapeExcursion: CGFloat = 12 + 4
+    /// Prototype `.notch .helper { top: 139px }`.
+    public static let helperY: CGFloat = 139
+    public static let helperHeight: CGFloat = 16
+    public static let sceneHeight: CGFloat = 164
+    public static let actionHeight: CGFloat = 28
+    /// Gap between the lane and the bay (prototype: 144 = 132 bay + 12; narrow 90 = 84 + 6).
+    public static func laneGap(narrow: Bool) -> CGFloat { narrow ? 6 : 12 }
+
+    public init(size: CGSize, hasChip: Bool, hasActions: Bool) {
+        self.size = size
+        let narrow = NotchGeometry.isNarrow(width: size.width)
+        let bayWidth = NotchGeometry.bayWidth(forPillWidth: size.width)
+        let inset = Self.inset
+        bay = CGRect(x: size.width - inset - bayWidth, y: 0, width: bayWidth + inset, height: Self.helperY)
+        let laneWidth = max(0, size.width - 2 * inset - bayWidth - Self.laneGap(narrow: narrow))
+        statusRow = CGRect(x: inset, y: Self.top, width: laneWidth, height: Self.statusHeight)
+        lineCount = hasChip ? 1 : 2
+        let wordsY = Self.top + Self.statusHeight + Self.wordsGap
+        wordsLane = CGRect(x: inset, y: wordsY, width: laneWidth, height: CGFloat(lineCount) * Self.lineHeight)
+        confidenceLane = CGRect(x: inset, y: wordsLane.maxY, width: laneWidth, height: Self.confidenceHeight)
+        chipRow = hasChip
+            ? CGRect(x: inset, y: wordsLane.maxY + Self.chipGap, width: laneWidth, height: Self.chipHeight)
+            : nil
+        tapeY = Self.tapeY
+        tapeTop = Self.tapeY - Self.tapeExcursion
+        helperRow = CGRect(x: inset, y: Self.helperY, width: max(0, size.width - 2 * inset), height: Self.helperHeight)
+        actionRow = hasActions
+            ? CGRect(x: inset, y: Self.sceneHeight + 4, width: max(0, size.width - 2 * inset), height: Self.actionHeight)
+            : nil
+    }
+
+    /// Every rect that carries readable text or a control.
+    public var textRects: [CGRect] { [statusRow, wordsLane, confidenceLane] + [chipRow].compactMap { $0 } }
 }

@@ -258,15 +258,19 @@ struct PillStateV4Tests {
     // MARK: Consumers that switch exhaustively (compiler-forced additions, G0.4)
 
     @Test func dwellClassesOfTheNewStates() {
-        for state in [PillState.ready(hint: "h"), .muted, .starting, .listeningQuiet, .latched(elapsed: 1),
+        for state in [PillState.ready(hint: "h"), .starting, .listeningQuiet, .latched(elapsed: 1),
                       .finishing(elapsedWarning: true), .finalPreview(FinalPreviewInfo(text: "x", dwellRemaining: 1)),
                       .inserting(text: "x"), .correcting, .editing,
                       .meeting(MeetingPillInfo(phase: .recording, elapsed: 1))] {
             #expect(PillDwell.minimum(for: state) == 0, "\(state.caseName)")
         }
-        #expect(PillDwell.minimum(for: .cancelled) == PillDwell.acknowledgement)
-        #expect(PillDwell.minimum(for: .undoAvailable) == PillDwell.landedText)
+        // S2 owns this table now (design §6, §10): cancelled 800 ms, the safe-undo window 5 s, and a
+        // partial insertion stays until the user acts.
+        #expect(PillDwell.minimum(for: .cancelled) == PillDwell.cancelled)
+        #expect(PillDwell.minimum(for: .undoAvailable) == PillDwell.undoWindow)
         #expect(PillDwell.isNotice(.landedPartial(text: "x")))
+        // I2: muted leaves only on an explicit Unmute.
+        #expect(PillDwell.staysUntilAction(.muted))
     }
 
     @Test func presenceReadsTheNewEngineCases() {

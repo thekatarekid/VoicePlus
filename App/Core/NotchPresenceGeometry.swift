@@ -1,66 +1,57 @@
 import CoreGraphics
 import Foundation
 
-/// P5 — pure placement math for the persistent presence indicator ("the notch chin").
+/// P5 / S2 — pure placement math for the persistent presence indicator ("the notch chin").
 ///
-/// ONE RULE, shared verbatim with the pill: the indicator's **top edge is the bottom of the
-/// display's forbidden top band** (`ScreenMetrics.topBand`). That single invariant is what keeps it
-/// out from under the camera housing on a notched MacBook — there is no panel behind the housing,
-/// so anything drawn there is simply never seen — and hangs it just below the menu bar everywhere
-/// else. `NotchPresenceTests.sharesTheTopBoundaryWithThePill` asserts
-/// `presence.maxY == NotchGeometry.layout(for:).shown.maxY` on every fixture, so the two surfaces
-/// can never drift apart.
+/// ONE RULE, shared verbatim with the pill: the indicator's top edge is the pill's top edge
+/// (`NotchGeometry.pillTopEdge`) — the bottom of the display's forbidden band on a notched display,
+/// 8 pt below the menu-bar band on an external one. That keeps it out from under the camera housing
+/// (there is no panel behind the housing, so anything drawn there is never seen), and
+/// `NotchPresenceTests.sharesTheTopBoundaryWithThePill` asserts the two surfaces cannot drift apart.
 ///
-/// Deliberately *not* `NotchGeometry.layout(for:size:)`: that one widens the pill to at least
-/// `notchWidth + 24` so it reads as attached to the notch. The indicator wants the opposite — at
-/// rest it is a 4 pt hairline narrower than the housing, so it reads as a shadow of the bezel
-/// rather than as a piece of UI.
+/// Sizes are the verified design's (design §4): the idle chin is 64 × 14 with a 6 pt green dot, the
+/// hover hint 360 × 38, text-sized and never under 190.
 public enum PresenceGeometry {
     public struct Layout: Equatable, Sendable {
         /// Where the panel goes (global, bottom-left origin coordinates).
         public var frame: CGRect
         /// Pointer inside this rect counts as hovering (see `PresenceInteraction`).
         public var hoverRect: CGRect
-        /// Bottom corners only, like the pill.
+        /// Lower corners when attached; all four when floating (external display).
         public var cornerRadius: CGFloat
         /// False when the state is `.off` — nothing is ordered in at all.
         public var visible: Bool
+        /// Hangs from the camera housing (upper corners square). False: floats 8 pt below the band.
+        public var attached: Bool
     }
 
-    // MARK: - Sizes (measured against real hardware, 2026-09-06; see NotchPresenceTests)
+    // MARK: - Sizes (design §4, DESIGN.md §8.3–§8.4)
 
-    /// Idle: a small chin hanging off the bottom of the band, carrying one lit dot.
-    ///
-    /// This used to be a 4 pt hairline drawn at 35 % black, which on a MacBook means a near-black
-    /// sliver immediately below a black bezel — i.e. invisible, which is exactly why the app read as
-    /// "only shows up on hover". It stays deliberately small (it is a status light, not a banner)
-    /// but it is now tall enough to hold a visible dot at a normal viewing distance.
-    public static let restSize = CGSize(width: 54, height: 10)
-    /// Mic open / processing: tall enough to carry a level bar.
-    public static let activeSize = CGSize(width: 120, height: 10)
+    /// I0 — idle: a 64 × 14 black chin carrying one 6 pt green dot. The green dot never means the
+    /// microphone is open.
+    public static let restSize = NotchGeometry.idleChinSize
+    /// The idle dot's diameter.
+    public static let dotDiameter: CGFloat = 6
+    /// Mic open by another owner (meeting, the onboarding meter): a level bar in the same chin height.
+    public static let activeSize = CGSize(width: 120, height: 14)
     /// Muted: a persistent, legible badge. A hidden hot mic is the one thing that must never ship,
     /// so this state is never shrunk and never suppressed.
     public static let mutedSize = CGSize(width: 84, height: 16)
     /// Blocked: room for a short reason — "Mic off", "Relaunch", "42%".
     public static let blockedSize = CGSize(width: 132, height: 16)
-    /// Pointer is on it: the full "VoicePlus · Ready — hold Right ⌥" row.
-    ///
-    /// This is now a **minimum**, not the width. The row is sized to its text by
-    /// `PresenceRow.fit(...)` and passed in as `rowWidth`; a fixed 190 pt here is what clipped
-    /// "…— hold R…" with no way for the user to ever read the rest.
-    public static let hoverSize = CGSize(width: 190, height: 24)
+    /// I1 — the hover hint's nominal size. The row is sized to its text (`rowSize(width:on:)`), never
+    /// narrower than `NotchGeometry.hintMinimumWidth` (190).
+    public static let hoverSize = NotchGeometry.hintSize
 
-    /// Widest a row may ever be on this display: the full width minus the edge margins. A row is
-    /// allowed to be wide — it is transient and it is the only thing at this anchor — but it must
-    /// never hang off the screen, and on a narrow/external display this is what forces
-    /// `PresenceRow` to shorten the message instead of clipping it.
+    /// Widest a row may ever be on this display: the full width minus the edge margins.
     public static func maxRowWidth(on metrics: ScreenMetrics) -> CGFloat {
         max(64, metrics.frame.width - 2 * edgeMargin)
     }
 
-    /// The expanded row's size for a measured text width.
+    /// The expanded row's size for a measured text width (padding included by the caller): text-sized,
+    /// never under 190, never off the display.
     public static func rowSize(width: CGFloat, on metrics: ScreenMetrics) -> CGSize {
-        CGSize(width: min(max(width, hoverSize.width), maxRowWidth(on: metrics)), height: hoverSize.height)
+        CGSize(width: min(max(width, NotchGeometry.hintMinimumWidth), maxRowWidth(on: metrics)), height: hoverSize.height)
     }
 
     /// Horizontal margin kept from the edges of a narrow display (same value as the pill's).
@@ -69,7 +60,7 @@ public enum PresenceGeometry {
     public static let hoverSlop: CGFloat = 8
 
     public static func size(for state: PresenceState, hovered: Bool = false) -> CGSize {
-        if hovered { return hoverSize }
+        if hovered, state != .off { return hoverSize }
         switch state {
         case .off: return .zero
         case .ready: return restSize
@@ -79,57 +70,47 @@ public enum PresenceGeometry {
         }
     }
 
-    /// The one rule, applied. Centres `size` horizontally, hangs it off the bottom of the top band,
-    /// and clamps it inside the display (a display narrower than the indicator shrinks it rather
-    /// than letting it hang off an edge).
+    /// The one rule, shared with the pill (`NotchGeometry.pillTopEdge`): centred, hanging off the
+    /// housing on a notched display, 8 pt below the menu-bar band elsewhere, clamped to the display.
     public static func frame(size requested: CGSize, on metrics: ScreenMetrics) -> CGRect {
         var size = requested
         size.width = min(size.width, max(16, metrics.frame.width - 2 * edgeMargin))
-        size.height = min(size.height, max(1, metrics.frame.height - metrics.topBand - edgeMargin))
-
-        let topBoundary = metrics.frame.maxY - metrics.topBand
-        var x = metrics.frame.midX - size.width / 2
-        let minX = metrics.frame.minX + edgeMargin
-        let maxX = metrics.frame.maxX - size.width - edgeMargin
-        if maxX >= minX { x = min(max(x, minX), maxX) }
-        return CGRect(x: x, y: topBoundary - size.height, width: size.width, height: size.height)
+        let top = NotchGeometry.pillTopEdge(on: metrics)
+        size.height = min(size.height, max(1, top - metrics.frame.minY - edgeMargin))
+        let x = NotchGeometry.centredX(width: size.width, on: metrics)
+        return CGRect(x: x, y: top - size.height, width: size.width, height: size.height)
     }
 
     /// Hover target: the resting chin unioned with the expanded row (so the pointer does not fall
     /// out of the region the instant the panel grows and start a collapse/expand flicker), inflated
     /// by `hoverSlop`, unioned with the camera housing itself — pointing at the notch reveals it.
-    /// `rowWidth` is the width of the row currently on screen (when one is): a row wider than the
-    /// nominal `hoverSize` must still count as hovered under the pointer, or the panel would shrink
-    /// out from under the mouse and flicker.
     public static func hoverRect(on metrics: ScreenMetrics, rowWidth: CGFloat? = nil) -> CGRect {
         var rect = frame(size: restSize, on: metrics)
-            .union(frame(size: hoverSize, on: metrics))
+            .union(frame(size: rowSize(width: 0, on: metrics), on: metrics))
         if let rowWidth { rect = rect.union(frame(size: rowSize(width: rowWidth, on: metrics), on: metrics)) }
         rect = rect.insetBy(dx: -hoverSlop, dy: -hoverSlop)
         if let notch = metrics.notchRect { rect = rect.union(notch) }
         return rect
     }
 
-    /// `expanded` = the pointer is on it, or it is announcing itself (see `PresenceIntroduction`).
-    /// `rowWidth` — measured by `PresenceRow` — sizes the expanded row to its text.
+    /// `hovered` = the pointer is on it. `rowWidth` — measured — sizes the expanded row to its text.
     public static func layout(for metrics: ScreenMetrics, state: PresenceState, hovered: Bool = false,
                               rowWidth: CGFloat? = nil) -> Layout {
         guard state != .off else {
-            return Layout(frame: .zero, hoverRect: hoverRect(on: metrics), cornerRadius: 0, visible: false)
+            return Layout(frame: .zero, hoverRect: hoverRect(on: metrics), cornerRadius: 0, visible: false,
+                          attached: metrics.isAttached)
         }
         var size = size(for: state, hovered: hovered)
         if hovered, let rowWidth { size = rowSize(width: rowWidth, on: metrics) }
+        let radius = hovered ? 10 : min(6, size.height / 2)   // Tokens.Radius.presenceHint / presenceChin
         return Layout(frame: frame(size: size, on: metrics),
                       hoverRect: hoverRect(on: metrics, rowWidth: hovered ? rowWidth : nil),
-                      cornerRadius: hovered ? 10 : min(6, size.height / 2),
-                      visible: true)
+                      cornerRadius: radius, visible: true, attached: metrics.isAttached)
     }
 
     /// True when `rect` is drawable: on the display, and not behind the camera housing.
     public static func clearsHousing(_ rect: CGRect, on metrics: ScreenMetrics) -> Bool {
-        guard metrics.frame.contains(rect) else { return false }
-        guard let housing = metrics.notchRect else { return true }
-        return !rect.intersects(housing)
+        NotchGeometry.clearsHousing(rect, on: metrics)
     }
 
     /// Every frame the indicator can ever occupy on this display — what the startup diagnostic logs
@@ -143,36 +124,47 @@ public enum PresenceGeometry {
     }
 }
 
-/// When the indicator announces itself instead of sitting as a dot.
+/// S2 — what the chin shows under the pointer (design §4 "Hover presence", DESIGN.md §8.4).
 ///
-/// The complaint this answers: "no indicator that the dictation app is available and I can tap the
-/// key to dictate". A dot alone is discoverable only if you already know what it is, and a row
-/// pinned there forever would be worse than the bug — so the row shows itself at the two moments it
-/// carries news, then collapses back to the dot:
-///
-/// * the first time the app reaches `ready` in a session (launch), and
-/// * whenever it reaches `ready` *out of a blocked state* — a permission granted, or the speech
-///   model finishing its download and the engine being swapped in underneath us.
-///
-/// Deliberately NOT after every utterance: `ready` is re-entered constantly during normal use, and
-/// a row that reappears after each dictation would be a nag.
-public enum PresenceIntroduction {
-    /// How long the row stays up before collapsing to the dot.
-    public static let duration: TimeInterval = 6
+/// * Idle (`ready`) with the pointer on it → the text-only hint "Hold or Double Tap <key> to dictate":
+///   no dot, no Spool, no brand prefix, no "Ready".
+/// * Any other visible state with the pointer on it → that state's own row (muted, paused, blocked…).
+/// * No pointer → the chin (or its badge). Keyboard focus never opens the hover presentation, and
+///   nothing expands unprompted: the hint is only ever a hover.
+/// * Capture, errors and held text take priority over hover: the pill is showing them, and the
+///   reducer has already turned the indicator off (`PresenceState.off`).
+public enum PresenceHover {
+    public enum Presentation: Equatable, Sendable {
+        case none
+        case chin
+        /// The ready hint, exactly this text.
+        case hint(String)
+        /// A non-ready state's row (`PresenceRow`).
+        case row
+    }
 
-    public static func announces(from previous: PresenceState?, to next: PresenceState) -> Bool {
-        guard next == .ready else { return false }
-        switch previous {
-        case .none: return true
-        case .some(.blocked): return true
-        default: return false
+    public static func presentation(state: PresenceState, pointerOn: Bool, keyboardFocus: Bool = false,
+                                    readyHint: String) -> Presentation {
+        guard state.isVisible else { return .none }
+        // Only the pointer expands it. Keyboard focus alone never does (`keyboardFocus` is accepted so
+        // callers state it, and ignored): the chin's accessible description carries the same hint.
+        _ = keyboardFocus
+        guard pointerOn else { return .chin }
+        return state == .ready ? .hint(readyHint) : .row
+    }
+
+    /// The key hint a non-ready row carries ("hold fn / 🌐", "press ⌃⌥D"): the configured key by the
+    /// label hints use (`HotkeyBinding.label`, I1), never the older display name ("Right ⌥").
+    public static func keyHint(for binding: HotkeyBinding) -> String {
+        switch binding.style {
+        case .bareModifier: return "hold \(binding.label)"
+        case .chord: return "press \(binding.label)"
         }
     }
 
-    /// Is an announcement started at `since` still on screen at `now`?
-    public static func isShowing(since: Date?, now: Date = Date()) -> Bool {
-        guard let since else { return false }
-        return now.timeIntervalSince(since) < duration
+    /// The width the hint row needs for `hint` (12 pt padding each side, min 190), measured by `measure`.
+    public static func hintWidth(_ hint: String, on metrics: ScreenMetrics, measure: (String) -> CGFloat) -> CGFloat {
+        PresenceGeometry.rowSize(width: measure(hint) + NotchGeometry.hintHorizontalPadding, on: metrics).width
     }
 }
 

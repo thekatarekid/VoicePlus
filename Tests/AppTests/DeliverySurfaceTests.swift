@@ -84,10 +84,11 @@ struct DeliveryRowTests {
         #expect(lines.contains("Destination changed — Copy text"))
         #expect(lines.contains(HeldPillInfo.actionsLine))
         #expect(HeldPillInfo.actionsLine.contains("Insert here"))
-        #expect(NotchGeometry.size(for: held) == NotchGeometry.expandedSize)
+        // S2: both are actionable rows — 560 × 204 with the action row below the character bay.
+        #expect(NotchGeometry.size(for: held) == NotchGeometry.actionableSize)
         let landed = PillDeliveryRouter.state(for: .delivered(verified: false, method: "paste"),
                                               text: Self.text, destination: "Notes")
-        #expect(NotchGeometry.size(for: landed) == NotchGeometry.expandedSize)
+        #expect(NotchGeometry.size(for: landed) == NotchGeometry.actionableSize)
         // Verified landing draws variable-length committed text; like `.preview` it is deliberately
         // not measured, so the panel keeps its reserved size instead of tracking the sentence.
         let verified = PillDeliveryRouter.state(for: .delivered(verified: true, method: "ax"),
@@ -95,24 +96,25 @@ struct DeliveryRowTests {
         #expect(verified.messageLines.isEmpty)
     }
 
-    @Test func landedDwellsForAboutOneAndAHalfBeatsAndHeldGetsTheNoticeMinimum() {
+    /// S2 (design §5, §10): verified insertion shows for 650 ms; a held row stays until the user acts.
+    @Test func insertedDwellsSixFiftyAndHeldStaysUntilTheUserActs() {
         let landed = PillDeliveryRouter.state(for: .delivered(verified: true, method: "ax"), text: "hi")
         let held = PillDeliveryRouter.state(for: .held(reason: "focus moved"), text: "hi", destination: "Notes")
-        #expect(PillDwell.minimum(for: landed) == 1.2)
-        #expect(PillDwell.minimum(for: held) == PillDwell.notice)
+        #expect(PillDwell.minimum(for: landed) == 0.65)
+        #expect(PillDwell.staysUntilAction(held))
         #expect(PillDwell.minimum(for: .landing) == PillDwell.acknowledgement)
     }
 
     /// The committed text cannot be flashed past: a retraction arriving in the same run-loop pass
-    /// waits out the 1.2 s (the `PillPresenter` rule the landed row reuses).
+    /// waits out the 650 ms (the `PillPresenter` rule the landed row reuses).
     @Test func aRetractionCannotTakeTheCommittedTextAwayImmediately() {
         var presenter = PillPresenter()
         let t0 = Date(timeIntervalSince1970: 1_000)
         let landed = PillDeliveryRouter.state(for: .delivered(verified: true, method: "ax"), text: Self.text)
         #expect(presenter.request(landed, now: t0) == .show(landed))
-        #expect(presenter.request(.hidden, now: t0) == .hold(until: t0.addingTimeInterval(1.2)))
-        #expect(presenter.flush(now: t0.addingTimeInterval(1.0)) == .hold(until: t0.addingTimeInterval(1.2)))
-        #expect(presenter.flush(now: t0.addingTimeInterval(1.3)) == .show(.hidden))
+        #expect(presenter.request(.hidden, now: t0) == .hold(until: t0.addingTimeInterval(0.65)))
+        #expect(presenter.flush(now: t0.addingTimeInterval(0.5)) == .hold(until: t0.addingTimeInterval(0.65)))
+        #expect(presenter.flush(now: t0.addingTimeInterval(0.7)) == .show(.hidden))
     }
 
     /// Acting on a row is not the same as a row flashing past: a dismissal skips the dwell.

@@ -1,24 +1,34 @@
 import SwiftUI
 
-/// P5 — the notch chin. Four bodies at one anchor: a hairline at rest, a level bar while the mic is
-/// open, a legible badge when muted / paused / blocked, and a one-line row while the pointer is on
-/// it. Nothing here is interactive except the whole-panel click, which the controller handles.
+/// P5 / S2 — the notch chin (design §4 "Hover presence", DESIGN.md §6.2, §8.4). Bodies at one anchor:
+/// the 64 × 14 black chin with its 6 pt green dot at rest, the text-only hint "Hold or Double Tap <key>
+/// to dictate" under the pointer, a level bar while another owner has the mic open, and a legible badge
+/// when muted / paused / blocked. Nothing here is interactive except the whole-panel click, which the
+/// controller handles.
 struct PresenceIndicatorView: View {
     let state: PresenceState
-    /// The row is showing: the pointer is on it, or it is announcing itself at launch / on recovery.
+    /// The pointer is on it (the hint for ready, the state's row otherwise).
     let hovered: Bool
     let cornerRadius: CGFloat
-    /// "hold Right ⌥" — supplied by the controller so the pure state model stays free of bindings.
+    /// "hold fn / 🌐" — for the non-ready rows.
     let hint: String
-    /// Already fitted to the panel width by `PresenceRow`, so the row never needs a tail ellipsis.
+    /// Already fitted to the panel width, so the row never needs a tail ellipsis.
     let rowText: String
+    /// Hangs from the housing (lower corners only) or floats below an external menu bar (all four).
+    let attached: Bool
+    /// The I1 hint for the configured key; also the chin's accessible description (design §4).
+    let readyHint: String
 
-    init(state: PresenceState, hovered: Bool, cornerRadius: CGFloat, hint: String, rowText: String? = nil) {
+    init(state: PresenceState, hovered: Bool, cornerRadius: CGFloat, hint: String, rowText: String? = nil,
+         attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint()) {
         self.state = state
         self.hovered = hovered
         self.cornerRadius = cornerRadius
         self.hint = hint
+        self.attached = attached
+        self.readyHint = readyHint
         self.rowText = rowText
+            ?? (state == .ready ? readyHint : nil)
             ?? PresenceRow.candidates(detail: state.detail, hint: PresenceRow.hint(hint, for: state)).first
             ?? state.detail
     }
@@ -27,20 +37,32 @@ struct PresenceIndicatorView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(background)
-            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: cornerRadius, bottomTrailingRadius: cornerRadius))
-            .foregroundStyle(.white)
-            .animation(.easeOut(duration: 0.12), value: hovered)
+            .clipShape(UnevenRoundedRectangle(cornerRadii: corners))
+            .foregroundStyle(Tokens.Pill.Token.ink.color)
+            .animation(.easeOut(duration: 0.18), value: hovered)
             .accessibilityIdentifier("presence.\(state.caseName)")
-            .accessibilityLabel(state.detail)
+            .accessibilityLabel(state == .ready ? readyHint : state.detail)
+    }
+
+    private var corners: RectangleCornerRadii {
+        attached
+            ? RectangleCornerRadii(bottomLeading: cornerRadius, bottomTrailing: cornerRadius)
+            : RectangleCornerRadii(topLeading: cornerRadius, bottomLeading: cornerRadius,
+                                   bottomTrailing: cornerRadius, topTrailing: cornerRadius)
     }
 
     @ViewBuilder private var content: some View {
-        if hovered {
+        if hovered, state == .ready {
+            // I1: text only — no dot, no brand prefix, no "Ready", no cassette.
+            Text(rowText)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityIdentifier("presence.hint")
+        } else if hovered {
             HStack(spacing: 6) {
                 Image(systemName: state.symbol).font(.system(size: 10, weight: .semibold))
-                // No `truncationMode`: the panel was sized to this exact string by `PresenceRow`,
-                // and if it could not be made to fit, `PresenceRow` already shortened it at a word
-                // boundary. A tail ellipsis here is what produced "— hold R…".
+                // No `truncationMode`: the panel was sized to this exact string by `PresenceRow`.
                 Text(rowText).font(.system(size: 11, weight: .medium)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 9)
@@ -65,34 +87,29 @@ struct PresenceIndicatorView: View {
         .padding(.horizontal, 6)
     }
 
-    /// Idle is quiet but no longer invisible: a dark chin (so it reads against a light menu bar on an
-    /// external display) carrying one lit dot (so it reads against the black bezel on a MacBook).
+    /// Idle and the hint are the pill's own black (`Pill.background`); the badges keep their colours.
     private var background: some ShapeStyle {
         switch state {
         case .off: return AnyShapeStyle(Color.clear)
-        case .ready: return AnyShapeStyle(Color.black.opacity(hovered ? 0.92 : 0.72))
-        case .listening, .processing: return AnyShapeStyle(Color.black.opacity(0.9))
+        case .ready, .listening, .processing, .paused: return AnyShapeStyle(Tokens.Pill.Token.background.color)
         case .muted: return AnyShapeStyle(Color.red.opacity(0.88))
-        case .paused: return AnyShapeStyle(Color.black.opacity(0.75))
         case .blocked: return AnyShapeStyle(Color.orange.opacity(0.9))
         }
     }
 }
 
-/// The resting "armed" body: one small lit dot, centred. Deliberately static — a pulsing light
-/// under the notch is the kind of ambient thing that becomes impossible to ignore, and this is
-/// supposed to be glanceable, not attention-seeking.
+/// I0 — one 6 pt green dot, centred. Static: idle never animates (design §11).
 private struct ReadyDot: View {
     var body: some View {
         Circle()
-            .fill(Color.green.opacity(0.95))
-            .frame(width: 5, height: 5)
+            .fill(Tokens.Pill.Token.ready.color)
+            .frame(width: PresenceGeometry.dotDiameter, height: PresenceGeometry.dotDiameter)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityHidden(true)
     }
 }
 
-/// A level-driven fill for the 10 pt active chin. `nil` level = indeterminate (processing): a slow
+/// A level-driven fill for the active chin. `nil` level = indeterminate (processing): a slow
 /// shimmer rather than a lie about the microphone.
 private struct LevelBar: View {
     let level: Float?
@@ -102,8 +119,8 @@ private struct LevelBar: View {
         GeometryReader { geo in
             let width = level.map { CGFloat(min(max($0, 0.06), 1)) } ?? phase
             Capsule()
-                .fill(.white.opacity(0.85))
-                .frame(width: max(4, geo.size.width * width), height: max(2, geo.size.height - 4))
+                .fill(Tokens.Pill.Token.ink.color.opacity(0.85))
+                .frame(width: max(4, geo.size.width * width), height: max(2, geo.size.height - 6))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .padding(.horizontal, 4)

@@ -93,6 +93,163 @@ public enum DeliveryCopy {
     }
 }
 
+// MARK: - The Spool pill's copy deck (S2)
+
+/// Every sentence and button the Spool pill draws, verbatim from the verified prototype
+/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v1.html` `renderState`),
+/// asserted string by string by `DesignCopyParityTests`. Nothing here is retyped from the markdown.
+///
+/// Three runtime substitutions only (build doc S2): the fixture's sample transcript becomes the real
+/// text (so it is not stored here), "Mail" becomes the real destination (the `destination:` functions),
+/// "Right Control" becomes the configured key (the `key:` functions, via `PillState.withHotkey`).
+/// The timer is the real elapsed time (`PillTimer`).
+public enum PillDeck {
+    /// The destination name the prototype's copy uses for its sample app.
+    public static let prototypeDestination = "Mail"
+    public static let warnPrefix = "⚠ "
+
+    // C0 starting
+    public static let startingStatus = PillCopy.startingStatus
+    public static let startingWords = PillCopy.startingWords
+    public static let startingHelper = PillCopy.startingHelper
+
+    // C1 listening
+    public static let listeningStatus = "Listening"
+    /// Words shown before the first partial arrives (prototype `partial || 'Listening…'`).
+    public static let listeningPlaceholder = "Listening…"
+    public static let listeningHelperTemplate = "Release Right Control to finish"
+    public static func listeningHelper(key: String) -> String { PillState.withHotkey(listeningHelperTemplate, key: key) }
+    /// Beside the helper while capture is open (prototype `pillHtml`: listening, quiet, latched).
+    public static let escapeHint = "Esc · cancel"
+
+    // C2 quiet
+    public static let quietStatus = PillCopy.quietStatus
+    public static let quietHelper = PillCopy.quietHelper
+
+    // C3 latched
+    public static let latchedStatus = PillCopy.latchedStatus
+    public static let latchedHelperTemplate = "Tap Right Control to finish"
+    public static func latchedHelper(key: String) -> String { PillState.withHotkey(latchedHelperTemplate, key: key) }
+    public static let latchedButtons = [PillButton("Finish", .finish)]
+
+    // F0 finishing (design §5: 2 s "Still finishing your text"; 10 s "Use available text" / "Cancel")
+    public static let finishingStatus = PillCopy.finishingStatus
+    public static let finishingSlowStatus = PillCopy.finishingSlowStatus
+    public static let finishingHelper = PillCopy.finishingHelper
+    public static let finishingOfferDelay: TimeInterval = 10
+    public static let useAvailableText = "Use available text"
+    public static let cancelLabel = "Cancel"
+
+    // F1 preview / F2 uncertain
+    public static let readyForTemplate = "Ready for Mail"
+    /// "Ready for Mail", "Ready for Mail · 1 word to review"; "Ready" when no destination is known.
+    public static func readyStatus(destination: String?, uncertain: Int?) -> String {
+        let ready = destination.map(PillCopy.readyFor) ?? "Ready"
+        guard let uncertain else { return ready }
+        return ready + PillCopy.statusSeparator + PillCopy.wordsToReview(uncertain)
+    }
+    public static func previewHelper(review: Bool, manual: Bool) -> String {
+        switch (review, manual) {
+        case (false, false): return PillCopy.previewHelperAuto
+        case (false, true): return PillCopy.previewHelperManual
+        case (true, false): return PillCopy.reviewHelperAuto
+        case (true, true): return PillCopy.reviewHelperManual
+        }
+    }
+    public static let manualPreviewButtons = [PillButton("Insert text", .commit, primary: true), PillButton("Cancel", .cancel)]
+
+    // D0 inserting
+    public static func insertingStatus(destination: String?) -> String {
+        destination.map { "Inserting in \($0)…" } ?? "Inserting…"
+    }
+    public static let insertingHelper = PillCopy.insertingHelper
+
+    // D1 inserted
+    public static func insertedStatus(destination: String?) -> String {
+        destination.map { "✓ Inserted in \($0)" } ?? "✓ Inserted"
+    }
+    /// "1 word to review in the field"; nothing when every word was confident.
+    public static func insertedHelper(uncertain: Int) -> String {
+        uncertain > 0 ? PillCopy.wordsToReview(uncertain) + " in the field" : ""
+    }
+
+    // D2 unconfirmed (readback did not confirm, or could not run)
+    public static let unconfirmedStatus = "⚠ Inserted · not confirmed"
+    public static let unconfirmedHelper = "Check the field before trying again"
+    public static let unconfirmedButtons = [PillButton("Check text", .check, primary: true), PillButton("Dismiss", .dismiss)]
+
+    // D3 partial
+    public static let partialStatus = PillCopy.partialStatus
+    public static let partialHelper = PillCopy.partialHelper
+    public static let partialButtons = [PillButton("Review result", .check, primary: true)]
+
+    // H0 held
+    public static let heldStatus = "⚠ Destination changed · text held"
+    public static let heldHelper = "Nothing was typed into the new field"
+    public static let heldButtons = [PillButton("Insert here", .insert, primary: true), PillButton("Copy text", .copy),
+                                     PillButton("Discard…", .discard)]
+
+    // C5 warning
+    public static let warningStatus = "⚠ Microphone sounds unclear"
+    public static let warningHelper = "Keep speaking, or check your microphone"
+    public static let warningButtons = [PillButton("Check microphone", .voice)]
+
+    // C4 cancelled
+    public static let cancelledStatus = PillCopy.cancelledStatus
+    public static let cancelledWords = PillCopy.cancelledWords
+    public static let cancelledHelper = PillCopy.cancelledHelper
+
+    // I2 muted
+    public static let mutedStatus = PillCopy.mutedStatus
+    public static let mutedWords = PillCopy.mutedWords
+    public static let mutedHelper = PillCopy.mutedHelper
+    public static let mutedButtons = [PillButton("Unmute", .unmute, primary: true)]
+
+    // I3 unavailable
+    public static let unavailableStatus = "⚠ Dictation is unavailable"
+    public static let unavailableWords = "Install a speech model"
+    public static let unavailableHelper = "No usable recognizer is ready"
+    public static let unavailableButtons = [PillButton("Open Models", .models, primary: true)]
+
+    // R1 editing ("Editing 18 words…")
+    public static func editingStatus(words: Int?) -> String {
+        guard let words else { return "Editing…" }
+        return "Editing \(words) word\(words == 1 ? "" : "s")…"
+    }
+    public static let editingHelper = PillCopy.editingHelper
+
+    // R2 undo
+    public static func undoStatus(destination: String?) -> String {
+        destination.map { "✓ Updated in \($0)" } ?? "✓ Updated"
+    }
+    public static let undoHelper = PillCopy.undoHelper
+    public static let undoButtons = [PillButton("Undo", .undo, primary: true)]
+
+    // Q0 / Q1 / Q2 meeting
+    public static let meetingButtons = [PillButton("Pause", .pause), PillButton("Stop", .stop), PillButton("Expand", .meeting)]
+    public static let pausedButtons = [PillButton("Resume", .resume, primary: true), PillButton("Stop", .stop)]
+    public static let notesButtons = [PillButton("Open meeting", .meeting, primary: true)]
+
+    // R0 correcting
+    public static let correctingStatus = PillCopy.correctingStatus
+    public static let correctingHelper = PillCopy.correctingHelper
+    public static let correctingButtons = [PillButton("Review word", .review, primary: true)]
+
+    // E1 blocked
+    public static let blockedStatus = "Microphone access is off"
+    public static let blockedWords = "Recording cannot start"
+    public static let blockedHelper = "Nothing was recorded or typed"
+    public static let blockedButtons = [PillButton("Review permissions", .permissions, primary: true)]
+
+    // E0 error
+    public static let errorStatus = "⚠ Couldn’t finish this dictation"
+    public static let errorHelper = "These words were recovered. Nothing inserted."
+    public static let errorButtons = [PillButton("Review text", .review, primary: true), PillButton("Copy text", .copy)]
+    /// The prototype's non-committal close (D2's "Dismiss"), offered on every sticky notice with no
+    /// recovery material, so "stays until the user acts" always has an action to take.
+    public static let dismissLabel = "Dismiss"
+}
+
 // MARK: - Rows
 
 /// The landed row (DESIGN §8.4 (1)–(2)). `text` is the **committed** text — what the field
