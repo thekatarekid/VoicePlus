@@ -37,7 +37,11 @@ public final class OnboardingViewModel: ObservableObject {
     /// Set when a correction could not be applied because the field no longer holds the sentence.
     @Published public private(set) var correctionRefused = false
     /// The enrollment running on the Voice step (the Voice section's own view model).
-    @Published public private(set) var enrollment: SpeakerEnrollmentViewModel?
+    /// Leaving the step (skip, stop, closing the window) stops a take in progress: the microphone
+    /// closes and the phrase is never embedded.
+    @Published public private(set) var enrollment: SpeakerEnrollmentViewModel? {
+        didSet { if let old = oldValue, old !== enrollment { old.cancel() } }
+    }
 
     public let deps: OnboardingDependencies
     public let contactsOffer: ContactsImportOffer

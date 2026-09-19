@@ -745,7 +745,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let container else { return [] }
             container.audioTap.reset()
             try? await container.engine.start(prewarm: true)
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 3_000_000_000)
+            } catch {
+                // Stop cancelled the take (S7e): close the microphone now; nothing is embedded.
+                _ = try? await container.engine.stop()
+                return []
+            }
             _ = try? await container.engine.stop()
             return container.audioTap.samples
         }

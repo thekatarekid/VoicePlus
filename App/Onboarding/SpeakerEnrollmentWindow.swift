@@ -38,8 +38,14 @@ public final class SpeakerEnrollmentViewModel: ObservableObject {
     /// When `capture` last changed (Spool's state clock).
     @Published public private(set) var captureChangedAt = Date()
     public let embedder: any SpeakerEmbedder
+    /// Records one take. It runs inside the take's task: when Stop cancels the take the recorder sees
+    /// `Task.isCancelled` (its sleep throws) and must close the microphone at once and return `[]`.
     private let record: () async -> [Float]
     public var onComplete: ((SpeakerProfile) -> Void)?
+    /// The running take (capture, then analysis); nil between takes. Stop cancels it.
+    private var take: Task<Void, Never>?
+    /// Which take is current: a cancelled take that wakes up late never touches the next one.
+    private var takeNumber = 0
 
     public init(embedder: any SpeakerEmbedder, record: @escaping () async -> [Float]) {
         self.embedder = embedder
@@ -63,39 +69,68 @@ public final class SpeakerEnrollmentViewModel: ObservableObject {
         isRecording = true
         setCapture(.capturing)
         status = SpeakerEnrollmentCopy.listening
-        Task { @MainActor in
+        takeNumber += 1
+        let number = takeNumber
+        take = Task { @MainActor [weak self] in
+            guard let record = self?.record else { return }
             let samples = await record()
-            setCapture(.analyzing)
-            status = SpeakerEnrollmentCopy.analyzing
-            defer {
-                setCapture(.idle)
-                isRecording = false
-            }
+            // Stop during capture: the recorder already closed the microphone; nothing is embedded.
+            guard let self, self.isCurrent(number) else { return }
+            self.setCapture(.analyzing)
+            self.status = SpeakerEnrollmentCopy.analyzing
             guard !samples.isEmpty else {
-                status = SpeakerEnrollmentCopy.noAudio
+                self.finishTake(SpeakerEnrollmentCopy.noAudio)
                 return
             }
             let embedder = self.embedder
             let embedded = await Task.detached(priority: .userInitiated) { try? embedder.embed(samples) }.value
+            // Stop during analysis: the phrase is dropped, the profile is never installed.
+            guard self.isCurrent(number) else { return }
             guard let embedding = embedded else {
-                status = SpeakerEnrollmentCopy.tooShort
+                self.finishTake(SpeakerEnrollmentCopy.tooShort)
                 return
             }
-            switch enrollment.record(embedding) {
+            switch self.enrollment.record(embedding) {
             case .accepted(let n):
-                status = SpeakerEnrollmentCopy.accepted(n)
+                self.finishTake(SpeakerEnrollmentCopy.accepted(n))
             case .inconsistent:
-                status = SpeakerEnrollmentCopy.inconsistent
+                self.finishTake(SpeakerEnrollmentCopy.inconsistent)
             case .complete:
-                status = SpeakerEnrollmentCopy.complete
-                if let profile = enrollment.profile { onComplete?(profile) }
+                self.finishTake(SpeakerEnrollmentCopy.complete)
+                if let profile = self.enrollment.profile { self.onComplete?(profile) }
             }
         }
     }
 
+    /// Stop (Voice › Stop, onboarding leaving the Voice step, the host closing): cancels the running
+    /// take. The recorder closes the microphone as soon as it sees the cancellation; the take is not
+    /// embedded, counts for nothing and never completes the profile. Phrases already accepted stay.
+    public func cancel() {
+        guard let running = take else { return }
+        take = nil
+        takeNumber += 1
+        running.cancel()
+        setCapture(.idle)
+        isRecording = false
+        status = SpeakerEnrollmentCopy.instruction
+    }
+
     public func reset() {
+        cancel()
         enrollment.reset()
         status = SpeakerEnrollmentCopy.instruction
+    }
+
+    /// The take `number` is still the running one (not stopped, not replaced).
+    private func isCurrent(_ number: Int) -> Bool {
+        take != nil && takeNumber == number && !Task.isCancelled
+    }
+
+    private func finishTake(_ line: String) {
+        take = nil
+        status = line
+        setCapture(.idle)
+        isRecording = false
     }
 
     private func setCapture(_ next: CapturePhase) {

@@ -278,6 +278,8 @@ public final class VoiceSectionViewModel: ObservableObject {
     /// Adopts an enrollment view model built elsewhere (the composition root owns the recorder).
     public func install(enrollment model: SpeakerEnrollmentViewModel) {
         test.cancel()
+        // A restart replaces the running enrollment: its take (and the microphone) stops first.
+        if let running = enrolling, running !== model { running.cancel() }
         let existing = model.onComplete
         model.onComplete = { [weak self] profile in
             existing?(profile)
@@ -290,13 +292,17 @@ public final class VoiceSectionViewModel: ObservableObject {
         enrollment = .content
     }
 
+    /// Stop: the take in progress is cancelled — the microphone closes now, the phrase is never
+    /// embedded and the profile is never installed (§8.4 "Stop releases the mic").
     public func cancelEnrollment() {
+        enrolling?.cancel()
         enrolling = nil
         refreshEnrollment()
     }
 
     public func deleteEnrollment() {
         profileStore().delete()
+        enrolling?.cancel()
         enrolling = nil
         refreshEnrollment()
     }
