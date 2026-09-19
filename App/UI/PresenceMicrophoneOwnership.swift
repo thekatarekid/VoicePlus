@@ -112,16 +112,19 @@ public extension PresenceStateReducer {
     ///   the opposite of the rule the existing reducer's precedence was written for.
     /// * a microphone that is **not** open never shows `listening`, even if a stale `EngineState`
     ///   still says so — that is the "stuck on after a failed or displaced start" half of R8.4.
+    ///   FX2: nor does it show "Working…" on the strength of `.starting` or `.previewing` — those
+    ///   describe live capture exactly as `.listening` does, and with the microphone shut they can
+    ///   only be stale (the 1.11.x chin that sat on "Working…" after every landed turn).
     static func substance(_ inputs: PresenceInputs, microphone: MicrophoneOwnership) -> PresenceState {
-        let base = substance(inputs)
         guard microphone.isOpen else {
-            guard base.reportsOpenMicrophone else { return base }
+            guard describesLiveCapture(inputs.engine) else { return substance(inputs) }
             // Re-derive with the engine's stale claim removed, so the honest state (muted, blocked,
             // ready…) is chosen by the same precedence as everywhere else rather than guessed here.
             var quiet = inputs
             quiet.engine = .idle
             return substance(quiet)
         }
+        let base = substance(inputs)
         // Keep the level when the engine is the thing listening; a capture path that reports no level
         // (a meeting, ambient) still has to say the microphone is open.
         if case .listening = base { return base }
@@ -138,5 +141,24 @@ public extension PresenceStateReducer {
         if inputs.pillVisible { return .off }
         if inputs.hideInFullScreen, !inputs.menuBarPresent, state.isQuiet { return .off }
         return state
+    }
+
+    /// FX2 — engine states that describe a microphone being opened or captured from: only true
+    /// while it is open, so the microphone correction above treats all three as `listening`.
+    static func describesLiveCapture(_ engine: EngineState) -> Bool {
+        switch engine {
+        case .starting, .listening, .previewing: return true
+        default: return false
+        }
+    }
+
+    /// FX2 — engine states that belong to one dictation turn (capture, the final pass, its outcome),
+    /// as opposed to the engine's standing condition (`unavailable`, `prewarming`, a mic warning or
+    /// an error the pill is carrying). A turn that has ended leaves none of these behind.
+    static func isTurnScoped(_ engine: EngineState) -> Bool {
+        switch engine {
+        case .starting, .listening, .previewing, .finishing, .finalizing, .landed, .cancelled: return true
+        default: return false
+        }
     }
 }

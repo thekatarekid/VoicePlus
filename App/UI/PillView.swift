@@ -164,7 +164,10 @@ public final class PillViewModel: ObservableObject {
     /// S3 — keyboard or VoiceOver focus entered / left the pill's text lane and actions (S3 freezes
     /// the preview dwell while it is inside, design §11).
     public var onKeyboardFocusChange: ((Bool) -> Void)?
-    /// P5 — the persistent presence indicator listens to the same engine feed the pill reduces.
+    /// Every engine state the pill was fed, after it reduced it — the S3 turn controller's *admitted*
+    /// stream, which is not the whole engine story (after key-up it holds back `.finalizing`,
+    /// `.landed` and `.idle`). FX2: so the presence chin no longer listens here; it binds to
+    /// `DictationCoordinator.engineStates`, unfiltered, and to its turn ends.
     public var onEngineState: ((EngineState) -> Void)?
     /// The configured dictation key as hints name it; read whenever content is built.
     public var keyLabel: () -> String = { HotkeyBinding.default.label }

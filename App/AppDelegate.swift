@@ -592,7 +592,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 ambientCapturing: false,
                                 claim: sessionCoordinator?.activeRequester)
         }
-        presence.bind(pill: pill.model, mute: container.latchController.mute)
+        // FX2 — the chin takes the engine's own, unfiltered states and every turn end; the pill keeps
+        // the turn controller's admitted stream (a chin fed from the pill sat on "Working…").
+        presence.bind(pill: pill.model, engineStates: coordinator.engineStates,
+                      turnEnded: coordinator.turnEnded, mute: container.latchController.mute)
         presence.start()
 
         // ── S2 · the Spool pill and the presence chin (design §4–§6, §10) ─────────────────────────

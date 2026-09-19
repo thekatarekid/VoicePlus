@@ -120,9 +120,28 @@ public final class DictationCoordinator {
         set {
             sessionLock.withLock { _turns = newValue }
             newValue?.onLanded = { [weak self] result in self?.onLanded?(result) }
+            // FX2 — chained, not replaced: `TurnWiring`'s own turn-end handler (Escape, deixis) stays.
+            let previousEnd = newValue?.onTurnEnded
+            newValue?.onTurnEnded = { [weak self] id, stage in
+                previousEnd?(id, stage)
+                self?.turnEnds.send(stage)
+            }
         }
     }
     private var _turns: TurnController?
+
+    // MARK: FX2 — the presence chin's feed
+
+    /// FX2 — every engine state, **unfiltered**. The pill is bound to what the turn controller
+    /// admits (S3); the presence chin must not be. After key-up the controller drops `.finalizing`,
+    /// `.landed` and `.idle`, so a chin fed the admitted stream last heard `.previewing` and sat on
+    /// "Working…" until the next press. The chin stands down while the pill shows, so these states
+    /// only matter once the pill has gone — by which time the engine has said it is at rest.
+    public var engineStates: AnyPublisher<EngineState, Never> { engine.statePublisher }
+    /// FX2 — a turn ended (landed, held, failed, cancelled, empty…), with its final stage: whatever
+    /// the engine feed last said, a finished turn is not work in progress.
+    public var turnEnded: AnyPublisher<TurnStage, Never> { turnEnds.eraseToAnyPublisher() }
+    private let turnEnds = PassthroughSubject<TurnStage, Never>()
     /// The capture turn this coordinator opened (hold, or the latched session's).
     private var turnID: TurnID?
     /// The press the controller refused (K04): its key-up must do nothing.

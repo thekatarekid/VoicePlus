@@ -133,7 +133,37 @@ public final class PresenceIndicatorController {
         refresh()
     }
 
-    public func setEngine(_ engine: EngineState) { onMain { self.update { $0.engine = engine } } }
+    public func setEngine(_ engine: EngineState) {
+        onMain {
+            // One line per change of phase (never per level tick), so a stuck chin is provable from
+            // `log show` — the 1.11.x "Working…" chin was not.
+            if engine.caseName != self.inputs.engine.caseName {
+                Log.app.notice("presence engine: \(engine.caseName)")
+            }
+            self.update { $0.engine = engine }
+        }
+    }
+
+    /// FX2 — a dictation turn ended (landed, held, failed, cancelled, silent). Whatever the engine
+    /// feed last said about that turn is over: the chin comes back to rest the moment the pill goes.
+    /// The engine's standing conditions (no model, a warning, an error) are left alone, and capture
+    /// that carries on (a latched session's next segment) re-asserts itself on its next state — the
+    /// pill covers the chin meanwhile, and an open microphone shows `listening` regardless.
+    public func noteTurnEnded(_ stage: TurnStage) {
+        onMain {
+            guard PresenceStateReducer.isTurnScoped(self.inputs.engine) else { return }
+            Log.app.notice("presence engine: idle (turn \(stage.rawValue))")
+            self.update { $0.engine = .idle }
+        }
+    }
+
+    /// The inputs as last set; tests read the chin's state from these without ordering a panel in.
+    var currentInputs: PresenceInputs { inputs }
+
+    /// What the chin would draw now (hover aside): the same reduction `refresh` renders.
+    var reducedState: PresenceState {
+        PresenceStateReducer.reduce(inputs, microphone: microphoneOwnership?() ?? .closed)
+    }
     public func setPillVisible(_ visible: Bool) { onMain { self.update { $0.pillVisible = visible } } }
     public func setPaused(_ paused: Bool) { onMain { self.update { $0.paused = paused } } }
     public func setMuted(_ muted: Bool) { onMain { self.update { $0.muted = muted } } }
@@ -141,17 +171,24 @@ public final class PresenceIndicatorController {
     public func setTapProvenDead(_ dead: Bool = true) { onMain { self.update { $0.tapProvenDead = dead } } }
     public func setDownloadProgress(_ progress: Double?) { onMain { self.update { $0.downloadProgress = progress } } }
 
-    /// One-call wiring for the composition root: pill visibility + the engine feed the pill already
-    /// receives, plus the hard mute. Keeps `AppDelegate`'s footprint to a couple of lines.
-    public func bind(pill: PillViewModel, mute: MuteController?) {
+    /// One-call wiring for the composition root: pill visibility, the engine's own states, turn
+    /// ends and the hard mute. Keeps `AppDelegate`'s footprint to a couple of lines.
+    ///
+    /// FX2 — `engineStates` must be the **unfiltered** engine feed (`DictationCoordinator.engineStates`),
+    /// never the pill's: the pill only gets what the S3 turn controller admits, which after key-up
+    /// excludes `.finalizing`, `.landed` and `.idle` — so a chin fed from the pill never heard the
+    /// turn end, and sat on "Working…" until the next press.
+    public func bind(pill: PillViewModel, engineStates: AnyPublisher<EngineState, Never>,
+                     turnEnded: AnyPublisher<TurnStage, Never>? = nil, mute: MuteController?) {
         pill.$state.receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.update { $0.pillVisible = state.isVisible } }
             .store(in: &cancellables)
-        let previous = pill.onEngineState
-        pill.onEngineState = { [weak self] engine in
-            previous?(engine)
-            self?.setEngine(engine)
-        }
+        engineStates.receive(on: DispatchQueue.main)
+            .sink { [weak self] engine in self?.setEngine(engine) }
+            .store(in: &cancellables)
+        turnEnded?.receive(on: DispatchQueue.main)
+            .sink { [weak self] stage in self?.noteTurnEnded(stage) }
+            .store(in: &cancellables)
         mute?.observe { [weak self] model in
             self?.onMain { self?.update { $0.muted = model.muted; $0.ambientProcessing = model.processing } }
         }
