@@ -836,7 +836,9 @@ Unverified: Chromium marker-range read on a real page
 **Final status (2026-09-20): 1.11.2 supersedes 1.11.1.** 1.11.2 = 1.11.1 + post-release fixes FX1–FX5 (§9) from
 the owner's fresh-install report. FX gate: `swift build --build-tests` clean; `swift test --no-parallel`:
 **3215 tests, all passing** (+54 over 1.11.1's 3161; the first run was 3214 / 3215, and its one midnight-clock
-failure was fixed at the gate). DMG: filled in by the release step. Owner decisions from the same report (#1
+failure was fixed at the gate). DMG: `Packaging/releases/VoicePlus_V4-w1_1.11.2.dmg`, 20 MB (20,976,698 B), sha256
+`86d8cdd5c4f2914e36dc7748ea274ebfe3a436c3e27bb95d52ae522713b37ae9`, built from `5a02a51` in a clean worktree (`--no-github`),
+`verify_install.sh` OK, R3 commit `8e690f6`, tag `release/phase-V4-w1/v1.11.2`; 27 DMGs retained, none overwritten. Owner decisions from the same report (#1
 bundling, #2 Qwen, #5 notch) and the known gaps are in `VoicePlus_ImplementationBuild_V4_Wave1+Design_Pending.md`.
 
 **Previous final status (2026-09-19).** Release **1.11.1** built: `Packaging/releases/VoicePlus_V4-w1_1.11.1.dmg`
@@ -896,7 +898,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 5 | FX3 model ready after download | [x] | `150963e`, `6fa07b6`, `875b584` | FX3ModelReadyTests (+new); onboarding/model filters 178 + 305 | implemented (slow fake factory; real InstalledModelLoader in the onboarding flow) | `AppContainer.refreshEngineIfNeeded` itself untested (thin wrapper over tested RefreshGate) |
 | 5 | FX4 no designer notes in copy | [x] | `7a32896` | DesignCopyLintTests 6 (+6); copy/onboarding filter 381 | fixture-verified (design_v1 → `design_copy.json` regenerated; spool fixtures unchanged) | behaviour rules (M07 2 s named wait, K03 quiet first tap) not checked as coded |
 | 5 | FX5 centred chin pulse | [x] | `5b03e94` | PresenceLevelBarTests (+new) | implemented (pure pulse geometry + rendered frame) | on-screen look = owner |
-| 5 | FX gate → 1.11.2 | [x] | FX gate this commit | 3215 `--no-parallel`, all passing (+54 over 3161) | build clean; full serial run | gate fix: AmbientTimeline grouping test anchored at noon (failed 00:00–01:00); DMG by the release step |
+| 5 | FX gate → 1.11.2 | [x] | FX gate this commit | 3215 `--no-parallel`, all passing (+54 over 3161) | build clean; full serial run | gate fix: AmbientTimeline grouping test anchored at noon (failed 00:00–01:00); DMG `VoicePlus_V4-w1_1.11.2.dmg` (R3 `8e690f6`, sha256 `86d8cdd5…`, verify OK), tag `release/phase-V4-w1/v1.11.2` |
 
 Design §13 acceptance mapping: scenario → test (suite › test) or §5 line. Evidence as labelled in §0; "open" = not yet covered. Re-checked at R4 (2026-09-19): no scenario is open on the agent side; the two gaps the W4 audit found (destination tape cue, lost key-up) are closed by `e7705a7` and `563b67a`, and scenario 3 also covers the manual dwell (`ef04bc8`: manual transform preview ends only by Cancel, Escape or a revalidated Replace text) and the focus pause (`f3b72d9`, `DwellFocusPauseTests`). Remaining work per row is the §5 hardware line.
 
@@ -1002,7 +1004,7 @@ covered by unit, mock or in-process tests. **Fixture-verified** means checked ag
     continuous and is static under Reduce Motion, and that the rendered frame is centred.
   - Evidence: implemented.
 - [x] **FX gate.** `swift build --build-tests` clean. `swift test --no-parallel`: **3215 tests, all passing** (+54 over 1.11.1's 3161; first run 3214 / 3215 with the midnight-clock failure fixed at the gate). Gate fix: `AmbientTimelineTests` grouping test anchored at noon today (it failed between 00:00 and 01:00 because "an hour ago" was yesterday; clock-dependent, not an FX regression).
-- [ ] **1.11.2 DMG.** Filled in by the release step.
+- [x] **1.11.2 DMG.** `VoicePlus_V4-w1_1.11.2.dmg` from `5a02a51` (`release.sh V4-w1 1.11.2 --no-github`, clean worktree), 20 MB (20,976,698 B), sha256 `86d8cdd5c4f2914e36dc7748ea274ebfe3a436c3e27bb95d52ae522713b37ae9`; `verify_install.sh` OK; appcast, cask, checksums, release notes updated; 27 DMGs retained, none overwritten (hashes compared before/after). R3 commit `8e690f6`; tag `release/phase-V4-w1/v1.11.2`.
 
 Open after the fixes (details in the Pending doc §B):
 - AX callers outside `Injection/LiveSystemAccess` still reach AX directly with no own-pid guard: SelectionDetector,
