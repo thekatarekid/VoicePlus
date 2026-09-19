@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Engine
 import Foundation
 import Lab
@@ -101,6 +102,7 @@ public final class PrivacySectionViewModel: ObservableObject {
     private let load: (Date) async throws -> [NetworkLogRecord]
     private let bytesToday: (Date) throws -> Int
     private var observingMute: ObjectIdentifier?
+    private var persistedMuteFollower: AnyCancellable?
 
     public init(settings: (any SettingsStore)?,
                 flags: FeatureFlagService?,
@@ -200,8 +202,10 @@ public final class PrivacySectionViewModel: ObservableObject {
         guard let control = muteControl else {
             canControlMute = false
             isMuted = muteStore.loadMuted()
+            followPersistedMute()
             return
         }
+        persistedMuteFollower = nil
         canControlMute = true
         let id = ObjectIdentifier(control)
         if observingMute != id {
@@ -217,6 +221,22 @@ public final class PrivacySectionViewModel: ObservableObject {
             }
         }
         isMuted = control.isMuted
+    }
+
+    /// Unwired: the live `MuteController` persists every change to the mute store
+    /// (`UserDefaultsMuteStore`, `ambient.muted`), so a mute from the menu bar or the pill still
+    /// reaches this page — its status tag and the closed-shutter Spool — while it is open.
+    private func followPersistedMute() {
+        guard persistedMuteFollower == nil else { return }
+        persistedMuteFollower = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.muteControl == nil else { return }
+                    let muted = self.muteStore.loadMuted()
+                    if muted != self.isMuted { self.isMuted = muted }
+                }
+            }
     }
 
     /// Mute closes every capture and ends latch (`SessionCoordinator.muteEngaged`); unmute is only
@@ -288,6 +308,22 @@ public final class PrivacySectionViewModel: ObservableObject {
     }
 
     public var recoverySentence: String { persistsRecovery ? PrivacyCopy.recoveryOn : PrivacyCopy.recoveryOff }
+
+    /// "Save dictation history" (design §8.5 prototype row). The key is S7b's
+    /// (`TodayHistorySettings`, `history.dictation.enabled`): Today and its search read it, and
+    /// Today's history-off "Review retention" lands on this switch. Held text is not history — it
+    /// stays under `persistsRecovery`, whatever this says.
+    public var savesDictationHistory: Bool {
+        get { TodayHistorySettings.isEnabled(settings) }
+        set {
+            TodayHistorySettings.setEnabled(newValue, store: settings)
+            objectWillChange.send()
+        }
+    }
+
+    public var dictationHistorySwitchSentence: String {
+        savesDictationHistory ? PrivacyCopy.saveHistoryOn : PrivacyCopy.saveHistoryOff
+    }
 
     /// Audio retention is a *separate* switch from transcript retention (`DESIGN.md` §9.5), and it is
     /// the existing "save recordings" setting — the same key the recorder reads, not a second one.
@@ -422,12 +458,15 @@ public final class PrivacySectionViewModel: ObservableObject {
 
     /// What the History group draws. The design's empty ("Nothing is saved — Your history is off.
     /// Recovery text has its own clearly labelled retention policy." · Review retention) only when
-    /// ambient capture is off and the count found no dictation history, no held text and no ambient
-    /// transcript; "Reading…" before the first count; content otherwise.
+    /// it is true: Save dictation history *and* ambient capture are off, and the count found no
+    /// dictation history, no held text and no ambient transcript. History on with nothing kept yet
+    /// is content ("No dictations kept yet"), never "Your history is off". "Reading…" before the
+    /// first count.
     public var historyState: SectionState {
         guard let inventory else { return .loading(PrivacyCopy.readingKept) }
         let historyScopes: [PrivacyDataScope] = [.dictationHistory, .heldText, .ambientTranscripts]
-        let empty = !ambientCapture && historyScopes.allSatisfy { inventory.count($0)?.items == 0 }
+        let empty = !savesDictationHistory && !ambientCapture
+            && historyScopes.allSatisfy { inventory.count($0)?.items == 0 }
         return empty ? .empty(.privacy, hotkey: PillCopy.prototypeHotkey) : .content
     }
 
@@ -530,6 +569,7 @@ public final class PrivacySectionViewModel: ObservableObject {
         var settingsLines = [
             "Hard mute: \(onOff(isMuted))",
             "Block all network egress: \(onOff(killSwitch))",
+            "Save dictation history: \(onOff(savesDictationHistory))",
             "Ambient capture: \(onOff(ambientCapture)), transcripts kept \(retentionDays) day\(retentionDays == 1 ? "" : "s")",
             "Keep what other people said too: \(onOff(capturesEverySpeaker))",
             "Keep held text until resolved: \(onOff(persistsRecovery))",

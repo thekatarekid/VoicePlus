@@ -131,6 +131,11 @@ struct PrivacySectionView: View {
                     .accessibilityIdentifier("privacy.history.state")
             }
             GroupBox(PrivacyCopy.historyGroup, layout: .rows) {
+                RowView(PrivacyCopy.saveHistoryTitle, detail: model.dictationHistorySwitchSentence) {
+                    switchControl(PrivacyCopy.saveHistoryTitle, isOn: Binding(
+                        get: { model.savesDictationHistory }, set: { model.savesDictationHistory = $0 }))
+                }
+                .accessibilityIdentifier("privacy.saveDictationHistory")
                 RowView(PrivacyCopy.ambientTitle, detail: PrivacySectionViewModel.enrolledSpeakerOnlyNote) {
                     switchControl(PrivacyCopy.ambientTitle, isOn: Binding(
                         get: { model.ambientCapture }, set: { model.ambientCapture = $0 }))

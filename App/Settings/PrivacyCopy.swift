@@ -89,6 +89,11 @@ public enum PrivacyCopy {
 
     // MARK: History
 
+    /// Prototype row: "Save dictation history · Recovery drafts are kept separately until resolved."
+    public static let saveHistoryTitle = "Save dictation history"
+    public static let saveHistoryOn = "On. Past dictations are kept as text on this Mac for Today and search. Recovery drafts are kept separately until resolved."
+    /// Says only what the switch does (S7b: Today lists and searches nothing), never "nothing is kept".
+    public static let saveHistoryOff = "Off. Today doesn’t list or search past dictations. Recovery drafts are kept separately until resolved."
     public static let ambientTitle = "Ambient capture"
     public static let everySpeakerTitle = "Keep what other people said too"
     public static let everySpeakerOn = "On. Speech from other people in the room is kept as transcript too, labelled as another voice. Still nothing is typed anywhere."

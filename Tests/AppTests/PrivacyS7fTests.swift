@@ -553,6 +553,10 @@ struct PrivacyS7fTests {
         #expect(model.historyState.rendering == .loading)
         #expect(model.historyState.headline == "Reading what’s kept…")
         model.refreshInventory()
+        #expect(model.savesDictationHistory, "history is on by default")
+        #expect(model.historyState.isContent, "history on with nothing kept yet is never “Your history is off”")
+        #expect(model.dictationHistorySentence == "No dictations kept yet. Only text is ever kept here, never audio.")
+        model.savesDictationHistory = false
         #expect(model.historyState.rendering == .empty)
         #expect([model.historyState.headline, model.historyState.detail ?? "", model.historyState.actionTitle ?? ""] == empty,
                 "design_copy.json emptyCopy.privacy, verbatim")
@@ -564,6 +568,42 @@ struct PrivacyS7fTests {
         model.refreshInventory()
         model.ambientCapture = true
         #expect(model.historyState.isContent, "ambient capture on means history is being kept")
+    }
+
+    @Test("Save dictation history: the prototype row, written to the key Today reads; held text stays separate")
+    func saveDictationHistory() throws {
+        let store = InMemorySettingsStore()
+        let model = Self.model(store: store, data: FakeData([.heldText: 1]))
+        model.refreshInventory()
+        #expect(model.savesDictationHistory && TodayHistorySettings.isEnabled(store))
+        #expect(model.dictationHistorySwitchSentence.hasPrefix("On."))
+        #expect(model.dictationHistorySwitchSentence.contains("Recovery drafts are kept separately until resolved."),
+                "the prototype row's sentence")
+
+        model.savesDictationHistory = false
+        #expect(store.bool(SettingsKeys.dictationHistory) == false)
+        #expect(TodayHistorySettings.isEnabled(store) == false, "S7b's Today reads the same switch")
+        #expect(model.dictationHistorySwitchSentence.hasPrefix("Off."))
+        #expect(model.persistsRecovery, "held text persistence is not the history switch")
+        #expect(model.historyState.isContent, "a held text is kept: never “Nothing is saved” over it")
+        #expect(model.diagnosticsFacts(now: Date()).settings.contains("Save dictation history: off"))
+
+        model.savesDictationHistory = true
+        #expect(store.bool(SettingsKeys.dictationHistory) == true)
+    }
+
+    @Test("unwired mute follows the persisted mute while the page is open (menu bar or pill mutes)")
+    func unwiredMuteFollowsStore() async throws {
+        guard PrivacyWiring.mute == nil else { return }
+        let store = InMemoryMuteStore(muted: false)
+        let model = Self.model(mute: nil, muteStore: store)
+        model.refreshMute()
+        #expect(!model.isMuted && !model.canControlMute)
+        store.muted = true
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: nil)
+        for _ in 0..<50 where !model.isMuted { try await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(model.isMuted)
+        #expect(model.spoolNote.pose == .muted, "closed shutters follow the real mute")
     }
 
     @Test("audio: Nothing is saved only when Retain audio is off and the folder was counted empty")
@@ -734,7 +774,7 @@ struct PrivacyS7fTests {
         let required = SettingsReachability.allItems.filter { $0.home == .privacy }.map(\.marker) + [
             "privacy.recordings.retention", "privacy.recordings.corpus", "privacy.recordings.reveal",
             "privacy.recordings.deleteAll", "privacy.hardMute", "privacy.meetingCapture", "privacy.sync",
-            "privacy.recoveryPersistence", "privacy.processing", "privacy.delete.", "privacy.delete.remaining",
+            "privacy.recoveryPersistence", "privacy.saveDictationHistory", "privacy.processing", "privacy.delete.", "privacy.delete.remaining",
             "privacy.diagnostics.includeTranscripts", "privacy.diagnostics.includeAudio", "privacy.diagnostics.preview",
         ]
         for marker in required { #expect(sources.contains(marker), "“\(marker)” is not in the Privacy section") }
