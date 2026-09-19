@@ -102,7 +102,7 @@ struct OnboardingMicCheckHonestyTests {
         #expect(m.step == .microphone)
         #expect(m.currentPermission == .microphone)
         let effects = m.handle(.next)   // "Continue anyway" past the denied microphone
-        #expect(m.step == .firstDictation, "accessibility was already granted, so nothing is left to ask")
+        #expect(m.step == .model, "accessibility was already granted, so nothing is left to ask")
         #expect(m.micVerdict != .good, "nothing may pretend the refused microphone passed")
         #expect(!effects.contains(.startMicMonitoring), "there is nothing to meter without the grant")
     }

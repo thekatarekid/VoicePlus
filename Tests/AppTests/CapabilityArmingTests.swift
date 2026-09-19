@@ -275,7 +275,7 @@ struct OnboardingLivePollingTests {
         // above, so this is the whole walk finishing.
         checker.statuses[.inputMonitoring] = .granted
         vm.pollCurrentPermission()
-        #expect(vm.machine.step == .firstDictation)
+        #expect(vm.machine.step == .model, "the permission walk is over (S8: the Model step follows it)")
     }
 
     @Test func recoveryEvidenceOnlyCountsOtherNonPromptableGrants() throws {

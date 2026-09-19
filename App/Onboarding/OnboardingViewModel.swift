@@ -24,9 +24,36 @@ public final class OnboardingViewModel: ObservableObject {
     /// of looking like nothing did.
     @Published public var rowResetOutcome: PermissionRowResetOutcome?
 
+    // MARK: S8 — Try dictation, Voice, resume
+
+    /// The real hold on the Try step, as observed from the engine and the practice field.
+    @Published public private(set) var practice = PracticeSession()
+    /// The practice field's text. Written by the field (and by the app's own insertion into it).
+    @Published public var practiceText: String = "" {
+        didSet { practiceFieldChanged() }
+    }
+    /// The one uncertain word the Try step demonstrates, once a turn has landed.
+    @Published public private(set) var wordReview: UncertainWordReview?
+    /// Set when a correction could not be applied because the field no longer holds the sentence.
+    @Published public private(set) var correctionRefused = false
+    /// The enrollment running on the Voice step (the Voice section's own view model).
+    @Published public private(set) var enrollment: SpeakerEnrollmentViewModel?
+
     public let deps: OnboardingDependencies
     public let contactsOffer: ContactsImportOffer
     public var onFinished: ((Bool) -> Void)?
+    /// Closes the window ("Set up later", "Open VoicePlus"). Set by `OnboardingWindowController`.
+    public var onClose: (() -> Void)?
+    /// Opens the main window at Today ("Open VoicePlus"). Set by `OnboardingWindowController`.
+    public var onOpenVoicePlus: (() -> Void)?
+
+    private let resumeStore: OnboardingResume
+    private var practiceEvents: Task<Void, Never>?
+    private var insertionTimer: Timer?
+    private var keyPromptTimer: Timer?
+    private var modelLoadTask: Task<Void, Never>?
+    /// Seconds a prompted-press window stays open before it counts as a press with no fn event.
+    public static let keyPromptWindow: TimeInterval = 5
 
     private var micCancellable: AnyCancellable?
     /// The one install task. One stack, one download — the per-option dictionary went with the
@@ -50,8 +77,11 @@ public final class OnboardingViewModel: ObservableObject {
     public static let permissionPollInterval: TimeInterval = 0.5
     static func requestedKey(_ p: OnboardingPermission) -> String { "onboarding.requested.\(p.rawValue)" }
 
-    public init(dependencies: OnboardingDependencies) {
+    /// - Parameter resume: reopen at the step an unfinished onboarding was left on (design §8.7).
+    ///   False only for the headless phase self-test, which must always walk from Welcome.
+    public init(dependencies: OnboardingDependencies, resume: Bool = true) {
         deps = dependencies
+        resumeStore = OnboardingResume(store: dependencies.settingsStore)
         var initial: [OnboardingPermission: OnboardingPermissionStatus] = [:]
         var requested: Set<OnboardingPermission> = []
         for p in OnboardingPermission.allCases {
@@ -62,14 +92,24 @@ public final class OnboardingViewModel: ObservableObject {
         // binding the shipped picker can produce, so the Input Monitoring screen simply is not part
         // of onboarding any more.
         machine = OnboardingStateMachine(initialStatuses: initial, alreadyRequested: requested,
-                                         permissionOrder: OnboardingPermission.order(hotkeyRequires: dependencies.hotkeyRequiresPermission))
+                                         permissionOrder: OnboardingPermission.order(hotkeyRequires: dependencies.hotkeyRequiresPermission),
+                                         voiceEnrolled: dependencies.isVoiceEnrolled())
         contactsOffer = ContactsImportOffer(store: dependencies.contacts, database: dependencies.database,
                                             settings: dependencies.settingsStore)
         observeAppActivation()
+        dependencies.keyEvents.onFnEvent = { [weak self] in
+            MainActor.assumeIsolated { self?.fnKeyEvent() }
+        }
         // R6.2 / DESIGN §11.1 — the model install is not a step any more; it starts the moment
         // onboarding opens and runs in the background for the rest of the walk, so Welcome can
         // already say "you can keep going" truthfully.
         send(.installModels)
+        if resume, let step = resumeStore.step {
+            Log.app.notice("onboarding: resuming setup at \(step.rawValue)")
+            let effects = machine.resume(at: step)
+            for effect in effects { perform(effect) }
+            afterTransition(from: .welcome, hadFocus: false)
+        }
     }
 
     deinit {
@@ -77,6 +117,10 @@ public final class OnboardingViewModel: ObservableObject {
         micWatchdog?.invalidate()
         settleTimer?.invalidate()
         dictationWatchdog?.invalidate()
+        insertionTimer?.invalidate()
+        keyPromptTimer?.invalidate()
+        practiceEvents?.cancel()
+        modelLoadTask?.cancel()
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
     }
 
@@ -91,8 +135,20 @@ public final class OnboardingViewModel: ObservableObject {
         let hadFocus = machine.currentPermission != nil
         let effects = machine.handle(event)
         for effect in effects { perform(effect) }
+        afterTransition(from: before, hadFocus: hadFocus)
+    }
+
+    /// Everything that follows from where the machine now stands, whatever moved it there.
+    private func afterTransition(from before: OnboardingStateMachine.Step, hadFocus: Bool) {
         if machine.step != before || hadFocus { syncPermissionPolling() }
         logPermissionTransition()
+        if machine.step != before {
+            // Resume point: every step change is persisted, so "Set up later", the close button
+            // and a quit all reopen here. Reaching Ready clears it.
+            resumeStore.save(machine.step)
+            if before == .firstDictation { stopPractice() }
+        }
+        if machine.needsModelLoad { startModelLoad() }
     }
 
     /// FIX B — one line whenever a permission step is entered or advanced. Without it the phase
@@ -144,6 +200,8 @@ public final class OnboardingViewModel: ObservableObject {
     func pollCurrentPermission() {
         guard let current = machine.currentPermission else {
             permissionPollTimer?.invalidate(); permissionPollTimer = nil
+            // Ready's verdict is live: a grant made in System Settings after reaching it counts.
+            if machine.step == .done { for p in machine.permissionOrder { refreshStatus(p) } }
             return
         }
         for p in OnboardingPermission.allCases where p != current { refreshStatus(p) }
@@ -172,7 +230,11 @@ public final class OnboardingViewModel: ObservableObject {
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pollCurrentPermission() }
+            MainActor.assumeIsolated {
+                self?.pollCurrentPermission()
+                // Back from System Settings › Keyboard: the fn prompt goes once the setting is fixed.
+                if self?.machine.step == .firstDictation { self?.readKeyStatus() }
+            }
         }
     }
 
@@ -186,6 +248,11 @@ public final class OnboardingViewModel: ObservableObject {
         deps.micLevel.stopMonitoring()
         downloadTask?.cancel()
         downloadTask = nil
+        modelLoadTask?.cancel(); modelLoadTask = nil
+        stopPractice()
+        keyPromptTimer?.invalidate(); keyPromptTimer = nil
+        enrollment = nil
+        deps.keyEvents.onFnEvent = nil
         dictationTask?.cancel()
         dictationEvents?.cancel(); dictationEvents = nil
         // Closing the window mid-utterance must release the microphone, not leave the engine
@@ -297,12 +364,196 @@ public final class OnboardingViewModel: ObservableObject {
         case .checkRecognizerReadiness:
             refreshReadiness()
         case .beginGuidedDictation:
-            break  // user presses the button; see `startGuidedDictation`
+            // The Try step opened: read the key (I1), and start watching the real turn path so a
+            // hold into the practice field is seen stage by stage. The button test stays a
+            // fallback the user presses; see `startGuidedDictation`.
+            readKeyStatus()
+            startPractice()
         case .finish(let skipped):
             deps.settingsStore.set(true, for: SettingsKeys.onboardingCompleted)
+            resumeStore.clear()
             showContactsOffer = !contactsOffer.alreadyOffered
             onFinished?(skipped)
+        case .openKeyboardSettings:
+            deps.openKeyboardSettings()
+        case .startKeyPromptWindow:
+            keyPromptTimer?.invalidate()
+            keyPromptTimer = Timer.scheduledTimer(withTimeInterval: Self.keyPromptWindow, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.keyPromptTimer = nil
+                    self?.send(.keyPromptElapsed)
+                }
+            }
+        case .rebindDictationKey(let kind):
+            Log.app.notice("onboarding: no fn event in \(FnKeyProbe.attemptsBeforeFallback) presses — dictation key is now \(kind.displayName)")
+            deps.setDictationKey(kind)
+        case .startVoiceEnrollment:
+            startVoiceEnrollment()
+        case .stopVoiceEnrollment:
+            enrollment = nil
         }
+    }
+
+    // MARK: S8 — Model load
+
+    /// Loads the installed stack so the Model step can say "Ready" honestly. One load at a time.
+    private func startModelLoad() {
+        guard modelLoadTask == nil else { return }
+        send(.modelLoadStarted)
+        guard let load = deps.loadModel else {
+            send(.modelLoadFinished(.failed(RecoveryCatalog.entry(.M07).headline)))
+            return
+        }
+        modelLoadTask = Task { [weak self] in
+            let outcome = await load()
+            guard let self, !Task.isCancelled else { return }
+            self.modelLoadTask = nil
+            Log.app.notice("onboarding: model load \(String(describing: outcome))")
+            self.send(.modelLoadFinished(outcome))
+        }
+    }
+
+    // MARK: S8 — the dictation key (I1)
+
+    /// Reads the bound key, macOS's own fn action and the fn events already seen.
+    public func readKeyStatus() {
+        let key = deps.dictationKey()
+        send(.keyStatus(key, conflict: deps.fnConflict(key), fnEventsSeen: deps.keyEvents.fnEventsSeen))
+    }
+
+    private func fnKeyEvent() {
+        keyPromptTimer?.invalidate(); keyPromptTimer = nil
+        send(.fnKeyEvent)
+    }
+
+    /// "I pressed it": close the open window now instead of waiting it out.
+    public func pressedKeyWithoutEvent() {
+        guard keyPromptTimer != nil else { return }
+        keyPromptTimer?.invalidate(); keyPromptTimer = nil
+        send(.keyPromptElapsed)
+    }
+
+    /// The label hints use for the key the user will actually hold.
+    public var keyLabel: String {
+        HotkeyBinding(kind: machine.dictationKey ?? deps.dictationKey()).label
+    }
+
+    // MARK: S8 — the practice turn
+
+    private func startPractice() {
+        stopPractice()
+        practice = PracticeSession()
+        wordReview = nil
+        correctionRefused = false
+        let events = deps.engine.events()
+        practiceEvents = Task { [weak self] in
+            for await event in events {
+                guard !Task.isCancelled else { return }
+                await MainActor.run { self?.practiceEvent(event) }
+            }
+        }
+    }
+
+    private func stopPractice() {
+        practiceEvents?.cancel(); practiceEvents = nil
+        insertionTimer?.invalidate(); insertionTimer = nil
+    }
+
+    /// One engine event from the real turn path. Ignored while the button test owns the engine —
+    /// that path reports through `dictationFinished` on its own.
+    func practiceEvent(_ event: EngineEvent) {
+        guard !isDictating, machine.step == .firstDictation else { return }
+        guard practice.apply(event) else { return }
+        switch practice.phase {
+        case .preview:
+            insertionTimer?.invalidate()
+            insertionTimer = Timer.scheduledTimer(withTimeInterval: PracticeSession.insertionGrace, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.practiceInsertionTimedOut() }
+            }
+        case .listening:
+            wordReview = nil
+            correctionRefused = false
+        case .noSpeech:
+            send(.dictationFinished(.failed(reason: RecoveryCatalog.entry(.A06).headline)))
+        case .failed(let message):
+            // Catalogue words, never the engine's raw text (design §10).
+            let headline = RecoveryCatalog.entry(for: EngineState.error(message))?.headline
+                ?? RecoveryCatalog.entry(.X08).headline
+            send(.dictationFinished(.failed(reason: headline)))
+        default:
+            break
+        }
+    }
+
+    func practiceInsertionTimedOut() {
+        insertionTimer = nil
+        guard practice.insertionTimedOut() else { return }
+        let recognizer = machine.readiness.recognizerName ?? "the on-device recogniser"
+        send(.dictationFinished(.heard(text: practice.finalText, recognizer: recognizer)))
+    }
+
+    private func practiceFieldChanged() {
+        guard practice.fieldText != practiceText else { return }
+        guard practice.fieldChanged(practiceText) else { return }
+        insertionTimer?.invalidate(); insertionTimer = nil
+        let landed = practice.insertedText ?? practiceText
+        wordReview = UncertainWordReview.make(spans: practice.finalSpans, landed: landed)
+        correctionRefused = false
+        if machine.step == .firstDictation {
+            send(.dictationFinished(.landed(text: landed, app: OnboardingCopy.practiceFieldName)))
+        }
+    }
+
+    /// A spelling from the Word review (a suggestion, "keep" passes the word itself, or typed).
+    public func correctUncertainWord(_ spelling: String) {
+        guard var review = wordReview else { return }
+        if spelling == review.word { review.keep(); wordReview = review; return }
+        guard let field = review.choose(spelling, field: practiceText) else {
+            correctionRefused = true
+            return
+        }
+        wordReview = review
+        correctionRefused = false
+        if review.source == .dictation, field != practiceText {
+            // A correction of our own text, not a new landing.
+            practice.replaceField(with: field)
+            practiceText = field
+        }
+    }
+
+    // MARK: S8 — Voice (V4.48)
+
+    private func startVoiceEnrollment() {
+        guard let model = deps.makeEnrollment?() else {
+            Log.app.notice("onboarding: voice enrollment has no recorder in this window")
+            send(.voiceEnrollmentUnavailable)
+            return
+        }
+        model.onComplete = { [weak self] profile in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let filtering = self.deps.installVoiceProfile?(profile) ?? false
+                Log.app.notice("onboarding: voice enrolled (speaker filtering \(filtering ? "on" : "off"))")
+                self.enrollment = nil
+                self.send(.voiceEnrolled(filtering: filtering))
+            }
+        }
+        enrollment = model
+    }
+
+    // MARK: S8 — leaving
+
+    /// "Set up later" (and the window's close button): the step is already persisted, so the next
+    /// open resumes here. Nothing is marked complete.
+    public func setUpLater() {
+        Log.app.notice("onboarding: set up later at \(self.machine.step.rawValue)")
+        if machine.step != .done { resumeStore.save(machine.step) }
+        onClose?()
+    }
+
+    /// Ready's "Open VoicePlus".
+    public func openVoicePlus() {
+        onOpenVoicePlus?()
     }
 
     public func openSettings(for p: OnboardingPermission) { perform(.openSystemSettings(p)) }
@@ -591,7 +842,7 @@ public final class OnboardingViewModel: ObservableObject {
         // could never reproduce the case it exists to expose. Writes are dropped so reporting on
         // the state can never change it.
         deps.settingsStore = ReadOnlySettingsStore(UserDefaultsSettingsStore())
-        let vm = OnboardingViewModel(dependencies: deps)
+        let vm = OnboardingViewModel(dependencies: deps, resume: false)
         vm.send(.next)
         while vm.machine.currentPermission != nil { vm.send(.next) }
         vm.teardown()

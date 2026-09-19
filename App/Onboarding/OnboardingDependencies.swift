@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Engine
 import Foundation
@@ -403,6 +404,30 @@ public struct OnboardingDependencies {
     /// launched with — on a fresh install, one that can never transcribe.
     public var prepareEngine: (@Sendable () async -> Void)?
 
+    // MARK: S8
+
+    /// Loads the installed stack into memory for the Model step's "Loading" → "Ready". Nil means
+    /// nothing in this window can load it, and the step says so (M07) rather than claiming Ready.
+    public var loadModel: (@MainActor () async -> OnboardingStateMachine.ModelLoadOutcome)?
+    /// V4.48 — the recorder-backed enrollment view model that Voice › Enrollment runs. Nil (or a
+    /// nil result) means no recorder is wired, which the Voice step states (X03).
+    public var makeEnrollment: (@MainActor () -> SpeakerEnrollmentViewModel?)?
+    /// Saves a finished profile and arms the latch's speaker guard (`LatchController.install`);
+    /// returns whether speaker filtering is now on.
+    public var installVoiceProfile: (@MainActor (SpeakerProfile) -> Bool)?
+    /// Whether a voice is already enrolled on this Mac.
+    public var isVoiceEnrolled: () -> Bool
+    /// I1 — the dictation key as bound right now.
+    public var dictationKey: () -> HotkeyBinding.Kind
+    /// Rebinds the dictation key (the Right ⌥ fallback).
+    public var setDictationKey: (HotkeyBinding.Kind) -> Void
+    /// macOS's own fn / 🌐 action as a prompt, or nil when `kind` is not fn or macOS does nothing.
+    public var fnConflict: (HotkeyBinding.Kind) -> FnKeyConflict?
+    /// fn / 🌐 edges from the live hotkey service.
+    public var keyEvents: DictationKeyEvents
+    /// System Settings › Keyboard.
+    public var openKeyboardSettings: () -> Void
+
     public init(permissions: OnboardingPermissionChecking, micLevel: MicLevelPublishing, models: ModelManaging,
                 engine: EngineProtocol, database: AppDatabase?, flags: FeatureFlagService,
                 contacts: ContactsStoreProtocol, settingsStore: SettingsStore = UserDefaultsSettingsStore(),
@@ -420,6 +445,16 @@ public struct OnboardingDependencies {
         self.contacts = contacts
         self.settingsStore = settingsStore
         self.openProvidersSettings = openProvidersSettings
+        // Live answers for this install; `mock()` and the composition root replace them.
+        self.isVoiceEnrolled = { SpeakerProfileStore().profile != nil }
+        self.dictationKey = {
+            HotkeyService.storedBinding(defaults: .standard, key: HotkeyService.bindingDefaultsKey)?.kind
+                ?? HotkeyService.defaultBinding.kind
+        }
+        self.setDictationKey = { UserDefaults.standard.set($0.rawValue, forKey: HotkeyService.bindingDefaultsKey) }
+        self.fnConflict = { HotkeyService.fnConflict(for: HotkeyBinding(kind: $0)) }
+        self.keyEvents = DictationKeyEvents()
+        self.openKeyboardSettings = { NSWorkspace.shared.open(FnKeyConflict.keyboardSettingsURL) }
     }
 
     /// Fully in-memory dependencies: all permissions grant on request, synthetic mic level, instant "downloads".
@@ -432,7 +467,7 @@ public struct OnboardingDependencies {
         let fixture = TranscriptFixture(name: "onboarding", spans: [
             .init(text: "The quick brown fox jumps over the lazy dog.", confidence: 0.97, audioStart: 0, audioEnd: 2.4),
         ])
-        return OnboardingDependencies(
+        var deps = OnboardingDependencies(
             permissions: OnboardingMockPermissionChecker(results: permissionResults),
             micLevel: OnboardingMockMicLevelPublisher(pretendingRealCapture: pretendRealMicCapture),
             models: OnboardingMockModelManager(),
@@ -440,8 +475,33 @@ public struct OnboardingDependencies {
             database: try? AppDatabase.inMemory(),
             flags: .inMemory(),
             contacts: MockContactsStore(names: contactNames),
-            settingsStore: InMemorySettingsStore()
+            settingsStore: InMemorySettingsStore(),
+            hotkeyRequiresPermission: nil
         )
+        // Nothing here may read or write this Mac's real key binding, fn setting or voice profile.
+        deps.loadModel = { .loaded(name: ModelStack.displayNames.first ?? "the speech model") }
+        deps.isVoiceEnrolled = { false }
+        deps.dictationKey = { HotkeyService.defaultBinding.kind }
+        deps.setDictationKey = { _ in }
+        deps.fnConflict = { _ in nil }
+        deps.openKeyboardSettings = {}
+        return deps
+    }
+}
+
+/// fn / 🌐 edges from the live `HotkeyService` (`onFnEvent`), relayed to whichever onboarding is
+/// open, plus how many arrived before it opened. One is proof the keyboard reports fn (I1).
+public final class DictationKeyEvents {
+    public private(set) var fnEventsSeen: Int
+    /// Set by the onboarding view model while it is alive.
+    public var onFnEvent: (() -> Void)?
+
+    public init(fnEventsSeen: Int = 0) { self.fnEventsSeen = fnEventsSeen }
+
+    /// Main thread (the hotkey service delivers on it).
+    public func noteFnEvent() {
+        fnEventsSeen += 1
+        onFnEvent?()
     }
 }
 

@@ -121,7 +121,7 @@ struct OnboardingTransitionLogTests {
 struct OnboardingStateMachineTests {
     typealias M = OnboardingStateMachine
 
-    /// The five steps, in order, with every permission granted and a model install running the
+    /// The seven steps, in order, with every permission granted and a model install running the
     /// whole time in the background (never gating anything — DESIGN §11.1).
     @Test func happyPathAllGranted() {
         var m = fullWalkM()
@@ -130,7 +130,7 @@ struct OnboardingStateMachineTests {
         // it never blocks a single step below.
         #expect(m.handle(.installModels) == [.checkModelPresence, .startDownload, .checkRecognizerReadiness])
         #expect(m.handle(.next) == [])
-        #expect(m.step == .microphone, "step 2 of 5")
+        #expect(m.step == .microphone, "step 2 of 7")
         #expect(m.currentPermission == .microphone)
 
         #expect(m.handle(.allow(.microphone)) == [.requestPermission(.microphone), .rememberRequested(.microphone)])
@@ -148,7 +148,7 @@ struct OnboardingStateMachineTests {
         let half = ModelDownloadProgress(fraction: 0.5, bytesReceived: 250_000_000,
                                          bytesExpected: 500_000_000, modelName: "Parakeet TDT 0.6B v3")
         m.handle(.downloadProgress(half)); #expect(m.download == .downloading(half))
-        #expect(m.handle(.next) == [.stopMicMonitoring], "step 3 of 5")
+        #expect(m.handle(.next) == [.stopMicMonitoring], "step 3 of 7")
         #expect(m.step == .accessibility)
         #expect(m.currentPermission == .inputMonitoring)
 
@@ -156,17 +156,30 @@ struct OnboardingStateMachineTests {
         #expect(m.currentPermission == .accessibility)
         m.handle(.allow(.accessibility))
         let effects = m.handle(.permissionResult(.accessibility, .granted))
-        #expect(effects == [.checkRecognizerReadiness, .beginGuidedDictation], "step 4 of 5, still installing")
-        #expect(m.step == .firstDictation)
+        // Step 4 of 7 — the Model step, because the install is still running; it never holds
+        // Continue shut.
+        #expect(effects == [.checkRecognizerReadiness], "step 4 of 7, still installing")
+        #expect(m.step == .model)
         #expect(m.allPermissionsGranted)
         #expect(m.download.isInFlight)
+        #expect(m.modelPhase == .downloading(half))
+        #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation], "step 5 of 7")
+        #expect(m.step == .firstDictation)
 
         m.handle(.downloadFinished)
         #expect(m.download == .installed)
+        #expect(m.needsModelLoad)
+        m.handle(.modelLoadStarted); m.handle(.modelLoadFinished(.loaded(name: "Parakeet TDT 0.6B v3")))
+        #expect(m.modelPhase == .ready(name: "Parakeet TDT 0.6B v3"))
         m.handle(.dictationFinished(.landed(text: "hello", app: "Notes")))
         #expect(m.landedText == "hello")
-        #expect(m.handle(.next) == [.finish(skipped: false)], "step 5 of 5")
+        #expect(m.handle(.next) == [], "step 6 of 7 — Voice")
+        #expect(m.step == .voice)
+        #expect(m.handle(.beginVoiceEnrollment) == [.startVoiceEnrollment])
+        m.handle(.voiceEnrolled(filtering: true))
+        #expect(m.handle(.next) == [.finish(skipped: false)], "step 7 of 7")
         #expect(m.step == .done)
+        #expect(m.readyVerdict == .ready)
         #expect(m.handle(.next) == [])
     }
 
@@ -252,7 +265,7 @@ struct OnboardingStateMachineTests {
         #expect(m.currentPermission == .accessibility)   // was unreachable before the fix
         m.handle(.allow(.accessibility))
         m.handle(.permissionResult(.accessibility, .granted))
-        #expect(m.step == .firstDictation)
+        #expect(m.step == .model)
         #expect(m.statuses[.accessibility] == .granted)
     }
 
@@ -271,12 +284,13 @@ struct OnboardingStateMachineTests {
             m.handle(.next)
         }
         // Every permission refused, and the walk still reached the end rather than looping.
-        #expect(m.step == .firstDictation)
+        #expect(m.step == .model)
         #expect(m.micVerdict != .good, "nothing may pretend the refused microphone passed")
         #expect(m.statuses[.microphone] == .awaitingUserAction)
         #expect(m.currentPermission == nil)
-        m.handle(.skip)
+        m.handle(.skip); m.handle(.skip); m.handle(.skip)   // Model, Try dictation, Voice
         #expect(m.step == .done)
+        #expect(m.readyVerdict == .notReady([.P01, .M01]), "Ready never claims a setup that cannot dictate")
     }
 
     /// A *non-promptable* permission macOS has already been asked for on an earlier launch skips the
@@ -308,10 +322,10 @@ struct OnboardingStateMachineTests {
         let effects = m.handle(.permissionResult(.accessibility, .denied))
         #expect(effects == [])
         #expect(m.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
-        // Skipping the last denied permission reaches "Try the key" directly — no capture was ever
+        // Skipping the last denied permission reaches the Model step directly — no capture was ever
         // started, and there is no way to reach a passing verdict.
         let skipEffects = m.handle(.next)
-        #expect(m.step == .firstDictation)
+        #expect(m.step == .model)
         #expect(m.micVerdict != .good)
         #expect(!skipEffects.contains(.startMicMonitoring))
         #expect(m.statuses[.microphone] == .denied)
@@ -319,7 +333,7 @@ struct OnboardingStateMachineTests {
 
     /// Skip is offered on every step but Welcome and Done (DESIGN §11.1's "no Skip everything" on
     /// Welcome is a view-layer choice; the state machine still has to survive a stray one) and the
-    /// walk still terminates: five steps, four skips.
+    /// walk still terminates: seven steps, six skips.
     @Test func skipEverythingStillFinishes() {
         var m = M()
         #expect(m.handle(.skip) == [])  // welcome skip → Microphone, blocked (no mic grant)
@@ -327,10 +341,15 @@ struct OnboardingStateMachineTests {
         #expect(m.micVerdict == .permissionRequired)
         #expect(m.handle(.skip) == [.stopMicMonitoring])  // Microphone skip → Accessibility
         #expect(m.step == .accessibility)
+        // The Model step names whatever would stand in for a missing stack.
+        #expect(m.handle(.skip) == [.checkRecognizerReadiness])
+        #expect(m.step == .model)
         // Entering the dictation step now asks which recogniser is available first, so the screen
         // can name it instead of presenting a test that may not be able to work.
         #expect(m.handle(.skip) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
+        #expect(m.handle(.skip) == [])
+        #expect(m.step == .voice)
         #expect(m.handle(.skip) == [.finish(skipped: true)])
         #expect(m.step == .done)
         #expect(!m.stackInstalled)  // nothing landed, and the machine says so rather than guessing
@@ -347,8 +366,12 @@ struct OnboardingStateMachineTests {
         #expect(m.download == .failed("offline"))
         #expect(m.modelInstallStatusLine?.contains("offline") == true)
         // Continue works regardless — a failed background download is not this step's problem.
-        // (Accessibility was already granted too, so this reaches "Try the key" directly.)
-        #expect(m.handle(.next) == [.stopMicMonitoring, .checkRecognizerReadiness, .beginGuidedDictation])
+        // (Accessibility was already granted too, so this reaches the Model step directly, which
+        // says what failed and still lets Continue through.)
+        #expect(m.handle(.next) == [.stopMicMonitoring, .checkRecognizerReadiness])
+        #expect(m.step == .model)
+        #expect(m.modelPhase == .downloadFailed("offline"))
+        #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
     }
 
@@ -368,7 +391,7 @@ struct OnboardingStateMachineTests {
         #expect(m.statuses[.accessibility] == .granted)
         m.handle(.allow(.microphone)); m.handle(.permissionResult(.microphone, .granted))
         m.handle(.next)   // past the meter
-        #expect(m.step == .firstDictation)   // accessibility already granted → Accessibility skipped entirely
+        #expect(m.step == .model)   // accessibility already granted → Accessibility skipped entirely
     }
 
     @Test func backNavigation() {
@@ -376,7 +399,7 @@ struct OnboardingStateMachineTests {
         m.handle(.next)
         #expect(m.step == .microphone)
         m.handle(.next)
-        #expect(m.step == .firstDictation, "both permissions already granted, so Accessibility is skipped too")
+        #expect(m.step == .model, "both permissions already granted, so Accessibility is skipped too")
         #expect(m.handle(.back) == [])
         #expect(m.step == .accessibility)
         #expect(m.handle(.back) == [.startMicMonitoring])
@@ -649,7 +672,9 @@ struct OnboardingViewModelTests {
     @Test func fullRunWithMocksFinishesAndDownloads() async throws {
         // Opting in explicitly: this walk is about everything *after* capture, so the synthetic
         // meter has to declare that it is standing in for a microphone.
-        let deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
+        var deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
+        // A voice already enrolled on this Mac: the Voice step has nothing to ask (V4.48).
+        deps.isVoiceEnrolled = { true }
         let vm = OnboardingViewModel(dependencies: deps)
         var finished: Bool?
         vm.onFinished = { finished = $0 }
@@ -667,19 +692,22 @@ struct OnboardingViewModelTests {
         vm.send(.next)
         #expect(!mic.monitoring)
         #expect(vm.step == .accessibility)
-        vm.send(.allow(.accessibility))
-        try await waitUntil { vm.machine.statuses[.accessibility] == .granted }
-        #expect(vm.step == .firstDictation)
         // The install ran itself in the background the whole time; nothing was chosen or pressed.
         try await waitUntil { vm.machine.download == .installed }
         #expect(deps.models.isStackInstalled)
+        vm.send(.allow(.accessibility))
+        try await waitUntil { vm.machine.statuses[.accessibility] == .granted }
+        // The stack is on disk, so the Model step has nothing to ask and is passed through.
+        #expect(vm.step == .firstDictation)
+        try await waitUntil { vm.machine.modelPhase.isReady }
         // Two presses, because one press cannot contain an utterance (see `startGuidedDictation`).
         vm.startGuidedDictation()
         try await waitUntil { vm.isDictating }
         vm.finishGuidedDictation()
         try await waitUntil { vm.machine.dictation != nil }
         #expect(vm.machine.heardText?.contains("quick brown fox") == true)
-        vm.send(.next)
+        vm.send(.next)   // Try dictation → Voice (already enrolled, so straight on) → Ready
+        #expect(vm.step == .done)
         #expect(finished == false)
         #expect(deps.settingsStore.bool(SettingsKeys.onboardingCompleted) == true)
         #expect(vm.showContactsOffer)
@@ -738,10 +766,8 @@ struct OnboardingViewModelTests {
         relaunch.hotkeyRequiresPermission = .inputMonitoring
         relaunch.settingsStore = store
         let second = OnboardingViewModel(dependencies: relaunch)
-        second.send(.next)
-        (relaunch.permissions as? OnboardingMockPermissionChecker)?.statuses[.microphone] = .granted
-        second.send(.permissionResult(.microphone, .granted))
-        second.send(.next)   // past the meter, onto Input Monitoring
+        // S8: the relaunch resumes on the step setup was left on (design §8.7) — Input Monitoring.
+        #expect(second.step == .accessibility)
         #expect(second.machine.currentPermission == .inputMonitoring)
         #expect(second.machine.permissionPhase == .needsSystemSettings(recheckAttempts: 0))
         second.teardown()
@@ -847,6 +873,8 @@ struct OnboardingViewModelTests {
         #expect(vm.machine.modelInstallStatusLine?.contains("didn't finish installing") == true)
         // Continue just continues — a failed model install is never any step's wall.
         vm.send(.next)
+        #expect(vm.step == .model)
+        vm.send(.next)
         #expect(vm.step == .firstDictation)
     }
 }
@@ -856,5 +884,402 @@ func waitUntil(timeoutMs: Int = 2000, _ condition: @MainActor () -> Bool) async 
     while !(await condition()) {
         try #require(Date() < deadline, "timed out waiting for condition")
         try await Task.sleep(for: .milliseconds(5))
+    }
+}
+
+// MARK: - S8 · Onboarding (design §8.7, V4.48, I1)
+
+/// The verified design's six steps plus the owner's Voice step, the Model step's honest phases, the
+/// resume point, every skip path, and I1's fn prompt and Right ⌥ fallback — all on the pure machine.
+@Suite("S8 — onboarding state machine: new steps, resume, skip paths, fn fallback")
+struct OnboardingS8StateMachineTests {
+    typealias M = OnboardingStateMachine
+    static let granted: [OnboardingPermission: OnboardingPermissionStatus] =
+        [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted]
+
+    /// Welcome → Microphone (meter) → Model, with every permission granted and nothing installed.
+    private func atModel(installed: Bool = false) -> M {
+        var m = M(initialStatuses: Self.granted)
+        if installed { m.handle(.modelPresenceChanged(true)) }
+        m.handle(.next)   // → Microphone (granted: the meter)
+        m.handle(.next)   // → Typing access, granted → Model
+        return m
+    }
+
+    private func atTry() -> M {
+        var m = atModel()
+        m.handle(.next)
+        precondition(m.step == .firstDictation)
+        return m
+    }
+
+    private func atVoice(voiceEnrolled: Bool = false) -> M {
+        var m = M(initialStatuses: Self.granted, voiceEnrolled: voiceEnrolled)
+        m.handle(.next); m.handle(.next)   // → Microphone (the meter) → Typing access, granted → Model
+        m.handle(.next)                    // → Try dictation
+        m.handle(.next)                    // → Voice (or straight past it)
+        precondition(m.step == (voiceEnrolled ? .done : .voice))
+        return m
+    }
+
+    // MARK: The steps
+
+    @Test func sevenStepsInTheDesignsOrderWithTheOwnersVoiceStep() {
+        #expect(M.Step.allCases == [.welcome, .microphone, .accessibility, .model, .firstDictation, .voice, .done])
+        #expect(M.stepCount == 7)
+        var m = M()
+        #expect(m.stepNumber == 1)
+        #expect(abs(m.progress - 1.0 / 7) < 1e-9, "the prototype's bar already shows the first segment")
+        m.handle(.skip)
+        #expect(m.stepNumber == 2)
+        #expect(OnboardingCopy.eyebrow(step: m.stepNumber, of: M.stepCount) == "Setup · 2 of 7")
+    }
+
+    @Test func voiceComesAfterTryDictationAndBeforeReady() {
+        var m = atTry()
+        #expect(m.handle(.next) == [])
+        #expect(m.step == .voice)
+        #expect(m.handle(.back) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(m.step == .firstDictation)
+    }
+
+    // MARK: Model — real bytes → Verifying → Loading → Ready (never Ready before the load)
+
+    @Test func modelPhasesAreBytesThenVerifyingThenLoadingThenReady() {
+        var m = atModel()
+        #expect(m.step == .model)
+        #expect(m.modelPhase == .notStarted)
+        #expect(m.handle(.installModels) == [.checkModelPresence, .startDownload, .checkRecognizerReadiness])
+        #expect(m.modelPhase == .starting)
+        let partway = ModelDownloadProgress(fraction: 0.4, bytesReceived: 400, bytesExpected: 1000, modelName: "Parakeet TDT 0.6B v3")
+        m.handle(.downloadProgress(partway))
+        #expect(m.modelPhase == .downloading(partway))
+        let allBytes = ModelDownloadProgress(fraction: 1, bytesReceived: 1000, bytesExpected: 1000, modelName: "Parakeet TDT 0.6B v3")
+        m.handle(.downloadProgress(allBytes))
+        #expect(m.modelPhase == .verifying, "every byte in is not a verified model")
+        m.handle(.downloadFinished)
+        #expect(m.modelPhase == .loading, "verified files are not a loaded model")
+        #expect(!m.modelPhase.isReady)
+        #expect(m.needsModelLoad)
+        m.handle(.modelLoadStarted)
+        #expect(m.modelPhase == .loading)
+        #expect(!m.needsModelLoad, "one load at a time")
+        #expect(m.handle(.modelLoadFinished(.loaded(name: "Parakeet TDT 0.6B v3"))) == [.checkRecognizerReadiness])
+        #expect(m.modelPhase == .ready(name: "Parakeet TDT 0.6B v3"))
+    }
+
+    @Test func aFailedLoadSaysSoAndCanBeRetried() {
+        var m = atModel()
+        m.handle(.downloadFinished)
+        m.handle(.modelLoadStarted)
+        m.handle(.modelLoadFinished(.failed("The speech model isn’t ready")))
+        #expect(m.modelPhase == .loadFailed("The speech model isn’t ready"))
+        #expect(!m.needsModelLoad)
+        m.handle(.retryModelLoad)
+        #expect(m.needsModelLoad)
+        #expect(m.modelPhase == .loading)
+    }
+
+    @Test func modelNeverHoldsContinueShut() {
+        var m = atModel()
+        m.handle(.installModels)
+        m.handle(.downloadProgress(ModelDownloadProgress(fraction: 0.03, bytesReceived: 3, bytesExpected: 100, modelName: "x")))
+        #expect(m.handle(.next) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(m.step == .firstDictation)
+        var failed = atModel()
+        failed.handle(.downloadFailed("offline"))
+        #expect(failed.modelPhase == .downloadFailed("offline"))
+        failed.handle(.readinessChanged(.fallback(name: "Apple Speech (on-device)", awaiting: nil)))
+        failed.handle(.next)
+        #expect(failed.step == .firstDictation, "interrupted → keep going on what is on this Mac")
+    }
+
+    @Test func anInstalledStackPassesThroughModelForwardButBackLandsOnIt() {
+        var m = atModel(installed: true)
+        #expect(m.step == .firstDictation, "nothing to install or decide: the forward path passes through")
+        #expect(m.needsModelLoad, "…and the load still runs, so Ready stays honest")
+        #expect(m.handle(.back) == [.checkRecognizerReadiness])
+        #expect(m.step == .model, "Back lands on the step instead of bouncing forward")
+        #expect(m.modelPhase == .loading)
+    }
+
+    @Test func theLoadWaitsForTheModelStep() {
+        var m = M(initialStatuses: Self.granted)
+        m.handle(.modelPresenceChanged(true))
+        #expect(!m.needsModelLoad, "never on Welcome: that would race the app's own launch warm-up")
+        m.handle(.next)
+        #expect(!m.needsModelLoad)
+        m.handle(.next)
+        #expect(m.needsModelLoad)
+    }
+
+    @Test func aVanishedStackUnloads() {
+        var m = atModel()
+        m.handle(.downloadFinished)
+        m.handle(.modelLoadStarted); m.handle(.modelLoadFinished(.loaded(name: "x")))
+        m.handle(.modelPresenceChanged(false))
+        #expect(m.modelLoad == .notLoaded)
+        #expect(!m.modelPhase.isReady)
+    }
+
+    // MARK: Voice (V4.48) — skippable, H2 passive fallback
+
+    @Test func skippingVoiceFinishesAsSkippedAndLeavesPassiveEnrollment() {
+        var m = atVoice()
+        #expect(m.step == .voice)
+        #expect(m.handle(.skip) == [.finish(skipped: true)])
+        #expect(m.step == .done)
+        #expect(m.skippedSteps.contains(.voice))
+    }
+
+    @Test func continueWithoutEnrollingIsTheSameChoiceAsSkip() {
+        var m = atVoice()
+        #expect(m.handle(.next) == [.finish(skipped: true)])
+        #expect(m.skippedSteps == [.voice])
+    }
+
+    @Test func enrollingFinishesWithoutASkip() {
+        var m = atVoice()
+        #expect(m.handle(.beginVoiceEnrollment) == [.startVoiceEnrollment])
+        #expect(m.voice == .enrolling)
+        #expect(m.handle(.beginVoiceEnrollment) == [], "one enrollment at a time")
+        m.handle(.voiceEnrolled(filtering: true))
+        #expect(m.voice == .enrolled(filtering: true))
+        #expect(m.handle(.next) == [.finish(skipped: false)])
+    }
+
+    @Test func aProfileTheEmbedderCannotUseKeepsFilteringOff() {
+        var m = atVoice()
+        m.handle(.beginVoiceEnrollment)
+        m.handle(.voiceEnrolled(filtering: false))
+        #expect(m.voice == .enrolled(filtering: false), "saved, speaker filtering off (X03)")
+        #expect(m.voice.isEnrolled)
+    }
+
+    @Test func leavingMidEnrollmentStopsIt() {
+        var m = atVoice()
+        m.handle(.beginVoiceEnrollment)
+        let effects = m.handle(.back)
+        #expect(effects.first == .stopVoiceEnrollment)
+        #expect(m.voice == .notEnrolled)
+        m.handle(.next)
+        m.handle(.beginVoiceEnrollment)
+        #expect(m.handle(.cancelVoiceEnrollment) == [.stopVoiceEnrollment])
+        #expect(m.voice == .notEnrolled)
+    }
+
+    @Test func noRecorderIsStatedAndRetryable() {
+        var m = atVoice()
+        m.handle(.beginVoiceEnrollment)
+        m.handle(.voiceEnrollmentUnavailable)
+        #expect(m.voice == .unavailable)
+        #expect(m.handle(.beginVoiceEnrollment) == [.startVoiceEnrollment])
+    }
+
+    @Test func anAlreadyEnrolledVoicePassesThroughForward() {
+        let m = atVoice(voiceEnrolled: true)
+        #expect(m.step == .done)
+        #expect(!m.skippedSteps.contains(.voice))
+    }
+
+    // MARK: Skip paths
+
+    @Test func everyStepAfterWelcomeCanBeSkippedAndReadyIsStillReached() {
+        var m = M()
+        var seen: [M.Step] = [m.step]
+        while m.step != .done {
+            m.handle(.skip)
+            seen.append(m.step)
+        }
+        #expect(seen == [.welcome, .microphone, .accessibility, .model, .firstDictation, .voice, .done])
+        #expect(m.skippedSteps == [.welcome, .microphone, .accessibility, .model, .firstDictation, .voice])
+        #expect(m.handle(.skip) == [], "Ready is final")
+        #expect(m.handle(.back) == [])
+    }
+
+    // MARK: Resume at the unfinished step (design §8.7)
+
+    @Test func resumeReopensEachUnfinishedStepWithItsEntryEffects() {
+        var mic = M()
+        #expect(mic.resume(at: .microphone) == [])
+        #expect(mic.step == .microphone)
+        #expect(mic.currentPermission == .microphone)
+
+        var typing = M(initialStatuses: [.microphone: .denied])
+        #expect(typing.resume(at: .accessibility) == [])
+        #expect(typing.step == .accessibility)
+        #expect(typing.currentPermission == .accessibility, "the cursor lands on the open permission")
+
+        var model = M()
+        #expect(model.resume(at: .model) == [.checkRecognizerReadiness])
+        #expect(model.step == .model)
+
+        var tryStep = M()
+        #expect(tryStep.resume(at: .firstDictation) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(tryStep.step == .firstDictation)
+        #expect(tryStep.currentPermission == nil)
+
+        var voice = M()
+        #expect(voice.resume(at: .voice) == [])
+        #expect(voice.step == .voice)
+        #expect(voice.handle(.back) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(voice.step == .firstDictation)
+    }
+
+    @Test func resumeOntoAStepThatIsNowResolvedMovesOn() {
+        var m = M(initialStatuses: Self.granted)
+        m.handle(.modelPresenceChanged(true))
+        m.resume(at: .accessibility)
+        #expect(m.step == .firstDictation, "granted since, and installed since: nothing left on either")
+    }
+
+    @Test func resumeNeverOntoWelcomeOrReadyAndOnlyFromAFreshMachine() {
+        var m = M()
+        #expect(m.resume(at: .welcome) == [])
+        #expect(m.resume(at: .done) == [])
+        #expect(m.step == .welcome)
+        m.handle(.skip)
+        m.resume(at: .voice)
+        #expect(m.step == .microphone, "a walk already under way is not resumed over")
+    }
+
+    // MARK: I1 — the fn prompt before the key test; Right ⌥ after three silent presses
+
+    static let emojiConflict = FnKeyConflict(.showEmojiAndSymbols)!
+
+    @Test func theFnSystemActionPromptComesBeforeTheKeyTest() {
+        var m = atTry()
+        #expect(m.keyCheck == .unknown)
+        m.handle(.keyStatus(.fn, conflict: Self.emojiConflict, fnEventsSeen: 0))
+        #expect(m.keyCheck == .conflict(Self.emojiConflict))
+        #expect(m.handle(.checkKey) == [], "no key test while the prompt is up")
+        #expect(m.handle(.fixFnConflict) == [.openKeyboardSettings])
+        // Back from Keyboard settings with the setting fixed: the prompt is gone.
+        m.handle(.keyStatus(.fn, conflict: nil, fnEventsSeen: 0))
+        #expect(m.keyCheck == .testing(attempts: 0, prompting: false))
+    }
+
+    @Test func continueAnywayPastThePromptStartsTheKeyTest() {
+        var m = atTry()
+        m.handle(.keyStatus(.fn, conflict: Self.emojiConflict, fnEventsSeen: 0))
+        m.handle(.dismissFnConflict)
+        #expect(m.keyCheck == .testing(attempts: 0, prompting: false))
+    }
+
+    @Test func threeSilentPressesOfferRightOption() {
+        var m = atTry()
+        m.handle(.keyStatus(.fn, conflict: nil, fnEventsSeen: 0))
+        for attempt in 1...FnKeyProbe.attemptsBeforeFallback {
+            #expect(m.handle(.checkKey) == [.startKeyPromptWindow])
+            #expect(m.keyCheck == .testing(attempts: attempt - 1, prompting: true))
+            #expect(m.handle(.checkKey) == [], "one window at a time")
+            m.handle(.keyPromptElapsed)
+        }
+        #expect(m.keyCheck == .offerFallback(.rightOption))
+        #expect(m.handle(.useFallbackKey) == [.rebindDictationKey(.rightOption)])
+        #expect(m.dictationKey == .rightOption)
+        #expect(m.keyCheck == .ready(.rightOption))
+    }
+
+    @Test func tryingFnAgainForgetsTheSilentPresses() {
+        var m = atTry()
+        m.handle(.keyStatus(.fn, conflict: nil, fnEventsSeen: 0))
+        for _ in 1...FnKeyProbe.attemptsBeforeFallback { m.handle(.checkKey); m.handle(.keyPromptElapsed) }
+        m.handle(.retryFnKey)
+        #expect(m.keyCheck == .testing(attempts: 0, prompting: false))
+        #expect(m.handle(.useFallbackKey) == [], "nothing to fall back from any more")
+    }
+
+    @Test func oneFnEventConfirmsTheKeyForGood() {
+        var m = atTry()
+        m.handle(.keyStatus(.fn, conflict: nil, fnEventsSeen: 0))
+        m.handle(.checkKey); m.handle(.keyPromptElapsed)
+        m.handle(.checkKey); m.handle(.keyPromptElapsed)
+        m.handle(.checkKey)
+        m.handle(.fnKeyEvent)
+        #expect(m.keyCheck == .ready(.fn))
+        m.handle(.keyPromptElapsed)
+        #expect(m.keyCheck == .ready(.fn), "a late window close cannot undo a real event")
+    }
+
+    @Test func fnSeenBeforeTheStepConfirmsAtOnce() {
+        var m = atTry()
+        m.handle(.keyStatus(.fn, conflict: nil, fnEventsSeen: 2))
+        #expect(m.keyCheck == .ready(.fn))
+    }
+
+    @Test func anElapsedWindowThatWasNeverOpenedCountsNothing() {
+        var m = atTry()
+        m.handle(.keyStatus(.fn, conflict: nil, fnEventsSeen: 0))
+        m.handle(.keyPromptElapsed)
+        #expect(m.keyCheck == .testing(attempts: 0, prompting: false))
+    }
+
+    @Test func aKeyThatIsNotFnNeedsNoPromptAndNoTest() {
+        var m = atTry()
+        m.handle(.keyStatus(.rightOption, conflict: Self.emojiConflict, fnEventsSeen: 0))
+        #expect(m.keyCheck == .ready(.rightOption))
+        #expect(m.fnConflict == nil)
+    }
+
+    /// The default bare-modifier monitor costs no permission, fn included, so the walk never
+    /// contains Input Monitoring for it.
+    @Test func onlyTheSelectedBackendsPermissionsAreWalked() {
+        for kind in [HotkeyBinding.Kind.fn, .rightOption] {
+            let needs = HotkeyBackendSelector.requiredPermission(for: HotkeyBinding(kind: kind))
+            #expect(needs == nil)
+            #expect(OnboardingPermission.order(hotkeyRequires: needs) == [.microphone, .accessibility])
+        }
+    }
+
+    // MARK: Ready — only when capture and a recogniser work; copy-only labelled
+
+    @Test func readyNeedsCaptureAndAWorkingRecognizer() {
+        var m = atModel()
+        m.handle(.downloadFinished)
+        m.handle(.modelLoadStarted)
+        #expect(m.readyVerdict == .notReady([.M07]), "installed but not loaded is not ready")
+        m.handle(.modelLoadFinished(.loaded(name: "x")))
+        #expect(m.readyVerdict == .ready)
+
+        var copyOnly = M(initialStatuses: [.microphone: .granted])
+        copyOnly.handle(.readinessChanged(.fallback(name: "Apple Speech (on-device)", awaiting: "Parakeet TDT 0.6B v3")))
+        #expect(copyOnly.readyVerdict == .copyOnly, "typing access off: labelled copy-only, not a failure")
+
+        let nothing = M()
+        #expect(nothing.readyVerdict == .notReady([.P01, .M01]))
+
+        var failedDownload = M(initialStatuses: Self.granted)
+        failedDownload.handle(.downloadFailed("offline"))
+        #expect(failedDownload.readyVerdict == .notReady([.M02]))
+    }
+
+    @Test func aCapturePathSeenFailingIsNotReady() {
+        var m = M(initialStatuses: Self.granted)
+        m.handle(.readinessChanged(.fallback(name: "Apple Speech (on-device)", awaiting: nil)))
+        m.handle(.next)
+        m.handle(.micCaptureBegan(real: true))
+        m.handle(.micNoAudio)
+        #expect(m.readyVerdict == .notReady([.A05]))
+    }
+
+    @Test func aRealTranscriptionProvesTheRecognizer() {
+        var m = atTry()
+        m.handle(.dictationFinished(.landed(text: "hello", app: OnboardingCopy.practiceFieldName)))
+        #expect(m.recognizerWorks)
+        #expect(m.readyVerdict == .ready)
+    }
+
+    @Test func readyKeepsHearingBackgroundEventsButNoNavigation() {
+        var m = M(initialStatuses: [.microphone: .granted])
+        while m.step != .done { m.handle(.skip) }
+        #expect(m.readyVerdict == .notReady([.M01]))
+        m.handle(.modelPresenceChanged(true))
+        m.handle(.modelLoadStarted)
+        m.handle(.modelLoadFinished(.loaded(name: "x")))
+        m.handle(.statusRefreshed(.accessibility, .granted))
+        #expect(m.readyVerdict == .ready, "a grant or a load after reaching Ready counts")
+        #expect(m.handle(.next) == [])
+        #expect(m.step == .done)
     }
 }

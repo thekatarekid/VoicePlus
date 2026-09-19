@@ -1,24 +1,109 @@
+import Engine
 import Foundation
 
 /// Pure, synchronous onboarding state machine (Build doc P1.9 T1). The view-model feeds it
 /// events; it never touches permissions, audio or models itself, so every branch is unit-testable.
 ///
-/// R6.2 (`DESIGN.md` §11) fixed the flow at exactly five steps — **Welcome → Microphone →
-/// Accessibility → Try the key → Done** — and nothing else. Two things that used to be their own
-/// screens are folded in:
+/// S8 (design_v1 §8.7, V4.48, I1) — the verified design's six steps plus the owner's Voice step:
+/// **Welcome → Microphone → Typing access → Model → Try dictation → Voice → Ready**.
 ///
-/// * The microphone **permission ask** and the **level meter** used to be two steps
-///   (`permissions`, then `micCheck`); DESIGN §11.2 draws them as one screen, so `.microphone` now
-///   owns both — the permission UI shows while the grant is outstanding, the meter shows once it
-///   isn't, and a denial greys the meter rather than leaving the step.
-/// * The model install used to be its own gated step (`modelInstall`, née `modelChoice`) with
-///   Continue held shut until the stack landed. DESIGN §11.1's rule — "never a blocking progress
-///   screen" — means installing is not a step at all any more: it starts the moment onboarding
-///   opens and runs in the background for the rest of the walk, and every other step is free to
-///   mention how far along it is without waiting for it.
+/// * The microphone **permission ask** and the **level meter** share `.microphone` (R6.2): the ask
+///   shows while the grant is outstanding, the real meter once it isn't.
+/// * `.accessibility` is "Typing access": explained just before the real request. Only the selected
+///   hotkey backend's permissions are walked (`permissionOrder`); the default bare-modifier monitor
+///   costs none, so Input Monitoring appears only on the event-tap escape hatch.
+/// * `.model` shows the one install as it really is — byte progress → Verifying → Loading — and
+///   says "Ready" only once the model is verified *and* loaded. It never blocks Continue: the install
+///   starts the moment onboarding opens and keeps running whatever step is showing. With the stack
+///   already on disk there is nothing to ask, so the forward path passes straight through it, the
+///   way `.accessibility` does once every permission is granted.
+/// * `.firstDictation` is "Try dictation": the fn system-action prompt and the key test come first
+///   (I1), then a real hold into the practice field.
+/// * `.voice` is the owner's addition: prompted enrollment, skippable; skipping leaves the passive
+///   enrollment (H2) to learn the voice from the first holds instead.
+/// * `.done` is "Ready": ready only with a working recognizer and capture path; copy-only is labelled.
+///
+/// Every step before Ready can be left with "Set up later" and is resumed on the next open
+/// (`resume(at:)`).
 public struct OnboardingStateMachine: Equatable, Sendable {
-    public enum Step: Equatable, Sendable, CaseIterable {
-        case welcome, microphone, accessibility, firstDictation, done
+    public enum Step: String, Equatable, Sendable, CaseIterable {
+        case welcome, microphone, accessibility, model, firstDictation, voice, done
+    }
+
+    /// Where loading the installed stack into memory has got to. "Ready" is only ever said on
+    /// `.loaded` (design §8.6: never Ready on download completion before verification and loading).
+    public enum ModelLoadState: Equatable, Sendable {
+        case notLoaded
+        case loading
+        case loaded(name: String)
+        case failed(String)
+    }
+
+    /// What one load attempt reported.
+    public enum ModelLoadOutcome: Equatable, Sendable {
+        case loaded(name: String)
+        case failed(String)
+    }
+
+    /// The Model step's one line of truth, derived from the install and the load.
+    public enum ModelPhase: Equatable, Sendable {
+        /// Nothing on disk and nothing fetching (never asked, or cancelled): "Install model".
+        case notStarted
+        /// Asked for; no byte reported yet.
+        case starting
+        /// Real byte progress.
+        case downloading(ModelDownloadProgress)
+        /// Every byte is in; checksum and integrity checks are running before the files count.
+        case verifying
+        /// On disk and verified; being loaded into memory.
+        case loading
+        /// Verified and loaded — the only phase that may say "Ready".
+        case ready(name: String)
+        /// The download or its verification failed: retry, or use a recogniser already on this Mac.
+        case downloadFailed(String)
+        /// On disk, but loading it failed (M07): retry loading.
+        case loadFailed(String)
+
+        public var isReady: Bool { if case .ready = self { return true }; return false }
+    }
+
+    /// Voice step (V4.48): prompted enrollment through the Voice section's own enrollment view.
+    public enum VoiceEnrollmentState: Equatable, Sendable {
+        case notEnrolled
+        /// The enrollment view is up and recording.
+        case enrolling
+        /// A profile was saved. `filtering` is false when this Mac's embedder cannot tell voices
+        /// apart (the MFCC fallback): the voice is kept but speaker filtering stays off (X03).
+        case enrolled(filtering: Bool)
+        /// No recorder is wired to this window, so enrollment cannot start (X03).
+        case unavailable
+
+        public var isEnrolled: Bool { if case .enrolled = self { return true }; return false }
+    }
+
+    /// I1 — the dictation key on the Try step. For fn / 🌐 the macOS system-action prompt comes
+    /// first, then the key test; three prompted presses with no fn event offer Right ⌥ instead.
+    public enum KeyCheck: Equatable, Sendable {
+        /// The bound key has not been read yet.
+        case unknown
+        /// fn is the key and macOS also acts on it. Shown before the key test.
+        case conflict(FnKeyConflict)
+        /// Asking for presses. `prompting` is true while a press window is open.
+        case testing(attempts: Int, prompting: Bool)
+        /// No fn event in `FnKeyProbe.attemptsBeforeFallback` prompted presses.
+        case offerFallback(HotkeyBinding.Kind)
+        /// The key works: fn confirmed by a real event, the fallback chosen, or a key that is not fn.
+        case ready(HotkeyBinding.Kind)
+    }
+
+    /// What Ready can honestly say (design §8.7: "Ready requires a working recognizer and capture
+    /// path; copy-only setup is labelled").
+    public enum ReadyVerdict: Equatable, Sendable {
+        case ready
+        /// Capture and recognition work; typing access is off, so text waits to be copied (P02).
+        case copyOnly
+        /// What still stops dictation, as recovery-catalogue entries, most basic first.
+        case notReady([RecoveryID])
     }
 
     /// Sub-state of the permissions step for the permission currently in focus.
@@ -144,6 +229,39 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case retryDictation
         /// The recogniser that would run right now changed (a download landed, or the step opened).
         case readinessChanged(RecognizerReadiness)
+
+        // MARK: Model step — loading (S8)
+        /// The view model started loading the installed stack (it does so whenever `needsModelLoad`).
+        case modelLoadStarted
+        case modelLoadFinished(ModelLoadOutcome)
+        /// "Retry loading" (M07).
+        case retryModelLoad
+
+        // MARK: Try step — the dictation key (I1)
+        /// The bound key, macOS's own fn action, and how many fn events the hotkey service has seen
+        /// so far in this process (one is proof enough).
+        case keyStatus(HotkeyBinding.Kind, conflict: FnKeyConflict?, fnEventsSeen: Int)
+        /// "Open Keyboard settings" on the fn system-action prompt.
+        case fixFnConflict
+        /// "Continue anyway" past the fn system-action prompt.
+        case dismissFnConflict
+        /// "Check the key": opens one prompted-press window.
+        case checkKey
+        /// An fn `flagsChanged` edge reached the hotkey service.
+        case fnKeyEvent
+        /// A prompted-press window closed without an fn event (or the user said they pressed).
+        case keyPromptElapsed
+        /// "Use Right Option instead" after three silent presses.
+        case useFallbackKey
+        /// "Try fn / 🌐 again": forget the attempts.
+        case retryFnKey
+
+        // MARK: Voice step (V4.48)
+        case beginVoiceEnrollment
+        /// No recorder could be built for enrollment in this window.
+        case voiceEnrollmentUnavailable
+        case voiceEnrolled(filtering: Bool)
+        case cancelVoiceEnrollment
     }
 
     public enum SideEffect: Equatable, Sendable {
@@ -166,6 +284,17 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         /// Ask the model manager which recogniser would run, and feed it back as `.readinessChanged`.
         case checkRecognizerReadiness
         case finish(skipped: Bool)
+        /// System Settings › Keyboard ("Press 🌐 key to").
+        case openKeyboardSettings
+        /// Open one prompted-press window; the view model answers with `.keyPromptElapsed` unless an
+        /// fn event arrives first.
+        case startKeyPromptWindow
+        /// Bind the dictation key (the Right ⌥ fallback).
+        case rebindDictationKey(HotkeyBinding.Kind)
+        /// Build the recorder-backed enrollment view and show it on the Voice step.
+        case startVoiceEnrollment
+        /// Drop a running enrollment (the step was left, or the user stopped it).
+        case stopVoiceEnrollment
     }
 
     public private(set) var step: Step = .welcome
@@ -204,6 +333,100 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// tells "starting…" apart from "the user cancelled it", which wear the same state.
     public private(set) var installRequested = false
     public private(set) var skippedSteps: Set<Step> = []
+    /// Loading the installed stack into memory (S8). Reset whenever the files change.
+    public private(set) var modelLoad: ModelLoadState = .notLoaded
+    /// The dictation key as last read (`.keyStatus`); nil until the Try step reads it.
+    public private(set) var dictationKey: HotkeyBinding.Kind?
+    /// macOS's own fn / 🌐 action, when it fights an fn binding.
+    public private(set) var fnConflict: FnKeyConflict?
+    /// "Continue anyway" was pressed on the fn system-action prompt.
+    public private(set) var fnConflictDismissed = false
+    /// I1's probe: fn events seen vs prompted presses.
+    public private(set) var fnProbe = FnKeyProbe()
+    /// A prompted-press window is open.
+    public private(set) var keyPrompting = false
+    public private(set) var voice: VoiceEnrollmentState = .notEnrolled
+
+    // MARK: S8 — derived state
+
+    /// Where the Model step stands: the only place "Ready" is decided for the model.
+    public var modelPhase: ModelPhase {
+        if stackInstalled {
+            switch modelLoad {
+            case .loaded(let name): return .ready(name: name)
+            case .failed(let why): return .loadFailed(why)
+            case .notLoaded, .loading: return .loading
+            }
+        }
+        switch downloadState {
+        case .downloading(let p): return p.fraction >= 1 ? .verifying : .downloading(p)
+        case .failed(let why): return .downloadFailed(why)
+        case .notStarted: return installRequested ? .starting : .notStarted
+        case .installed: return .loading   // unreachable while `!stackInstalled`
+        }
+    }
+
+    /// True when the view model should load the installed stack now: the files are here, nothing
+    /// has loaded them, and the user is on (or past) the step that is about them. Kept off the
+    /// earlier steps so it never races the app's own launch warm-up for the same model.
+    public var needsModelLoad: Bool {
+        guard stackInstalled, modelLoad == .notLoaded else { return false }
+        switch step {
+        case .model, .firstDictation, .voice, .done: return true
+        case .welcome, .microphone, .accessibility: return false
+        }
+    }
+
+    /// I1 on the Try step, in the order the design asks for it: conflict prompt, then key test.
+    public var keyCheck: KeyCheck {
+        guard let key = dictationKey else { return .unknown }
+        guard key == .fn else { return .ready(key) }
+        if let conflict = fnConflict, !fnConflictDismissed { return .conflict(conflict) }
+        switch fnProbe.verdict {
+        case .confirmed: return .ready(.fn)
+        case .offerFallback(let kind): return .offerFallback(kind)
+        case .waiting(let attempts): return .testing(attempts: attempts, prompting: keyPrompting)
+        }
+    }
+
+    /// 1-based position for "Setup · 3 of 7".
+    public var stepNumber: Int { (Step.allCases.firstIndex(of: step) ?? 0) + 1 }
+    public static var stepCount: Int { Step.allCases.count }
+
+    /// Whether a recogniser is known to work: a real transcription happened here, the installed
+    /// stack is loaded, or (while the stack is still missing) a fallback on this Mac stands in.
+    public var recognizerWorks: Bool {
+        if heardText != nil { return true }
+        if stackInstalled {
+            if case .loaded = modelLoad { return true }
+            return false
+        }
+        if case .fallback = readiness { return true }
+        return false
+    }
+
+    /// Ready's verdict. The capture path needs the microphone grant and must not have been seen
+    /// failing (no audio, capture error); the recogniser must work; typing access decides full vs
+    /// copy-only.
+    public var readyVerdict: ReadyVerdict {
+        var blockers: [RecoveryID] = []
+        if statuses[.microphone] != .granted {
+            blockers.append(.P01)
+        } else {
+            switch micVerdict {
+            case .noAudio: blockers.append(.A05)
+            case .unavailable: blockers.append(.A03)
+            default: break
+            }
+        }
+        if !recognizerWorks {
+            if stackInstalled { blockers.append(.M07) }
+            else if case .failed = downloadState { blockers.append(.M02) }
+            else { blockers.append(.M01) }
+        }
+        if !blockers.isEmpty { return .notReady(blockers) }
+        return statuses[.accessibility] == .granted ? .ready : .copyOnly
+    }
 
     /// The install's state — what every step's footer line and the dictation gate ask about.
     public var download: DownloadState { stackInstalled ? .installed : downloadState }
@@ -244,13 +467,41 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// no TCC service, so the step most installs never see is simply absent from the list.
     public let permissionOrder: [OnboardingPermission]
 
+    /// - Parameter voiceEnrolled: a voice profile is already saved on this Mac; the Voice step then
+    ///   has nothing to ask and the forward path passes through it.
     public init(initialStatuses: [OnboardingPermission: OnboardingPermissionStatus] = [:],
                 alreadyRequested: Set<OnboardingPermission> = [],
-                permissionOrder: [OnboardingPermission] = OnboardingPermission.baselineOrder) {
+                permissionOrder: [OnboardingPermission] = OnboardingPermission.baselineOrder,
+                voiceEnrolled: Bool = false) {
         statuses = initialStatuses
         requestedPermissions = alreadyRequested
         self.permissionOrder = permissionOrder
         permissionIndex = Self.firstUndecidedIndex(in: initialStatuses, order: permissionOrder)
+        if voiceEnrolled { voice = .enrolled(filtering: true) }
+    }
+
+    /// "Resume setup at unfinished step" (design §8.7). Opens `target` as if the user had walked to
+    /// it, with the same entry effects; the permission cursor is placed where that step expects it.
+    /// Only from a fresh machine, and never onto Welcome (already there) or Ready (finishing is not
+    /// resuming).
+    @discardableResult
+    public mutating func resume(at target: Step) -> [SideEffect] {
+        guard step == .welcome, target != .welcome, target != .done else { return [] }
+        switch target {
+        case .accessibility:
+            // The microphone half is behind the user; the cursor starts on whatever after it is open.
+            permissionIndex = max(permissionIndex, 1)
+            while permissionIndex < permissionOrder.count, statuses[permissionOrder[permissionIndex]] == .granted {
+                permissionIndex += 1
+            }
+        case .model, .firstDictation, .voice:
+            permissionIndex = permissionOrder.count
+        case .welcome, .microphone, .done:
+            break
+        }
+        // A voice enrolled since (in Voice) would fall straight through to Ready and finish setup
+        // the instant the window opened; resuming lands on the step and lets Continue finish it.
+        return enter(target, fallThroughIfResolved: target != .voice)
     }
 
     /// The permission in focus, or nil once this step's own share of the walk is resolved (granted
@@ -267,26 +518,18 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     }
 
     public var allPermissionsGranted: Bool { permissionOrder.allSatisfy { statuses[$0] == .granted } }
-    public var progress: Double {
-        let idx = Step.allCases.firstIndex(of: step) ?? 0
-        return Double(idx) / Double(Step.allCases.count - 1)
-    }
+    /// The prototype's bar: `(step + 1) / count` — Welcome already shows the first segment.
+    public var progress: Double { Double(stepNumber) / Double(Self.stepCount) }
 
     // MARK: Transitions
 
     @discardableResult
     public mutating func handle(_ event: Event) -> [SideEffect] {
         switch (step, event) {
-        // Global
-        case (.done, _):
-            return []
-        case (_, .skip):
-            return skipCurrent()
-        case (_, .back):
-            return goBack()
         // Model install can be asked for on any step — onboarding opening, or a Retry press — and
-        // the background events it produces (progress, finished, failed, presence) can land on any
-        // step too. None of this ever depends on where the user is standing.
+        // the background events it produces (progress, finished, failed, presence, load) can land
+        // on any step too, Ready included: Ready's verdict is live. None of this ever depends on
+        // where the user is standing.
         case (_, .installModels):
             return [.checkModelPresence] + startInstall() + [.checkRecognizerReadiness]
         case (_, .cancelDownload):
@@ -302,6 +545,8 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             downloadState = .installed
             stackInstalled = true
             installRequested = false
+            // New files: whatever an earlier load said about the old ones no longer applies.
+            if modelLoad != .loading { modelLoad = .notLoaded }
             return [.checkModelPresence, .checkRecognizerReadiness]
         case (_, .downloadFailed(let r)):
             downloadState = .failed(r)
@@ -310,9 +555,46 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case (_, .modelPresenceChanged(let present)):
             stackInstalled = present
             // A stack that turned out to be present keeps no stale progress or failure beside it,
-            // and nothing left to ask for.
-            if present { downloadState = .installed; installRequested = false }
+            // and nothing left to ask for. One that vanished has nothing loaded any more.
+            if present { downloadState = .installed; installRequested = false } else { modelLoad = .notLoaded }
             return []
+        case (_, .modelLoadStarted):
+            guard stackInstalled else { return [] }
+            modelLoad = .loading
+            return []
+        case (_, .modelLoadFinished(let outcome)):
+            guard stackInstalled else { modelLoad = .notLoaded; return [] }
+            switch outcome {
+            case .loaded(let name): modelLoad = .loaded(name: name)
+            case .failed(let why): modelLoad = .failed(why)
+            }
+            return [.checkRecognizerReadiness]
+        case (_, .retryModelLoad):
+            if case .failed = modelLoad { modelLoad = .notLoaded }
+            return []
+        // fn events prove the key wherever they arrive; a press on Welcome counts.
+        case (_, .fnKeyEvent):
+            fnProbe.noteFnEvent()
+            keyPrompting = false
+            return []
+        case (_, .keyStatus(let key, let conflict, let seen)):
+            if dictationKey != key { fnProbe = FnKeyProbe(); keyPrompting = false }
+            dictationKey = key
+            fnConflict = key == .fn ? conflict : nil
+            if seen > 0 { fnProbe.noteFnEvent() }
+            return []
+
+        // Ready is final: navigation and step actions stop here (the background events above, and
+        // permission statuses below, still update its live verdict).
+        case (.done, .permissionResult(let p, let status)), (.done, .statusRefreshed(let p, let status)):
+            statuses[p] = status
+            return []
+        case (.done, _):
+            return []
+        case (_, .skip):
+            return skipCurrent()
+        case (_, .back):
+            return goBack()
 
         // Welcome
         case (.welcome, .next):
@@ -425,13 +707,57 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             // "Continue anyway" / "Skip this one": advance exactly one permission, never the step.
             return advancePermission()
 
-        // First dictation ("Try the key")
+        // Model ("Bring speech recognition on device") — never blocks Continue (§11.1).
+        case (.model, .next):
+            return enter(.firstDictation)
+
+        // First dictation ("Try dictation")
         case (.firstDictation, .dictationFinished(let outcome)):
             dictation = outcome; return []
         case (.firstDictation, .retryDictation):
             // Clear the last verdict so the screen cannot show a stale error beside a fresh attempt.
             dictation = nil; return [.checkRecognizerReadiness]
         case (.firstDictation, .next):
+            return enter(.voice)
+        // I1 — the fn system-action prompt, before the key test.
+        case (.firstDictation, .fixFnConflict):
+            return fnConflict == nil ? [] : [.openKeyboardSettings]
+        case (.firstDictation, .dismissFnConflict):
+            fnConflictDismissed = true; return []
+        // I1 — the key test: one prompted window at a time, three silent ones offer Right ⌥.
+        case (.firstDictation, .checkKey):
+            guard case .testing(_, false) = keyCheck else { return [] }
+            keyPrompting = true
+            return [.startKeyPromptWindow]
+        case (.firstDictation, .keyPromptElapsed):
+            guard keyPrompting else { return [] }
+            keyPrompting = false
+            fnProbe.notePromptedPress()
+            return []
+        case (.firstDictation, .useFallbackKey):
+            guard case .offerFallback(let kind) = keyCheck else { return [] }
+            dictationKey = kind
+            fnConflict = nil
+            return [.rebindDictationKey(kind)]
+        case (.firstDictation, .retryFnKey):
+            fnProbe.reset(); keyPrompting = false; return []
+
+        // Voice (V4.48) — prompted enrollment, skippable.
+        case (.voice, .beginVoiceEnrollment):
+            guard voice != .enrolling else { return [] }
+            voice = .enrolling
+            return [.startVoiceEnrollment]
+        case (.voice, .voiceEnrollmentUnavailable):
+            voice = .unavailable; return []
+        case (.voice, .voiceEnrolled(let filtering)):
+            voice = .enrolled(filtering: filtering); return []
+        case (.voice, .cancelVoiceEnrollment):
+            guard voice == .enrolling else { return [] }
+            voice = .notEnrolled
+            return [.stopVoiceEnrollment]
+        case (.voice, .next):
+            // Continue without a profile is the same choice as Skip: passive enrollment takes over.
+            if !voice.isEnrolled { skippedSteps.insert(.voice) }
             return enter(.done)
 
         // A result or refresh about a permission that is not the one this screen is focused on
@@ -482,6 +808,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     private mutating func enter(_ next: Step, fallThroughIfResolved: Bool = true) -> [SideEffect] {
         var effects: [SideEffect] = []
         if step == .microphone, next != .microphone { effects.append(.stopMicMonitoring) }
+        if step == .voice, next != .voice, voice == .enrolling {
+            voice = .notEnrolled
+            effects.append(.stopVoiceEnrollment)
+        }
+        if step == .firstDictation, next != .firstDictation { keyPrompting = false }
         step = next
         switch next {
         case .microphone:
@@ -505,10 +836,19 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .accessibility:
             guard let p = currentPermission else {
                 guard fallThroughIfResolved else { return effects }
-                return effects + enter(.firstDictation)
+                return effects + enter(.model)
             }
             permissionPhase = Self.initialPhase(for: p, requested: requestedPermissions,
                                                 status: statuses[p] ?? .notDetermined)
+        case .model:
+            // Nothing to install and nothing to decide: the forward path passes through, exactly as
+            // `.accessibility` does once every permission is granted. The load (never "Ready"
+            // before it) is reported on Try dictation and Ready instead.
+            if stackInstalled, fallThroughIfResolved { return effects + enter(.firstDictation) }
+            effects.append(.checkRecognizerReadiness)
+        case .voice:
+            if voice.isEnrolled, fallThroughIfResolved { return effects + enter(.done) }
+            if voice == .unavailable { voice = .notEnrolled }
         case .firstDictation:
             // Readiness first: the screen must know which recogniser it is about to offer before it
             // draws the button, or it is back to presenting a test that cannot work.
@@ -560,7 +900,7 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .microphone:
             return enter(.accessibility)
         case .accessibility:
-            guard let next = currentPermission else { return enter(.firstDictation) }
+            guard let next = currentPermission else { return enter(.model) }
             permissionPhase = Self.initialPhase(for: next, requested: requestedPermissions,
                                                 status: statuses[next] ?? .notDetermined)
             return []
@@ -596,18 +936,24 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .microphone, .accessibility:
             skippedSteps.insert(step)
             if currentPermission != nil { return advancePermission() }
-            return enter(step == .microphone ? .accessibility : .firstDictation)
+            return enter(step == .microphone ? .accessibility : .model)
         case .welcome: skippedSteps.insert(step); return enter(.microphone)
-        case .firstDictation, .done: skippedSteps.insert(step); return enter(.done)
+        case .model: skippedSteps.insert(step); return enter(.firstDictation)
+        case .firstDictation: skippedSteps.insert(step); return enter(.voice)
+        case .voice, .done: skippedSteps.insert(step); return enter(.done)
         }
     }
 
+    /// Back never falls through a resolved step: it has to land *on* the step behind, showing its
+    /// resolved state, not bounce forward again the instant it gets there.
     private mutating func goBack() -> [SideEffect] {
         switch step {
         case .welcome, .done: return []
         case .microphone: return enter(.welcome)
         case .accessibility: return enter(.microphone)
-        case .firstDictation: return enter(.accessibility, fallThroughIfResolved: false)
+        case .model: return enter(.accessibility, fallThroughIfResolved: false)
+        case .firstDictation: return enter(.model, fallThroughIfResolved: false)
+        case .voice: return enter(.firstDictation, fallThroughIfResolved: false)
         }
     }
 

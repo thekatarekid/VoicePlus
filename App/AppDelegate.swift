@@ -569,6 +569,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.orchestrator = orchestrator
         // An ad-hoc signature makes TCC match this app by cdhash, which changes with every build.
         Log.app.info("code identity: \(PermissionDiagnostics.summary())")
+
+        // MARK: S8 — onboarding wiring (design §8.7, V4.48, I1) ────────────────────────────────
+        // Everything onboarding needs that only the composition root can reach (model loader, the
+        // live hotkey, the enrollment recorder), applied to every way the window opens: launch,
+        // resume, Settings' "Run onboarding again". See `OnboardingDependencies.wireLive`.
+        let onboardingKeyEvents = DictationKeyEvents(fnEventsSeen: hotkey.fnEventsSeen)
+        hotkey.onFnEvent = { onboardingKeyEvents.noteFnEvent() }
+        OnboardingWindowController.configure = { [weak self, weak container] deps in
+            guard let self, let container else { return }
+            deps.wireLive(container: container, hotkey: self.hotkey, keyEvents: onboardingKeyEvents,
+                          makeEnrollment: { [weak self, weak container] in
+                              guard let self, let container else { return nil }
+                              return self.makeSpeakerEnrollment(container: container)
+                          })
+        }
+        // ─────────────────────────────────────────────────────────────── end S8 onboarding wiring
+
         if OnboardingWindowController.isNeeded(settings: container.settings) {
             OnboardingWindowController.show(dependencies: container.onboardingDependencies(permissions: permissionChecker)) { [weak self] _ in
                 self?.runPermissions()
