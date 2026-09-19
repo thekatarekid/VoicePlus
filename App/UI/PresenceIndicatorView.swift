@@ -111,27 +111,84 @@ private struct ReadyDot: View {
     }
 }
 
+/// FX5 — the level bar's geometry, as pure functions of time and chin size, so "centred" is a
+/// property of the arithmetic rather than of whatever animation happened to be running.
+///
+/// The 1.11.x bar was a `withAnimation(.repeatForever)` started in `onAppear`: SwiftUI's repeating
+/// transaction also captured the layout change it was started during (the panel shrinking from the
+/// hover row back to the chin), so the capsule's *position and size* swung forever between a stale
+/// layout and the real one — off-centre to the left and narrower than the design allows. Here
+/// nothing animates: the width is recomputed from the clock on every frame and the capsule is
+/// placed at the chin's centre, so a layout change can only ever move the centre with the chin.
+enum LevelBarPulse {
+    /// Horizontal inset of the track inside the chin.
+    static let inset: CGFloat = 4
+    /// The indeterminate pulse's range, as a fraction of the track (unchanged from P5).
+    static let minFraction: CGFloat = 0.25
+    static let maxFraction: CGFloat = 0.85
+    /// One full breath, narrow → wide → narrow (P5's 0.9 s ease each way).
+    static let period: TimeInterval = 1.8
+    /// Reduce Motion: the bar holds still here (P5's resting width).
+    static let restingFraction: CGFloat = minFraction
+    /// Lowest level drawn while listening, so a quiet room still shows a bar.
+    static let levelFloor: Float = 0.06
+
+    /// The indeterminate (processing) width at `time`, eased in and out at both ends; constant
+    /// under Reduce Motion.
+    static func pulseFraction(at time: TimeInterval, reduced: Bool) -> CGFloat {
+        guard !reduced else { return restingFraction }
+        let cycle = time.truncatingRemainder(dividingBy: period) / period
+        let wave = CGFloat((1 - cos(2 * Double.pi * (cycle < 0 ? cycle + 1 : cycle))) / 2)
+        return minFraction + (maxFraction - minFraction) * wave
+    }
+
+    /// The listening width for a microphone level.
+    static func levelFraction(_ level: Float) -> CGFloat { CGFloat(min(max(level, levelFloor), 1)) }
+
+    /// The capsule's rect in chin coordinates: centred on the chin in both axes, by construction.
+    static func frame(fraction: CGFloat, in chin: CGSize) -> CGRect {
+        let track = max(0, chin.width - 2 * inset)
+        let width = min(max(4, track * min(max(fraction, 0), 1)), max(4, track))
+        let height = max(2, chin.height - 6)
+        return CGRect(x: (chin.width - width) / 2, y: (chin.height - height) / 2, width: width, height: height)
+    }
+}
+
 /// A level-driven fill for the active chin. `nil` level = indeterminate (processing): a slow
-/// shimmer rather than a lie about the microphone.
+/// pulse rather than a lie about the microphone. FX5: no `onAppear`, no `withAnimation`, no
+/// `repeatForever` — the pulse is a `TimelineView` redraw and the capsule is positioned at the
+/// chin's centre every frame, so neither its position nor the chin's layout can be animated.
 private struct LevelBar: View {
     let level: Float?
-    @State private var phase: CGFloat = 0.25
-    /// S10 — under Reduce Motion the processing bar holds still (no shimmer) and levels step.
+    /// S10 — under Reduce Motion the processing bar holds still (no pulse) and levels step.
     @ObservedObject private var motion = MotionPreference.shared
 
     var body: some View {
+        if let level {
+            capsule(LevelBarPulse.levelFraction(level))
+                // Only a level change animates (a short width ease); nothing inherited — the hover
+                // transition, a panel resize — reaches the capsule.
+                .animation(motion.reduced ? nil : .linear(duration: 0.08), value: level)
+                .transaction { $0.animation = nil }
+        } else if motion.reduced {
+            capsule(LevelBarPulse.restingFraction)
+                .transaction { $0.animation = nil }
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                capsule(LevelBarPulse.pulseFraction(at: context.date.timeIntervalSinceReferenceDate, reduced: false))
+            }
+            .transaction { $0.animation = nil }
+        }
+    }
+
+    private func capsule(_ fraction: CGFloat) -> some View {
         GeometryReader { geo in
-            let width = level.map { CGFloat(min(max($0, 0.06), 1)) } ?? phase
+            let rect = LevelBarPulse.frame(fraction: fraction, in: geo.size)
             Capsule()
                 .fill(Tokens.Pill.Token.ink.color.opacity(0.85))
-                .frame(width: max(4, geo.size.width * width), height: max(2, geo.size.height - 6))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
         }
-        .padding(.horizontal, 4)
-        .animation(motion.reduced ? nil : .linear(duration: 0.08), value: level)
-        .onAppear {
-            guard level == nil, !motion.reduced else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { phase = 0.85 }
-        }
+        .accessibilityHidden(true)
     }
 }

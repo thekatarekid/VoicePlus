@@ -255,16 +255,21 @@ public final class PresenceIndicatorController {
         }
 
         let layout = PresenceGeometry.layout(for: metrics, state: next, hovered: expanded, rowWidth: width?.width)
-        hosting.rootView = PresenceIndicatorView(state: next, hovered: expanded,
-                                                 cornerRadius: layout.cornerRadius, hint: hotkeyHint(),
-                                                 rowText: width?.text, attached: layout.attached, readyHint: hint)
         // The panel can never swallow a click meant for the app underneath: it only takes the mouse
         // while the pointer is provably on it.
         panel.ignoresMouseEvents = PresenceInteraction.ignoresMouse(hovering: pointerOn)
-        panel.setFrame(layout.frame, display: true)
+        // FX5 — ORDER MATTERS: size the panel and the hosting view *first*, then hand SwiftUI the new
+        // content, so it is laid out once, at its final size. Assigning `rootView` first laid the new
+        // content out at the old (hover-row) size and then resized it, and a repeating animation
+        // started in between captured that resize — the chin's off-centre, shrunken pulse.
+        panel.setFrame(layout.frame, display: false)
         // Belt and braces on top of `PresenceContainerView.layout()`: the chin is 4 pt tall at rest
         // and an off-by-one hosting frame is the difference between a hairline and nothing at all.
         hosting.frame = container.bounds
+        hosting.rootView = PresenceIndicatorView(state: next, hovered: expanded,
+                                                 cornerRadius: layout.cornerRadius, hint: hotkeyHint(),
+                                                 rowText: width?.text, attached: layout.attached, readyHint: hint)
+        panel.displayIfNeeded()
         // `orderFrontRegardless`, never `makeKeyAndOrderFront` and never `NSApp.activate`: the
         // indicator must never take focus from whatever the user is typing into.
         panel.orderFrontRegardless()
