@@ -62,7 +62,7 @@ public struct RefinementReadiness: Sendable, Equatable {
                 + "one-pass dictation is unaffected."
         }
         if !flagEnabled {
-            return "Refinement is switched off in this build (the qwenRefinement flag, Settings › Flags). "
+            return "Refinement is switched off in this build (the qwenRefinement flag, Privacy › Diagnostics). "
                 + "It is off by default because on the recorded corpus the second model is less accurate "
                 + "overall — mean word error 0.18 against the first pass's 0.10. Your choice here is saved "
                 + "and takes effect if the flag is turned on."
