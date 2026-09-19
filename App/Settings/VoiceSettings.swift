@@ -159,26 +159,43 @@ public struct VoiceSettingsTab: View {
         _model = StateObject(wrappedValue: model)
     }
 
+    /// S7e — drawn as the design's rows (`RowView` + a menu select, notes in `meta` ink) so it sits in
+    /// Voice › Second pass's group like every other row of the page, not as a system form inside it.
     public var body: some View {
-        Form {
-            Section("Second pass") {
-                Picker("Refinement", selection: $model.mode) {
+        VStack(alignment: .leading, spacing: 0) {
+            RowView(Self.title) {
+                Picker(Self.title, selection: $model.mode) {
                     ForEach(RefinementMode.allCases) { Text($0.title).tag($0) }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 200)
                 .disabled(!model.isAvailable)
+                .accessibilityLabel(Self.title)
                 .accessibilityIdentifier("settings.refinementMode")
-                Text(model.mode.explanation).font(.caption).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
+                Text(model.mode.explanation)
+                    .foregroundStyle(WindowColor.secondaryInk)
                     .accessibilityIdentifier("settings.refinementModeExplanation")
-                Text(model.note).font(.caption)
-                    .foregroundStyle(model.isAvailable ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                Text(model.note)
+                    .foregroundStyle(model.isAvailable ? WindowColor.secondaryInk : WindowColor.attention)
                     .accessibilityIdentifier("settings.refinementAvailability")
                 if model.mode == .auto {
-                    Text(model.autoSummary()).font(.caption).foregroundStyle(.secondary)
+                    Text(model.autoSummary())
+                        .foregroundStyle(WindowColor.secondaryInk)
                         .accessibilityIdentifier("settings.refinementAutoSummary")
                 }
             }
+            .windowFont(Tokens.Typography.meta)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, Tokens.Spacing.m)
+            .padding(.horizontal, Tokens.Spacing.l)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) { Rectangle().fill(WindowColor.separator).frame(height: 1) }
         }
-        .formStyle(.grouped)
         .onAppear { model.reload() }
     }
+
+    static let title = "Refinement"
 }
