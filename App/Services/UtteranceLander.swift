@@ -143,6 +143,9 @@ public final class UtteranceLander: @unchecked Sendable {
     public var actClaimConsumer: (() -> Bool)?
     /// P6.3 — script-aware text assembly (code-switch merger); nil result keeps the rendered text.
     public var textFinalizer: (([TranscriptSpan]) -> String?)?
+    /// V4 gate "cold launch → first landing": told of every write that posted text; logs only the
+    /// first one after launch (`timing: cold launch → first landing N ms`).
+    public var launchTiming: LaunchLandingTiming? = .shared
     /// D3/D6 — Settings → spacing and unknown-caret style, read once per landing. Defaults to the
     /// app's settings domain (`UserDefaultsSettingsStore`, the store `AppContainer` uses).
     public var formattingPreferences: () -> FormattingPreferences = {
@@ -367,6 +370,7 @@ public final class UtteranceLander: @unchecked Sendable {
         let utterance = Utterance(id: id, spans: pending.spans, startedAt: pending.startedAt, endedAt: clock(),
                                   register: result.register, route: result.route)
         if outcome.succeeded {
+            launchTiming?.noteLanding()
             // D5 — the caret now sits right after this text, until the user touches anything.
             if let element = LandedElement(focus: focus ?? system.frontmostApp(), role: pending.axRole) {
                 landingMemory.record(text: text, in: element)

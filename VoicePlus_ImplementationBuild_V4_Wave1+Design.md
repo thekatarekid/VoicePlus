@@ -800,7 +800,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 ## 5. Owner hardware checklist (agent writes the numbers to collect; owner runs it)
 
 1. Built-in mic, AirPods in mid-sentence, input switched in System Settings while latched, AirPods case open/close ×3, music through AirPods then dictate, 10 min idle then dictate (§12.7 A of V4). Pass: zero "needs reconnecting" / "couldn't start"; every start < 1 s on built-in.
-2. Key-down → first buffer p95 from the log over 50 presses.
+2. Key-down → first buffer p95 from the log over 50 presses (`audio: key-down → first buffer N ms`, `.info`, category `engine`); cold launch → first landing p95 over 20 cold launches, each followed by one hold into Notes (`timing: cold launch → first landing N ms`, `.info`, category `app`, once per process: `LaunchLandingTiming`). Collect with `log show --info --predicate 'subsystem == "in.adityakatare.voiceplus"' --last 1h | grep -E "first buffer|first landing"`.
 3. Mic indicator (orange dot) is **off** between turns while the graph is paused (A4).
 4. 50 silent holds: 0 landings; "No speech detected" fades.
 5. Latch in Docs, Claude, Notes: 5 minutes, pauses of 2–3 s, move the caret between pauses; count wrong placements and "another voice" chips.

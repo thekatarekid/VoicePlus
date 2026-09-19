@@ -44,6 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ? MockPermissionChecker(statuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
         : SystemPermissionChecker()
 
+    /// V4 gate "cold launch → first landing" (build doc §4): the launch mark is the process start
+    /// (kernel `p_starttime`), taken as early as the delegate runs; the first landing logs the line.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        LaunchLandingTiming.shared.markLaunch()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory) // LSUIElement equivalent until Packaging installs Info.plist
         AppContainer.ensureSupportDirectories()
