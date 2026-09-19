@@ -80,13 +80,9 @@ public final class SessionCoordinator {
         /// The screen locked or the machine slept. Capture never resumes on its own (V3 §8).
         case awaitingRestart
 
-        public var message: String {
-            switch self {
-            case .busy(let holder): return "The microphone is in use by \(holder.rawValue)"
-            case .muted: return "Muted — the microphone stays closed until you unmute"
-            case .awaitingRestart: return "Dictation stopped when the Mac locked — start it again when you're ready"
-            }
-        }
+        /// The catalogue headline (K04 / A09 / K05 / K02), never a requester's raw name. Surfaces
+        /// take the whole entry (`RecoveryCatalog.entry(for:)`, `SessionRefusalWiring`).
+        public var message: String { RecoveryCatalog.entry(for: self).headline }
     }
 
     /// Why a session ended, for the log and for the pill.
@@ -102,7 +98,8 @@ public final class SessionCoordinator {
     /// preempts the stream on its own; this is how the *owner* finds out, so a mic check can say
     /// "dictation took the microphone" rather than showing a dead meter.
     public var onStandDown: ((Requester) -> Void)?
-    /// Every refusal, so a caller that cannot handle one can still show it.
+    /// Every refusal, so a caller that cannot handle one can still show it. The app points it at
+    /// the pill (`SessionRefusalWiring`): a refused dictation start is never silent.
     public var onRefusal: ((Requester, Refusal) -> Void)?
     /// A session ended, with the reason.
     public var onStopped: ((Requester, StopReason) -> Void)?

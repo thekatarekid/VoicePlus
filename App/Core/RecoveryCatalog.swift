@@ -361,6 +361,13 @@ public enum RecoveryCatalog {
         entries.first { $0.headline == headline }
     }
 
+    /// A refused session start (R3): K05 muted, K04 a dictation already holds the microphone, A09
+    /// another internal recorder holds it, K02 capture stopped and waits for an explicit start.
+    /// Surfaces show this entry, never the refusal's own words.
+    public static func entry(for refusal: SessionCoordinator.Refusal) -> RecoveryEntry {
+        entry(recoveryID(refusal))
+    }
+
     /// Nil when the user ended the session themselves.
     public static func entry(for reason: SessionCoordinator.StopReason) -> RecoveryEntry? {
         switch reason {

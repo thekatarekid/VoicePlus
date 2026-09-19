@@ -202,6 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard reason == .locked || reason == .slept, let entry = AppRecovery.entry(forStop: reason) else { return }
             self?.pill.model.presentNotice(.recovery(entry))   // S11: K02, catalogue copy
         }
+        // R3 / S9 — a refused start (a key press while hard-muted, a menu start while another
+        // dictation holds the microphone) shows its catalogue row (K05 / K04 / K02), never nothing.
+        SessionRefusalWiring.attach(sessionCoordinator, pill: pill.model)
         self.latchRuntime = latch
         self.session = sessionCoordinator
 
