@@ -188,10 +188,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ownership in `PipelineAudioSource.Owner`. R3.2's latch runtime hangs off it: endpoints
         // close segments through R2.2 while listening continues, and committed text lands through
         // the same lander and the same held queue as a hold.
-        let latch = LatchRuntime(delivery: LanderLatchDelivery(
+        let latchDelivery = LanderLatchDelivery(   // S2 wires its `onLanded` (the S2 block below)
             lander: container.lander,
             focusGuard: container.injector.focusGuard,
-            focusSnapshot: { [weak container] in container?.injector.focusGuard.snapshot() }))
+            focusSnapshot: { [weak container] in container?.injector.focusGuard.snapshot() })
+        let latch = LatchRuntime(delivery: latchDelivery)
         latch.onOutcome = { outcome, segment in
             Log.app.info("latch segment \(segment.description): \(String(describing: outcome))")
         }
@@ -444,7 +445,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // pending insertion is cancelled, and the latch ends. Unmuting never resumes.
                 if model.muted { sessionCoordinator?.muteEngaged() } else { sessionCoordinator?.muteReleased() }
                 self?.statusItem?.refreshIcon()
-                if model.muted { self?.pill.model.present(.preview(text: "Muted — mic stays closed until you unmute")) }
             }
         }
 
@@ -546,12 +546,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // click pops the status menu so there is a way into Settings/Quit even when macOS has
         // culled the status item. `PresenceIndicatorController` logs every computed frame.
         presence.settings = container.settings
-        // Derived from the *configured* binding on every render, never hardcoded: "hold Right ⌃" for
-        // a bare modifier, "press ⌃⌥D" for a chord, and it follows a Settings change immediately.
-        presence.hotkeyHint = { [weak self] in
-            guard let kind = self?.hotkey.binding.kind else { return HotkeyHint.unknown }
-            return HotkeyHint.label(for: kind)
-        }
         // Any click on the dot — left, right or ⌃-click — pops the status menu; `PresenceClickRouter`
         // owns that decision. (1.7.9 briefly made the left click explain/repair instead; reverted at
         // the owner's request.) Popping a menu takes no focus from the app being typed into.
@@ -572,6 +566,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         presence.bind(pill: pill.model, mute: container.latchController.mute)
         presence.start()
+
+        // ── S2 · the Spool pill and the presence chin (design §4–§6, §10) ─────────────────────────
+        // Hints name the configured key (read on every render, so a Settings change applies at once);
+        // the pill's non-turn buttons reach their owner (the turn's own buttons, hover and the
+        // key-down destination are `TurnWiring`'s, above); latch segments get the same delivery row
+        // as a hold; deixis boxes show as chips in the text lane; mute is the I2 row with its
+        // explicit Unmute; the status menu reads the chin's blockers.
+        let pillModel = pill.model
+        pillModel.keyLabel = { [weak hotkey = self.hotkey] in hotkey?.label ?? HotkeyBinding.default.label }
+        if pillModel.destinationProvider == nil { pillModel.destinationProvider = { PillDestination.frontmostName() } }
+        presence.readyHint = { [weak hotkey = self.hotkey] in (hotkey?.binding ?? .default).readyHint() }
+        presence.hotkeyHint = { [weak hotkey = self.hotkey] in
+            hotkey.map { PresenceHover.keyHint(for: $0.binding) } ?? HotkeyHint.unknown
+        }
+        statusItem?.presenceState = { [weak presence = self.presence] in presence?.substance ?? .ready }
+        let turnButtons = pillModel.onAction   // `TurnWiring` routes the turn's own buttons
+        pillModel.onAction = { [weak self, weak container, weak pillModel] action, shown in
+            turnButtons?(action, shown)
+            let effect = PillActionRoute.effect(for: action, shown: shown, text: pillModel?.actionText ?? "")
+            guard !effect.isTurnEffect, let self, let container else { return }
+            let deps = { container.onboardingDependencies(permissions: self.permissionChecker) }
+            switch effect {
+            case .unmute:
+                container.latchController.mute.unmute()
+            case .copy(let text):
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            case .open(.models):
+                SettingsWindowController.show(dependencies: deps(), tab: .models,
+                                              connectedProviders: container.connectedProviderNames)
+            case .open(let screen):
+                let section: MainWindowSection
+                switch screen {
+                case .today, .models: section = .today
+                case .voice: section = .voice
+                case .privacy: section = .privacy
+                case .meetings: section = .meetings
+                }
+                _ = MainWindowController.show(dependencies: deps(), section: section,
+                                              connectedProviders: container.connectedProviderNames)
+            case .stopMeeting:
+                let meeting = container.meeting
+                Task { _ = await meeting.finishSession() }
+            case .insertNow, .cancelPreview, .cancelFinishing, .useAvailableText, .pauseForReview, .undo,
+                 .finishLatch, .none:
+                break
+            }
+        }
+        latchDelivery.onLanded = { [weak delivery, weak container] result in
+            DispatchQueue.main.async {
+                let heldID = container?.injector.focusGuard.held.last { $0.text == result.text }?.id
+                delivery?.handle(result, destination: result.destinationName, heldID: heldID)
+            }
+        }
+        let pillDeixis = container.deixis
+        pillDeixis.onRegionsChanged = { [weak pillModel, weak pillDeixis] regions in
+            DispatchQueue.main.async {
+                pillModel?.showDeixis(regions) { pillDeixis?.image(for: $0) }
+            }
+        }
+        container.latchController.mute.observe { [weak pillModel] model in
+            DispatchQueue.main.async {
+                guard let pillModel else { return }
+                if model.muted { pillModel.present(.muted) }
+                else if case .muted = pillModel.state { pillModel.dismissNotice() }
+            }
+        }
+        // ── end S2 ───────────────────────────────────────────────────────────────────────────────
 
         // The hotkey and its capability watcher were armed at launch, before the container (A3):
         // see `armHotkeys()`.
