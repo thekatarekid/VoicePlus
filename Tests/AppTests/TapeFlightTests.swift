@@ -26,11 +26,18 @@ struct TapeFlightTests {
 
     final class FakeCaret: TapeFlightCaretReading, @unchecked Sendable {
         var rect: CGRect?
+        /// The landed text's bounds (the destination tape cue's line), AX coordinates.
+        var textRect: CGRect?
         private(set) var asked: [Int] = []
+        private(set) var askedRanges: [Range<Int>] = []
         init(_ rect: CGRect?) { self.rect = rect }
         func caretRect(at index: Int) -> CGRect? {
             asked.append(index)
             return rect
+        }
+        func rangeRect(_ range: Range<Int>) -> CGRect? {
+            askedRanges.append(range)
+            return textRect
         }
     }
 
@@ -38,6 +45,9 @@ struct TapeFlightTests {
         private(set) var shown: [TapeFlightRun] = []
         private(set) var clears = 0
         private(set) var current: TapeFlightRun?
+        private(set) var cues: [TapeFieldCue] = []
+        private(set) var cueClears = 0
+        private(set) var currentCue: TapeFieldCue?
         func show(_ run: TapeFlightRun) {
             shown.append(run)
             current = run
@@ -45,6 +55,14 @@ struct TapeFlightTests {
         func clear() {
             clears += 1
             current = nil
+        }
+        func showCue(_ cue: TapeFieldCue) {
+            cues.append(cue)
+            currentCue = cue
+        }
+        func clearCue() {
+            cueClears += 1
+            currentCue = nil
         }
     }
 
@@ -88,6 +106,8 @@ struct TapeFlightTests {
         var mouth: CGPoint?
         var displays: [DisplayFrame]
         var reduced = false
+        /// Destination uncertainty mark strips on screen (AppKit screen coordinates).
+        var strips: [CGRect] = []
         init(mouth: CGPoint?, displays: [DisplayFrame]) {
             self.mouth = mouth
             self.displays = displays
@@ -129,7 +149,7 @@ struct TapeFlightTests {
             controller = TapeFlightController(reader: TapeFlightReader(probe: self.probe, caret: caret),
                                               mouth: { config.mouth }, displays: { config.displays },
                                               reduceMotion: { config.reduced }, surface: surface, clock: clock,
-                                              queues: queues)
+                                              queues: queues, markStrips: { config.strips })
         }
 
         func preview() {
@@ -545,5 +565,173 @@ struct TapeFlightTests {
         #expect(tracker.window == nil)
         #expect(tracker.mouthOnScreen == nil)
         #expect(tracker.subscriber == nil)
+    }
+
+    // MARK: The destination tape cue (design §13 scenario 4, prototype `.field-line`)
+
+    /// The landed text "See you at noon." on the caret's line: AX (300, 564) 120 × 18 → overlay
+    /// (300, 564) 120 × 18 on the built-in display; the cue sits 6 pt under it, 3 pt tall.
+    static let landedAX = CGRect(x: 300, y: 564, width: 120, height: 18)
+    static let cueRect = CGRect(x: 300, y: 564 + 18 + 6, width: 120, height: 3)
+
+    func landed(_ h: Harness, verified: Bool = true) {
+        h.controller.stateChanged(.landed(LandedPillInfo(text: Self.text, verified: verified)))
+    }
+
+    @Test func cueFollowsAFlightThatFinishedOnAVerifiedLandingAndFades() throws {
+        let h = Harness()
+        h.caret.textRect = Self.landedAX
+        h.preview()
+        h.insert()
+        let run = try #require(h.surface.current)
+        h.clock.advance(0.05)
+        landed(h)
+        #expect(h.surface.cues.isEmpty, "nothing at the destination while the ribbon still flies")
+        // The Undo row of the same write does not cut the flight short after a verified landing.
+        h.clock.advance(0.65)
+        h.controller.stateChanged(.undoAvailable)
+        #expect(h.surface.current != nil)
+        h.clock.advance(0.36)
+        #expect(h.surface.current == nil && h.controller.phase == .finished)
+        let cue = try #require(h.surface.currentCue)
+        #expect(h.surface.cues.count == 1 && h.controller.cue == cue)
+        #expect(h.caret.askedRanges == [5 ..< 5 + Self.text.utf16.count], "the text this write put there")
+        #expect(cue.display == Self.builtIn)
+        #expect(cue.rect == Self.cueRect)
+        #expect(cue.start == run.end, "when the tail fed in")
+        // linefade: opaque for 65 % of 1.2 s, then linear to nothing.
+        #expect(cue.opacity(at: cue.start.addingTimeInterval(0.5)) == 1)
+        #expect(abs(cue.opacity(at: cue.start.addingTimeInterval(0.99)) - 0.5) < 1e-9)
+        #expect(cue.opacity(at: cue.start.addingTimeInterval(1.2)) == 0)
+        // The pill retracting does not take it down; its own 1.2 s does.
+        h.controller.stateChanged(.hidden)
+        h.clock.advance(cue.end.timeIntervalSince(h.clock.now) - 0.01)
+        #expect(h.surface.currentCue == cue)
+        h.clock.advance(0.02)
+        #expect(h.surface.currentCue == nil && h.surface.cueClears == 1 && h.controller.cue == nil)
+        h.clock.advance(5)
+        #expect(h.surface.cues.count == 1, "one cue per insertion")
+    }
+
+    @Test func aLandingReportedAfterTheFlightStillLeavesTheCue() throws {
+        let h = Harness()
+        h.caret.textRect = Self.landedAX
+        h.preview()
+        h.insert()
+        h.clock.advance(1.1)
+        #expect(h.controller.phase == .finished && h.surface.cues.isEmpty)
+        landed(h)
+        #expect(try #require(h.surface.currentCue).rect == Self.cueRect)
+        landed(h)
+        #expect(h.surface.cues.count == 1, "a re-published landed row adds nothing")
+    }
+
+    @Test func noCueWithoutAVerifiedLanding() {
+        for verified in [false, nil] as [Bool?] {
+            let h = Harness()
+            h.caret.textRect = Self.landedAX
+            h.preview()
+            h.insert()
+            if let verified { landed(h, verified: verified) }
+            h.clock.advance(3)
+            #expect(h.surface.cues.isEmpty && h.caret.askedRanges.isEmpty, "\(String(describing: verified))")
+        }
+    }
+
+    /// No flight, no cue: every suppression of the flight suppresses the cue too, and a landed text
+    /// that cannot be measured, or that sits on another display than the flight, draws none.
+    @Test func cueSuppressionMatrix() {
+        struct Row {
+            var name: String
+            var setUp: (Harness) -> Void
+        }
+        let rows: [Row] = [
+            Row(name: "reduce motion") { $0.config.reduced = true },
+            Row(name: "secure field") {
+                $0.probe.value = TapeFlightProbe(focus: TapeFlightTests.textEdit, selection: nil, isSecure: true)
+            },
+            Row(name: "other display") { $0.caret.rect = TapeFlightTests.caretOnExternalAX },
+            Row(name: "no caret rect") { $0.caret.rect = nil },
+            Row(name: "mouth not on screen") { $0.config.mouth = nil },
+        ]
+        for row in rows {
+            let h = Harness()
+            h.caret.textRect = Self.landedAX
+            row.setUp(h)
+            h.preview()
+            h.insert()
+            landed(h)
+            h.clock.advance(3)
+            #expect(h.surface.shown.isEmpty && h.surface.cues.isEmpty, "\(row.name)")
+            #expect(h.caret.askedRanges.isEmpty, "\(row.name): nothing measured for a cue")
+        }
+        // The flight ran, but the landed text cannot be measured, or it is on another display.
+        for (name, rect, reason) in [("unmeasurable", nil, TapeFlightSuppression.caretUnavailable),
+                                     ("landed text on the external display", CGRect(x: 1700, y: 500, width: 80, height: 18),
+                                      TapeFlightSuppression.otherDisplay)] as [(String, CGRect?, TapeFlightSuppression)] {
+            let h = Harness()
+            h.caret.textRect = rect
+            h.preview()
+            h.insert()
+            landed(h)
+            h.clock.advance(1.1)
+            #expect(h.surface.shown.count == 1 && h.surface.cues.isEmpty, "\(name)")
+            #expect(h.controller.cueSuppressions == [reason], "\(name)")
+        }
+        // The caret left the text this write put there: the target changed, no cue.
+        let moved = Harness()
+        moved.caret.textRect = Self.landedAX
+        moved.preview()
+        moved.insert()
+        landed(moved)
+        moved.clock.advance(0.5)
+        moved.probe.value = TapeFlightProbe(focus: Self.textEdit, selection: 80 ..< 80)
+        moved.clock.advance(0.6)
+        #expect(moved.surface.cues.isEmpty)
+    }
+
+    /// Scenario 4: "ordinary destination tape cue fades, uncertainty stays" — the cue never covers a
+    /// destination mark; it steps down below the strip instead.
+    @Test func cueNeverDrawsOverAnUncertaintyMark() throws {
+        // Pure: a strip crossing the cue's band pushes it below; one beside it does not.
+        let text = CGRect(x: 300, y: 564, width: 120, height: 18)
+        #expect(TapeFieldCue.rect(under: text, avoiding: []) == Self.cueRect)
+        let strip = CGRect(x: 340, y: 580, width: 30, height: 12)          // overlay space
+        let below = TapeFieldCue.rect(under: text, avoiding: [strip])
+        #expect(below == CGRect(x: 300, y: 593, width: 120, height: 3))
+        #expect(!below.intersects(strip))
+        #expect(TapeFieldCue.rect(under: text, avoiding: [CGRect(x: 600, y: 580, width: 30, height: 12)]) == Self.cueRect)
+        let chained = TapeFieldCue.rect(under: text, avoiding: [strip, CGRect(x: 380, y: 592, width: 30, height: 12)])
+        #expect(chained.minY == 605)
+
+        // Through the controller: the marks overlay's strip, in AppKit screen coordinates.
+        let h = Harness()
+        h.caret.textRect = Self.landedAX
+        h.config.strips = [CGRect(x: 340, y: 982 - 592, width: 30, height: 12)]   // overlay y 580…592
+        h.preview()
+        h.insert()
+        landed(h)
+        h.clock.advance(1.1)
+        let cue = try #require(h.surface.currentCue)
+        #expect(cue.rect == below)
+        #expect(!cue.rect.intersects(TapeFlightGeometry.localRect(h.config.strips[0], in: Self.builtIn)))
+    }
+
+    @Test func aNewTurnTakesTheCueDownAtOnce() throws {
+        for next: PillState in [.idle, .starting, .listening(level: 0.2), .finalPreview(FinalPreviewInfo(text: "Next.", dwellRemaining: 0.9)),
+                                .held(HeldPillInfo(text: Self.text, destination: "TextEdit", reason: "focus moved")),
+                                .error(message: "Couldn’t insert"), .cancelled] {
+            let h = Harness()
+            h.caret.textRect = Self.landedAX
+            h.preview()
+            h.insert()
+            landed(h)
+            h.clock.advance(1.1)
+            _ = try #require(h.surface.currentCue)
+            h.controller.stateChanged(next)
+            #expect(h.surface.currentCue == nil && h.surface.cueClears == 1, "\(next.caseName)")
+            h.clock.advance(2)
+            #expect(h.surface.cueClears == 1, "\(next.caseName): its fade timer never fires into the next turn")
+        }
     }
 }

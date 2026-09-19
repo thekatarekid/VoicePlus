@@ -16,6 +16,13 @@ protocol TapeFlightProbing: AnyObject {
 /// arrangement is read.
 protocol TapeFlightCaretReading: AnyObject {
     func caretRect(at index: Int) -> CGRect?
+    /// The bounds of a range of the focused element's text (the destination tape cue's landed text), in
+    /// AX coordinates; `nil` when the app will not measure it.
+    func rangeRect(_ range: Range<Int>) -> CGRect?
+}
+
+extension TapeFlightCaretReading {
+    func rangeRect(_ range: Range<Int>) -> CGRect? { nil }
 }
 
 /// The flight's reads, confined to one serial queue: the preview's pre-insertion sample, then the
@@ -50,6 +57,21 @@ final class TapeFlightReader: @unchecked Sendable {
             return .failure(reason)
         case .success(let target):
             guard let rect = caret.caretRect(at: target.insertionIndex) else { return .failure(.caretUnavailable) }
+            return .success(rect)
+        }
+    }
+
+    /// After the write: the same element, the caret inside what this write put there, and the bounds of
+    /// that landed text (the destination tape cue's line). AX coordinates.
+    func landedRect(insertedLength: Int) -> Result<CGRect, TapeFlightSuppression> {
+        switch TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
+        case .failure(let reason):
+            return .failure(reason)
+        case .success(let target):
+            let start = target.insertionIndex
+            guard insertedLength > 0, let rect = caret.rangeRect(start ..< start + insertedLength) else {
+                return .failure(.caretUnavailable)
+            }
             return .success(rect)
         }
     }
@@ -121,6 +143,11 @@ final class AXTapeFlightCaret: TapeFlightCaretReading {
     func caretRect(at index: Int) -> CGRect? {
         guard let element = TapeFlightAX.focusedElement() else { return nil }
         return TapeFlightCaretLocator.locate(at: index) { range in Self.bounds(of: range, in: element) }
+    }
+
+    func rangeRect(_ range: Range<Int>) -> CGRect? {
+        guard range.lowerBound >= 0, !range.isEmpty, let element = TapeFlightAX.focusedElement() else { return nil }
+        return Self.bounds(of: range, in: element)
     }
 
     static func bounds(of range: Range<Int>, in element: AXUIElement) -> CGRect? {

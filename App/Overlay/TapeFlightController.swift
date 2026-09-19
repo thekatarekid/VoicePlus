@@ -42,6 +42,15 @@ protocol TapeFlightSurface: AnyObject {
     func show(_ run: TapeFlightRun)
     /// Takes the ribbon down at once.
     func clear()
+    /// The destination tape cue under the landed text (design §13 scenario 4); it fades on its own time.
+    func showCue(_ cue: TapeFieldCue)
+    /// Takes the cue down at once.
+    func clearCue()
+}
+
+extension TapeFlightSurface {
+    func showCue(_ cue: TapeFieldCue) {}
+    func clearCue() {}
 }
 
 /// Where the reads run and where their results come back.
@@ -63,7 +72,12 @@ struct TapeFlightQueues {
 ///   clock starts with the state, like the reels'.
 /// * `.landed` (the outcome of that same write): the flight runs on — the acknowledgement never waits
 ///   for the flourish (design §5 step 6), and the flourish is not what the acknowledgement cuts short.
-/// * Anything else — held, failed, cancelled, a new turn, hidden: the ribbon is taken down at once.
+///   After a *verified* landing the same write's tail — its Undo row, the pill retracting (`.hidden`,
+///   `.ready`) — does not cut it short either.
+/// * A flight that finishes on a verified `.landed` leaves the destination tape cue (the prototype's
+///   `.field-line`, `TapeFieldCue`): a flat tape-coloured line under the landed text that fades in 1.2 s
+///   while any uncertainty mark stays (design §13 scenario 4). It is never drawn over a mark.
+/// * Anything else — held, failed, cancelled, a new turn: the ribbon and the cue are taken down at once.
 ///
 /// Suppressed (no flight; the label and the outcome as they would be anyway) when the caret rect is
 /// unavailable, the target changed, the field is secure, the caret is on another display, or Reduce
@@ -89,6 +103,10 @@ final class TapeFlightController {
     /// Every suppression, in order (diagnostics; tests).
     private(set) var suppressions: [TapeFlightSuppression] = []
     private(set) var run: TapeFlightRun?
+    /// The destination tape cue on screen, if any.
+    private(set) var cue: TapeFieldCue?
+    /// Why a cue was not drawn after a verified landing, in order (diagnostics; tests).
+    private(set) var cueSuppressions: [TapeFlightSuppression] = []
 
     private let reader: TapeFlightReader
     private let mouth: () -> CGPoint?
@@ -97,14 +115,24 @@ final class TapeFlightController {
     private let surface: TapeFlightSurface
     private let clock: TurnClock
     private let queues: TapeFlightQueues
+    /// The destination uncertainty marks on screen (their strips, AppKit screen coordinates).
+    private let markStrips: () -> [CGRect]
     private var generation = 0
     private var insertedLength = 0
     private var endTimer: TurnTimer?
     private var refreshTimer: TurnTimer?
+    private var cueTimer: TurnTimer?
     private var subscription: AnyCancellable?
+    /// This insertion's write landed verified (`.landed(verified: true)`).
+    private var landedVerified = false
+    /// The display this insertion's flight ran on.
+    private var flightDisplay: DisplayFrame?
+    /// A cue was asked for this insertion (at most one).
+    private var cueRequested = false
 
     init(reader: TapeFlightReader, mouth: @escaping () -> CGPoint?, displays: @escaping () -> [DisplayFrame],
-         reduceMotion: @escaping () -> Bool, surface: TapeFlightSurface, clock: TurnClock, queues: TapeFlightQueues) {
+         reduceMotion: @escaping () -> Bool, surface: TapeFlightSurface, clock: TurnClock, queues: TapeFlightQueues,
+         markStrips: @escaping () -> [CGRect] = { [] }) {
         self.reader = reader
         self.mouth = mouth
         self.displays = displays
@@ -112,6 +140,7 @@ final class TapeFlightController {
         self.surface = surface
         self.clock = clock
         self.queues = queues
+        self.markStrips = markStrips
     }
 
     /// Subscribes to the pill's state (delivered on the main thread, as `PillViewModel` publishes it).
@@ -137,6 +166,10 @@ final class TapeFlightController {
             }
             let armed = phase == .armed
             generation += 1
+            landedVerified = false
+            cueRequested = false
+            flightDisplay = nil
+            takeDownCue()
             if reduceMotion() { return suppress(.reduceMotion) }
             // No pre-insertion sample: the caret the text goes in at was never seen; aim at nothing.
             guard armed else { return suppress(.caretUnavailable) }
@@ -147,13 +180,29 @@ final class TapeFlightController {
                 let fix = reader.locate(insertedLength: length)
                 queues.deliver { [weak self] in self?.located(fix, generation: turn, start: start, text: text) }
             }
-        case .landed:
+        case .landed(let info):
             switch phase {
-            case .locating, .flying, .finished: return
+            case .locating, .flying, .finished:
+                guard info.verified else { return }
+                landedVerified = true
+                if phase == .finished { requestCue(generation) }
             default: stop()
             }
+        case .undoAvailable, .hidden, .ready:
+            // The tail of a verified landing: its Undo row, the pill retracting. The ribbon finishes and
+            // the cue fades on their own time; before a verified landing these are interruptions.
+            if landedVerified, isFollowingThisWrite { return }
+            stop()
         default:
             stop()
+        }
+    }
+
+    /// Still showing (or about to show) something for the current insertion.
+    private var isFollowingThisWrite: Bool {
+        switch phase {
+        case .locating, .flying, .finished: return true
+        default: return cue != nil
         }
     }
 
@@ -172,6 +221,7 @@ final class TapeFlightController {
             }
             let run = TapeFlightRun(start: start, text: text, path: path, mouth: mouth)
             self.run = run
+            flightDisplay = path.display
             phase = .flying(path)
             surface.show(run)
             endTimer = clock.schedule(after: remaining) { [weak self] in self?.finished(turn) }
@@ -211,15 +261,61 @@ final class TapeFlightController {
         guard turn == generation, case .flying = phase else { return }
         takeDown()
         phase = .finished
+        if landedVerified { requestCue(turn) }
+    }
+
+    // MARK: The destination tape cue
+
+    /// The flight finished on a verified landing: measure the landed text (same element, caret inside
+    /// what this write put there) and lay the cue under it. Once per insertion.
+    private func requestCue(_ turn: Int) {
+        guard turn == generation, phase == .finished, !cueRequested, let display = flightDisplay else { return }
+        cueRequested = true
+        let length = insertedLength
+        queues.read { [reader, queues] in
+            let fix = reader.landedRect(insertedLength: length)
+            queues.deliver { [weak self] in self?.cueLocated(fix, generation: turn, display: display) }
+        }
+    }
+
+    private func cueLocated(_ fix: Result<CGRect, TapeFlightSuppression>, generation turn: Int, display: DisplayFrame) {
+        guard turn == generation, phase == .finished, cue == nil else { return }
+        let planned = fix.flatMap {
+            TapeFieldCue.plan(textAX: $0, flightDisplay: display, displays: displays(), strips: markStrips())
+        }
+        switch planned {
+        case .failure(let reason):
+            cueSuppressions.append(reason)
+            Log.app.info("tape cue not drawn: \(reason.rawValue)")
+        case .success(let rect):
+            let cue = TapeFieldCue(display: display, rect: rect, start: clock.now)
+            self.cue = cue
+            surface.showCue(cue)
+            cueTimer = clock.schedule(after: TapeFieldCue.lifetime) { [weak self] in
+                guard let self, self.cue == cue else { return }
+                self.takeDownCue()
+            }
+        }
+    }
+
+    private func takeDownCue() {
+        cueTimer?.cancel()
+        cueTimer = nil
+        if cue != nil {
+            cue = nil
+            surface.clearCue()
+        }
     }
 
     // MARK: Stopping
 
     /// Any other state: the ribbon comes down at once and every pending read is ignored.
     private func stop() {
-        guard phase != .idle || run != nil else { return }
+        guard phase != .idle || run != nil || cue != nil else { return }
         generation += 1
         takeDown()
+        takeDownCue()
+        landedVerified = false
         phase = .idle
         queues.read { [reader] in reader.disarm() }
     }
@@ -256,7 +352,8 @@ enum TapeFlightWiring {
             reduceMotion: { AppearanceSettings.effectiveReduceMotion(UserDefaultsSettingsStore()) },
             surface: TapeFlightOverlay(),
             clock: MainQueueTurnClock(),
-            queues: .live)
+            queues: .live,
+            markStrips: { DestinationMarksOverlay.visibleStrips })
         controller.follow(pill.$state.eraseToAnyPublisher())
         tracker.subscriber = controller
     }

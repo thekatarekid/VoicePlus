@@ -21,6 +21,23 @@ final class TapeFlightOverlay: TapeFlightSurface {
 
     func clear() {
         model.run = nil
+        orderOutIfEmpty()
+    }
+
+    /// The destination tape cue, in the same click-through window (design §13 scenario 4).
+    func showCue(_ cue: TapeFieldCue) {
+        let window = window(for: cue.display)
+        model.cue = cue
+        window.orderFrontRegardless()
+    }
+
+    func clearCue() {
+        model.cue = nil
+        orderOutIfEmpty()
+    }
+
+    private func orderOutIfEmpty() {
+        guard model.run == nil, model.cue == nil else { return }
         window?.orderOut(nil)
     }
 
@@ -42,6 +59,7 @@ final class TapeFlightOverlay: TapeFlightSurface {
 
 final class TapeFlightOverlayModel: ObservableObject {
     @Published var run: TapeFlightRun?
+    @Published var cue: TapeFieldCue?
 }
 
 /// The ribbon, frame by frame from the flight's start to its end (`SpoolFrameSchedule`, S1), in the
@@ -60,9 +78,27 @@ struct TapeFlightCanvas: View {
                 }
                 .id(run.id)
             }
+            if let cue = model.cue {
+                TimelineView(SpoolFrameSchedule(end: cue.end)) { context in
+                    Canvas { ctx, _ in TapeFieldCueDrawing.draw(cue, at: context.date, in: &ctx) }
+                }
+                .id(cue.id)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The prototype's `.field-line`: tape-face fill, a 1 pt tape-edge top border, `linefade` opacity.
+enum TapeFieldCueDrawing {
+    static func draw(_ cue: TapeFieldCue, at date: Date, in ctx: inout GraphicsContext) {
+        let opacity = cue.opacity(at: date)
+        guard opacity > 0 else { return }
+        ctx.opacity = opacity
+        ctx.fill(Path(cue.rect), with: .color(Tokens.SpoolMaterial.tapeFace.color))
+        let edge = CGRect(x: cue.rect.minX, y: cue.rect.minY, width: cue.rect.width, height: TapeFieldCue.edge)
+        ctx.fill(Path(edge), with: .color(Tokens.SpoolMaterial.tapeEdge.color))
     }
 }

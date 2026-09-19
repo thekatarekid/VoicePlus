@@ -106,6 +106,13 @@ public final class DestinationMarksOverlay {
 
     public init() {}
 
+    deinit { Self.strips[ObjectIdentifier(self)] = nil }
+
+    /// Every underline strip any overlay has on screen now (AppKit screen coordinates, main thread):
+    /// S4's destination tape cue never draws over one.
+    public static var visibleStrips: [CGRect] { strips.values.flatMap { $0 } }
+    private static var strips: [ObjectIdentifier: [CGRect]] = [:]
+
     public var isVisible: Bool { panels.contains { $0.isVisible } }
 
     public func show(_ fragments: [DestinationMarkFragment], labels: [Int: String]) {
@@ -122,9 +129,13 @@ public final class DestinationMarksOverlay {
             panel.orderFrontRegardless()
         }
         for panel in panels.dropFirst(fragments.count) { panel.orderOut(nil) }
+        Self.strips[ObjectIdentifier(self)] = panels.prefix(fragments.count).map(\.frame)
     }
 
-    public func hide() { panels.forEach { $0.orderOut(nil) } }
+    public func hide() {
+        panels.forEach { $0.orderOut(nil) }
+        Self.strips[ObjectIdentifier(self)] = nil
+    }
 
     private static func makePanel() -> NSPanel {
         let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
