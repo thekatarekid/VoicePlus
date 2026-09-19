@@ -496,7 +496,7 @@ these are part of the verified design and are tested separately from the golden 
 
 ### Wave 2 — S2 · Pill and presence (design §4, §6; copy fixture; V4.30)
 
-- [ ] **S2**
+- [x] **S2**
   - `NotchGeometry`: idle chin 64×14; hover hint 360×38 (text-sized, min 190); active 560×164; actionable 560×204; compact ceiling `min(560, usable − 32) × 204`; narrow (< 460) review layout with an 84 pt cameo bay; upper corners square when attached, all rounded when floating (external display, 8 pt below the menu bar); nothing behind the camera housing (safe-area from `ScreenMetrics`). Replace `absoluteMaximumSize`.
   - `PillView` layout: status row (status · destination · timer, per the copy fixture), text lane (natural-language, newest two lines, leading fade, stable prefix), confidence dots lane, tape lane (S1 ribbon), key-hint row ("Release fn / 🌐 · Esc"), action row on 204 pt states; 132 pt character bay on the right (`SpoolView`), never text under the face.
   - **Copy comes from `Fixtures/design/design_copy.json` › `pill`**, one entry per state: status line,
@@ -540,7 +540,7 @@ these are part of the verified design and are tested separately from the golden 
 
 ### Wave 2 — S3 + S11 · Turn controller: preview before insert (design §5, §12) and turn record
 
-- [ ] **S3 `App/Services/TurnController.swift`**
+- [x] **S3 `App/Services/TurnController.swift`**
   - Owns one turn: `TurnID`; key-down snapshot (app, field element hash, selection, `kAXValue` hash as text version, display, secure flag); `starting` until capture is really open (≤ 80 ms target logged); `listening` / `listeningQuiet` (VAD idle > 1.5 s); key-up → `finishing` (mic closed immediately) → engine final pass + lander formatting → **final payload** (immutable) → `finalPreview` with dwell (600/900/1500/manual; 1800 when any `isLowConfidence`; hover/focus/selection/Review pause) → revalidate snapshot (`FocusGuard.matches` + value hash unchanged or caret still inside our landing memory) → inject once (`TextInjector` gains an idempotent commit guard keyed by `TurnID` + target revision) → `inserting` → outcome → `landed(verified/unverified/partial)` or `held`.
   - Timeouts: 2 s "Still finishing your text"; 10 s "Use available text" (if a partial exists) / "Cancel". Late results after cancel or after "use available" are dropped by `TurnID`. Duplicate key-up / key repeat ignored. New press while finishing → K04 "Finishing your previous dictation".
   - Escape (I2): before write → cancel; after → resolve, then Undo (5 s, range-safe via `ReplaceRange`).
@@ -574,7 +574,7 @@ retrying. A failed save keeps the entered value and the previous active value.
    S7a owns the frame, sidebar, toolbar, search field, routing
 ```
 
-- [ ] **S7a Window shell · gate for S7b–S7g (≤ 2 h, runs first inside wave 2)**
+- [x] **S7a Window shell · gate for S7b–S7g (≤ 2 h, runs first inside wave 2)**
   - Owns: `App/Settings/MainWindowController.swift`, `MainWindowView.swift`, `MainWindowSection.swift`,
     `MainWindowViewModel.swift`, `SectionState.swift`, `App/UI/Components/` (new: `PageHeader`, `GroupBox`,
     `RowView`, `EmptyState`, `ScopedBanner`, `StatusTag` good/warn/neutral, `SegmentedControl`, `KeyCap`,
@@ -600,7 +600,7 @@ retrying. A failed save keeps the entered value and the previous active value.
 
 The six tasks below run **in parallel** after S7a. Each owns only its files.
 
-- [ ] **S7b Today, turn detail, recovery sheet (design §8.1) · [P]**
+- [x] **S7b Today, turn detail, recovery sheet (design §8.1) · [P]**
   - Owns: `App/Settings/Today*.swift`, `App/Settings/TurnDetail*.swift` (new), `App/Settings/RecoverySheet*.swift` (new).
   - Held / recoverable first (Review · Copy); then chronological rows: time · destination · excerpt ·
     Inserted / Held / Unconfirmed / "1 to review", read from `TurnStore` (S3). No vanity counters as home.
@@ -614,7 +614,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
     can't be read" + Retry with held drafts still shown; "This draft is no longer available"; "Opening saved
     text…".
 
-- [ ] **S7c Meetings: library, detail, capture panel (design §8.2) · [P]**
+- [x] **S7c Meetings: library, detail, capture panel (design §8.2) · [P]**
   - Owns: `App/Settings/Meetings*.swift`, `App/UI/MeetingPanel*.swift` (new), `App/UI/MeetingPromptPanel.swift`.
   - Library list / detail; detail header (title · date · duration · Local); tabs Notes (Summary, Decisions,
     Action items) / Transcript (speaker labels, timestamps, search, uncertainty marks; audio seek only when
@@ -627,7 +627,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
   - States: "No meetings yet" + Start recording; "Loading meetings…"; "Preparing transcript…"; "No speech
     captured"; Notes failure keeps the transcript.
 
-- [ ] **S7d Dictionary & Apps (design §8.3) · [P]**
+- [x] **S7d Dictionary & Apps (design §8.3) · [P]**
   - Owns: `App/Settings/DictionaryApps*.swift`, `LearnedDictionaryViewModel.swift`, `SnippetsSettings.swift`,
     `App/Onboarding/ContactsImport.swift` (UI only).
   - Segmented Dictionary / Apps. Dictionary: search, term, spoken variant, language, source, add/edit, import
@@ -639,7 +639,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
   - States: "Add a word VoicePlus keeps getting wrong."; "Every app uses your defaults"; loading; inline save
     failure with the prior value still active.
 
-- [ ] **S7e Voice (design §8.4) · [P]**
+- [x] **S7e Voice (design §8.4) · [P]**
   - Owns: `App/Settings/Voice*.swift`, `App/Onboarding/SpeakerEnrollmentWindow.swift` (embedded view mode).
   - Input selector, real level meter, test sentence with states idle / capturing / analyzing / result / no
     samples / too short / device removed (Stop releases the mic); Spool moves only during a real test or
@@ -648,7 +648,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
   - Language with a model-capability note and mixed-script preview; benchmarks inside a disclosure.
   - States: "No voice enrolled"; "No microphones found" (distinct); "Looking for microphones…".
 
-- [ ] **S7f Privacy (design §8.5) · [P]**
+- [x] **S7f Privacy (design §8.5) · [P]**
   - Owns: `App/Settings/Privacy*.swift`, `App/Settings/DataPanel*.swift` (if present), recordings UI; the
     Diagnostics disclosure hosts feature flags and the data panel.
   - Rows: microphone, typing access, optional context (**Screen Recording**, G2), history retention, audio
@@ -659,7 +659,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
     remaining-items list on partial failure; hard mute (closed-shutter Spool); diagnostics redacted by
     default with an export preview.
 
-- [ ] **S7g Settings subpages (design §8.6) · [P]**
+- [x] **S7g Settings subpages (design §8.6) · [P]**
   - Owns: `App/Settings/SettingsView.swift`, `SettingsViewModels.swift`, `VoiceSettings.swift` (model part),
     `ConnectorsSettings.swift`, `SyncSettings.swift`, `BenchmarkSettingsViewModel.swift`.
   - General: launch at login, sound cues (off by default; no success sound before verification), **preview
@@ -677,7 +677,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ### Wave 2 — S12 · Mascot use and action surfaces (design §8.8, §8.9) · [P]
 
-- [ ] **S12**
+- [x] **S12**
   - Owns: `App/UI/Spool/SpoolSurfacePolicy.swift` (new), `App/Transform/` (preview UI only),
     `App/UI/ConsentPanels.swift`, `App/UI/ActionPreview*.swift` (new).
   - `SpoolSurfacePolicy`: one table the other surfaces consult, per design §8.9:
@@ -728,7 +728,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ### Wave 2 — S8 · Onboarding (design §8.7; V4.48; I1)
 
-- [ ] **S8 `App/Onboarding/`**
+- [x] **S8 `App/Onboarding/`**
   - Steps and copy follow the design (§8.7 and the prototype's onboarding screen; headings such as "Your
     voice, a little closer.", "Let VoicePlus hear you.", "Let your words reach the page."). The one owner
     addition is the Voice step. Steps: Welcome → Microphone (real meter) → Typing access (Accessibility, explained just before the prompt) → Model (real byte progress → Verifying → Loading; never "Ready" before load) → Try dictation (hold fn: live words above the ribbon with counterclockwise reels → release → final preview → insertion into the safe test field; one uncertain word demo + correction) → **Voice** (read four lines, ~30 s, `SpeakerEnrollmentWindow` reused; skippable; H2 passive fallback explained) → Ready. Optional later: Meetings/system audio, Calendar.
@@ -854,17 +854,17 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 1 | S1 | [x] | 19b7b3f | App Spool 31 (SpoolParity + SpoolMotion) | fixture-verified; §5 item 7 | 24 art hex colours outside DesignTokens; SpoolView unplaced |
 | 1 | S6 | [x] | 29aaff8 | App S6 suites 48 functions | implemented | presenceState unwired in AppDelegate; held row prototype wording |
 | 1 | S9 | [x] | 29980a4, f458784 | S9 suites 55 (+2 files) | implemented; copy fixture-checked | consumers switch in S11; 9 ids defensive |
-| 2 | S2 | [ ] | | | | |
-| 2 | S3 + S11 store | [ ] | | | | |
-| 2 | S7a | [ ] | | | | |
-| 2 | S7b | [ ] | | | | |
-| 2 | S7c | [ ] | | | | |
-| 2 | S7d | [ ] | | | | |
-| 2 | S7e | [ ] | | | | |
-| 2 | S7f | [ ] | | | | |
-| 2 | S7g | [ ] | | | | |
-| 2 | S12 | [ ] | | | | |
-| 2 | S8 | [ ] | | | | |
+| 2 | S2 | [x] | aef6b41..04bce53, 6816667 | App S2 suites 139 passed | implemented; §5 items 7–9 | Review all shows Insert/Cancel until S5; notch placement hardware-only |
+| 2 | S3 + S11 store | [x] | e29c9ab..88fc1e1 | App turn suites 51, Injection 137 (+16) | implemented + fixture-verified; §5 items 8–10 | `.focus` dwell pause API-only; draw signal is a main-queue pass |
+| 2 | S7a | [x] | 6c8d9c4 | MainWindowShell + SettingsReachability 57 (+26) | implemented; §5 item 11 | LabWiring opens sections, not the Benchmarks/Diagnostics disclosures |
+| 2 | S7b | [x] | 8921b80 | S7b 40 (+40), related suites 109 | implemented; §5 items 9, 11 | pill Review opens Today, not the recovery sheet |
+| 2 | S7c | [x] | db3df45, 42c8e30, 5835447 | Meetings S7c 40 (+40), filter 101 | implemented; capture hardware-only | gate wired capture + pill buttons; Ask disabled; no retained audio |
+| 2 | S7d | [x] | f5712df..8e77f4a, f890f75, 5835447 | filter 113 (+1 gate) | implemented | gate applies app rules in the lander; word marks await S5 |
+| 2 | S7e | [x] | 24995cc | S7e 23 (+23), related 148 | implemented; §5 item 11 | voice.language unread; Stop cannot cut a running enrollment take |
+| 2 | S7f | [x] | 659737c, 7e48089, 5835447 | PrivacyS7fTests 34 (+34) | implemented; §5 item 11 | gate wired hard mute; history-off does not stop saving yet |
+| 2 | S7g | [x] | e23ea8d..72597d2 | S7g 46 (+46), related 66 | implemented; §5 item 11 | double-tap latch + sound cues unwired in AppDelegate; NoopUpdater |
+| 2 | S12 | [x] | ad0495f..a4aa188 | S12 suites 59 | implemented | manual dwell waits 1.5 s for transforms; before/after rows undrawn |
+| 2 | S8 | [x] | b22cf26, 8751fcb | onboarding filter 192 | implemented; §5 item 12 | Voice step reads three lines; waitUntil is a 60 s hang guard |
 | 3 | S4 | [ ] | | | | |
 | 3 | S5 | [ ] | | | | |
 | 3 | S10 | [ ] | | | | |

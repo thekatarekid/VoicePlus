@@ -1588,3 +1588,20 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Open for wave 2: S3 wires `EscapeHotkey` and the A06 quiet return; S2 wires `LanderLatchDelivery.onLanded`, the box chip
   and `presenceState`; S7f/S7g settings rows; 24 Spool art hex colours vs DesignTokens; DECISIONS.md SNR hypothesis (R);
   all hardware checks in build doc §5.
+
+#### Wave 2
+
+- S2 done · aef6b41..04bce53, 6816667 · design pill geometry and copy fixture rows, presence chin, deixis chip, non-turn buttons wired
+- S3 + S11 store done · e29c9ab..88fc1e1 · TurnController preview-before-insert, commit guard by TurnID + revision, TurnStore records
+- S7a done · 6c8d9c4 · window shell, sidebar, ⌘1–6/⌘F, SectionScreen protocol, components, settings re-homed
+- S7b done · 8921b80 · Today held drafts first, TurnStore rows, turn detail, recovery sheet with explicit re-target
+- S7c done (gate finished wiring) · db3df45, 42c8e30, 5835447 · Meetings library/detail, capture panel, Q0–Q2 pill rows, X02 recover
+- S7d done (gate finished wiring) · f5712df..8e77f4a, f890f75, 5835447 · Dictionary & Apps, per-app rules now applied in the lander
+- S7e done · 24995cc · Voice page: mic picker, level meter, test sentence states, enrollment, benchmarks disclosure
+- S7f done · 659737c, 7e48089, 5835447 · Privacy rows, network log, scoped delete, diagnostics; gate wired hard mute
+- S7g done · e23ea8d..72597d2 · seven Settings subpages incl. dwell, spacing, latch pause, models progress, providers, sync, updates
+- S12 done · ad0495f..a4aa188 · SpoolSurfacePolicy table, transform before/after preview gate, outbound action preview
+- S8 done · b22cf26, 8751fcb · onboarding steps with Voice step, resume, fn fallback; waitUntil hang guard
+- **Wave 2 gate passed (11/11 done).** `swift build --build-tests` clean (no new warnings; only the old R5.4 Sendable one); `swift test --no-parallel`: **2956 tests, all passing** (2955 before the gate fix).
+- Gate fixes: `5835447` `MeetingCaptureWiring.install` + pill meeting buttons routed first (S7c); `AppRules.applying` applies per-app style / contextual reading last in the lander's augmenter (S7d, +1 test); `PrivacyWiring.mute` = live MuteController (S7f). No test deleted, no copy test changed.
+- Open: S7g double-tap latch filter + sound cues need AppDelegate hooks; history-off still saves (lander/TurnStore); Larger Text / Reduce Motion to pill (S10); theme at launch; real updater; LabWiring disclosures; word marks await S5; all hardware checks in §5.
