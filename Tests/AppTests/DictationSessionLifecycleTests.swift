@@ -230,8 +230,9 @@ struct DictationSessionLifecycleTests {
         let gate = Gate()
         coordinator.preflight = { await gate.wait() }
         // Releases the preflight eventually, so a regression fails the expectation below instead of
-        // hanging the suite.
-        let release = Task.detached { try? await Task.sleep(nanoseconds: 3_000_000_000); gate.open() }
+        // hanging the suite. A hang guard, not a bound: at 3 s a loaded parallel run (main actor
+        // stalled for seconds) let it open the gate after capture had started, failing `!passed`.
+        let release = Task.detached { try? await Task.sleep(nanoseconds: 60_000_000_000); gate.open() }
 
         coordinator.start()
         await coordinator.settle()
