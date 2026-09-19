@@ -216,7 +216,10 @@ public struct PillTurnContext: Equatable, Sendable {
     public var latchElapsed: TimeInterval?
     /// Low-confidence words of the final payload, normalised (`PillTextLane.normalized`).
     public var uncertainWords: Set<String>
+    /// The uncertainty marks drawn on the final payload (S5 `UncertaintyMarkMapper`).
     public var uncertainCount: Int
+    /// A rewrite marked a phrase or the whole result (T05): the rows read "Review this phrase".
+    public var needsPhraseReview: Bool = false
     /// When `.finishing` began, for the 10 s "Use available text" / "Cancel" offer.
     public var finishingSince: Date?
     /// Deixis boxes drawn this turn (the chip row shows when > 0).
@@ -386,7 +389,8 @@ public struct PillContent: Equatable, Sendable {
             let manual = info.manual || c.reviewing
             return PillContent(designKey: review ? "uncertain" : "preview",
                                status: PillDeck.readyStatus(destination: named.destinationName,
-                                                            uncertain: review ? info.uncertainCount : nil),
+                                                            uncertain: review ? info.uncertainCount : nil,
+                                                            phrase: info.needsPhraseReview),
                                trailing: destinationTrailing(named), words: .final(info.text),
                                helper: PillDeck.previewHelper(review: review, manual: manual),
                                buttons: manual ? PillDeck.manualPreviewButtons : [],
@@ -398,7 +402,8 @@ public struct PillContent: Equatable, Sendable {
             if info.verified {
                 return PillContent(designKey: "inserted", status: PillDeck.insertedStatus(destination: c.destinationName),
                                    trailing: destinationTrailing(c), words: .final(info.text),
-                                   helper: PillDeck.insertedHelper(uncertain: c.uncertainCount))
+                                   helper: PillDeck.insertedHelper(uncertain: c.uncertainCount,
+                                                                                   phrase: c.needsPhraseReview))
             }
             return PillContent(designKey: "unconfirmed", status: PillDeck.unconfirmedStatus, tone: .warn,
                                trailing: destinationTrailing(c), words: .final(info.text),

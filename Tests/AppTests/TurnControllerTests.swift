@@ -97,7 +97,7 @@ struct TurnControllerTests {
             c.onCancelCapture = { [self] in lock.withLock { log.append(.cancelCapture) } }
             c.onTurnEnded = { [self] id, stage in lock.withLock { _ended.append((id, stage)) } }
             c.onOffer = { [self] _, offer in lock.withLock { _offers.append(offer) } }
-            c.onFinalSpans = { [self] spans in lock.withLock { _spans.append(spans) } }
+            c.onFinalSpans = { [self] spans, _ in lock.withLock { _spans.append(spans) } }
         }
     }
 

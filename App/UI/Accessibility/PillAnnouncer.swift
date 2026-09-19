@@ -125,7 +125,8 @@ public struct PillAnnouncer: Equatable, Sendable {
         case .finalPreview(let info):
             capturing = false
             var line = Self.finalReady
-            if info.uncertainCount > 0 { line += PillCopy.statusSeparator + PillCopy.wordsToReview(info.uncertainCount) }
+            // The count of marks drawn (S5 mapping); a T05 rewrite says "Review this phrase".
+            if info.uncertainCount > 0 { line += PillCopy.statusSeparator + info.reviewLine }
             return once("final:\(info.uncertainCount):\(info.text)", .init(.final, line))
 
         case .inserting:

@@ -103,10 +103,12 @@ public enum PillDeck {
     // F1 preview / F2 uncertain
     public static let readyForTemplate = "Ready for Mail"
     /// "Ready for Mail", "Ready for Mail · 1 word to review"; "Ready" when no destination is known.
-    public static func readyStatus(destination: String?, uncertain: Int?) -> String {
+    /// "Ready for Mail · 1 word to review"; T05 "Ready for Mail · Review this phrase" when a rewrite
+    /// marked a phrase (`phrase`, S5 `MarkMapping.needsPhraseReview`).
+    public static func readyStatus(destination: String?, uncertain: Int?, phrase: Bool = false) -> String {
         let ready = destination.map(PillCopy.readyFor) ?? "Ready"
         guard let uncertain else { return ready }
-        return ready + PillCopy.statusSeparator + PillCopy.wordsToReview(uncertain)
+        return ready + PillCopy.statusSeparator + PillCopy.reviewLine(uncertain, phrase: phrase)
     }
     public static func previewHelper(review: Bool, manual: Bool) -> String {
         switch (review, manual) {
@@ -129,8 +131,8 @@ public enum PillDeck {
         destination.map { "✓ Inserted in \($0)" } ?? "✓ Inserted"
     }
     /// "1 word to review in the field"; nothing when every word was confident.
-    public static func insertedHelper(uncertain: Int) -> String {
-        uncertain > 0 ? PillCopy.wordsToReview(uncertain) + " in the field" : ""
+    public static func insertedHelper(uncertain: Int, phrase: Bool = false) -> String {
+        uncertain > 0 ? PillCopy.reviewLine(uncertain, phrase: phrase) + " in the field" : ""
     }
 
     // D2 unconfirmed (readback did not confirm, or could not run)

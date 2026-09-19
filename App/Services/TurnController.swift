@@ -201,8 +201,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// take the pill down *if it still shows a turn state*. A notice, an error or a transform that
     /// replaced it in the meantime is never taken down by this.
     public var onRetract: (() -> Void)?
-    /// The final payload's spans, as it is published (the pill's red-dotted uncertain words).
-    public var onFinalSpans: (([TranscriptSpan]) -> Void)?
+    /// The final payload's spans and the text rendered from them, as it is published (the pill maps
+    /// its red-dotted uncertain words onto exactly that text, S5).
+    public var onFinalSpans: (([TranscriptSpan], String) -> Void)?
     /// A recovery-catalogue notice (K04 busy, A06 no speech, K02 interrupted, D10 stale undo).
     public var onNotice: ((RecoveryEntry) -> Void)?
     /// The 10 s finishing offer appeared (or went away: `nil`).
@@ -810,6 +811,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         var fx = Effects()
         lock.withLock {
             guard let turn = turns[id] else { return }
+            // S5 — the marks the pill draws, mapped through formatting by the lander: their count is
+            // "N words to review" (T05 "Review this phrase"), their ranges the record's. A removed
+            // filler has no mark and is not counted; its low confidence still lengthens the dwell.
             let uncertain = payload.pending?.uncertainCount ?? 0
             let lowConfidence = uncertain > 0 || (payload.pending?.spans.contains { $0.isLowConfidence } ?? false)
             turn.payload = payload
@@ -817,7 +821,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turn.manual = setting == .manual
             turn.dwellTotal = setting.seconds(lowConfidence: lowConfidence)
             turn.dwellRemaining = turn.dwellTotal ?? 0
-            turn.uncertainCount = max(uncertain, lowConfidence ? 1 : 0)
+            turn.uncertainCount = uncertain
+            turn.phraseReview = payload.pending?.needsPhraseReview ?? false
             turn.record.finalText = payload.text
             turn.record.uncertainSpans = payload.pending?.uncertainRanges ?? []
             turn.record.capture.finalPublished = now
@@ -826,7 +831,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turn.renderTimer = clock.schedule(after: renderAckTimeout) { [weak self] in self?.renderAckTimedOut(id) }
         }
         // The spans reach the pill before the preview that draws them (its red-dotted words).
-        if let spans = payload.pending?.spans { ui { [weak self] in self?.onFinalSpans?(spans) } }
+        if let spans = payload.pending?.spans {
+            let text = payload.text
+            ui { [weak self] in self?.onFinalSpans?(spans, text) }
+        }
         fx.run(self)
         reachPreview(id)
     }
@@ -834,7 +842,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     private func previewInfoLocked(_ turn: Turn) -> FinalPreviewInfo {
         FinalPreviewInfo(text: turn.payload?.text ?? "", uncertainCount: turn.uncertainCount,
                          dwellRemaining: turn.manual ? 0 : turn.dwellRemaining, paused: !turn.pauses.isEmpty,
-                         manual: turn.manual, destination: turn.destinationName)
+                         manual: turn.manual, destination: turn.destinationName,
+                         needsPhraseReview: turn.phraseReview)
     }
 
     /// The pill drew the final payload's first frame: the dwell starts now (design §5 step 4).
@@ -1330,6 +1339,8 @@ final class Turn {
     var pauses: Set<DwellPause> = []
     var rendered = false
     var uncertainCount = 0
+    /// S5 — the payload's marks include a phrase (T05 "Review this phrase").
+    var phraseReview = false
     var pendingExit: DwellExit?
     var exit: CheckedContinuation<DwellExit, Never>?
     var previewReached = false
@@ -1414,7 +1425,7 @@ public final class TurnWiring {
             guard let pill, Self.isTurnRow(pill.state, captureOpen: pill.turn.captureOpen) else { return }
             pill.hide()
         }
-        controller.onFinalSpans = { [weak pill] spans in pill?.setFinalSpans(spans) }
+        controller.onFinalSpans = { [weak pill] spans, text in pill?.setFinalSpans(spans, text: text) }
         controller.onNotice = { [weak wiring, weak pill] entry in wiring?.show(entry, on: pill) }
         controller.onCancelCapture = { [weak session] in session?.escape() }
 

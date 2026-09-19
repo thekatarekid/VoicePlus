@@ -295,17 +295,21 @@ public final class PillViewModel: ObservableObject {
         scheduleRetractionIfTimed(state)
     }
 
-    /// S3 — the final payload's spans: low-confidence words get the dotted marks, the count drives
-    /// "N words to review" in the inserted row. S5 — the marks themselves are mapped onto the shown
-    /// text through formatting (`UncertaintyMarkMapper`, design §7), never by matching words.
-    public func setFinalSpans(_ spans: [TranscriptSpan]) {
+    /// S3 — the final payload's spans and the text rendered from them (`text`; the spans' own
+    /// rendering when nil). S5 — the marks are mapped onto that text through formatting
+    /// (`UncertaintyMarkMapper`, design §7), never by matching words, and "N words to review" counts
+    /// exactly the marks drawn; a rewrite that marked a phrase reads "Review this phrase" (T05).
+    public func setFinalSpans(_ spans: [TranscriptSpan], text: String? = nil) {
         let low = spans.filter(\.isLowConfidence)
-        turn.uncertainCount = low.count
         turn.uncertainWords = Set(low.flatMap { $0.text.split(whereSeparator: \.isWhitespace) }
             .map { PillTextLane.normalized(String($0)) }.filter { !$0.isEmpty })
         finalSpans = spans
+        payloadText = text
         resolvedMarks = []
         markCache = nil
+        let mapping = markMapping(for: text ?? spans.renderedText)
+        turn.uncertainCount = mapping.count
+        turn.needsPhraseReview = mapping.needsPhraseReview
         WordMarksWiring.adoptIfNeeded(self)
     }
 
@@ -313,6 +317,9 @@ public final class PillViewModel: ObservableObject {
 
     /// The final payload's spans as published (formatted; confidence carried through every stage).
     public private(set) var finalSpans: [TranscriptSpan] = []
+    /// The payload text `finalSpans` were rendered into, when the turn said so: marks on it need no
+    /// `belongs` check (a whole-result rewrite shares no words with its spans, T05).
+    private var payloadText: String?
     /// Marks the user resolved on this turn (kept, or a spelling chosen): no longer drawn.
     @Published public private(set) var resolvedMarks: Set<Int> = []
     private var markCache: MarkMapping?
@@ -326,7 +333,8 @@ public final class PillViewModel: ObservableObject {
     public func markMapping(for text: String) -> MarkMapping {
         if let cache = markCache, cache.text == text { return cache.removing(resolvedMarks) }
         let available = finalSpans.contains { UncertaintyMarkMapper.carriesConfidence($0) }
-        let mapping = !text.isEmpty && UncertaintyMarkMapper.belongs(finalSpans, to: text)
+        let produced = payloadText == text || UncertaintyMarkMapper.belongs(finalSpans, to: text)
+        let mapping = !text.isEmpty && produced
             ? UncertaintyMarkMapper.map(source: finalSpans, finalText: text)
             : MarkMapping(text: text, marks: [], confidenceAvailable: available)
         markCache = mapping   // one text at a time; redrawn every second while a timer is up
@@ -536,6 +544,7 @@ public final class PillViewModel: ObservableObject {
             turn.finishingSince = nil
             turn.liveText = info.text
             turn.uncertainCount = info.uncertainCount
+            turn.needsPhraseReview = info.needsPhraseReview
             if let d = info.destination, !d.isEmpty { turn.destination = d }
         case .inserting(let text):
             turn.captureOpen = false

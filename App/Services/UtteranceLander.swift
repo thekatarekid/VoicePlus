@@ -88,9 +88,13 @@ public struct PendingInsertion: Sendable {
     public var axRole: String?
     /// When `land` began, for `totalMs`.
     public var landStarted: Date
-    /// Low-confidence words of the payload text, as UTF-16 ranges of `LandingResult.text`
-    /// (`TurnRecord.uncertainSpans`); their count drives the 1800 ms dwell and "1 word to review".
+    /// The uncertainty marks of the payload text, as UTF-16 ranges of `LandingResult.text`
+    /// (`TurnRecord.uncertainSpans`): S5's `UncertaintyMarkMapper` through formatting, so their count
+    /// is the marks the pill draws ("1 word to review") and drives the 1800 ms dwell.
     public var uncertainRanges: [Range<Int>]
+    /// A rewrite forced a phrase or the whole result to be marked: the rows read "Review this phrase"
+    /// (T05) instead of a word count.
+    public var needsPhraseReview: Bool = false
 
     public var rawText: String { rawSpans.joinedText }
     public var uncertainCount: Int { uncertainRanges.count }
@@ -307,9 +311,13 @@ public final class UtteranceLander: @unchecked Sendable {
         }
         result.text = text
         logTransform(raw: spans, landed: text, finalSpans: finalSpans)
+        // S5 — the marks the pill will draw, mapped through formatting: their ranges are the record's
+        // `uncertainSpans` and their count the "N words to review" (T05 "Review this phrase").
+        let marks = UncertaintyMarkMapper.map(source: finalSpans, finalText: text)
         result.pending = PendingInsertion(spans: finalSpans, rawSpans: spans, focus: focus, bundleID: bundleID,
                                           startedAt: startedAt, axRole: field?.axRole, landStarted: t0,
-                                          uncertainRanges: Self.uncertainRanges(of: finalSpans, in: text))
+                                          uncertainRanges: marks.uncertainRanges,
+                                          needsPhraseReview: marks.needsPhraseReview)
         // S3 — the final payload exists; whoever asked for it decides when (and whether) it goes in.
         guard inject else {
             result.totalMs = ms(since: t0)
@@ -406,23 +414,11 @@ public final class UtteranceLander: @unchecked Sendable {
         catch { Log.db.error("history insert failed: \(error)") }
     }
 
-    /// S3 — the low-confidence words of `text` as UTF-16 ranges, found in order. A span whose text
-    /// the formatting changed beyond recognition contributes no range here (S5 aligns them properly
-    /// with `WordAligner`); its uncertainty still counts in the dwell through the spans themselves.
+    /// The low-confidence words of `text` as UTF-16 ranges: S5's marks, mapped through formatting
+    /// with `WordAligner` (`UncertaintyMarkMapper`) — a reworded span gets its phrase's range, a
+    /// removed filler none. One mapping for the pill, the count and `TurnRecord.uncertainSpans`.
     public static func uncertainRanges(of spans: [TranscriptSpan], in text: String) -> [Range<Int>] {
-        let haystack = text as NSString
-        var cursor = 0
-        var ranges: [Range<Int>] = []
-        for span in spans {
-            let word = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !word.isEmpty else { continue }
-            let window = NSRange(location: cursor, length: max(0, haystack.length - cursor))
-            let found = haystack.range(of: word, options: [], range: window)
-            guard found.location != NSNotFound else { continue }
-            if span.isLowConfidence { ranges.append(found.location..<(found.location + found.length)) }
-            cursor = found.location + found.length
-        }
-        return ranges
+        UncertaintyMarkMapper.map(source: spans, finalText: text).uncertainRanges
     }
 
     private func ms(since t0: Date) -> Double { clock().timeIntervalSince(t0) * 1000 }

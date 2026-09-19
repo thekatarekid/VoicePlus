@@ -235,8 +235,11 @@ public enum LandedOutcome: String, CaseIterable, Equatable, Sendable {
 public struct FinalPreviewInfo: Equatable, Sendable {
     /// The final payload's rendered text — exactly what will be inserted.
     public let text: String
-    /// Low-confidence words (`TranscriptSpan.isLowConfidence`). Any > 0 draws F2 and the long dwell.
+    /// The uncertainty marks drawn on `text` (S5 `UncertaintyMarkMapper`, mapped through formatting).
+    /// Any > 0 draws F2 and the long dwell.
     public var uncertainCount: Int
+    /// A rewrite forced a phrase or the whole result to be marked (T05): "Review this phrase".
+    public var needsPhraseReview: Bool
     /// Seconds left before insertion. Meaningless while `manual`.
     public var dwellRemaining: TimeInterval
     /// Hover, focus, selection or Review has frozen the dwell.
@@ -247,9 +250,10 @@ public struct FinalPreviewInfo: Equatable, Sendable {
     public var destination: String?
 
     public init(text: String, uncertainCount: Int = 0, dwellRemaining: TimeInterval, paused: Bool = false,
-                manual: Bool = false, destination: String? = nil) {
+                manual: Bool = false, destination: String? = nil, needsPhraseReview: Bool = false) {
         self.text = text
         self.uncertainCount = max(0, uncertainCount)
+        self.needsPhraseReview = needsPhraseReview && uncertainCount > 0
         self.dwellRemaining = max(0, dwellRemaining)
         self.paused = paused
         self.manual = manual
@@ -258,12 +262,17 @@ public struct FinalPreviewInfo: Equatable, Sendable {
 
     public var needsReview: Bool { uncertainCount > 0 }
 
+    /// "1 word to review" · "2 words to review" · "Review this phrase" (T05); "" with nothing to review.
+    public var reviewLine: String {
+        needsReview ? PillCopy.reviewLine(uncertainCount, phrase: needsPhraseReview) : ""
+    }
+
     /// "Ready for Mail" / "Ready for Mail · 1 word to review". `nil` without a destination name:
     /// the design has no destination-less wording, and none is invented here.
     public var status: String? {
         guard let name = destination?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
         let ready = PillCopy.readyFor(name)
-        return needsReview ? ready + PillCopy.statusSeparator + PillCopy.wordsToReview(uncertainCount) : ready
+        return needsReview ? ready + PillCopy.statusSeparator + reviewLine : ready
     }
 
     public var helper: String {
@@ -382,6 +391,12 @@ public enum PillCopy {
     public static func readyFor(_ destination: String) -> String { "Ready for \(destination)" }
     public static func wordsToReview(_ count: Int) -> String {
         "\(count) word\(count == 1 ? "" : "s") to review"
+    }
+
+    /// The review count line for `count` marks: "N words to review", or T05's "Review this phrase"
+    /// when a rewrite forced a phrase (or the whole result) to be marked (S5 `MarkMapping.reviewLine`).
+    public static func reviewLine(_ count: Int, phrase: Bool) -> String {
+        phrase ? RecoveryCatalog.entry(.T05).headline : wordsToReview(count)
     }
 
     public static let insertingHelper = "Same text · one insertion attempt"
