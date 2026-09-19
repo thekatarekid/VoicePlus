@@ -879,8 +879,13 @@ struct OnboardingViewModelTests {
     }
 }
 
+/// Polls an eventual condition. The deadline is a hang guard, not a latency assertion: a full
+/// parallel `AppTests` run can stall the main actor for 20 s+, and a tight deadline then fails every
+/// waiter at once. So `timeoutMs` is only a floor under `waitUntilHangGuardMs`.
+let waitUntilHangGuardMs = 60_000
+
 func waitUntil(timeoutMs: Int = 2000, _ condition: @MainActor () -> Bool) async throws {
-    let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
+    let deadline = Date().addingTimeInterval(Double(max(timeoutMs, waitUntilHangGuardMs)) / 1000)
     while !(await condition()) {
         try #require(Date() < deadline, "timed out waiting for condition")
         try await Task.sleep(for: .milliseconds(5))
