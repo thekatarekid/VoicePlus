@@ -791,7 +791,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 | 0 phantom landings on 50 silent holds | `fixture-verified` with `Fixtures/audio/silence`; owner repeats live |
 | Latch lands every ≥ 2 s pause, right caret ≥ 95 % | mock-engine test + owner 5-minute session in Docs and Claude |
 | Mid-sentence placement ≤ 2 wrong in 30 × 5 apps | pipeline matrix + owner session |
-| 0 mic warnings on the quiet-room corpus | `Fixtures/real-room/builtin` replay |
+| 0 mic warnings on the quiet-room corpus | `Fixtures/real-room/builtin` replay — **passes 20 / 20 from 1.11.1** (F1 fix `82ef429`; 1.11.0 failed 2 / 20) |
 | digits class WER < 0.20 | replay of the script's number lines |
 | cold launch → first landing p95 < 2.5 s; key-down → first buffer p95 < 150 ms | owner, from the `.info` timing log |
 
@@ -833,13 +833,14 @@ Unverified: Chromium marker-range read on a real page
 
 ## 7. Execution status (agent-maintained)
 
-**Final status (2026-09-19).** Release **1.11.0** built: `Packaging/releases/VoicePlus_V4-w1_1.11.0.dmg`
-(19 MB, sha256 `e80a1b58715c68f31661886001899246914657f03cc7ca02477caf618165cf92`, ad-hoc signed,
-`verify_install.sh` OK). All waves 0–4 done; `swift test --no-parallel`: **3156 tests, all passing** at
-`5ec671b` (one recorded known issue). Real-room WER 0.100 (1.10.0: 0.099). V4 gates: silent holds 0 landings
-and digits WER 0.062 / 0.094 are **fixture-verified**; the quiet-room mic gate **fails 2 / 20** (energy-VAD
-onset, known issue) — **fixed after 1.11.0 by the F1 fix: 20 / 20 good, block-size invariant** (not in the 1.11.0 DMG;
-progress.md "F1 fix"). Everything else is **implemented** (unit/mock-tested). **Hardware-only** and still
+**Final status (2026-09-19).** Release **1.11.1** built: `Packaging/releases/VoicePlus_V4-w1_1.11.1.dmg`
+(19 MB, sha256 `8a2edfd55e788854c72f39361bb828787b25ae23bdbbfa0a387aa46cedcbf7a5`, ad-hoc signed,
+`verify_install.sh` OK), from `82ef429`: 1.11.0 plus the F1 fix. 1.11.0 (`VoicePlus_V4-w1_1.11.0.dmg`, sha256
+`e80a1b58…`, from `928551d`) is retained. All waves 0–4 done; `swift test --no-parallel`: **3161 tests, all
+passing** at `82ef429`, no known issue left (1.11.0: 3156 at `5ec671b`, one known issue). Real-room WER 0.100 at
+`5ec671b` (1.10.0: 0.099). V4 gates: silent holds 0 landings, digits WER 0.062 / 0.094 and the quiet-room mic gate
+(**passes 20 / 20, 0 warnings**, same result for every block size; 1.11.0 failed it 2 / 20) are **fixture-verified**
+(progress.md "F1 fix"). Everything else is **implemented** (unit/mock-tested). **Hardware-only** and still
 the owner's: every §5 item — live latency p95s (key-down → first buffer, cold launch → first landing), 50 live
 silent holds, latch placement in Docs/Claude/Notes, AX word-mark overlays and D09, tape flight to a real caret,
 the live K02 modifier poll, VoiceOver / high contrast / Reduce Motion on the real pill, external-monitor
@@ -883,6 +884,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 3 | S10 | [x] | 0df97a6, 1a334b8 | S10 suites 41 (+41), related 188 | implemented; VoiceOver / Reduce Motion hardware-only | EscapeHotkey layers (additive); colour crossfade and undo ring left ungated |
 | 3 | S11 | [x] | d54b588 | RecoveryCatalogWiring 12 (+12), 9 copy suites updated | implemented; all 59 ids walked through pill + window | SessionCoordinator.onRefusal unassigned; meeting panel writes own consequence lines |
 | 4 | R1–R4 | [x] | R1 none (at `5ec671b`), R2 `928551d`, R3 `19c22ea`, R4 this commit | 3156 `--no-parallel`, all passing (W4 fixes +48 over W3's 3108) | R1 build + tests + real-room WER 0.100 (±0.001 vs 1.10.0); R3 DMG verified; hardware §5 | `--no-github`; tag `release/phase-V4-w1/v1.11.0` not yet created; quiet-room mic gate 2 / 20 (known issue) |
+| 4 | F1 fix → 1.11.1 | [x] | F1 fix `82ef429`, R3 `897888a`, docs this commit | 3161 `--no-parallel`, all passing (+5: `MicQualityDeterminismTests`, `EnergyVADStartUpDipTests`) | quiet-room mic gate 20 / 20, same result at every block size; 1.11.1 DMG verified | `--no-github`; tag `release/phase-V4-w1/v1.11.1` on this commit; the analyzer's own floor has no hold (SNR 6–26 dB high on 9 / 20, never a warning) |
 
 Design §13 acceptance mapping: scenario → test (suite › test) or §5 line. Evidence as labelled in §0; "open" = not yet covered. Re-checked at R4 (2026-09-19): no scenario is open on the agent side; the two gaps the W4 audit found (destination tape cue, lost key-up) are closed by `e7705a7` and `563b67a`, and scenario 3 also covers the manual dwell (`ef04bc8`: manual transform preview ends only by Cancel, Escape or a revalidated Replace text) and the focus pause (`f3b72d9`, `DwellFocusPauseTests`). Remaining work per row is the §5 hardware line.
 

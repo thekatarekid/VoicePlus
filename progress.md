@@ -1630,6 +1630,7 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - R2 `928551d`: `Fixtures/prosody/script.md` (15 questions, 15 two-clause, 10 exclamations).
 - R3 `19c22ea`: `VoicePlus_V4-w1_1.11.0.dmg`, 19 MB, sha256 `e80a1b58715c68f31661886001899246914657f03cc7ca02477caf618165cf92`, verify_install OK, 25 DMGs retained; `--no-github`.
 - R4: build doc §3/§5/§7 final status, DECISIONS.md V4 Wave 1 entry.
+- 1.11.1 = 1.11.0 + F1 fix: R3 `897888a`, `VoicePlus_V4-w1_1.11.1.dmg` from a clean worktree at `82ef429`, 19 MB, sha256 `8a2edfd55e788854c72f39361bb828787b25ae23bdbbfa0a387aa46cedcbf7a5`, verify_install OK, 26 DMGs retained, none overwritten; quiet-room mic gate 20 / 20; 3161 tests `--no-parallel`, all passing; tag `release/phase-V4-w1/v1.11.1`; `--no-github`.
 - Open for the owner: every §5 hardware item (numbers to collect are listed per item); quiet-room mic gate fixed after 1.11.0 (F1 fix below; calibrate the SNR bounds in Wave 2); record the prosody script; create tag `release/phase-V4-w1/v1.11.0` on the final release commit (and a GitHub release if wanted); live VoiceOver cursor on the pill untested.
 
 #### F1 fix (after 1.11.0, not in its DMG)

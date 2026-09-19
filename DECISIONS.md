@@ -467,8 +467,8 @@ Build doc: `VoicePlus_ImplementationBuild_V4_Wave1+Design.md`. Five decisions th
 - **SNR thresholds are a hypothesis.** Poor < 10 dB, bad < 5 dB (entry above, F1). The replay of
   `Fixtures/real-room/builtin` failed the "0 warnings" gate 2 / 20 — not because of the bounds:
   the energy VAD opened at capture start and the analyzer graded the room as speech. Fixed by the
-  F1 fix below (20 / 20 good, bounds unchanged); calibrate per device class next and update the F1
-  entry.
+  F1 fix below (20 / 20 good, bounds unchanged; shipped in 1.11.1); calibrate per device class next
+  and update the F1 entry.
 - **Energy VAD floor hold; mic-quality verdict fed in VAD lockstep (F1 fix, 2026-09-19).** The
   built-in mic dips 10–20 dB below the room for 30–45 ms right after capture starts; `EnergyVAD`'s
   plain 4 s minimum took that dip as its floor and called the room speech from 0.01–0.15 s (18 / 20
