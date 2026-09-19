@@ -77,16 +77,31 @@ public struct TransformGhost: Equatable, Sendable {
 
 /// Pure reducer for the transform pill (P2.3): editing → done(+ghost) → warm(8 s) → hidden.
 /// The warm window is `TransformSession.warmWindow`; the ghost is `TransformGhost.lifetime`.
+///
+/// S12 — between editing and done sits the edited preview (R1): the morph shows the before → after
+/// diff, no ghost (nothing is written, so there is nothing to undo), no warm countdown. `done` and
+/// its ghost (R2, "Updated · Undo") only follow a replacement that was actually written.
 public struct TransformPillReducer: Equatable, Sendable {
     public enum Event: Equatable, Sendable {
         case began(words: Int)
+        /// S12 — R1's edited final preview; the original is still unchanged.
+        case previewing(instruction: String, before: String, after: String, diff: WordDiff)
         case applied(instruction: String, before: String, after: String, diff: WordDiff)
         case noChange
         case failed(String)
+        /// S12 — the preview was cancelled; nothing was replaced.
+        case cancelled
+        /// S12 — the target changed before the replacement; the edit went to the held-text row.
+        case held(reason: String)
+        /// S12 — undo was refused (window over, or the edited range changed); `line` says which.
+        case undoRefused(String)
         case undone
         case tick
         case ended
     }
+    /// How long a closing notice (cancelled, undo refused) stays before the pill retracts.
+    public static let closingNotice: TimeInterval = 1.2
+
     public var warmWindow: TimeInterval
     public var ghostLifetime: TimeInterval
     public private(set) var state: PillState = .hidden
@@ -94,19 +109,45 @@ public struct TransformPillReducer: Equatable, Sendable {
     public private(set) var morph: MorphAnimationModel?
     private var words = 0
     private var warmSince: Date?
+    private var hideAt: Date?
 
     public init(warmWindow: TimeInterval = 8, ghostLifetime: TimeInterval = TransformGhost.lifetime) {
         self.warmWindow = warmWindow; self.ghostLifetime = ghostLifetime
     }
 
     public var isWarm: Bool { warmSince != nil }
+    /// Something is timed: the warm window, or a closing notice waiting to retract.
+    public var needsTicks: Bool { warmSince != nil || hideAt != nil }
+    /// S12 — the edit is running or its preview is showing: nothing has been written, so Escape
+    /// keeps the original (R1 "Esc"). False from the first outcome on.
+    public private(set) var awaitsDecision = false
+    /// S12 — the edited preview is on the row; hover on the pill freezes its dwell.
+    public private(set) var isPreviewing = false
 
     @discardableResult
     public mutating func reduce(_ event: Event, now: Date) -> PillState {
+        if event != .tick { hideAt = nil; awaitsDecision = false; isPreviewing = false }
         switch event {
         case .began(let n):
             words = n; ghost = nil; morph = nil; warmSince = nil
+            awaitsDecision = true
             state = .transform(.init(editingWords: n, stage: .editing))
+        case .previewing(let instruction, let before, let after, let diff):
+            let preview = TransformPreview(instruction: instruction, before: before, after: after)
+            morph = MorphAnimationModel(diff: diff)
+            ghost = nil; warmSince = nil
+            awaitsDecision = true; isPreviewing = true
+            words = preview.wordCount
+            state = .transform(.init(editingWords: words, stage: .notice(TransformPreviewCopy.compactLine(preview))))
+        case .cancelled:
+            ghost = nil; morph = nil; warmSince = nil; hideAt = now + Self.closingNotice
+            state = .transform(.init(editingWords: words, stage: .notice(TransformPreviewCopy.cancelledLine)))
+        case .held:
+            warmSince = nil; ghost = nil; morph = nil
+            state = .hidden
+        case .undoRefused(let line):
+            ghost = nil; morph = nil; warmSince = nil; hideAt = now + Self.closingNotice
+            state = .transform(.init(editingWords: words, stage: .notice(line)))
         case .applied(let instruction, let before, let after, let diff):
             let m = MorphAnimationModel(diff: diff)
             morph = m
@@ -124,6 +165,10 @@ public struct TransformPillReducer: Equatable, Sendable {
             ghost = nil; morph = nil; warmSince = now
             state = .transform(.init(editingWords: words, stage: .notice("put back")))
         case .tick:
+            if let end = hideAt {
+                if now >= end { hideAt = nil; state = .hidden }
+                break
+            }
             guard let since = warmSince else { break }
             let elapsed = now.timeIntervalSince(since)
             if elapsed >= warmWindow { warmSince = nil; ghost = nil; state = .hidden; break }

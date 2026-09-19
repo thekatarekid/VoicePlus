@@ -42,7 +42,7 @@ struct TransformUXTests {
         #expect(!TransformPillInfo(editingWords: 3, stage: .warm(remaining: 6)).showsGhost)
         #expect(PillState.transform(.init(editingWords: 1, stage: .editing)).caseName == "transform")
         #expect(PillState.transform(.init(editingWords: 1, stage: .editing)).isVisible)
-        #expect(NotchGeometry.size(for: .transform(.init(editingWords: 1, stage: .editing))) == NotchGeometry.expandedSize)
+        #expect(NotchGeometry.size(for: .transform(.init(editingWords: 1, stage: .editing))) == NotchGeometry.activeSize)
     }
 
     @Test func reducerEditingDoneGhostWarmHidden() {
