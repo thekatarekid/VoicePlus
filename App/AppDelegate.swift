@@ -217,6 +217,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               self?.session?.stop(.hotkey)
                               self?.hotkey.resetGesture()
                           })
+        // K02 (design §13 scenario 9): a key-up the listener never delivered is synthesized from the
+        // modifier state by `HotkeyService`; the turn controller then posts "Dictation stopped".
+        TurnWiring.wireLostKeyUp(hotkey)
         // ── end S3 ──────────────────────────────────────────────────────────────────────────────
 
         // H2 (V4.49) — every hold-to-talk utterance with ≥ 1.5 s of speech teaches the voice until

@@ -96,6 +96,20 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         return [.cancelCapture]
     }
 
+    /// K02 (design §5 "lost key-up", §13 scenario 9) — the key is no longer down but its key-up never
+    /// arrived: a secure-input switch or a stalled listener swallowed it. Without this the machine
+    /// would stay in `.keyDown` and drop every later key-down as key repeat, leaving capture open.
+    /// Ends the press as its key-up would at `t` (when the real modifier state was read), except
+    /// that a synthesized release never arms or enters Latch: a hold past the threshold finalizes
+    /// (its words are kept), anything shorter cancels. Nothing outside `.keyDown`.
+    @discardableResult
+    public mutating func lostKeyUp(at t: TimeInterval) -> [Action] {
+        guard case .keyDown(let since) = phase else { return [] }
+        phase = .idle
+        lastTapUp = nil
+        return t - since >= timing.holdThreshold ? [.finalize] : [.cancelCapture]
+    }
+
     /// External reset (e.g. engine error, permission lost).
     public mutating func reset() {
         phase = .idle

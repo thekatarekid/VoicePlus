@@ -371,6 +371,30 @@ public final class HotkeyService {
         CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .flagsChanged)
     }
 
+    // MARK: K02 — lost key-up (design §5, §13 scenario 9)
+
+    /// How often the real modifier state is read while a bare-modifier key is down.
+    public static let releasePollInterval: TimeInterval = 0.25
+    /// Consecutive polls that must see the key up before its key-up counts as lost. The first poll
+    /// can race a real key-up still queued on the main thread; one interval later it cannot.
+    public static let releasePollStrikes = 2
+    /// The dictation key's release never arrived and was synthesized from the modifier state (after
+    /// the machine's own `.finalize` / `.cancelCapture` went to `onAction`): the turn posts K02.
+    public var onLostKeyUp: (() -> Void)?
+    /// The session's current modifier flag word (`CGEventFlags` bits). Needs no permission.
+    public var modifierFlags: () -> UInt64 = { CGEventSource.flagsState(.combinedSessionState).rawValue }
+    /// Seconds since boot, the clock `NSEvent` / `CGEvent` timestamps use, for the synthesized key-up.
+    public var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// Polls in a row that saw the key up while the machine still thought it was down.
+    private var releaseUpStrikes = 0
+    private var releasePoll: Timer?
+
+    /// The poll is due: a live source serves a bare modifier that the machine holds down.
+    var wantsReleasePoll: Bool {
+        guard isRunning, binding.style == .bareModifier, case .keyDown = machine.phase else { return false }
+        return true
+    }
+
     public init(defaults: UserDefaults = .standard, timing: HotkeyStateMachine.Timing = .default,
                 bindingKey: String = HotkeyService.bindingDefaultsKey,
                 defaultBinding: HotkeyBinding = HotkeyService.defaultBinding) {
@@ -399,6 +423,7 @@ public final class HotkeyService {
     /// whose owner is gone is exactly the shape of a use-after-free. There was no `deinit` here
     /// until 1.6.7.
     deinit {
+        releasePoll?.invalidate()
         teardownSource()
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
     }
@@ -408,6 +433,7 @@ public final class HotkeyService {
         binding = HotkeyBinding(kind: kind)
         defaults.set(kind.rawValue, forKey: bindingKey)
         machine.reset()
+        updateReleasePoll()
         // A chord and a bare modifier are served by different mechanisms, so a change between them
         // has to re-install, not just re-interpret. Same-mechanism changes need nothing.
         if isRunning, ruledBackendKind != previousBackend { rearm() }
@@ -462,11 +488,60 @@ public final class HotkeyService {
         case .down: actions = machine.keyDown(at: timestamp)
         case .up: actions = machine.keyUp(at: timestamp)
         }
+        updateReleasePoll()
         for action in actions { onAction?(action) }
     }
 
     /// Called by the coordinator when the engine failed so a stuck key-down doesn't leave us "capturing".
-    public func resetGesture() { machine.reset() }
+    public func resetGesture() {
+        machine.reset()
+        updateReleasePoll()
+    }
+
+    /// K02 — reads the real modifier state while the machine holds a bare-modifier key down. When
+    /// `releasePollStrikes` reads in a row find the key up, its key-up was lost (a secure-input switch,
+    /// an event-tap timeout): the machine ends the press as that key-up would (`lostKeyUp`, a hold
+    /// finalizes and keeps its words, never Latch), then `onLostKeyUp` tells the turn. A later key-down
+    /// starts a new turn instead of being dropped as key repeat. Returns true when it synthesized one.
+    /// Driven by a 250 ms timer while the key is down, and on every tap-disabled event.
+    @discardableResult
+    public func checkForLostKeyUp() -> Bool {
+        guard binding.style == .bareModifier, case .keyDown = machine.phase else {
+            releaseUpStrikes = 0
+            return false
+        }
+        guard modifierFlags() & binding.kind.flagMask == 0 else {
+            releaseUpStrikes = 0
+            return false
+        }
+        releaseUpStrikes += 1
+        guard releaseUpStrikes >= Self.releasePollStrikes else { return false }
+        releaseUpStrikes = 0
+        let actions = machine.lostKeyUp(at: uptime())
+        updateReleasePoll()
+        Log.app.notice("hotkey: \(binding.kind.displayName) is up but its key-up never arrived — ending the press (K02)")
+        for action in actions { onAction?(action) }
+        onLostKeyUp?()
+        return true
+    }
+
+    /// Keeps the 250 ms poll running exactly while `wantsReleasePoll`. The timer reads the system's
+    /// modifier state, so it runs only with a system backend (`installer == nil`); tests call
+    /// `checkForLostKeyUp()` with their own `modifierFlags`.
+    private func updateReleasePoll() {
+        guard wantsReleasePoll else {
+            releasePoll?.invalidate()
+            releasePoll = nil
+            releaseUpStrikes = 0
+            return
+        }
+        guard releasePoll == nil, installer == nil, Thread.isMainThread else { return }
+        let timer = Timer(timeInterval: Self.releasePollInterval, repeats: true) { [weak self] _ in
+            self?.checkForLostKeyUp()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        releasePoll = timer
+    }
 
     // MARK: Source lifecycle
 
@@ -519,6 +594,7 @@ public final class HotkeyService {
         armedAt = nil
         eventsReceived = 0
         machine.reset()
+        updateReleasePoll()
     }
 
     /// Idempotent, and safe from `deinit`.
@@ -594,6 +670,8 @@ public final class HotkeyService {
         guard let service = HotkeyTapRegistry.service(for: token), let source = service.installedSource else { return }
         Log.app.notice("hotkey: tap was disabled by the system — re-enabling")
         source.setEnabled(true)
+        // K02 — the key-up may have been one of the events the disabled tap dropped.
+        service.checkForLostKeyUp()
     }
 
     /// The chord a token's service is bound to, for the Carbon installer. nil when the binding is a
