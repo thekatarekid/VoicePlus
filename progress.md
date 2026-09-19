@@ -1605,3 +1605,14 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - **Wave 2 gate passed (11/11 done).** `swift build --build-tests` clean (no new warnings; only the old R5.4 Sendable one); `swift test --no-parallel`: **2956 tests, all passing** (2955 before the gate fix).
 - Gate fixes: `5835447` `MeetingCaptureWiring.install` + pill meeting buttons routed first (S7c); `AppRules.applying` applies per-app style / contextual reading last in the lander's augmenter (S7d, +1 test); `PrivacyWiring.mute` = live MuteController (S7f). No test deleted, no copy test changed.
 - Open: S7g double-tap latch filter + sound cues need AppDelegate hooks; history-off still saves (lander/TurnStore); Larger Text / Reduce Motion to pill (S10); theme at launch; real updater; LabWiring disclosures; word marks await S5; all hardware checks in §5.
+
+#### Wave 3
+
+- W3H done · 85baddd · wave-2 hand-offs: latch gesture, sound cues, launch theme, history-off gating, pill Review routing
+- S4 done · 363a80b · tape flight from Spool's mouth to the verified caret; suppression matrix; golden flights
+- S5 done · 434b755, 83a3473 · uncertainty marks mapped through formatting, destination overlay ladder, correction popover, range-guarded replace
+- S10 done · 0df97a6, 1a334b8 · Reduce Motion, VoiceOver announcements, reading order, Escape layers, Larger Text, grapheme-safe marks
+- S11 done · d54b588 · every pill/window/onboarding/menu error resolves through RecoveryCatalog; retry per action kind
+- **Wave 3 gate passed (5/5 done).** `swift build --build-tests` clean (no new warnings; old LabWiring / DeliveryPillDriver / R5.4 Sendable ones remain); `swift test --no-parallel`: **3108 tests, all passing**.
+- Gate fixes: `5bb52e9` preflight-bound test's release is a 60 s hang guard (3 s let loaded parallel runs fail `!passed`). No test deleted; updated copy tests: S11 in 9 suites (DeliverySurface, PillRows, MainWindowShell, OnboardingDictation, AmbientTimeline, DesignCopyParity, DictionaryAppsS7d, TransformUX, CaptureStartBudget), W3H 2 expectations in SettingsReachability.
+- Open: pill "N words to review" counts low-confidence spans, not mapped marks (T05 rewrites differ); S12 manual dwell still 1.5 s for transforms; `SessionCoordinator.onRefusal` unassigned; Privacy history-off copy; NoopUpdater; all hardware checks in §5 (items 13–14, VoiceOver, AX overlays).

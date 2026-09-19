@@ -739,7 +739,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ### Wave 3 — S4 · Tape flight (design §4 "mouth-to-caret")
 
-- [ ] **S4 `App/Overlay/TapeFlight*.swift`**
+- [x] **S4 `App/Overlay/TapeFlight*.swift`**
   - Pointer-transparent overlay (reuse `OverlayWindow` type, separate instance) drawing the ribbon from `SpoolView.mouthAnchor` (window → screen coords) to the verified caret rect (`WordRectProvider` bounds-for-range at the insertion point, pre-insertion); reels clockwise meanwhile (S1 pose `inserting`).
   - Maths exactly as the prototype's `flight()` (use `SpoolFlight` from S1): head `sm(t/0.65)`, tail `sm((t−0.72)/0.33)` (gone at 1.05 s); cubic Bézier with `bend = min(110, |dy|·0.46)`, `c1 = from + (24, bend)`, `c2 = to + (max(45, |dx|·0.25), −bend/2)`; 121 samples between tail and head; lateral wave `sin(πu)·sin(2π·2.2u − 9t)·13` on x and 0.4× on y; ribbon width 9; roll `2.4·sin(2π·1.8u − 5t)·sin(πu)`. Parity: the six `flights` hashes in `spool_golden.json`.
   - Suppress (no flight, normal label/outcome) when: caret rect unavailable, target changed, secure field, other display, Reduce Motion. Clear immediately on interruption/state change. Never delays or triggers the write (S3 owns the write; the flight subscribes).
@@ -747,7 +747,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ### Wave 3 — S5 · Uncertainty marks and correction (design §7)
 
-- [ ] **S5 `App/UI/Marks/`, `App/Correction/`**
+- [x] **S5 `App/UI/Marks/`, `App/Correction/`**
   - In the pill: 2 px red dotted underline 3 px below baseline on every wrapped fragment of spans with `isLowConfidence`; "1 word to review"; accessible label; uncertain count drives the 1800 ms dwell (S3). Spans are mapped through formatting with `WordAligner`; removed fillers lose marks; unalignable rewrites flag the smallest reliable phrase or the whole result ("Review this phrase", T05).
   - In the destination: transparent non-activating overlay anchored to word rects (`WordRectProvider`), tracking scroll / zoom / wrap / window move / display change via AX notifications; hidden when the app leaves front, restored after revalidation. Ladder: VoicePlus fields → validated adapters (Notes, TextEdit, Mail, Safari as the first matrix; recorded per bundle) → "Word marks aren't available in this app" (D09) with marks retained in Review / Today. Never modifies target text.
   - Correction popover: anchored to the word; ≤ 3 credible alternatives from `alternates`, Edit…, Keep, "Remember spelling" (unchecked → `LearnedLexicon`); replace only if the original range still matches (`ReplaceRange`), else D10 copy and copy-to-clipboard; Escape closes; focus returns to the word/pill.
@@ -755,7 +755,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ### Wave 3 — S10 · Accessibility, motion, keyboard (design §11)
 
-- [ ] **S10**
+- [x] **S10**
   - Reduce Motion (`NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` + Appearance setting): static Spool, no flight, no twist; numeric level readout replaces tape motion; state labels and dwell unchanged.
   - VoiceOver: announce start, stop, "final text ready · N words to review", delivery result; never per-token. Artwork `accessibilityHidden`.
   - Keyboard: Tab order in reading order for held/error actions; Escape closes a popover before cancelling a turn; focus returns predictably; no global key swallowing outside the turn (I2).
@@ -764,7 +764,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 
 ### Wave 3 — S11 · Catalogue wiring
 
-- [ ] **S11** — every pill, window, onboarding and menu error path resolves its copy through `RecoveryCatalog` (S9); `DeliveryCopy` constants become catalogue lookups; per design §10 retry semantics (no universal Retry; unconfirmed never auto-retries). Tests: a table-driven test walks every catalogue id through the pill row and window notice renderers.
+- [x] **S11** — every pill, window, onboarding and menu error path resolves its copy through `RecoveryCatalog` (S9); `DeliveryCopy` constants become catalogue lookups; per design §10 retry semantics (no universal Retry; unconfirmed never auto-retries). Tests: a table-driven test walks every catalogue id through the pill row and window notice renderers.
 
 ### Wave 4 — R · Release 1.11.0
 
@@ -865,10 +865,11 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (build clean + test
 | 2 | S7g | [x] | e23ea8d..72597d2 | S7g 46 (+46), related 66 | implemented; §5 item 11 | double-tap latch + sound cues unwired in AppDelegate; NoopUpdater |
 | 2 | S12 | [x] | ad0495f..a4aa188 | S12 suites 59 | implemented | manual dwell waits 1.5 s for transforms; before/after rows undrawn |
 | 2 | S8 | [x] | b22cf26, 8751fcb | onboarding filter 192 | implemented; §5 item 12 | Voice step reads three lines; waitUntil is a 60 s hang guard |
-| 3 | S4 | [ ] | | | | |
-| 3 | S5 | [ ] | | | | |
-| 3 | S10 | [ ] | | | | |
-| 3 | S11 | [ ] | | | | |
+| 3 | W3H | [x] | 85baddd | W3HHandoffTests 28 (+28), related 71 | implemented; hardware-only parts in §5 | manual-dwell buttons unreachable (S12 1.5 s); Privacy history-off text stale |
+| 3 | S4 | [x] | 363a80b | TapeFlightTests 15 (+15), Spool suites 45 | implemented + fixture-verified (6 golden flights); §5 item 13 | caret moved during preview suppresses, not re-aims; `.field-line` cue unbuilt |
+| 3 | S5 | [x] | 434b755, 83a3473 | S5 50 (+50), WordAlignerTextS5 6 (+6), related 126 | implemented; §5 item 14 | review count from spans, not mapped marks; lexicon at retrain |
+| 3 | S10 | [x] | 0df97a6, 1a334b8 | S10 suites 41 (+41), related 188 | implemented; VoiceOver / Reduce Motion hardware-only | EscapeHotkey layers (additive); colour crossfade and undo ring left ungated |
+| 3 | S11 | [x] | d54b588 | RecoveryCatalogWiring 12 (+12), 9 copy suites updated | implemented; all 59 ids walked through pill + window | SessionCoordinator.onRefusal unassigned; meeting panel writes own consequence lines |
 | 4 | R1–R4 | [ ] | | | | |
 
 Design §13 acceptance mapping (fill in): scenario → test name or §5 line.
