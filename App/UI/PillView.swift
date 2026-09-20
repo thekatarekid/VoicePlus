@@ -360,7 +360,13 @@ public final class PillViewModel: ObservableObject {
 
     /// A dotted word was clicked (or activated from the keyboard / VoiceOver).
     public func reviewMark(_ id: Int, anchor: CGRect? = nil) {
-        if case .finalPreview = state { beginEditingMark(id); return }
+        switch state {
+        case .finalPreview, .held, .error:
+            guard markMapping(for: actionText).mark(id: id) != nil else { return }
+            beginEditingMark(id)
+            return
+        default: break
+        }
         let mapping = marks(for: content().words)
         guard let mark = mapping.mark(id: id) else { return }
         onReviewMark?(mark, mapping, anchor)
@@ -502,7 +508,11 @@ public final class PillViewModel: ObservableObject {
     }
 
     public func acceptSuggestion(markID: Int, replacement: String) {
-        guard case .finalPreview = state, !hasMarkedText,
+        switch state {
+        case .finalPreview, .held, .error: break
+        default: return
+        }
+        guard !isEditingDraft, !hasMarkedText,
               let mark = markMapping(for: actionText).mark(id: markID),
               mark.alternatives.contains(replacement) else { return }
         beginEditingDraft()
