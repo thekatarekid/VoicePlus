@@ -932,7 +932,11 @@ struct PillBody: View {
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))
             }
             if let chipRow = lanes.chipRow {
-                PillChipRow(chips: model.deixisChips, note: model.laneNote).place(chipRow)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    PillChipRow(chips: model.deixisChips, note: model.laneNote)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                    .place(chipRow)
                     .accessibilitySortPriority(PillReadingOrder.priority(.chips))   // S10
             }
             if let key = SpoolStateKey(rawValue: content.spoolKey), motion.policy.showsLevelReadout(for: key) {

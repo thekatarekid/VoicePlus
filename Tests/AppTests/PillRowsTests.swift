@@ -330,7 +330,7 @@ struct PillRowsTests {
 
     // MARK: - Deixis chip
 
-    @Test func theDeixisChipLivesInTheTurnsTextLane() {
+    @Test func theDeixisChipLivesInTheTurnsHeader() {
         let model = PillViewModel()
         model.now = { Self.t0 }
         model.apply(.listening(level: 0.2))
@@ -343,6 +343,8 @@ struct PillRowsTests {
         #expect(model.turn.chipCount == 2)
         let lanes = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: true, hasActions: false)
         #expect(lanes.chipRow != nil && !(lanes.chipRow!.intersects(lanes.bay)))
+        #expect(lanes.wordsLane.height == 48)
+        #expect(lanes.chipRow!.maxY < lanes.wordsLane.minY)
         // The turn ends: the chip goes with it.
         model.apply(.idle)
         #expect(model.deixisChips.isEmpty)

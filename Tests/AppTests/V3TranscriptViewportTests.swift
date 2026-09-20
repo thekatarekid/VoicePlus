@@ -22,6 +22,28 @@ struct V3TranscriptViewportTests {
         #expect(!view.scroll.hasVerticalScroller)
     }
 
+    @Test func contextHeaderLeavesTwoCompleteLinesAndBothScrollArrowsVisible() {
+        let model = PillViewModel()
+        for width: CGFloat in [560, 399, 300] {
+            let lanes = PillLaneLayout(size: CGSize(width: width, height: 160), hasChip: true, hasActions: true)
+            let view = PillTranscriptViewport(frame: CGRect(x: 0, y: 0,
+                width: lanes.wordsLane.width + 20, height: lanes.wordsLane.height))
+            view.configure(model: model, words: .final("First line\nSecond line"), marks: .empty)
+            view.layout()
+            #expect(view.scroll.contentSize.height == 48)
+            #expect(view.text.frame.height == 48)
+            #expect(view.text.textContainerInset.height == 3)
+            let long = String(repeating: "More readable words. ", count: 40)
+            view.configure(model: model, words: .final(long), marks: .empty)
+            view.layout()
+            #expect(view.bounds.contains(view.up.frame))
+            #expect(view.bounds.contains(view.down.frame))
+            #expect(view.track.frame.height == 24)
+            #expect(!view.track.isHidden)
+            #expect(!view.down.isHidden)
+        }
+    }
+
     @Test func bracketAlternativesAreDisplayOnlyAndEditingUsesThePlainDraft() {
         let model = PillViewModel()
         let source = "Hello Mira"

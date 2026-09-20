@@ -240,8 +240,8 @@ public enum NotchGeometry {
 }
 
 /// S2 — where each row of the pill sits inside a pill of a given size (design §4, DESIGN.md §8.3,
-/// prototype `.notch` rules). Pure, so "never text under the face" and "the chip sits in the text lane
-/// above the tape" are unit tests. Coordinates are the pill's own: origin top-left, y down.
+/// prototype `.notch` rules). Pure, so text, header annotations and tape clearance can be tested.
+/// Coordinates are the pill's own: origin top-left, y down.
 public struct PillLaneLayout: Equatable, Sendable {
     public var size: CGSize
     /// The character bay on the right: 132 pt (84 pt narrow) plus the 16 pt inset, from the top down
@@ -249,13 +249,13 @@ public struct PillLaneLayout: Equatable, Sendable {
     public var bay: CGRect
     /// Status · destination / timer.
     public var statusRow: CGRect
-    /// The newest transcript lines (two, or one when the deixis chip takes the second).
+    /// The fixed two-line transcript viewport, including top and bottom glyph clearance.
     public var wordsLane: CGRect
     /// The confidence-dots lane: the band right under the words where each uncertain word's 2 px
     /// dotted mark sits (3 px below its baseline, design §7). Reserved, so the chip row and the tape
     /// lane never draw over the marks.
     public var confidenceLane: CGRect
-    /// Deixis chip row, under the transcript and above the tape lane; `nil` without a chip.
+    /// Deixis chips or lane note in the trailing header; `nil` without context annotations.
     public var chipRow: CGRect?
     /// Top of the tape's excursion band (the lane is at `tapeY`, bounded to ±12 pt, 8 pt ribbon).
     public var tapeTop: CGFloat
@@ -294,13 +294,16 @@ public struct PillLaneLayout: Equatable, Sendable {
         let inset = Self.inset
         bay = CGRect(x: size.width - inset - bayWidth, y: 0, width: bayWidth + inset, height: Self.helperY)
         let laneWidth = max(0, size.width - 2 * inset - bayWidth - Self.laneGap(narrow: narrow))
-        statusRow = CGRect(x: inset, y: Self.top, width: laneWidth, height: Self.statusHeight)
-        lineCount = hasChip ? 1 : 2
+        // Context annotations share the header instead of consuming a transcript line.
+        let headerGap: CGFloat = 8
+        let statusWidth = hasChip ? max(0, (laneWidth - headerGap) / 2) : laneWidth
+        statusRow = CGRect(x: inset, y: Self.top, width: statusWidth, height: Self.statusHeight)
+        lineCount = 2
         let wordsY = Self.top + Self.statusHeight + Self.wordsGap
         wordsLane = CGRect(x: inset, y: wordsY, width: laneWidth, height: CGFloat(lineCount) * Self.lineHeight + 6)
         confidenceLane = CGRect(x: inset, y: wordsLane.maxY - Self.confidenceHeight, width: laneWidth, height: Self.confidenceHeight)
         chipRow = hasChip
-            ? CGRect(x: inset, y: wordsLane.maxY + Self.chipGap, width: laneWidth, height: Self.chipHeight)
+            ? CGRect(x: statusRow.maxX + headerGap, y: Self.top, width: statusWidth, height: Self.chipHeight)
             : nil
         tapeY = Self.tapeY
         tapeTop = Self.tapeY - Self.tapeExcursion

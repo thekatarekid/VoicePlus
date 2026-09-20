@@ -258,24 +258,29 @@ struct NotchGeometryTests {
         #expect(wide.wordsLane.height == 48)                                    // two 20 pt lines
     }
 
-    /// Owner decision: the deixis chip sits in the text lane, under the transcript, above the tape lane.
-    @Test func theChipRowSitsUnderTheWordsAndAboveTheTape() throws {
-        let lanes = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: true, hasActions: false)
-        let chip = try #require(lanes.chipRow)
-        #expect(lanes.lineCount == 1)
-        #expect(chip.minY >= lanes.wordsLane.maxY)
-        #expect(chip.maxY <= lanes.tapeTop)
-        #expect(chip.minX == lanes.wordsLane.minX && chip.width == lanes.wordsLane.width)
-        #expect(!chip.intersects(lanes.bay))
-        #expect(PillLaneLayout(size: NotchGeometry.activeSize, hasChip: false, hasActions: false).chipRow == nil)
-        // The confidence dots sit between the words and the chip / tape, never under either.
-        for hasChip in [false, true] {
-            let l = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: hasChip, hasActions: false)
-            #expect(l.confidenceLane.maxY == l.wordsLane.maxY)
-            #expect(l.confidenceLane.maxY <= (l.chipRow?.minY ?? l.tapeTop))
-            #expect(l.confidenceLane.maxY <= l.tapeTop)
+    /// Context annotations share the header; every active state keeps both complete text lines.
+    @Test func contextAnnotationsPreserveTwoLinesWithoutMovingTapeOrFooter() throws {
+        for width: CGFloat in [560, 500, 400, 399, 368, 300] {
+            for hasActions in [false, true] {
+                let size = CGSize(width: width, height: 160)
+                let plain = PillLaneLayout(size: size, hasChip: false, hasActions: hasActions)
+                let annotated = PillLaneLayout(size: size, hasChip: true, hasActions: hasActions)
+                let chip = try #require(annotated.chipRow)
+                #expect(annotated.lineCount == 2)
+                #expect(annotated.wordsLane.height == 48)
+                #expect(annotated.wordsLane == plain.wordsLane)
+                #expect(annotated.helperRow == plain.helperRow)
+                #expect(annotated.actionRow == plain.actionRow)
+                #expect(annotated.tapeY == plain.tapeY)
+                #expect(chip.minY == annotated.statusRow.minY)
+                #expect(chip.maxY < annotated.wordsLane.minY)
+                #expect(!chip.intersects(annotated.statusRow))
+                #expect(!chip.intersects(annotated.bay))
+                #expect(chip.maxX == annotated.wordsLane.maxX)
+                #expect(annotated.confidenceLane.maxY == annotated.wordsLane.maxY)
+                #expect(annotated.confidenceLane.maxY <= annotated.tapeTop)
+                #expect(plain.chipRow == nil)
+            }
         }
-        // The tape lane is the Spool scene's (spool_spec.json › sceneGeometry › tapeStart.y).
-        #expect(lanes.tapeY == CGFloat(SpoolScene.tapeStart.y))
     }
 }
