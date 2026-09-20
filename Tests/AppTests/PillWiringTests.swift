@@ -132,15 +132,18 @@ struct PillWiringTests {
 
     // MARK: - Mouse policy
 
-    /// The pill takes the pointer only where there is something to act on or a dwell to pause: action
-    /// rows, the final preview, a transform preview; never under live capture without a button.
+    /// V3 transcripts accept scrolling/selecting while their fixed startup hints remain click-through.
+    /// Keyboard nonactivation during capture is separately covered by the native viewport tests.
     @Test func thePillTakesThePointerOnlyWhereItMatters() {
         let c = PillTurnContext(destination: "Mail", liveText: "w", captureOpen: true)
         func accepts(_ s: PillState) -> Bool { PillPanelController.acceptsMouse(s, content: PillContent.make(s, context: c)) }
-        #expect(!accepts(.listening(level: 0.3)))
-        #expect(!accepts(.starting))
-        #expect(!accepts(.inserting(text: "w")))
-        #expect(!accepts(.landed(LandedPillInfo(text: "w", verified: true))))
+        #expect(accepts(.listening(level: 0.3)))
+        #expect(accepts(.starting)) // prior/live words are still readable
+        #expect(accepts(.inserting(text: "w")))
+        #expect(accepts(.landed(LandedPillInfo(text: "w", verified: true))))
+        let emptyStart = PillContent.make(.starting, context: PillTurnContext())
+        #expect(!PillPanelController.acceptsMouse(.starting, content: emptyStart))
+        #expect(!PillPanelController.acceptsMouse(.hidden, content: .hidden))
         #expect(accepts(Self.preview))                                     // hover pauses the dwell
         #expect(accepts(.landed(LandedPillInfo(text: "w", verified: false))))
         #expect(accepts(.held(HeldPillInfo(text: "w", destination: "Mail", reason: "destination changed"))))

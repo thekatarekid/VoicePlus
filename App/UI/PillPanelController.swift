@@ -118,11 +118,14 @@ public final class PillPanelController {
         return content.surface { text in ceil((text as NSString).size(withAttributes: [.font: font]).width) + 1 }
     }
 
-    /// Mouse policy (DESIGN.md §8.9): the pill ignores the pointer except its action row and the
-    /// hover-pause area while a preview dwells — the dictation's final preview, or a selected-text
-    /// edit's before/after preview (`.transform` notice, S12). It never takes keyboard focus.
+    /// V3: readable transcripts accept scrolling and selection throughout the turn. Fixed startup
+    /// hints remain click-through; capture text separately rejects keyboard focus in DraftTextView.
     static func acceptsMouse(_ state: PillState, content: PillContent) -> Bool {
-        if content.hasActions || content.words.text?.isEmpty == false { return true }
+        if content.hasActions { return true }
+        switch content.words {
+        case .live(let text), .final(let text): if !text.isEmpty { return true }
+        case .none, .fixed: break
+        }
         switch state {
         case .finalPreview, .held: return true
         case .transform(let info):

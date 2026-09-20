@@ -18,9 +18,9 @@ struct PillTranscriptView: NSViewRepresentable {
 final class PillTranscriptViewport: NSView, NSTextViewDelegate {
     let scroll = NSScrollView()
     let text = DraftTextView()
-    private let up = NSButton()
-    private let down = NSButton()
-    private let track = TranscriptRail()
+    let up = TranscriptScrollButton()
+    let down = TranscriptScrollButton()
+    let track = TranscriptRail()
     private weak var model: PillViewModel?
     private var observed: NSObjectProtocol?
     private var editing = false
@@ -74,7 +74,11 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             guard let self else { return }
             self.scrollTo(fraction * self.maximumOffset)
         }
+        track.onScroll = { [weak self] command in self?.navigate(command) }
         addSubview(track)
+        text.nextKeyView = up
+        up.nextKeyView = track
+        track.nextKeyView = down
         observed = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
             object: scroll.contentView, queue: .main) { [weak self] _ in self?.refreshRail() }
     }
@@ -83,9 +87,17 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
 
     func configure(model: PillViewModel, words: PillContent.Words, marks: MarkMapping) {
         self.model = model
-        text.onKeyInteraction = { [weak model] in
-            if let model, !model.pointerInside { model.noteKeyboardInteraction() }
+        text.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction() }
+        text.onApplyDraft = { [weak self, weak model] in
+            self?.publishEditorText()
+            return model?.applyDraftEdits() ?? false
         }
+        for (control, id) in [(up, "transcript.scroll.up"), (down, "transcript.scroll.down")] {
+            control.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: id) }
+            control.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction(element: id) }
+        }
+        track.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: "transcript.scroll") }
+        track.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction(element: "transcript.scroll") }
         text.onCompositionChange = { [weak self] in self?.publishEditorText() }
         text.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: "draft.editor") }
         let began = !editing && model.isEditingDraft
@@ -99,6 +111,12 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         let followsEnd = scroll.contentView.bounds.minY >= maximumOffset - 3
         let changed = source != lastSource || shownMarks != marks || began || ended || wasLive != live
         text.isEditable = editing
+        if editing, !text.hasMarkedText() {
+            text.typingAttributes = [.font: Tokens.Typography.pillTranscript.nsFont(),
+                                     .foregroundColor: Tokens.Pill.ink,
+                                     .paragraphStyle: Tokens.Typography.pillTranscript.paragraphStyle()]
+        }
+        text.editsWord = model.editingMarkID != nil
         if ended {
             model.setFocus(false, element: "draft.editor")
             if window?.firstResponder === text { window?.makeFirstResponder(nil) }
@@ -153,11 +171,12 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
                 .link: "word:\(mark.id)"
             ], range: range)
             if let suggestion = model?.suggestion(for: mark) {
-                let alternative = NSMutableAttributedString(string: " [\(suggestion)]", attributes: [
-                    .font: Tokens.Typography.pillTranscript.nsFont(),
+                let alternative = NSMutableAttributedString(string: " [or did you mean \(suggestion)]", attributes: [
+                    .font: Tokens.Typography.pillTranscript.nsFont(scale: 0.84),
                     .foregroundColor: Tokens.Pill.uncertainty,
                     .paragraphStyle: Tokens.Typography.pillTranscript.paragraphStyle(),
-                    .link: "suggest:\(mark.id)"
+                    .link: "suggest:\(mark.id)",
+                    .transcriptSuggestion: true
                 ])
                 result.insert(alternative, at: NSMaxRange(range))
             }
@@ -203,6 +222,17 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         track.visibleFraction = min(1, scroll.contentSize.height / max(1, text.frame.height))
         track.needsDisplay = true
     }
+    private func navigate(_ command: TranscriptScrollCommand) {
+        let y = scroll.contentView.bounds.minY
+        switch command {
+        case .lineUp: scrollTo(y - 21)
+        case .lineDown: scrollTo(y + 21)
+        case .pageUp: scrollTo(y - max(21, scroll.contentSize.height - 6))
+        case .pageDown: scrollTo(y + max(21, scroll.contentSize.height - 6))
+        case .start: scrollTo(0)
+        case .end: scrollTo(maximumOffset)
+        }
+    }
     @objc private func scrollUp() { scrollTo(scroll.contentView.bounds.minY - 21) }
     @objc private func scrollDown() { scrollTo(scroll.contentView.bounds.minY + 21) }
     func textDidChange(_ notification: Notification) {
@@ -230,13 +260,46 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
     }
 }
 
-private final class TranscriptRail: NSView {
+enum TranscriptScrollCommand {
+    case lineUp, lineDown, pageUp, pageDown, start, end
+
+    static func key(_ event: NSEvent) -> Self? {
+        switch event.keyCode {
+        case 126: return event.modifierFlags.contains(.command) ? .start : .lineUp
+        case 125: return event.modifierFlags.contains(.command) ? .end : .lineDown
+        case 116: return .pageUp
+        case 121: return .pageDown
+        case 115: return .start
+        case 119: return .end
+        default: return nil
+        }
+    }
+}
+
+final class TranscriptRail: NSView {
     var fraction: CGFloat = 0
     var visibleFraction: CGFloat = 1
     var onFraction: ((CGFloat) -> Void)?
+    var onScroll: ((TranscriptScrollCommand) -> Void)?
+    var onFocusChange: ((Bool) -> Void)?
+    var onKeyInteraction: (() -> Void)?
+    override var acceptsFirstResponder: Bool { !isHidden }
+    override func becomeFirstResponder() -> Bool { onFocusChange?(true); return true }
+    override func resignFirstResponder() -> Bool { onFocusChange?(false); return true }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill() }
+    override func keyDown(with event: NSEvent) {
+        onKeyInteraction?()
+        if event.keyCode == 48 {
+            if event.modifierFlags.contains(.shift) { window?.selectPreviousKeyView(self) }
+            else { window?.selectNextKeyView(self) }
+        } else if let command = TranscriptScrollCommand.key(event) { onScroll?(command) }
+        else { super.keyDown(with: event) }
+    }
     override var isFlipped: Bool { true }
     override init(frame: NSRect) {
         super.init(frame: frame)
+        focusRingType = .exterior
         setAccessibilityElement(true)
         setAccessibilityRole(.scrollBar)
         setAccessibilityLabel("Transcript position")
@@ -249,7 +312,11 @@ private final class TranscriptRail: NSView {
         NSColor(srgbRed: 0.67, green: 0.47, blue: 0.35, alpha: 1).setFill()
         NSBezierPath(roundedRect: CGRect(x: 2, y: (bounds.height - height) * fraction, width: max(2, bounds.width - 4), height: height), xRadius: 2, yRadius: 2).fill()
     }
-    override func mouseDown(with event: NSEvent) { move(event) }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        window?.makeFirstResponder(self)
+        move(event)
+    }
     override func mouseDragged(with event: NSEvent) { move(event) }
     private func move(_ event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
@@ -257,12 +324,66 @@ private final class TranscriptRail: NSView {
         onFraction?(min(1, max(0, (point.y - height / 2) / max(1, bounds.height - height))))
     }
     override func accessibilityValue() -> Any? { Int(fraction * 100) }
-    override func accessibilityPerformIncrement() -> Bool { onFraction?(min(1, fraction + 0.1)); return true }
-    override func accessibilityPerformDecrement() -> Bool { onFraction?(max(0, fraction - 0.1)); return true }
+    override func accessibilityPerformIncrement() -> Bool { onKeyInteraction?(); onScroll?(.lineDown); return true }
+    override func accessibilityPerformDecrement() -> Bool { onKeyInteraction?(); onScroll?(.lineUp); return true }
 }
 
 
+extension NSAttributedString.Key {
+    /// Visual suggestions are decorations, never part of a copied or inserted transcript.
+    static let transcriptSuggestion = NSAttributedString.Key("VoicePlus.transcriptSuggestion")
+}
+
+final class TranscriptScrollButton: NSButton {
+    var onFocusChange: ((Bool) -> Void)?
+    var onKeyInteraction: (() -> Void)?
+    override var acceptsFirstResponder: Bool { !isHidden }
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChange?(true) }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocusChange?(false) }
+        return accepted
+    }
+    override func keyDown(with event: NSEvent) { onKeyInteraction?(); super.keyDown(with: event) }
+}
+
 final class DraftTextView: NSTextView {
+    var editsWord = false
+    var onApplyDraft: (() -> Bool)?
+
+    /// AppKit's Copy, Services and selection-drag paths all use this hook. Export plain text only,
+    /// stripping exactly the attributed presentation fragments, including partial selections.
+    override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .string, let storage = textStorage else { return false }
+        let slices = selectedRanges.compactMap { value -> String? in
+            let range = NSIntersectionRange(value.rangeValue, NSRange(location: 0, length: storage.length))
+            guard range.length > 0 else { return nil }
+            var payload = ""
+            storage.enumerateAttribute(.transcriptSuggestion, in: range) { suggestion, span, _ in
+                if isEditable || suggestion as? Bool != true {
+                    payload += (storage.string as NSString).substring(with: span)
+                }
+            }
+            return payload
+        }
+        guard !slices.isEmpty else { return false }
+        return pasteboard.setString(slices.joined(separator: "\n"), forType: .string)
+    }
+
+    @discardableResult
+    func handleDraftReturn(_ event: NSEvent) -> Bool {
+        guard isEditable, !hasMarkedText(), event.keyCode == 36 || event.keyCode == 76 else { return false }
+        let flags = event.modifierFlags.intersection([.command, .control, .shift, .option])
+        let wholeDraftShortcut = !flags.intersection([.command, .control]).isEmpty
+        guard wholeDraftShortcut || (editsWord && flags.isEmpty) else { return false }
+        _ = onApplyDraft?()
+        return true
+    }
+
     var permitsKeyboardFocus = true
     var onFocusChange: ((Bool) -> Void)?
     override var acceptsFirstResponder: Bool { permitsKeyboardFocus }
@@ -286,8 +407,15 @@ final class DraftTextView: NSTextView {
         super.unmarkText()
         onCompositionChange?()
     }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command), handleDraftReturn(event) {
+            onKeyInteraction?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
     override func keyDown(with event: NSEvent) {
         onKeyInteraction?()
-        super.keyDown(with: event)
+        if !handleDraftReturn(event) { super.keyDown(with: event) }
     }
 }
