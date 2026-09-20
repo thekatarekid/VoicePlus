@@ -1648,3 +1648,9 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - FX gate: build clean; `swift test --no-parallel` **3215 tests, all passing** (+54 over 1.11.1's 3161; first run 3214 / 3215 with the midnight-clock failure fixed at the gate). Gate fix: `AmbientTimelineTests` grouping test anchored at noon today (it failed between 00:00 and 01:00 because "an hour ago" was yesterday; clock-dependent, not an FX regression).
 - Open: AX callers outside `LiveSystemAccess` have no own-pid guard. The pill stays up about 27 s after a landing (not investigated). The M07 2 s wait and K03 quiet first tap are not checked as coded. The installed-app re-check of all 5 fixes is the owner's. The 1.11.2 DMG is built by the release step.
 - 1.11.2 DMG done · R3 `8e690f6` · `Packaging/releases/VoicePlus_V4-w1_1.11.2.dmg`, 20 MB, sha256 `86d8cdd5c4f2914e36dc7748ea274ebfe3a436c3e27bb95d52ae522713b37ae9`, from `5a02a51` in a clean worktree (`--no-github`); `verify_install.sh` OK; 27 DMGs retained, none overwritten; tag `release/phase-V4-w1/v1.11.2`.
+
+## V3 native Spool parity — 2026-09-20
+- In progress: exact `design/design_v3.html` / `.md` port; earlier design versions preserved.
+- Parallel isolated worktrees: cassette/tape rendering; notch geometry/layout; preview/edit/correction flow.
+- Integration gates: native visual QA, state/recovery tests, release build and self-contained DMG verification.
+- Pending: merge verified milestones, install candidate and compare all states, publish tested commits and local DMG.

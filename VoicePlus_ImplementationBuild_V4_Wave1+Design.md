@@ -1015,3 +1015,17 @@ Open after the fixes (details in the Pending doc §B):
 - `AppContainer.refreshEngineIfNeeded` is not called by any test directly.
 - The installed-app checks are the owner's: the onboarding first sentence lands, the chin rests after fn release,
   the pulse is centred, and there is no "model isn't ready" after a fresh download.
+
+## 10. V3 native fidelity follow-up — 2026-09-20
+
+The current owner request supersedes V1 visual/motion/review rules with `design/design_v3.html` and `design/design_v3.md`. Earlier Wave 1 implementation and release records above remain historical evidence, not V3 acceptance.
+
+- [x] Split implementation into isolated parallel worktrees with disjoint rendering, layout and review-flow ownership.
+- [ ] Port V3 cassette art, per-state pose, continuous reel motion, ribbon material and multi-line insertion landing.
+- [ ] Match fixed notch geometry, top cap, rounded idle, shadow, subdued copy, bottom-aligned footer and scroll-only transcript.
+- [ ] Wire 600 ms preview, hover pause/resume, inline alternatives, in-notch draft editing and automatic learned vocabulary.
+- [ ] Verify native installed app against the reference, including recovery, Reduce Motion and destination safeguards.
+- [ ] Run scoped and full serial tests; commit and push verified milestones.
+- [ ] Build and verify a self-contained DMG; retain local artifact and record checksum/version.
+
+Status: implementation in progress. V3 completion and hardware verification are not yet claimed.
