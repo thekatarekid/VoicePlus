@@ -196,13 +196,13 @@ struct DesignTokenTests {
 
         let data = try Data(contentsOf: Self.packageRoot.appendingPathComponent("Fixtures/spool/spool_spec.json"))
         let spec = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let tape = try #require(spec["tape"] as? [String: String])
+        let tape = try #require(spec["tape"] as? [String: Any])
         let character = try #require(spec["character"] as? [String: Any])
         let shades = try #require(spec["housingShades"] as? [String: String])
-        #expect(RGB(parsing: tape["face"] ?? "") == Tokens.SpoolMaterial.tapeFace.value)
-        #expect(RGB(parsing: tape["back"] ?? "") == Tokens.SpoolMaterial.tapeReverse.value)
-        #expect(RGB(parsing: tape["edge"] ?? "") == Tokens.SpoolMaterial.tapeEdge.value)
-        #expect(RGB(parsing: tape["shadow"] ?? "") == Tokens.SpoolMaterial.tapeShadow.value)
+        #expect(RGB(parsing: tape["face"] as? String ?? "") == Tokens.SpoolMaterial.tapeFace.value)
+        #expect(RGB(parsing: tape["back"] as? String ?? "") == Tokens.SpoolMaterial.tapeReverse.value)
+        #expect(RGB(parsing: tape["edge"] as? String ?? "") == Tokens.SpoolMaterial.tapeEdge.value)
+        #expect(RGB(parsing: tape["shadow"] as? String ?? "") == Tokens.SpoolMaterial.tapeShadow.value)
         #expect(RGB(parsing: character["color"] as? String ?? "") == Tokens.SpoolMaterial.housing.value)
         #expect(RGB(parsing: shades["cream"] ?? "") == Tokens.SpoolMaterial.hub.value)
     }
