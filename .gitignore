@@ -13,3 +13,4 @@ Fixtures/real-room/**/*.wav
 # full Spool golden dump, regenerate with: node Scripts/spool_golden.mjs --full
 Fixtures/spool/*.local.json
 Packaging/releases/VoicePlus_V3-Spool-Full_1.12.0.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.1.dmg

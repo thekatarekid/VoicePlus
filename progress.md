@@ -1678,3 +1678,11 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Accessibility approval received; refreshed the VoicePlus switch in macOS to On. App-side recognition and external insertion are still unverified. Relaunched app is blocked opening Settings in `SyncSettingsViewModel → SyncService.key → SecItemCopyMatching` (process sample); macOS security dialog requires user handling because computer use cannot access SecurityAgent.
 
 - App Privacy now confirms Typing access Allowed after restart. Removed eager sync Keychain access from Settings initialization; 56 integrated sync/settings/Phase6 regression tests pass. Native menu capture QA also exposed a missing in-notch Finish affordance; correction and replacement installer are in progress.
+- Menu-started dictation now exposes Finish during active/quiet capture and stops its actual session owner; 29 integrated menu/session/turn regression tests pass. Audit found verified success could retract before the 1.3 s tape flight; timing correction is being validated before the 1.12.1 installer.
+
+### 1.12.1 follow-up candidate
+
+- Added explicit Finish for menu capture, avoided eager sync Keychain reads on Settings startup, and retained verified Spool through the entire tape flight plus result hold.
+- `VoicePlus_V3-Spool-Full_1.12.1.dmg`, 714,962,965 bytes; SHA256 `a6533ab765a7a1317312554848e048eb86484d09e13c53c5c6ae19a591d17248`. Mounted offline model inference, signature/dependency and clean-install verification pass. All 28 earlier installers remain byte-identical.
+- Installed native Settings opens promptly without Keychain access. Finish is visible and functional in quiet/menu capture; final preview pauses on pointer hover.
+- Full run: 3,266 tests, one onboarding event-ownership race failure; remaining tests passed. Race correction and external TextEdit delivery acceptance are pending; this candidate is not the final verified release.

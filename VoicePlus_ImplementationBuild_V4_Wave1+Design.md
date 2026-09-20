@@ -1066,3 +1066,12 @@ Status: implementation in progress. V3 completion and hardware verification are 
 - User handoff requested for the macOS security prompt; computer use refuses access to SecurityAgent. No credentials or other permissions were changed.
 
 - App Privacy now confirms Typing access Allowed after restart. Removed eager sync Keychain access from Settings initialization; 56 integrated sync/settings/Phase6 regression tests pass. Native menu capture QA also exposed a missing in-notch Finish affordance; correction and replacement installer are in progress.
+
+- Follow-up native QA fixes integrated: menu capture keeps an explicit Finish action (including silence); verified success preserves Spool through tape flight plus its short hold. Writes/readback remain immediate and Reduce Motion retains the shorter static result. Focused tests passed; combined full suite and 1.12.1 release build are running.
+
+### 1.12.1 follow-up candidate
+
+- Added explicit Finish for menu capture, avoided eager sync Keychain reads on Settings startup, and retained verified Spool through the entire tape flight plus result hold.
+- `VoicePlus_V3-Spool-Full_1.12.1.dmg`, 714,962,965 bytes; SHA256 `a6533ab765a7a1317312554848e048eb86484d09e13c53c5c6ae19a591d17248`. Mounted offline model inference, signature/dependency and clean-install verification pass. All 28 earlier installers remain byte-identical.
+- Installed native Settings opens promptly without Keychain access. Finish is visible and functional in quiet/menu capture; final preview pauses on pointer hover.
+- Full run: 3,266 tests, one onboarding event-ownership race failure; remaining tests passed. Race correction and external TextEdit delivery acceptance are pending; this candidate is not the final verified release.

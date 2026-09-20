@@ -22,3 +22,10 @@ The native notch now follows the approved V3 design: smaller detailed cassette, 
 - Locally signed, not Developer ID notarized.
 - External apps must expose trustworthy text ranges/geometry for decorated suggestions and tape travel. Unsupported fields retain normal insertion and keep review in VoicePlus.
 - Bundled-model inference checks use deterministic synthetic audio and establish offline execution, not speech recognition accuracy.
+
+### 1.12.1 follow-up candidate
+
+- Added explicit Finish for menu capture, avoided eager sync Keychain reads on Settings startup, and retained verified Spool through the entire tape flight plus result hold.
+- `VoicePlus_V3-Spool-Full_1.12.1.dmg`, 714,962,965 bytes; SHA256 `a6533ab765a7a1317312554848e048eb86484d09e13c53c5c6ae19a591d17248`. Mounted offline model inference, signature/dependency and clean-install verification pass. All 28 earlier installers remain byte-identical.
+- Installed native Settings opens promptly without Keychain access. Finish is visible and functional in quiet/menu capture; final preview pauses on pointer hover.
+- Full run: 3,266 tests, one onboarding event-ownership race failure; remaining tests passed. Race correction and external TextEdit delivery acceptance are pending; this candidate is not the final verified release.
