@@ -898,7 +898,6 @@ struct PillBody: View {
 
     var body: some View {
         let lanes = self.lanes
-        let lines = wordLines(width: lanes.wordsLane.width, maxLines: lanes.lineCount)
         ZStack(alignment: .topLeading) {
             UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
                 .fill(Tokens.Pill.Token.background.color)
@@ -914,11 +913,9 @@ struct PillBody: View {
                 PillTransformLane(model: transform).place(lanes.wordsLane)   // W3H: S12 before / after
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             } else {
-                PillWordsLane(lines: lines, words: content.words, marks: model.marks(for: content.words),   // S5
-                              onReview: { model.reviewMark($0, anchor: $1) },
-                              onFocus: { model.setFocus($0, element: $1) })   // S3: focus pauses the dwell
+                PillTranscriptView(model: model, words: content.words, marks: model.marks(for: content.words))
                     .place(lanes.wordsLane)
-                    .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
+                    .accessibilitySortPriority(PillReadingOrder.priority(.words))
             }
             if let chipRow = lanes.chipRow {
                 PillChipRow(chips: model.deixisChips, note: model.laneNote).place(chipRow)
@@ -929,14 +926,25 @@ struct PillBody: View {
                 PillLevelReadout(level: model.captureLevel).place(LevelReadout.rect(in: lanes))
                     .accessibilitySortPriority(PillReadingOrder.priority(.levelReadout))
             }
-            helperRow(overflow: overflowLabel(lines)).place(lanes.helperRow)
-                .accessibilitySortPriority(PillReadingOrder.priority(.helper))   // S10
-            if let actionRow = lanes.actionRow {
-                PillActionRow(buttons: content.buttons, perform: { model.perform($0) },
-                              onFocus: { model.setFocus($0, element: $1) })   // S3: focus pauses the dwell
-                    .place(actionRow)
-                    .accessibilitySortPriority(PillReadingOrder.priority(.actions))   // S10
+            HStack(alignment: .bottom, spacing: 12) {
+                if content.hasActions {
+                    PillActionRow(buttons: content.buttons, perform: { model.perform($0) },
+                                  onFocus: { model.setFocus($0, element: $1) })
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilitySortPriority(PillReadingOrder.priority(.actions))
+                }
+                Spacer(minLength: 0)
+                Text(content.helper)
+                    .font(Tokens.Typography.pillStatus.font())
+                    .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .bottomTrailing)
+                    .accessibilityIdentifier("pill.helper")
+                    .accessibilitySortPriority(PillReadingOrder.priority(.helper))
             }
+            .frame(height: PillLaneLayout.helperHeight, alignment: .bottom)
+            .place(lanes.helperRow)
         }
         .clipShape(UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached)))
         .animation(motion.policy.transition, value: content.designKey)   // S10: none under Reduce Motion
@@ -1150,13 +1158,13 @@ struct PillActionRow: View {
     var onFocus: ((Bool, String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             ForEach(buttons) { button in
                 Button { perform(button.action) } label: {
                     Text(button.label)
                         .font(Tokens.Typography.pillStatus.font())
                         .padding(.horizontal, 10)
-                        .frame(minHeight: Tokens.ControlSize.compactMinimumHeight)
+                        .frame(minHeight: 30)
                         .foregroundStyle(button.primary ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
                         .background(RoundedRectangle(cornerRadius: Tokens.Radius.control)
                             .fill(button.primary ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color))
@@ -1170,7 +1178,6 @@ struct PillActionRow: View {
                 .accessibilitySortPriority(PillReadingOrder.actionPriority(index: buttons.firstIndex(of: button) ?? 0,
                                                                            count: buttons.count))
             }
-            Spacer(minLength: 0)
         }
         .accessibilityElement(children: .contain)   // S10
     }

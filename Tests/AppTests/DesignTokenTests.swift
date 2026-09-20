@@ -147,9 +147,7 @@ struct DesignTokenTests {
         let expectations: [(String, String, P)] = [
             (".notch{position:relative;", "background", .background),
             (".notch{position:relative;", "color", .ink),
-            (".notch .status{display:flex;", "color", .secondaryInk),
             (".notch .words{font-size:14px;", "color", .ink),
-            (".notch .helper{font-size:9px;", "color", .secondaryInk),
             (".notch .actions button{background:", "background", .control),
             (".notch .actions button{background:", "border-color", .controlBorder),
             (".notch .actions .primary{", "background", .primary),
@@ -162,6 +160,7 @@ struct DesignTokenTests {
             let value = try #require(Self.cssValue(block, property), "\(selector) has no \(property)")
             #expect(Self.cssColor(value) == token.value, "\(token) ≠ \(selector) \(property) \(value)")
         }
+        #expect(P.secondaryInk.value == RGB("#A19387")) // V3 supporting ink
         // Attention in the pill is the dark `--amber`: the pill never takes the light theme.
         #expect(P.attention.value == Role.attention.value(.dark))
     }
@@ -246,7 +245,7 @@ struct DesignTokenTests {
         typealias T = Tokens.Typography
         let expected: [(Tokens.TypeRole, CGFloat, CGFloat, Tokens.TypeRole.Weight)] = [
             (T.title, 24, 30, .semibold), (T.section, 17, 24, .semibold), (T.body, 13, 20, .regular),
-            (T.meta, 11, 16, .regular), (T.pillTranscript, 14, 20, .medium), (T.pillStatus, 11, 16, .regular),
+            (T.meta, 11, 16, .regular), (T.pillTranscript, 13.5, 21, .regular), (T.pillStatus, 11, 14, .regular),
             (T.key, 11, 16, .regular),
         ]
         for (role, size, lineHeight, weight) in expected {

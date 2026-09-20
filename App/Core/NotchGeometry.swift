@@ -67,6 +67,9 @@ public enum NotchGeometry {
         public var cornerRadius: CGFloat
         /// Hangs from the camera housing: upper corners square. False: floating, all corners rounded.
         public var attached: Bool
+        /// Background-only extension above the safe content area.
+        public var backgroundCap: CGFloat = 0
+        public var contentFrame: CGRect { CGRect(x: shown.minX, y: shown.minY, width: shown.width, height: shown.height - backgroundCap) }
 
         public init(shown: CGRect, retracted: CGRect, cornerRadius: CGFloat, attached: Bool) {
             self.shown = shown
@@ -95,15 +98,15 @@ public enum NotchGeometry {
     public static let hintMinimumWidth: CGFloat = 190
     /// Left + right padding inside the hint (prototype `.notch.ready { padding: 10px 12px }`).
     public static let hintHorizontalPadding: CGFloat = 24
-    public static let activeSize = CGSize(width: 560, height: 164)
-    public static let actionableSize = CGSize(width: 560, height: 204)
+    public static let activeSize = CGSize(width: 560, height: 160)
+    public static let actionableSize = CGSize(width: 560, height: 160)
     /// Compact ceiling: `min(560, usable width − ceilingMargin) × 204`.
     public static let ceilingMargin: CGFloat = 32
     /// Narrowest a pill is ever made before the display clamp; below this nothing is legible.
     public static let minimumPillWidth: CGFloat = 240
     /// Below this width the review layout uses the 84 pt cameo bay and Spool at scale 0.69.
     public static let narrowBelow: CGFloat = 460
-    public static let characterBay: CGFloat = 132
+    public static let characterBay: CGFloat = 126
     public static let cameoBay: CGFloat = 84
     /// Floating pills sit this far below the menu-bar band (external displays).
     public static let floatingGap: CGFloat = 8
@@ -187,11 +190,14 @@ public enum NotchGeometry {
         size.height = min(max(1, size.height), bounds.height)
         let top = pillTopEdge(on: metrics)
         let x = centredX(width: size.width, on: metrics)
-        let shown = CGRect(x: x, y: top - size.height, width: size.width, height: size.height)
+        let cap = metrics.isAttached ? metrics.topBand : 0
+        let shown = CGRect(x: x, y: top - size.height, width: size.width, height: size.height + cap)
         // Retract by rolling up to the top edge rather than translating off the top of the screen: a
         // retracted frame above the band would drag the pill through the camera housing.
         let retracted = CGRect(x: x, y: top - 1, width: size.width, height: 1)
-        return Layout(shown: shown, retracted: retracted, cornerRadius: cornerRadius, attached: metrics.isAttached)
+        var result = Layout(shown: shown, retracted: retracted, cornerRadius: cornerRadius, attached: metrics.isAttached)
+        result.backgroundCap = cap
+        return result
     }
 
     /// Generic anchor for other notch surfaces (the meeting prompt): top edge at the bottom of the
@@ -260,26 +266,26 @@ public struct PillLaneLayout: Equatable, Sendable {
     public var actionRow: CGRect?
     public var lineCount: Int
 
-    public static let inset: CGFloat = 16
-    public static let top: CGFloat = 12
-    public static let statusHeight: CGFloat = 16
-    public static let wordsGap: CGFloat = 8
-    public static let lineHeight: CGFloat = 20
+    public static let inset: CGFloat = 20
+    public static let top: CGFloat = 16
+    public static let statusHeight: CGFloat = 14
+    public static let wordsGap: CGFloat = 4
+    public static let lineHeight: CGFloat = 21
     public static let chipHeight: CGFloat = 18
     public static let chipGap: CGFloat = 4
     /// Height of the confidence-dots lane under the last word line (fits in `chipGap`).
     public static let confidenceHeight: CGFloat = 4
     /// `spool_spec.json` › `sceneGeometry` › `tapeStart.y`.
-    public static let tapeY: CGFloat = 104
+    public static let tapeY: CGFloat = 98
     /// Tape amplitude bound (design §11) plus half the 8 pt ribbon.
-    public static let tapeExcursion: CGFloat = 12 + 4
+    public static let tapeExcursion: CGFloat = 12 + 3.2
     /// Prototype `.notch .helper { top: 139px }`.
-    public static let helperY: CGFloat = 139
-    public static let helperHeight: CGFloat = 16
-    public static let sceneHeight: CGFloat = 164
-    public static let actionHeight: CGFloat = 28
+    public static let helperY: CGFloat = 116
+    public static let helperHeight: CGFloat = 32
+    public static let sceneHeight: CGFloat = 160
+    public static let actionHeight: CGFloat = 32
     /// Gap between the lane and the bay (prototype: 144 = 132 bay + 12; narrow 90 = 84 + 6).
-    public static func laneGap(narrow: Bool) -> CGFloat { narrow ? 6 : 12 }
+    public static func laneGap(narrow: Bool) -> CGFloat { narrow ? 6 : 0 }
 
     public init(size: CGSize, hasChip: Bool, hasActions: Bool) {
         self.size = size
@@ -291,7 +297,7 @@ public struct PillLaneLayout: Equatable, Sendable {
         statusRow = CGRect(x: inset, y: Self.top, width: laneWidth, height: Self.statusHeight)
         lineCount = hasChip ? 1 : 2
         let wordsY = Self.top + Self.statusHeight + Self.wordsGap
-        wordsLane = CGRect(x: inset, y: wordsY, width: laneWidth, height: CGFloat(lineCount) * Self.lineHeight)
+        wordsLane = CGRect(x: inset, y: wordsY, width: laneWidth, height: CGFloat(lineCount) * Self.lineHeight + 6)
         confidenceLane = CGRect(x: inset, y: wordsLane.maxY, width: laneWidth, height: Self.confidenceHeight)
         chipRow = hasChip
             ? CGRect(x: inset, y: wordsLane.maxY + Self.chipGap, width: laneWidth, height: Self.chipHeight)
@@ -300,7 +306,7 @@ public struct PillLaneLayout: Equatable, Sendable {
         tapeTop = Self.tapeY - Self.tapeExcursion
         helperRow = CGRect(x: inset, y: Self.helperY, width: max(0, size.width - 2 * inset), height: Self.helperHeight)
         actionRow = hasActions
-            ? CGRect(x: inset, y: Self.sceneHeight + 4, width: max(0, size.width - 2 * inset), height: Self.actionHeight)
+            ? CGRect(x: inset, y: Self.helperY, width: max(0, size.width - 2 * inset), height: Self.actionHeight)
             : nil
     }
 

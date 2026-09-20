@@ -15,11 +15,12 @@ public final class PillPanelController {
     private var pinnedMetrics: ScreenMetrics?
 
     public init() {
-        panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        panel = PillInteractionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.level = .statusBar + 1
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
+        panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
@@ -29,7 +30,7 @@ public final class PillPanelController {
         // `.standardBounds`, which publishes the SwiftUI content's *minimum* size as the window's
         // `contentMinSize`; a wrapping notice's minimum is the fully wrapped paragraph, and AppKit grew
         // the panel to it. The pill's frame is placement math (`NotchGeometry`), never content.
-        let host = NSHostingView(rootView: PillView(model: model))
+        let host = NSHostingView(rootView: PillPanelSurface(model: model, size: NotchGeometry.activeSize, attached: true, cap: 0))
         host.sizingOptions = []
         panel.contentView = host
         panel.contentMinSize = .zero
@@ -83,7 +84,7 @@ public final class PillPanelController {
             let m = metrics(for: screen)
             let active = NotchGeometry.pillLayout(for: m, size: NotchGeometry.size(for: .active, on: m))
             let actionable = NotchGeometry.pillLayout(for: m, size: NotchGeometry.size(for: .actionable, on: m))
-            let clear = NotchGeometry.clearsHousing(active.shown, on: m) && NotchGeometry.clearsHousing(actionable.shown, on: m)
+            let clear = NotchGeometry.clearsHousing(active.contentFrame, on: m) && NotchGeometry.clearsHousing(actionable.contentFrame, on: m)
             Log.app.info("""
                 pill geometry: display=\(screen.localizedName) frame=\(NSStringFromRect(m.frame)) \
                 topInset=\(m.topInset) menuBar=\(m.menuBarHeight) topBand=\(m.topBand) attached=\(m.isAttached) \
@@ -134,26 +135,32 @@ public final class PillPanelController {
                 shown=\(NSStringFromRect(layout.shown)) retracted=\(NSStringFromRect(layout.retracted))
                 """)
         }
-        if let host = panel.contentView as? NSHostingView<PillView> {
-            host.rootView = PillView(model: model, size: layout.shown.size, attached: layout.attached)
+        if let host = panel.contentView as? NSHostingView<PillPanelSurface> {
+            host.rootView = PillPanelSurface(model: model, size: layout.contentFrame.size, attached: layout.attached, cap: layout.backgroundCap)
         }
         panel.ignoresMouseEvents = !Self.acceptsMouse(state, content: content)
         switch (wasVisible, surface != .hidden) {
         case (false, true):
-            panel.setFrame(layout.retracted, display: false)
+            panel.setFrame(Self.shadowFrame(layout.retracted, attached: layout.attached), display: false)
             panel.orderFrontRegardless()
-            animate(to: layout.shown)
+            animate(to: Self.shadowFrame(layout.shown, attached: layout.attached))
         case (true, false):
-            animate(to: layout.retracted) { [weak self] in
+            animate(to: Self.shadowFrame(layout.retracted, attached: layout.attached)) { [weak self] in
                 guard let self, !self.model.state.isVisible else { return }
                 self.panel.orderOut(nil)
                 self.pinnedMetrics = nil
             }
         case (true, true):
-            animate(to: layout.shown)
+            animate(to: Self.shadowFrame(layout.shown, attached: layout.attached))
         case (false, false):
             break
         }
+    }
+
+    /// Extra transparent room for the two neutral shadows; the silhouette/content anchor is unchanged.
+    static func shadowFrame(_ frame: CGRect, attached: Bool) -> CGRect {
+        CGRect(x: frame.minX - 40, y: frame.minY - 60, width: frame.width + 80,
+               height: frame.height + 60 + (attached ? 0 : 40))
     }
 
     private func animate(to frame: NSRect, completion: (() -> Void)? = nil) {
@@ -182,5 +189,35 @@ public enum PillDestination {
         if let bundleID, let ownBundleID, bundleID == ownBundleID { return nil }
         guard let name = localizedName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
         return name
+    }
+}
+
+
+/// This panel accepts a first responder only after an explicit editor interaction.
+private final class PillInteractionPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+private struct PillPanelSurface: View {
+    @ObservedObject var model: PillViewModel
+    let size: CGSize
+    let attached: Bool
+    let cap: CGFloat
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
+                .fill(Tokens.Pill.Token.background.color)
+                .frame(width: size.width, height: size.height + cap)
+                .shadow(color: .black.opacity(0.22), radius: 12, x: 0, y: 4)
+                .shadow(color: .black.opacity(0.28), radius: 40, x: 0, y: 18)
+                .allowsHitTesting(false)
+            PillView(model: model, size: size, attached: attached)
+                .padding(.top, cap)
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, attached ? 0 : 40)
+        .padding(.bottom, 60)
+        .preferredColorScheme(.dark)
     }
 }

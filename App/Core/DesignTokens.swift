@@ -256,7 +256,7 @@ enum Tokens {
                 switch self {
                 case .background: return RGB("#080A09")      // .notch background
                 case .ink: return RGB("#FFF0E3")             // .notch color, .words
-                case .secondaryInk: return RGB("#C3AA97")    // .status, .helper
+                case .secondaryInk: return RGB("#A19387")    // .status, .helper
                 case .ready: return RGB("#69D58B")           // idle dot, verified mark
                 case .attention: return RGB("#F0C181")       // ⚠ notices
                 case .uncertainty: return RGB("#FF8F95")     // .uncertain dotted underline
@@ -415,9 +415,9 @@ enum Tokens {
         /// Compact metadata: helper sentences, timestamps, counts.
         static let meta = TypeRole("meta", size: 11, lineHeight: 16)
         /// Words in the pill — natural-language text, never monospaced (design §4 "Transcript layout").
-        static let pillTranscript = TypeRole("pillTranscript", size: 14, lineHeight: 20, weight: .medium)
+        static let pillTranscript = TypeRole("pillTranscript", size: 13.5, lineHeight: 21)
         /// The pill's status and helper lines.
-        static let pillStatus = TypeRole("pillStatus", size: 11, lineHeight: 16)
+        static let pillStatus = TypeRole("pillStatus", size: 11, lineHeight: 14)
         /// Key caps ("fn / 🌐", "Esc") — the prototype's `kbd` is 11 px `--mono`.
         static let key = TypeRole("key", size: 11, lineHeight: 16, design: .monospaced)
         /// Durations and timers ("12:04", latch elapsed) — tabular digits so they do not jitter.

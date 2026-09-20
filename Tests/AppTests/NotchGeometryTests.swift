@@ -36,15 +36,15 @@ struct NotchGeometryTests {
         #expect(NotchGeometry.idleChinSize == CGSize(width: 64, height: 14))
         #expect(NotchGeometry.hintSize == CGSize(width: 360, height: 38))
         #expect(NotchGeometry.hintMinimumWidth == 190)
-        #expect(NotchGeometry.activeSize == CGSize(width: 560, height: 164))
-        #expect(NotchGeometry.actionableSize == CGSize(width: 560, height: 204))
-        #expect(NotchGeometry.characterBay == 132)
+        #expect(NotchGeometry.activeSize == CGSize(width: 560, height: 160))
+        #expect(NotchGeometry.actionableSize == CGSize(width: 560, height: 160))
+        #expect(NotchGeometry.characterBay == 126)
         #expect(NotchGeometry.cameoBay == 84)
         #expect(NotchGeometry.narrowBelow == 460)
         #expect(NotchGeometry.cornerRadius == Tokens.Radius.pill)
     }
 
-    /// Every pill state's size: 164 without actions, 204 with an action row, the hint text-sized,
+    /// Every pill state's size: 160 without actions, 160 with an action row, the hint text-sized,
     /// hidden nothing.
     @Test func everyStateSize() {
         let active = NotchGeometry.activeSize, actionable = NotchGeometry.actionableSize
@@ -91,10 +91,10 @@ struct NotchGeometryTests {
 
     // MARK: - The compact ceiling
 
-    @Test func theCompactCeilingIsMin560UsableMinus32By204() {
-        #expect(NotchGeometry.ceiling(on: notched) == CGSize(width: 560, height: 204))
-        #expect(NotchGeometry.ceiling(on: external) == CGSize(width: 560, height: 204))
-        #expect(NotchGeometry.ceiling(on: narrow) == CGSize(width: 408, height: 204))
+    @Test func theCompactCeilingIsMin560UsableMinus32By160() {
+        #expect(NotchGeometry.ceiling(on: notched) == CGSize(width: 560, height: 160))
+        #expect(NotchGeometry.ceiling(on: external) == CGSize(width: 560, height: 160))
+        #expect(NotchGeometry.ceiling(on: narrow) == CGSize(width: 408, height: 160))
         // The Dock on the side narrows the usable width, and the ceiling follows it.
         let docked = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 520, height: 800), menuBarHeight: 24,
                                    visibleFrame: CGRect(x: 60, y: 0, width: 460, height: 776))
@@ -106,7 +106,7 @@ struct NotchGeometryTests {
             for surface: NotchGeometry.Surface in [.active, .actionable] {
                 let size = NotchGeometry.size(for: surface, on: metrics)
                 #expect(size.width <= NotchGeometry.ceiling(on: metrics).width)
-                #expect(size.height <= 204)
+                #expect(size.height <= 160)
             }
         }
     }
@@ -123,15 +123,15 @@ struct NotchGeometryTests {
     // MARK: - Narrow review layout
 
     @Test func belowFourSixtyTheBayIsAnEightyFourPointCameo() {
-        #expect(NotchGeometry.bayWidth(forPillWidth: 560) == 132)
-        #expect(NotchGeometry.bayWidth(forPillWidth: 460) == 132)
+        #expect(NotchGeometry.bayWidth(forPillWidth: 560) == 126)
+        #expect(NotchGeometry.bayWidth(forPillWidth: 460) == 126)
         #expect(NotchGeometry.bayWidth(forPillWidth: 459) == 84)
         let size = NotchGeometry.size(for: .actionable, on: narrow)
-        #expect(size == CGSize(width: 408, height: 204))
+        #expect(size == CGSize(width: 408, height: 160))
         #expect(NotchGeometry.isNarrow(width: size.width))
         let lanes = PillLaneLayout(size: size, hasChip: false, hasActions: true)
-        #expect(lanes.bay.width == CGFloat(84 + 16))
-        #expect(lanes.wordsLane.width == CGFloat(408 - 32 - 84 - 6))
+        #expect(lanes.bay.width == CGFloat(84 + 20))
+        #expect(lanes.wordsLane.width == CGFloat(408 - 40 - 84 - 6))
         // The Spool scene agrees: scale 0.69 below the same width.
         #expect(SpoolScene.placement(width: Double(size.width)).scale == 0.69)
         #expect(SpoolScene.placement(width: 560).scale == 1)
@@ -142,9 +142,11 @@ struct NotchGeometryTests {
     @Test func attachedUnderTheHousingWithSquareUpperCorners() throws {
         let l = NotchGeometry.pillLayout(for: notched)
         #expect(l.attached)
-        #expect(l.shown == CGRect(x: 620, y: 966, width: 560, height: 164))
-        #expect(l.shown.maxY == 1130)          // flush under the menu bar / housing band
+        #expect(l.contentFrame == CGRect(x: 620, y: 970, width: 560, height: 160))
+        #expect(l.contentFrame.maxY == 1130)          // flush under the menu bar / housing band
         #expect(l.retracted == CGRect(x: 620, y: 1129, width: 560, height: 1))
+        #expect(l.shown.maxY == notched.frame.maxY)
+        #expect(l.backgroundCap == notched.topBand)
         #expect(l.cornerRadius == 18)
         let corners = Tokens.Radius.pillCorners(attached: l.attached)
         #expect(corners.topLeading == 0 && corners.topTrailing == 0)
@@ -153,6 +155,7 @@ struct NotchGeometryTests {
 
     @Test func floatingEightPointsBelowAnExternalMenuBarWithAllCornersRounded() {
         let l = NotchGeometry.pillLayout(for: external)
+        #expect(l.backgroundCap == 0)
         #expect(!l.attached)
         #expect(l.shown.maxY == CGFloat(1169 - 30 - 8))
         #expect(l.shown.midX == 2760)
@@ -166,13 +169,13 @@ struct NotchGeometryTests {
     @Test func menuBarHiddenStillClearsTheHousing() throws {
         let l = NotchGeometry.pillLayout(for: autoHiddenMenuBar, size: NotchGeometry.actionableSize)
         #expect(autoHiddenMenuBar.topBand == 38)
-        #expect(l.shown.maxY == 1131)              // exactly the bottom edge of the housing
-        #expect(!l.shown.intersects(try #require(autoHiddenMenuBar.notchRect)))
+        #expect(l.contentFrame.maxY == 1131)              // exactly the bottom edge of the housing
+        #expect(!l.contentFrame.intersects(try #require(autoHiddenMenuBar.notchRect)))
     }
 
     @Test func offTheGlobalOriginStaysOnItsOwnScreen() {
         let l = NotchGeometry.pillLayout(for: notchedOffOrigin)
-        #expect(l.shown == CGRect(x: -1180, y: 1166, width: 560, height: 164))
+        #expect(l.contentFrame == CGRect(x: -1180, y: 1170, width: 560, height: 160))
         #expect(notchedOffOrigin.frame.contains(l.shown))
     }
 
@@ -185,11 +188,11 @@ struct NotchGeometryTests {
         for metrics in all {
             for surface in surfaces {
                 let l = NotchGeometry.pillLayout(for: metrics, size: NotchGeometry.size(for: surface, on: metrics))
-                #expect(NotchGeometry.clearsHousing(l.shown, on: metrics), "\(surface)")
+                #expect(NotchGeometry.clearsHousing(l.contentFrame, on: metrics), "\(surface)")
                 #expect(metrics.frame.contains(l.shown))
                 if let housing = metrics.notchRect {
                     #expect(!l.retracted.intersects(housing))
-                    #expect(l.shown.maxY <= metrics.frame.maxY - metrics.topInset)
+                    #expect(l.contentFrame.maxY <= metrics.frame.maxY - metrics.topInset)
                 }
             }
         }
@@ -206,7 +209,7 @@ struct NotchGeometryTests {
                 #expect(size.width <= ceiling.width && size.height <= ceiling.height)
             }
             let absurd = NotchGeometry.pillLayout(for: metrics, size: CGSize(width: 9_000, height: 9_000))
-            #expect(absurd.shown.width <= ceiling.width && absurd.shown.height <= 204)
+            #expect(absurd.shown.width <= ceiling.width && absurd.contentFrame.height <= 160)
             #expect(metrics.frame.contains(absurd.shown))
         }
     }
@@ -233,7 +236,7 @@ struct NotchGeometryTests {
         for width: CGFloat in [560, 500, 460, 459, 408, 300] {
             for hasChip in [false, true] {
                 for hasActions in [false, true] {
-                    let lanes = PillLaneLayout(size: CGSize(width: width, height: hasActions ? 204 : 164),
+                    let lanes = PillLaneLayout(size: CGSize(width: width, height: 160),
                                                hasChip: hasChip, hasActions: hasActions)
                     for rect in lanes.textRects {
                         #expect(!rect.intersects(lanes.bay), "width \(width): \(rect) under the bay \(lanes.bay)")
@@ -241,18 +244,18 @@ struct NotchGeometryTests {
                     }
                     #expect(lanes.helperRow.minY >= lanes.bay.maxY)
                     if let actions = lanes.actionRow {
-                        #expect(actions.minY >= PillLaneLayout.sceneHeight)      // below the character bay
-                        #expect(actions.width == width - 32)                    // full width
-                        #expect(actions.maxY <= 204)
+                        #expect(actions.minY == PillLaneLayout.helperY)      // below the character bay
+                        #expect(actions.width == width - 40)                    // full width
+                        #expect(actions.maxY <= 160)
                     }
                     #expect(lanes.helperRow.maxY <= PillLaneLayout.sceneHeight)
                 }
             }
         }
         let wide = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: false, hasActions: false)
-        #expect(wide.bay.width == CGFloat(132 + 16))
-        #expect(wide.statusRow.width == CGFloat(560 - 32 - 144))                         // ≈ 384 pt (DESIGN.md §8.3)
-        #expect(wide.wordsLane.height == 40)                                    // two 20 pt lines
+        #expect(wide.bay.width == CGFloat(126 + 20))
+        #expect(wide.statusRow.width == CGFloat(560 - 40 - 126))                         // ≈ 384 pt (DESIGN.md §8.3)
+        #expect(wide.wordsLane.height == 48)                                    // two 20 pt lines
     }
 
     /// Owner decision: the deixis chip sits in the text lane, under the transcript, above the tape lane.
