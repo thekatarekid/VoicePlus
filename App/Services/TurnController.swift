@@ -940,6 +940,27 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         fx.run(self)
     }
 
+    /// Retained drafts stay retained after editing; only an explicit delivery action can insert.
+    public func reviseRetainedDraft(shown: PillState, original: String, edited: String, mapping: MarkMapping) -> Bool {
+        guard !edited.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        switch shown {
+        case .held(let info):
+            guard let held = focusGuard.heldText(id: info.id),
+                  focusGuard.reviseHeld(info.id, expected: original, text: edited) else { return false }
+            if let id = held.turnID {
+                store.update(id) { $0.finalText = edited; $0.uncertainSpans = mapping.uncertainRanges }
+            }
+            return true
+        case .error:
+            guard let entry = store.recent(limit: 50).first(where: {
+                $0.record.finalText == original && ($0.stage == .failed || $0.stage == .held)
+            }) else { return false }
+            store.update(entry.id) { $0.finalText = edited; $0.uncertainSpans = mapping.uncertainRanges }
+            return true
+        default: return false
+        }
+    }
+
     /// An accepted in-notch edit replaces the pending payload, before the single commit gate.
     @discardableResult
     public func revisePreview(text: String, mapping: MarkMapping, spans: [TranscriptSpan]) -> Bool {
@@ -1488,13 +1509,19 @@ public final class TurnWiring {
         // What the turn shows, and taking it down only while the pill still shows the turn.
         controller.onPresent = { [weak pill, weak controller] state in
             pill?.present(state)
-            if case .finalPreview = state, pill?.pointerInside == true { controller?.pauseDwell(.hover) }
+            if case .finalPreview = state {
+                if pill?.pointerInside == true { controller?.pauseDwell(.hover) }
+                if NSApp?.isHidden == true { controller?.pauseDwell(.hiddenApp) }
+            }
         }
         pill.onDraftPause = { [weak controller] reason, paused in
             if paused { controller?.pauseDwell(reason) } else { controller?.resumeDwell(reason) }
         }
         pill.onApplyDraft = { [weak controller] text, mapping, spans in
             controller?.revisePreview(text: text, mapping: mapping, spans: spans) ?? false
+        }
+        pill.onApplyRetainedDraft = { [weak controller] shown, original, edited, mapping in
+            controller?.reviseRetainedDraft(shown: shown, original: original, edited: edited, mapping: mapping) ?? false
         }
         let learner = DraftVocabularyLearner(database: container.database)
         pill.onLearnDraft = { [weak pill] original, edited in

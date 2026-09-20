@@ -21,6 +21,7 @@ public final class DeliveryPillDriver {
         self.held = held
         self.held.onChange = { [weak self] items in self?.onHeldChanged?(items) }
         pill.onHeldAction = { [weak self] info, action in self?.perform(action, on: info.id) }
+        pill.onHeldDraftApplied = { [weak self] id, text in _ = self?.held.revise(id, text: text) }
     }
 
     /// The whole surface for one landed utterance.

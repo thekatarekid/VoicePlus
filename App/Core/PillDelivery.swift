@@ -360,6 +360,15 @@ public final class HeldTextStore: @unchecked Sendable {
     public func item(id: UUID) -> HeldItem? { items.first { $0.id == id } }
 
     @discardableResult
+    public func revise(_ id: UUID, text: String) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        items[index].text = text
+        onChange?(items)
+        return true
+    }
+
+    @discardableResult
     public func perform(_ action: HeldAction, on id: UUID) -> HeldActionResult {
         guard let item = self.item(id: id) else { return .unknownItem }
         switch action {

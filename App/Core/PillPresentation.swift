@@ -393,7 +393,7 @@ public struct PillContent: Equatable, Sendable {
                                                             uncertain: review ? info.uncertainCount : nil,
                                                             phrase: info.needsPhraseReview),
                                trailing: destinationTrailing(named), words: .final(info.text),
-                               helper: info.paused ? "Paused · move away to insert" : (manual ? "Review, then insert when ready" : ""),
+                               helper: manual ? "Review, then insert when ready" : (info.paused ? "Paused · move away to insert" : ""),
                                buttons: [PillButton("Edit draft", .editDraft),
                                          PillButton(info.paused || manual ? "Insert now" : String(format: "Insert in %.1fs", info.dwellRemaining), .commit),
                                          PillButton("Cancel", .cancel)],

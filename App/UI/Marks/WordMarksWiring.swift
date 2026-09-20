@@ -188,10 +188,7 @@ public final class WordMarksCoordinator {
     /// open; on a delivery row the word is reviewed where it landed.
     public func openFromPill(_ mark: UncertainMark, mapping: MarkMapping, anchor: CGRect?) {
         if case .finalPreview = pill.state {
-            queue = []
-            queueTotal = 1
-            if !reviewAllOpen { decidedDuringReview = false }
-            present(mark, origin: .preview, confidence: mapping.confidenceAvailable, anchor: anchor ?? fallbackAnchor())
+            pill.beginEditingMark(mark.id)
             return
         }
         if let session = tracker?.session, let landed = session.marks.first(where: { $0.text == mark.text }) {
@@ -389,10 +386,38 @@ public final class WordMarksCoordinator {
     /// A mark clicked in the destination: the popover opens at the word; the pill shows R0.
     public func openDestination(_ markID: Int, box: CGRect) {
         guard let session = tracker?.session, let mark = session.marks.first(where: { $0.id == markID }) else { return }
-        if case .hidden = pill.state { pill.present(.correcting) }
-        queue = []
-        queueTotal = 1
-        present(mark, origin: .destination, confidence: true, anchor: box)
+        pill.beginDestinationEditing(mark) { [weak self, weak session] replacement in
+            guard let self, let session, let applier = self.applier,
+                  self.tracker?.session === session else { return false }
+            let result = applier.apply(.replace(replacement, remember: false), mark: mark, in: session)
+            switch result {
+            case .replaced:
+                self.pill.resolveMarks([mark.id])
+                self.updateRecord(for: session)
+                self.tracker?.revalidate()
+                return true
+            default:
+                self.unappliedCorrection = replacement
+                self.pill.showLaneNote("The text has changed. Copy this correction instead.")
+                return false
+            }
+        }
+    }
+
+    /// A visible bracket suggestion applies immediately through the same destination range guard.
+    public func acceptDestinationSuggestion(_ markID: Int, replacement: String) {
+        guard let session = tracker?.session, let mark = session.marks.first(where: { $0.id == markID }),
+              mark.alternatives.contains(replacement), let applier else { return }
+        switch applier.apply(.replace(replacement, remember: false), mark: mark, in: session) {
+        case .replaced:
+            pill.onLearnDraft?(mark.text, replacement)
+            pill.resolveMarks([mark.id])
+            updateRecord(for: session)
+            tracker?.revalidate()
+        default:
+            unappliedCorrection = replacement
+            notice(RecoveryCatalog.entry(.D10))
+        }
     }
 
     private func noticeUnavailable(_ bundleID: String) {
@@ -445,6 +470,9 @@ public enum WordMarksWiring {
                 let tracker = DestinationMarksTracker(session: session, geometry: geometry, overlay: overlay,
                                                       recorder: coordinator.recorder)
                 overlay.onClick = { [weak coordinator] id, box in coordinator?.openDestination(id, box: box) }
+                overlay.onSuggestion = { [weak coordinator] id, replacement in
+                    coordinator?.acceptDestinationSuggestion(id, replacement: replacement)
+                }
                 return tracker
             },
             notice: { [weak pill] entry in

@@ -69,7 +69,7 @@ struct PillWiringTests {
         for state in states {
             for button in PillContent.make(state, context: c).buttons {
                 let effect = PillActionRoute.effect(for: button.action, shown: state, text: "words")
-                let handledByModel = button.action == .dismiss || (state.caseName == "held" && button.action.heldAction != nil)
+                let handledByModel = [.dismiss, .editDraft, .doneEditing, .cancelEditing].contains(button.action) || (state.caseName == "held" && button.action.heldAction != nil)
                 #expect(effect != .none || handledByModel, "\(button.label) on \(state.caseName)")
             }
         }
@@ -177,13 +177,13 @@ struct PillWiringTests {
         model.onAction = { action, _ in seen.append(action) }
         model.apply(.starting)
         model.present(Self.preview)
-        #expect(model.content().buttons.isEmpty)
-        #expect(model.content().helper == "Final text · inserts after the preview")
+        #expect(model.content().buttons.map(\.action) == [.editDraft, .commit, .cancel])
+        #expect(model.content().helper.isEmpty)
         model.perform(.reviewAll)
-        #expect(seen == [.reviewAll])
+        #expect(seen.isEmpty && model.isEditingDraft)
         let review = model.content()
-        #expect(review.buttons == PillDeck.manualPreviewButtons)
-        #expect(review.helper == "Final text · insert when ready")
+        #expect(review.buttons.map(\.action) == [.doneEditing, .cancelEditing])
+        #expect(review.helper == "Done or ⌘Return applies edits")
         #expect(review.surface { _ in 0 } == .actionable)
         // The next turn starts out of review mode.
         model.apply(.starting)

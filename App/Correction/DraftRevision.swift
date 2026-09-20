@@ -24,18 +24,23 @@ public enum DraftRevision {
             var mapped = mark
             mapped.range = start..<(start + mark.range.count)
             guard (edited as NSString).substring(with: NSRange(mapped.range)) == mark.text else { return nil }
+            if mark.kind == .word {
+                guard MarkWords.words(in: edited).contains(where: { $0.core == mapped.range }) else { return nil }
+            }
             return mapped
         }
         return MarkMapping(text: edited, marks: marks, confidenceAvailable: original.confidenceAvailable)
     }
 
-    public static func spans(for mapping: MarkMapping) -> [TranscriptSpan] {
+    public static func spans(for mapping: MarkMapping, source: [TranscriptSpan] = []) -> [TranscriptSpan] {
         let text = mapping.text as NSString
         var result: [TranscriptSpan] = [], cursor = 0
         func append(_ range: Range<Int>, mark: UncertainMark? = nil) {
             guard !range.isEmpty else { return }
+            let evidence = mark?.sourceSpans.compactMap { source.indices.contains($0) ? source[$0] : nil }
+                .first(where: { UncertaintyMarkMapper.carriesConfidence($0) })
             result.append(TranscriptSpan(text: text.substring(with: NSRange(range)), confidence: mark?.confidence ?? 1,
-                                         audioRange: 0...0, alternates: mark?.alternatives.map { Alternate(text: $0, score: 0.5, source: .beam) } ?? [],
+                                         audioRange: evidence?.audioRange ?? 0...0, alternates: mark?.alternatives.map { Alternate(text: $0, score: 0.5, source: .beam) } ?? [],
                                          provenance: [.asr], stability: .final))
         }
         for mark in mapping.marks.sorted(by: { $0.range.lowerBound < $1.range.lowerBound }) {
@@ -47,6 +52,19 @@ public enum DraftRevision {
         append(cursor..<text.length)
         return result
     }
+    public static func indexing(_ mapping: MarkMapping, spans: [TranscriptSpan]) -> MarkMapping {
+        var mapping = mapping
+        var offset = 0
+        for (index, span) in spans.enumerated() {
+            let range = offset..<(offset + span.text.utf16.count)
+            for mark in mapping.marks.indices where mapping.marks[mark].range == range {
+                mapping.marks[mark].sourceSpans = [index]
+            }
+            offset = range.upperBound
+        }
+        return mapping
+    }
+
 }
 
 /// Accepted lexical additions become manageable Dictionary entries, never global replacement rules.

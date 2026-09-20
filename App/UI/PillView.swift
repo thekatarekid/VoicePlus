@@ -389,16 +389,39 @@ public final class PillViewModel: ObservableObject {
     public var onDraftPause: ((DwellPause, Bool) -> Void)?
     public var onApplyDraft: ((String, MarkMapping, [TranscriptSpan]) -> Bool)?
     public var onLearnDraft: ((String, String) -> Void)?
+    public var onApplyRetainedDraft: ((PillState, String, String, MarkMapping) -> Bool)?
+    public var onHeldDraftApplied: ((UUID, String) -> Void)?
     private var originalDraft = ""
     private var originalMapping = MarkMapping.empty
     private var mouseFocusedElements: Set<String> = []
+    private var destinationEdit: ((String) -> Bool)?
 
     public func suggestion(for mark: UncertainMark) -> String? {
         mark.alternatives.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0 != mark.text }
     }
 
+    /// Review a landed word in the same notch editor. The callback owns target/range validation.
+    public func beginDestinationEditing(_ mark: UncertainMark, apply: @escaping (String) -> Bool) {
+        present(.correcting)
+        turn.liveText = mark.text
+        originalDraft = mark.text
+        var local = mark
+        local.range = 0..<mark.text.utf16.count
+        originalMapping = MarkMapping(text: mark.text, marks: [local], confidenceAvailable: true)
+        markCache = originalMapping
+        payloadText = mark.text
+        draftText = mark.text
+        destinationEdit = apply
+        editingMarkID = mark.id
+        isEditingDraft = true
+    }
+
     public func beginEditingDraft() {
-        guard case .finalPreview = state, !isEditingDraft else { return }
+        guard !isEditingDraft, !actionText.isEmpty else { return }
+        switch state {
+        case .finalPreview, .held, .error: break
+        default: return
+        }
         onDraftPause?(.review, true)
         originalDraft = actionText
         originalMapping = markMapping(for: originalDraft)
@@ -418,9 +441,24 @@ public final class PillViewModel: ObservableObject {
         guard !hasMarkedText, !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let edited = draftText
         if edited != originalDraft {
-            let mapping = DraftRevision.mapping(originalMapping, edited: edited)
-            let spans = DraftRevision.spans(for: mapping)
-            guard onApplyDraft?(edited, mapping, spans) ?? false else { return false }
+            var mapping = DraftRevision.mapping(originalMapping, edited: edited)
+            let spans = DraftRevision.spans(for: mapping, source: finalSpans)
+            mapping = DraftRevision.indexing(mapping, spans: spans)
+            switch state {
+            case .finalPreview:
+                guard onApplyDraft?(edited, mapping, spans) ?? false else { return false }
+            case .held(var info):
+                guard onApplyRetainedDraft?(state, originalDraft, edited, mapping) ?? false else { return false }
+                info.text = edited
+                onHeldDraftApplied?(info.id, edited)
+                route(.held(info))
+            case .correcting:
+                guard destinationEdit?(edited) ?? false else { return false }
+            case .error:
+                guard onApplyRetainedDraft?(state, originalDraft, edited, mapping) ?? false else { return false }
+                turn.liveText = edited
+            default: return false
+            }
             finalSpans = spans
             payloadText = edited
             resolvedMarks = []
@@ -429,18 +467,23 @@ public final class PillViewModel: ObservableObject {
             turn.needsPhraseReview = mapping.needsPhraseReview
             onLearnDraft?(originalDraft, edited)
         }
+        let wasDestination = destinationEdit != nil
         finishDraftEditing()
+        if wasDestination { hide() }
         return true
     }
 
     public func cancelDraftEdits() {
         guard isEditingDraft else { return }
         draftText = originalDraft
+        let wasDestination = destinationEdit != nil
         finishDraftEditing()
+        if wasDestination { hide() }
     }
 
     private func finishDraftEditing() {
         isEditingDraft = false
+        destinationEdit = nil
         editingMarkID = nil
         hasMarkedText = false
         onDraftPause?(.composition, false)
@@ -488,7 +531,10 @@ public final class PillViewModel: ObservableObject {
 
     /// One piece of the pill (`element`) gained or lost keyboard / VoiceOver focus. The pill is
     /// focused while any piece is; `onKeyboardFocusChange` fires only when that changes.
-    public func noteKeyboardInteraction() { mouseFocusedElements.removeAll() }
+    public func noteKeyboardInteraction() {
+        mouseFocusedElements.removeAll()
+        if isEditingDraft, !pointerInside { setFocus(true, element: "draft.editor") }
+    }
 
     public func setFocus(_ focused: Bool, element: String = "pill") {
         if focused {
@@ -509,8 +555,15 @@ public final class PillViewModel: ObservableObject {
     /// The rendered pill for the current state at `date`.
     public func content(at date: Date? = nil) -> PillContent {
         var result = PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)
+        if !isEditingDraft, !actionText.isEmpty {
+            switch state {
+            case .held, .error: result.buttons.insert(PillButton("Edit draft", .editDraft), at: 0)
+            default: break
+            }
+        }
         if isEditingDraft {
             result.buttons = [PillButton("Done", .doneEditing), PillButton("Cancel edits", .cancelEditing)]
+            if destinationEdit != nil, laneNote != nil { result.buttons.append(PillButton("Copy correction", .copy)) }
             result.helper = hasMarkedText ? "Finish typing before inserting" : "Done or ⌘Return applies edits"
         }
         return result
@@ -526,6 +579,7 @@ public final class PillViewModel: ObservableObject {
 
     /// The text a Copy / Review action on the current row acts on.
     public var actionText: String {
+        if isEditingDraft { return draftText }
         switch state {
         case .held(let info): return info.text
         case .landed(let info): return info.text
@@ -656,7 +710,10 @@ public final class PillViewModel: ObservableObject {
 
     /// Keeps the turn context in step with what is drawn.
     private func noteTransition(to next: PillState) {
-        if case .finalPreview = next {} else if isEditingDraft { finishDraftEditing() }
+        switch next {
+        case .finalPreview, .held, .error, .correcting: break
+        default: if isEditingDraft { finishDraftEditing() }
+        }
         let t = now()
         switch next {
         case .hidden:
