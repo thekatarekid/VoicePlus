@@ -1665,3 +1665,7 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Native release candidate inspected: inline alternatives, in-notch edits, scroll-only transcript and retained corrections work; cassette/tape/state layouts checked.
 - Fixed native QA findings: retained-word actions, contextual-chip viewport shrink, crowded four-action footer.
 - Bundled TDT, EOU and speaker models pass real offline synthetic inference; final full suite and DMG checks running.
+
+- Built `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.0.dmg` (714,250,047 B; SHA256 `950cc8c967ebc9d3c8536f1277c66f5db14dd1d9c0f4ce0298651c758a21e4a1`). Mounted read-only model inference, clean-install launch, signature/dependency and installability checks all pass. All 27 earlier DMGs remain byte-identical.
+- Source milestones pushed to `codex/spool-v3-native`. Binary remains local; existing update feed/cask kept unchanged.
+- Real external-app insertion QA is awaiting explicit Accessibility approval for the installed app; no permission was changed. Native visual/review checks and mock/unit delivery checks are distinct from this pending hardware check.

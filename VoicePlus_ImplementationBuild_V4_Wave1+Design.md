@@ -1026,7 +1026,7 @@ The current owner request supersedes V1 visual/motion/review rules with `design/
 - [x] Wire 600 ms preview, hover pause/resume, inline alternatives, in-notch draft editing and automatic learned vocabulary.
 - [ ] Verify native installed app against the reference, including recovery, Reduce Motion and destination safeguards.
 - [ ] Run scoped and full serial tests; commit and push verified milestones.
-- [ ] Build and verify a self-contained DMG; retain local artifact and record checksum/version.
+- [x] Build and verify a self-contained DMG; retain local artifact and record checksum/version.
 
 Status: implementation in progress. V3 completion and hardware verification are not yet claimed.
 
@@ -1042,3 +1042,9 @@ Status: implementation in progress. V3 completion and hardware verification are 
 - Native inspection found and fixed retained-word actions, chip-induced transcript shrinkage, and crowded recovery footer truncation; focused regressions pass.
 - All three bundled models passed actual inference from app resources with an empty model root and no fetchers: TDT decode, EOU streaming/final flush, 256-D speaker embedding. Synthetic non-speech input checks execution, not recognition accuracy.
 - Final full serial run and mounted DMG checks in progress. No completion claim yet.
+
+### Full installer checkpoint
+- Version **1.12.0**, build **202609200651**; source at `3377321`. `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.0.dmg`: **714,250,047 B**; SHA256 **950cc8c967ebc9d3c8536f1277c66f5db14dd1d9c0f4ce0298651c758a21e4a1**.
+- `FULL_INSTALLER=1 Packaging/verify_install.sh` passes, including actual TDT, EOU and speaker inference from the read-only mounted bundle with no user model cache/fetchers; clean-install launch and signature/relocatability checks pass.
+- All 27 prior DMGs remain byte-identical. The 681 MiB binary is retained locally and excluded from Git; checksums and release notes are tracked. No binary release or update-feed publication.
+- Installed production app requires Accessibility approval before the external TextEdit insertion check. Permission question is pending; no grant was made.
