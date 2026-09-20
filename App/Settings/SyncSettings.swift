@@ -290,6 +290,7 @@ public final class SyncSettingsViewModel: ObservableObject {
         let before = service.payload(now: now())
         do {
             let result = try service.syncNow()
+            fingerprint = service.keyFingerprint
             let at = now()
             lastRound = at
             SyncSettings.setLastRound(at, store: store)
@@ -542,7 +543,7 @@ public enum SyncCopy {
     public static let statusRow = "Status"
     public static let thisDevice = "This Mac"
     public static func key(_ fingerprint: String) -> String { "Sync key \(fingerprint)" }
-    public static let noKey = "No sync key yet."
+    public static let noKey = "Key shown after syncing or pairing."
     public static let local = "Local first"
     public static let offlineTag = "Offline"
     public static let pause = "Pause"

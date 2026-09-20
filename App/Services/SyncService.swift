@@ -19,6 +19,7 @@ public final class SyncService: @unchecked Sendable {
     public let settings: SettingsStore
     public private(set) var pairingSession: PairingSession?
     private let lock = NSLock()
+    private var knownKeyFingerprint: String?
 
     public init(database: AppDatabase?, snippets: any SnippetStoring, settings: SettingsStore,
                 keyStore: (any SyncKeyStore)? = nil) {
@@ -41,13 +42,23 @@ public final class SyncService: @unchecked Sendable {
 
     /// The master key: loaded from the Keychain, minted (and stored) on first use.
     public func key() throws -> SyncKey {
-        if let existing = try SyncKey.load(from: keyStore) { return existing }
-        let fresh = SyncKey.random()
-        try fresh.save(to: keyStore)
-        return fresh
+        let key: SyncKey
+        if let existing = try SyncKey.load(from: keyStore) {
+            key = existing
+        } else {
+            key = SyncKey.random()
+            try key.save(to: keyStore)
+        }
+        lock.lock(); knownKeyFingerprint = key.fingerprint; lock.unlock()
+        return key
     }
 
-    public var keyFingerprint: String? { (try? key())?.fingerprint }
+    /// Nonsecret display metadata from this session's explicit key use. Reading settings must
+    /// never query or create a Keychain item, even when a key already exists or sync is enabled.
+    public var keyFingerprint: String? {
+        lock.lock(); defer { lock.unlock() }
+        return knownKeyFingerprint
+    }
 
     // MARK: Payload (never audio — `SyncPayload.audit` enforces it)
 
@@ -109,7 +120,7 @@ public final class SyncService: @unchecked Sendable {
         let peer = try PairingPayload.parse(scanned)
         let shared = try session.complete(with: peer, confirmedPeerCode: confirmedPeerCode)
         try shared.save(to: keyStore)
-        lock.lock(); pairingSession = nil; lock.unlock()
+        lock.lock(); pairingSession = nil; knownKeyFingerprint = shared.fingerprint; lock.unlock()
         return shared
     }
 
