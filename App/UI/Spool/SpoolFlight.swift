@@ -1,69 +1,95 @@
 import Foundation
 
-/// S1 — the mouth-to-caret tape flight maths, exactly as the prototype's `flight()` (design §4
-/// "Mouth-to-caret tape path", §5 step 6). S4 draws it in a pointer-transparent overlay; S1 owns the
-/// geometry so the flight and the pill share one ribbon.
-///
-/// The leading end grows to the caret (`head = sm(t/0.65)`), then the tail feeds in
-/// (`tail = sm((t − 0.72)/0.33)`, gone by 1.05 s). The strip follows a cubic Bézier with
-/// `bend = min(110, |dy|·0.46)`, `c1 = from + (24, bend)`, `c2 = to + (max(45, |dx|·0.25), −bend/2)`,
-/// sampled 121 times between tail and head, with a lateral wave `sin(πu)·sin(2π·2.2u − 9t)·13` on x
-/// (0.4× on y), width 9, roll `2.4·sin(2π·1.8u − 5t)·sin(πu)`.
+/// V3's continuous mouth → text lines → flattened tape. Geometry is supplied by verified
+/// destination rectangles; this renderer never measures, scrolls, writes, or guesses text.
 enum SpoolFlight {
-    static let samples = 121
-    static let ribbonWidth = 9.0
-    /// The flight is finished (tail fully fed) by this time.
-    static let duration = 1.05
+    static let samples = 71
+    static let ribbonWidth = 6.4
+    static let duration = 1.3
+
+    /// Start of an underline centreline in overlay coordinates. A negative width follows RTL.
+    struct Line: Equatable, Sendable, Codable {
+        var x: Double
+        var y: Double
+        var width: Double
+    }
 
     struct Frame: Equatable, Sendable {
         var drawing: SpoolDrawing
-        /// `head`, 0…1: how far the leading end has travelled.
         var head: Double
         var tail: Double
-        /// The strip's centre samples, tail to head, in the overlay's coordinates.
         var points: [SpoolPoint]
+        var flattening: Double
+        var linePoints: [[SpoolPoint]]
     }
 
-    static func head(_ t: Double) -> Double { SpoolMath.sm(t / 0.65) }
-    static func tail(_ t: Double) -> Double { SpoolMath.sm((t - 0.72) / 0.33) }
+    static func head(_ t: Double) -> Double { SpoolMath.sm(t / 0.48) }
+    static func tail(_ t: Double) -> Double { SpoolMath.sm((t - 0.78) / 0.42) }
 
-    /// `flight(t, from, to, w, h)`; `nil` where the prototype returns `''` (not started, finished, or
-    /// a zero-length strip).
+    /// Caret-only fallback: no fabricated destination width before verification.
     static func frame(t: Double, from: SpoolPoint, to: SpoolPoint, width: Double, height: Double) -> Frame? {
-        let head = head(t), tail = tail(t)
-        if t <= 0 || tail >= 1 { return nil }
-        let span = head - tail
-        if span <= 0.001 { return nil }
-        let dy = to.y - from.y, dx = to.x - from.x
-        let bend = SpoolMath.min(110, abs(dy) * 0.46)
-        let c1 = SpoolPoint(from.x + 24, from.y + bend)
-        let c2 = SpoolPoint(to.x + SpoolMath.max(45, abs(dx) * 0.25), to.y - bend * 0.5)
-        var points: [SpoolPoint] = []
-        points.reserveCapacity(samples)
-        for i in 0 ..< samples {
-            let u = tail + span * Double(i) / Double(samples - 1), v = 1 - u
-            // Left to right, as the prototype sums: ((b0 + b1) + b2) + b3.
-            let b0 = v * v * v, b1 = 3 * v * v * u, b2 = 3 * v * u * u, b3 = u * u * u
-            var x = b0 * from.x + b1 * c1.x
-            x = x + b2 * c2.x
-            x = x + b3 * to.x
-            var y = b0 * from.y + b1 * c1.y
-            y = y + b2 * c2.y
-            y = y + b3 * to.y
-            let wave = SpoolMath.sin(u * Double.pi) * SpoolMath.sin(u * SpoolMath.tau * 2.2 - t * 9) * 13
-            x += wave
-            y += wave * 0.4
-            points.append(SpoolPoint(x, y))
+        frame(t: t, from: from, lines: [Line(x: to.x, y: to.y, width: 0)], width: width, height: height)
+    }
+
+    static func frame(t: Double, from: SpoolPoint, lines: [Line], width: Double, height: Double,
+                      verified: Bool = false) -> Frame? {
+        guard let first = lines.first, t > 0, t < duration else { return nil }
+        let to = SpoolPoint(first.x, first.y)
+        let bend = SpoolMath.min(100, abs(to.y - from.y) * 0.45)
+        var bridge: [SpoolPoint] = []
+        for i in 0...64 {
+            let u = Double(i) / 64, v = 1 - u, env = SpoolMath.sin(u * .pi)
+            let x = v * v * v * from.x + 3 * v * v * u * (from.x + 16)
+                + 3 * v * u * u * (to.x + 65) + u * u * u * to.x
+                + env * SpoolMath.sin(u * SpoolMath.tau * 1.6 - t * 7) * 8
+            let y = v * v * v * from.y + 3 * v * v * u * (from.y + bend)
+                + 3 * v * u * u * (to.y - 35) + u * u * u * to.y
+            bridge.append(SpoolPoint(x, y))
         }
-        let ribbon = TapeRibbon.node(points, width: ribbonWidth) { q in
-            2.4 * SpoolMath.sin((tail + span * q) * SpoolMath.tau * 1.8 - t * 5) * SpoolMath.sin((tail + span * q) * Double.pi)
+        let head = head(t), tail = tail(t), flat = SpoolMath.sm((t - 0.88) / 0.42)
+        let tapeWidth = SpoolMath.mix(ribbonWidth, 2.4, flat)
+        var nodes: [SpoolNode] = [], points: [SpoolPoint] = [], linePoints: [[SpoolPoint]] = []
+        if head - tail >= 0.008 {
+            for i in 0...70 {
+                let k = (tail + (head - tail) * Double(i) / 70) * Double(bridge.count - 1)
+                let j = Swift.min(bridge.count - 2, Int(k.rounded(.down))), f = k - Double(j)
+                points.append(SpoolPoint(SpoolMath.mix(bridge[j].x, bridge[j + 1].x, f),
+                                         SpoolMath.mix(bridge[j].y, bridge[j + 1].y, f)))
+            }
+            nodes.append(TapeRibbon.node(points, width: tapeWidth) { q in
+                (1 - flat) * 2.05 * SpoolMath.sin(q * SpoolMath.tau * 1.2 - t * 3.2) * SpoolMath.sin(q * .pi)
+            })
+        }
+        let progress = SpoolMath.sm((t - 0.42) / 0.52) * Double(lines.count)
+        for (i, line) in lines.enumerated() {
+            let p = SpoolMath.clamp(progress - Double(i))
+            guard p > 0, line.width != 0 else { continue }
+            let ps = (0...48).map { j -> SpoolPoint in
+                let u = Double(j) / 48
+                return SpoolPoint(line.x + line.width * u * p,
+                                  line.y + (1 - flat) * SpoolMath.sin(u * .pi) * SpoolMath.sin(u * SpoolMath.tau - t * 7) * 3)
+            }
+            linePoints.append(ps)
+            nodes.append(TapeRibbon.node(ps, width: tapeWidth) { q in
+                (1 - flat) * 2.05 * SpoolMath.sin(q * .pi * 1.6 - t * 3.2) * SpoolMath.sin(q * .pi)
+            })
+            if i < lines.count - 1, progress > Double(i + 1), flat < 1 {
+                let next = lines[i + 1]
+                let ps = (0...40).map { j -> SpoolPoint in
+                    let u = Double(j) / 40
+                    return SpoolPoint(SpoolMath.mix(line.x + line.width, next.x, SpoolMath.sm(u)),
+                                      SpoolMath.mix(line.y, next.y, u) + SpoolMath.sin(u * .pi) * 5)
+                }
+                nodes.append(.group(attributes: [SpoolAttribute("opacity", number: 1 - flat)], transform: nil,
+                                    children: [TapeRibbon.node(ps, width: tapeWidth)]))
+            }
         }
         let drawing = SpoolDrawing(viewBox: [0, 0, width, height], attributes: [
             SpoolAttribute("xmlns", "http://www.w3.org/2000/svg"),
-            SpoolAttribute("data-flight-head", number: SpoolMath.fixed2(head)),
-            SpoolAttribute("data-caret-x", number: SpoolMath.fixed2(to.x)),
-            SpoolAttribute("data-caret-y", number: SpoolMath.fixed2(to.y)),
-        ], nodes: [ribbon])
-        return Frame(drawing: drawing, head: head, tail: tail, points: points)
+            SpoolAttribute("data-handoff", "continuous"),
+            SpoolAttribute("data-settle", number: SpoolMath.fixed2(flat)),
+            SpoolAttribute("data-verified", verified ? "true" : "false"),
+        ], nodes: nodes)
+        return Frame(drawing: drawing, head: head, tail: tail, points: points, flattening: flat, linePoints: linePoints)
     }
 }

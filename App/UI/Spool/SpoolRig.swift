@@ -1,7 +1,7 @@
 import Foundation
 
 /// S1 — Spool's body: an exact port of the prototype's `rig()` case 25 plus the overlays `art()` adds
-/// (`design/design_v1.html`, Spool module; build doc S1.1–S1.3). Nothing here is redrawn: every element,
+/// (`design/design_v3.html`, Spool module; build doc S1.1–S1.3). Nothing here is redrawn: every element,
 /// coordinate, colour and expression is the prototype's, in the prototype's order.
 ///
 /// `face()`, `glove()`, `limb()` and `lens()` in the prototype belong to earlier mascots and are never
@@ -25,7 +25,7 @@ enum SpoolRig {
     ///   - t: seconds in the state **after** the time remap (`SpoolPoseTable.remappedTime`).
     ///   - angle: the accumulated reel angle in degrees (negative = counterclockwise). `nil` uses the
     ///     prototype's built-in fallback, which the pill never does: the host always owns the angle.
-    static func rig(pose: SpoolPose, t: Double, angle: Double?, gradientID: String = defaultGradientID) -> Output {
+    static func rig(pose: SpoolPose, t: Double, angle: Double?, motion: SpoolMotionState? = nil, gradientID: String = defaultGradientID) -> Output {
         let listening = pose == .listen, fin = pose == .finish, pre = pose == .preview
         let ins = pose == .insert, rev = pose == .review, err = pose == .error
         let col = SpoolPalette.housing, dark = SpoolPalette.dark, light = SpoolPalette.light
@@ -36,12 +36,12 @@ enum SpoolRig {
         let pop = ins ? SpoolMath.sin(SpoolMath.clamp((t - 0.35) / 1.15) * Double.pi) : 0
 
         let settle = fin ? SpoolMath.exp(-t * 3) * SpoolMath.sin(t * 11) * 2 : 0
-        let lean: Double = listening ? SpoolMath.sin(t * 2.3) * 1.6
+        let lean: Double = motion?.lean ?? (listening ? SpoolMath.sin(t * 2.3) * 1.6
             : fin ? settle
             : ins ? -3 * wind + 2.2 * pop
             : rev ? -4 * inspect
-            : err ? -2 * inspect : 0
-        let lift: Double = ins ? 2 * wind - 3 * pop : fin ? 2 * SpoolMath.sin(p * Double.pi) : 0
+            : err ? -2 * inspect : 0)
+        let lift: Double = motion?.lift ?? (ins ? 2 * wind - 3 * pop : fin ? 2 * SpoolMath.sin(p * Double.pi) : 0)
         let winding = SpoolMath.min(t, 1.5)
         let reelAngle: Double = angle ?? (listening ? -t * 150
             : fin ? -150 * (winding - winding * winding / 3)
@@ -69,8 +69,7 @@ enum SpoolRig {
             }
         }
         body.append(R(-47, -54, 94, 9, 2, .hex(SpoolPalette.labelStrip)))
-        body.append(T(-40, -47.8, "SIDE A", 5.2, SpoolPalette.labelText, [A("letter-spacing", "1.5")]))
-        body.append(T(35, -47.8, "01", 5.2, SpoolPalette.labelText))
+        body.append(T(-40, -47.8, "SIDE A", 5.2, SpoolPalette.labelText, [A("letter-spacing", "1.5"), A("opacity", ".55")]))
         body.append(R(-51, -35, 102, 48, 13, .hex(SpoolPalette.window), [A("stroke", light), A("stroke-width", "1")]))
         // Internal tape from the inlet round the guide to the reels.
         body.append(TapeRibbon.node(internalRibbon, width: 8))
@@ -81,14 +80,14 @@ enum SpoolRig {
         body.append(L(-65, 18, -65, 26, light, 1))
 
         // Reel eyes.
-        let glance: Double = rev ? -3.5 * inspect : ins ? 2 * send : listening ? -1.5 : 0
+        let glance: Double = motion?.gaze ?? (rev ? -3.5 * inspect : ins ? 2 * send : listening ? -1.5 : 0)
         let blink: Double = listening
             ? SpoolMath.pow(SpoolMath.max(0, 1 - abs(t.truncatingRemainder(dividingBy: 4.8) - 4.35) / 0.13), 2) : 0
         for side in [-1.0, 1] {
             let x = side * 27, y = -12.0, r = 21.0
             body.append(C(x, y, r, .hex(SpoolPalette.tapeFace),
                           [A("stroke", SpoolPalette.tapeEdge), A("stroke-width", ".7"), A("data-tape-pack", "true")]))
-            for rr in [20, 18.6, 17.2, 15.8, 14.4] {
+            for rr in [19.5, 17, 14.5] {
                 body.append(C(x, y, rr, .none,
                               [A("stroke", SpoolPalette.tapeShadow), A("stroke-width", ".38"), A("opacity", ".72")]))
             }
@@ -128,7 +127,16 @@ enum SpoolRig {
         body.append(P(Literal.mouthOpening, .hex(dark), .hex(SpoolPalette.ink), 1))
         body.append(R(-22, 21, 44, 13, 5, .hex(SpoolPalette.pad)))
         let mouthY = 27.0
-        if listening {
+        if let motion {
+            let op = motion.mouthOpen, smile = motion.mouthSmile
+            body.append(R(-10, 26 - op * 2, 20, 2 + 9 * op, 2, .hex(SpoolPalette.feedSlot), [SpoolAttribute("opacity", number: op)]))
+            body.append(P(SpoolPathData([.init("M", [-8, 27]), .init("Q", [0, 27 + smile * 7, 8, 27])]),
+                          .none, .hex(SpoolPalette.mouthLine), 2, [SpoolAttribute("opacity", number: 1 - op)]))
+            if pre {
+                body.append(E(-35, 17, 4, 1.7, .hex(SpoolPalette.lip), [A("opacity", ".22")]))
+                body.append(E(35, 17, 4, 1.7, .hex(SpoolPalette.lip), [A("opacity", ".22")]))
+            }
+        } else if listening {
             body.append(E(0, mouthY, 9 + SpoolMath.sin(t * 3) * 1.5, 3.1 + SpoolMath.sin(t * 5) * 0.7, .hex(SpoolPalette.mouthCavity)))
             body.append(P(Literal.listeningLip, .none, .hex(SpoolPalette.lip), 1.7))
         } else if fin {
@@ -172,9 +180,9 @@ enum SpoolRig {
     }
 
     /// `art(key, t, id, angle)`: the state's pose at the remapped time, plus its overlays.
-    static func art(_ key: SpoolStateKey, t: Double, angle: Double, gradientID: String = defaultGradientID) -> Output {
+    static func art(_ key: SpoolStateKey, t: Double, angle: Double, motion: SpoolMotionState? = nil, gradientID: String = defaultGradientID) -> Output {
         var output = rig(pose: SpoolPoseTable.pose(for: key), t: SpoolPoseTable.remappedTime(key, t),
-                         angle: angle, gradientID: gradientID)
+                         angle: angle, motion: motion, gradientID: gradientID)
         let overlays = SpoolPoseTable.overlays(for: key)
         if overlays.contains(.concernedBrows) {
             output.nodes.append(P(Literal.concernedBrows, .none, .hex(SpoolPalette.brow), 2))
@@ -185,6 +193,17 @@ enum SpoolRig {
             output.nodes.append(L(14, -8, 40, -8, SpoolPalette.closedEye, 2))
             output.nodes.append(R(-9, 18, 18, 10, 3, .hex(SpoolPalette.padlock)))
             output.nodes.append(P(Literal.padlockShackle, .none, .hex(SpoolPalette.padlockShackle), 1.5))
+        }
+        if key == .unconfirmed {
+            output.nodes.append(P(SpoolPathData("M-37 -38q9 -3 18 0"), .none, .hex(SpoolPalette.brow), 1.7))
+        }
+        if key == .partial {
+            output.nodes.append(P(SpoolPathData("M14 -38q9 -5 18 0"), .none, .hex(SpoolPalette.brow), 1.7))
+        }
+        if overlays.contains(.setupLatch) {
+            output.nodes.append(R(-8, 39, 16, 5, 2, .hex(SpoolPalette.brake)))
+            output.nodes.append(L(-5, 41, 5, 41, SpoolPalette.cream, 1))
+            output.nodes.append(P(SpoolPathData("M-39 -42q12 -5 24 0M15 -42q12 -5 24 0"), .none, .hex(SpoolPalette.brow), 1.6))
         }
         if overlays.contains(.pauseBars) {
             output.nodes.append(R(-7, -20, 5, 16, 1, .hex(SpoolPalette.pauseBars)))

@@ -6,12 +6,13 @@ import Testing
 /// S1 acceptance gate — the Swift Spool port against the verified prototype.
 ///
 /// `Fixtures/spool/spool_golden.json` holds the SHA-256 of every SVG the prototype's Spool module
-/// (`design/design_v1.html`) draws for 624 scene frames (26 states × 11 times × 2 reel angles, plus the
-/// 420 pt narrow layout and the still frames), 26 cameos and 6 tape-flight frames. `SpoolSVG` writes
+/// (`design/design_v3.html`) draws for 624 scene frames (26 states × 11 times × 2 reel angles, plus the
+/// 380 pt narrow layout and the still frames), 26 cameos and 8 three-line tape-flight frames. `SpoolSVG` writes
 /// the Swift `SpoolDrawing` in the prototype's exact text, so equal hashes mean the same drawing to
 /// the last attribute. `spool_spec.json` holds the constants; they must equal the Swift ones.
 ///
 /// Fixtures are regenerated only with `node Scripts/spool_golden.mjs`, never by hand.
+/// Scene fixtures supply explicit continuous expression state to V3’s motion-aware rig.
 @Suite("Spool parity (S1)")
 struct SpoolParityTests {
 
@@ -31,6 +32,7 @@ struct SpoolParityTests {
         var width: Double
         var still: Bool
         var angle: Double
+        var motion: SpoolMotionState?
         var sha256: String?
         var svg: String?
     }
@@ -43,7 +45,8 @@ struct SpoolParityTests {
     struct FlightEntry: Decodable {
         var t: Double
         var from: [Double]
-        var to: [Double]
+        var lines: [SpoolFlight.Line]
+        var to: [Double] { lines.first.map { [$0.x, $0.y] } ?? [] }
         var w: Double
         var h: Double
         var sha256: String?
@@ -77,13 +80,13 @@ struct SpoolParityTests {
 
     static func sceneSVG(_ entry: SceneEntry) throws -> String {
         let frame = SpoolScene.frame(try key(entry.key), t: entry.t, width: entry.width, still: entry.still,
-                                     angle: entry.angle, drive: .simulation)
+                                     angle: entry.angle, drive: .simulation, motion: entry.motion)
         return SpoolSVG.string(frame.drawing)
     }
 
     static func flightSVG(_ entry: FlightEntry) -> String {
         SpoolSVG.string(SpoolFlight.frame(t: entry.t, from: SpoolPoint(entry.from[0], entry.from[1]),
-                                          to: SpoolPoint(entry.to[0], entry.to[1]), width: entry.w, height: entry.h))
+                                          lines: entry.lines, width: entry.w, height: entry.h))
     }
 
     /// Where two strings first differ, with a little context from each.
@@ -144,7 +147,7 @@ struct SpoolParityTests {
 
     @Test func everyFlightFrameMatchesItsGoldenHash() throws {
         let golden = Self.golden
-        #expect(golden.flights.count == 6)
+        #expect(golden.flights.count == 8)
         for entry in golden.flights {
             let svg = Self.flightSVG(entry)
             #expect(Self.sha256(svg) == entry.sha256, "flight t=\(entry.t) differs:\n\(svg)")
@@ -168,11 +171,11 @@ struct SpoolParityTests {
         let character = try #require(spec["character"] as? [String: Any])
         #expect(character["color"] as? String == SpoolPalette.housing)
         #expect(character["id"] as? Int == 25)
-        let tape = try #require(spec["tape"] as? [String: String])
-        #expect(tape["face"] == SpoolPalette.tapeFace)
-        #expect(tape["back"] == SpoolPalette.tapeBack)
-        #expect(tape["edge"] == SpoolPalette.tapeEdge)
-        #expect(tape["shadow"] == SpoolPalette.tapeShadow)
+        let tape = try #require(spec["tape"] as? [String: Any])
+        #expect(tape["face"] as? String == SpoolPalette.tapeFace)
+        #expect(tape["back"] as? String == SpoolPalette.tapeBack)
+        #expect(tape["edge"] as? String == SpoolPalette.tapeEdge)
+        #expect(tape["shadow"] as? String == SpoolPalette.tapeShadow)
         let shades = try #require(spec["housingShades"] as? [String: String])
         #expect(shades["gradientTop"] == SpoolPalette.gradientTop)
         #expect(shades["gradientMid"] == SpoolPalette.housing)
@@ -222,19 +225,18 @@ struct SpoolParityTests {
         #expect(geometry["tapeWidth"] as? Double == SpoolScene.tapeWidth)
         #expect(geometry["cameoViewBox"] as? [Double] == SpoolScene.cameoViewBox)
         // Placement at the two layouts the goldens cover.
-        #expect(SpoolScene.placement(width: 560) == (1, 482, 80))
-        #expect(SpoolScene.placement(width: 420) == (0.69, 366, 74))
-        #expect(SpoolScene.placement(width: 460).scale == 1)
+        #expect(SpoolScene.placement(width: 560) == (0.8, 488, 76))
+        #expect(SpoolScene.placement(width: 420) == (0.8, 348, 76))
+        #expect(SpoolScene.placement(width: 380).scale == 0.65)
     }
 
     @Test func reelRulesAndTimeRemapsEqualTheSpec() throws {
         let spec = try Self.spec()
         let rules = try #require(spec["reelAngleRules"] as? [String: Any])
         #expect(rules["dtClamp"] as? Double == SpoolReelIntegrator.dtClamp)
-        #expect((rules["live"] as? String)?.contains("\(Int(SpoolReelIntegrator.listeningSpeed)) * dt") == true)
-        #expect((rules["finishing"] as? String)?.contains("t/\(SpoolReelIntegrator.finishingWindow)") == true)
-        #expect((rules["finishing"] as? String)?.contains("t < \(SpoolReelIntegrator.finishingWindow)") == true)
-        #expect((rules["inserting"] as? String)?.contains("\(Int(SpoolReelIntegrator.insertingSpeed)) * dt") == true)
+        #expect((rules["live"] as? String)?.contains("\(Int(SpoolReelIntegrator.listeningSpeed)) * energy * dt") == true)
+        #expect((rules["finishing"] as? String)?.contains("motion.level") == true)
+        #expect((rules["inserting"] as? String)?.contains("\(Int(SpoolReelIntegrator.insertingSpeed)) * min(1,t/.12) * dt") == true)
         #expect((rules["inserting"] as? String)?.contains("t < \(SpoolReelIntegrator.insertingWindow)") == true)
         let remap = try #require(spec["timeRemap"] as? [String: String])
         #expect(remap["finishing"] == "min(t * 1.5 / 0.55, 1.5)")

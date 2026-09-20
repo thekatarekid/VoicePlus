@@ -70,8 +70,10 @@ struct SpoolFrameSchedule: TimelineSchedule {
 final class SpoolAnimator {
     private(set) var reel = SpoolReelIntegrator()
     private(set) var smoother = SpoolLevelSmoother()
+    private(set) var motion = SpoolMotionState()
     private var lastFrame: Date?
     private var lastState: (key: SpoolStateKey, start: Date)?
+    private var feedingStartedAt: Date?
 
     init() {}
 
@@ -81,19 +83,26 @@ final class SpoolAnimator {
                reduceMotion: Bool, width: Double) -> SpoolScene.Frame {
         let sameState = lastState.map { $0.key == key && $0.start == start } ?? false
         let dt = sameState ? Swift.max(0, lastFrame.map { date.timeIntervalSince($0) } ?? 0) : 0
+        if key == .inserting, !sameState { feedingStartedAt = start }
+        if key != .inserting && key != .inserted { feedingStartedAt = nil }
+        let feedTime = feedingStartedAt.map { Swift.max(0, date.timeIntervalSince($0)) }
+        let continuingFeed = !reduceMotion && key == .inserted && (feedTime.map { $0 < 1.2 } ?? false)
+        let presentationKey: SpoolStateKey = continuingFeed ? .inserting : key
         lastState = (key, start)
         lastFrame = date
-        let t = Swift.max(0, date.timeIntervalSince(start))
-        let smoothed = smoother.advance(toward: level, dt: dt)
-        reel.advance(key, t: t, dt: dt, level: smoothed, reduceMotion: reduceMotion)
-        return SpoolScene.frame(key, t: t, width: width, still: reduceMotion, angle: reel.angle,
-                                drive: .capture(level: smoothed))
+        let t = continuingFeed ? feedTime! : Swift.max(0, date.timeIntervalSince(start))
+        let energy = SpoolPoseTable.isLive(presentationKey) ? level : 0
+        let smoothed = smoother.advance(toward: energy, dt: SpoolMath.min(dt, SpoolReelIntegrator.dtClamp))
+        if !reduceMotion { motion.advance(presentationKey, t: t, dt: dt, level: smoothed) }
+        reel.advance(presentationKey, t: t, dt: dt, level: smoothed, reduceMotion: reduceMotion)
+        return SpoolScene.frame(presentationKey, t: t, width: width, still: reduceMotion, angle: reel.angle,
+                                drive: .capture(level: smoothed), motion: motion)
     }
 }
 
 /// S1 — Spool, drawn with SwiftUI `Canvas` from the same `SpoolDrawing` the parity tests pin.
 ///
-/// `.pill` draws the whole 164 pt-high pill scene (tape lane plus character on the right) at the view's
+/// `.pill` draws the whole 160 pt-high pill scene (tape lane plus character on the right) at the view's
 /// width; `.cameo` draws the still character for window surfaces. A `TimelineView` drives `t` and the
 /// reel angle per S1.4; the loop stops per S1.5 (never when hidden or under Reduce Motion, where the
 /// still frame is drawn). The tape follows the real capture `level` (S1.6): silence draws a flat tape.
@@ -170,8 +179,8 @@ struct SpoolView: View {
         }
     }
 
-    /// The scene's viewBox width for a view of `size`: the scene is always 164 units high, so a view
-    /// 164 pt high draws 1:1 (`width` pt wide), and any other height keeps the aspect.
+    /// The scene's viewBox width for a view of `size`: the scene is always 160 units high, so a view
+    /// 160 pt high draws 1:1 (`width` pt wide), and any other height keeps the aspect.
     static func sceneWidth(for size: CGSize) -> Double {
         guard size.height > 0, size.width > 0 else { return 560 }
         return Double(size.width) * SpoolScene.height / Double(size.height)

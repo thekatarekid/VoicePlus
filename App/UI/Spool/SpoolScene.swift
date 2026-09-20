@@ -29,21 +29,21 @@ enum SpoolScene {
 
     // MARK: Geometry (spool_spec.json › sceneGeometry)
 
-    static let height = 164.0
-    static let narrowBelow = 460.0
-    static let wide = (scale: 1.0, cxFromRight: 78.0, cy: 80.0)
-    static let narrow = (scale: 0.69, cxFromRight: 54.0, cy: 74.0)
-    static let tapeStart = SpoolPoint(16, 104)
+    static let height = 160.0
+    static let narrowBelow = 400.0
+    static let wide = (scale: 0.8, cxFromRight: 72.0, cy: 76.0)
+    static let narrow = (scale: 0.65, cxFromRight: 61.0, cy: 76.0)
+    static let tapeStart = SpoolPoint(20, 98)
     static let tapeSamples = 97
-    static let tapeWidth = 8.0
+    static let tapeWidth = 6.4
     static let cameoViewBox: [Double] = [-76, -72, 152, 132]
     /// The cancelled tape retracts over this many seconds.
     static let retractSeconds = 0.32
-    /// The editing/notes marker travels at 40 pt/s.
-    static let markerSpeed = 40.0
+    /// The editing/notes marker travels at 35 pt/s.
+    static let markerSpeed = 35.0
 
-    /// Character centre and scale for a pill `width` pt wide: scale 1 at (width − 78, 80); below 460 pt
-    /// scale 0.69 at (width − 54, 74).
+    /// Character centre and scale for a pill `width` pt wide: scale 0.8 at (width − 72, 76); below 400 pt
+    /// scale 0.65 at (width − 61, 76).
     static func placement(width: Double) -> (scale: Double, cx: Double, cy: Double) {
         let narrowLayout = width < narrowBelow
         let g = narrowLayout ? narrow : wide
@@ -63,14 +63,14 @@ enum SpoolScene {
 
     /// `scene(key, t, id, width, still, angle)`.
     static func frame(_ key: SpoolStateKey, t tIn: Double, width: Double = 560, still: Bool = false, angle angleIn: Double = 0,
-                      drive: SpoolTapeDrive, gradientID: String = SpoolRig.defaultGradientID) -> Frame {
+                      drive: SpoolTapeDrive, motion: SpoolMotionState? = nil, gradientID: String = SpoolRig.defaultGradientID) -> Frame {
         let t = still ? SpoolPoseTable.stillTime(for: key) : tIn
         let angle = still ? 0 : angleIn
         let (scale, cx, cy) = placement(width: width)
-        let art = SpoolRig.art(key, t: t, angle: angle, gradientID: gradientID)
+        let art = SpoolRig.art(key, t: t, angle: angle, motion: still ? nil : motion, gradientID: gradientID)
         let end = SpoolPoint(cx + art.inlet.x * scale, cy + art.inlet.y * scale)
-        let activity = activity(key, t: t, still: still, drive: drive)
-        let phase = key == .finishing ? 0 : t * 4
+        let activity = still ? 0 : motion?.level ?? activity(key, t: t, still: still, drive: drive)
+        let phase = motion?.phase ?? t
 
         var lane: [SpoolPoint] = []
         lane.reserveCapacity(tapeSamples)
@@ -79,27 +79,28 @@ enum SpoolScene {
             let envelope = SpoolMath.sin(u * Double.pi)
             let x = SpoolMath.mix(tapeStart.x, end.x, u)
             var y = SpoolMath.mix(tapeStart.y, end.y, SpoolMath.pow(u, 9))
-            y += activity * 10 * envelope * (0.75 * SpoolMath.sin(u * SpoolMath.tau * 1.65 - phase)
-                + 0.2 * SpoolMath.sin(u * SpoolMath.tau * 3 - t * 2))
+            y += activity * 1.6 * SpoolMath.sin(phase * 3.1 - 0.35) * (1 - u)
+            y += activity * 8.4 * envelope * (0.88 * SpoolMath.sin(u * SpoolMath.tau * 2.8 - phase * 3.5)
+                + 0.12 * SpoolMath.sin(u * SpoolMath.tau * 4.2 - phase * 2))
             lane.append(SpoolPoint(x, y))
         }
-        let tape = TapeRibbon.node(lane, width: tapeWidth * scale) { u in
-            activity * 2.25 * SpoolMath.sin(u * SpoolMath.tau * 1.65 - t * 1.8)
+        let tape = TapeRibbon.node(lane, width: tapeWidth * (scale / 0.8)) { u in
+            activity * 2.35 * SpoolMath.sin(u * SpoolMath.tau * 1.6 - phase * 1.4)
                 * SpoolMath.pow(SpoolMath.sin(u * Double.pi), 0.6)
         }
 
         var nodes: [SpoolNode] = [gradient(gradientID)]
         if key == .cancelled {
-            let x = SpoolMath.mix(tapeStart.x, end.x, SpoolMath.sm(t / retractSeconds))
-            nodes.append(.clip(id: gradientID + "-retract", x: x, y: 84, width: SpoolMath.max(0, end.x - x), height: 44,
+            let x = SpoolMath.mix(16, end.x, SpoolMath.sm(t / retractSeconds))
+            nodes.append(.clip(id: gradientID + "-retract", x: x, y: 83, width: SpoolMath.max(0, end.x - x), height: 44,
                                children: [tape]))
         } else {
             nodes.append(tape)
         }
         nodes.append(SpoolRig.G(cx, cy, art.nodes, 0, scale))
         if SpoolPoseTable.overlays(for: key).contains(.progressMarker) {
-            let x = still ? 180 : tapeStart.x + (t * markerSpeed).truncatingRemainder(dividingBy: end.x - 40)
-            nodes.append(SpoolRig.R(x, 101, 18, 6, 1, .hex(SpoolPalette.tapeEdge)))
+            let x = still ? 180 : 16 + (t * markerSpeed).truncatingRemainder(dividingBy: end.x - 40)
+            nodes.append(SpoolRig.R(x, 96, 14, 4, 1, .hex(SpoolPalette.tapeEdge)))
         }
         let drawing = SpoolDrawing(viewBox: [0, 0, width, height], attributes: [
             SpoolAttribute("aria-hidden", "true"), SpoolAttribute("focusable", "false"),

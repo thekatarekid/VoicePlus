@@ -9,11 +9,11 @@ struct SpoolReelIntegrator: Equatable, Sendable {
 
     /// The prototype's listening speed, °/s counterclockwise.
     static let listeningSpeed = 150.0
-    /// Inserting turns clockwise at 440 °/s …
-    static let insertingSpeed = 440.0
-    /// … until 1.05 s.
-    static let insertingWindow = 1.05
-    /// Finishing decelerates from 150 °/s to 0 over 0.55 s, still counterclockwise.
+    /// Inserting turns clockwise at 390 °/s with a 120 ms ramp …
+    static let insertingSpeed = 390.0
+    /// … until 1.2 s.
+    static let insertingWindow = 1.2
+    /// Finishing without a supplied level decelerates over 0.55 s; live capture uses its release envelope.
     static let finishingWindow = 0.55
     /// Frames further apart than this advance as if 50 ms had passed.
     static let dtClamp = 0.05
@@ -21,10 +21,10 @@ struct SpoolReelIntegrator: Equatable, Sendable {
     init(angle: Double = 0) { self.angle = angle }
 
     /// Live-state speed. The prototype's simulation turns at a flat 150 °/s; the product modulates it
-    /// by speech activity, `150 · (0.6 + 0.4 · level)` (design §11).
+    /// by speech activity, `150 · level` (design §11).
     static func liveSpeed(level: Double?) -> Double {
         guard let level else { return listeningSpeed }
-        return listeningSpeed * (0.6 + 0.4 * SpoolMath.clamp(level.isNaN ? 0 : level))
+        return listeningSpeed * SpoolMath.clamp(level.isNaN ? 0 : level)
     }
 
     /// One frame of `drawWave()`.
@@ -38,10 +38,11 @@ struct SpoolReelIntegrator: Equatable, Sendable {
         let dt = SpoolMath.min(SpoolMath.max(rawDt.isNaN ? 0 : rawDt, 0), Self.dtClamp)
         if SpoolPoseTable.isLive(key) {
             angle -= Self.liveSpeed(level: level) * dt
-        } else if key == .finishing && t < Self.finishingWindow {
-            angle -= Self.listeningSpeed * (1 - t / Self.finishingWindow) * dt
+        } else if key == .finishing {
+            let energy = level ?? SpoolMath.max(0, 1 - t / Self.finishingWindow)
+            if energy > 0.02 { angle -= Self.listeningSpeed * energy * dt }
         } else if key == .inserting && t < Self.insertingWindow {
-            angle += Self.insertingSpeed * dt
+            angle += Self.insertingSpeed * SpoolMath.min(1, t / 0.12) * dt
         }
     }
 }
@@ -98,5 +99,38 @@ struct SpoolSilenceTracker: Equatable, Sendable {
 
     static func displayedKey(_ key: SpoolStateKey, silence: TimeInterval) -> SpoolStateKey {
         key == .listening && silence >= quietAfter ? .quiet : key
+    }
+}
+
+/// V3 `drawWave()`'s continuous expression state. Kept with the reel angle across semantic
+/// transitions and transcript updates; presentation never advances a delivery clock.
+struct SpoolMotionState: Equatable, Sendable, Codable {
+    var level = 0.0
+    var lean = 0.0
+    var lift = 0.0
+    var mouthOpen = 0.0
+    var mouthSmile = 0.2
+    var gaze = 0.0
+    var phase = 0.0
+
+    mutating func advance(_ key: SpoolStateKey, t: Double, dt: Double, level: Double) {
+        let dt = SpoolMath.clamp(dt, 0, SpoolReelIntegrator.dtClamp)
+        phase += dt
+        self.level = SpoolMath.clamp(level)
+        let active = SpoolPoseTable.isLive(key)
+        let feeding = key == .inserting && t < 1.2
+        let k = 1 - SpoolMath.exp(-dt * (active ? 9 : 7))
+        let targetLean = active ? SpoolMath.sin(phase * 2) * 1.35 : feeding ? -1.8 * SpoolMath.sin(t * .pi) : 0
+        let targetLift = feeding ? -1.5 * SpoolMath.sin(t * .pi) : 0
+        let op = active ? 0.38 + 0.06 * SpoolMath.sin(phase * 4.5) : feeding ? 0.95 : key == .finishing ? 0.12 : 0
+        let smile: Double = key == .inserted ? 0.8 : [.held, .error, .partial].contains(key) ? -0.5
+            : key == .unconfirmed ? -0.25 : [.blocked, .unavailable].contains(key) ? -0.15 : key == .preview ? 0.25 : 0
+        let targetGaze: Double = feeding ? 2.8 : [.uncertain, .correcting, .held].contains(key) ? -3
+            : active ? -1.5 : [.unconfirmed, .partial].contains(key) ? 2 : 0
+        lean += (targetLean - lean) * k
+        lift += (targetLift - lift) * k
+        mouthOpen += (op - mouthOpen) * k
+        mouthSmile += (smile - mouthSmile) * k
+        gaze += (targetGaze - gaze) * k
     }
 }

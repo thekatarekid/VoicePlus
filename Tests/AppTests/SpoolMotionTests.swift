@@ -30,8 +30,10 @@ struct SpoolMotionTests {
         #expect(abs(checkpoints[.finishing]! - -340) < 1e-9)
         // preview holds the angle; nothing snaps back.
         #expect(checkpoints[.preview]! == checkpoints[.finishing]!)
-        // inserting: 62 frames (t < 1.05) × 440°/s × 1/60 s, clockwise.
-        #expect(abs(checkpoints[.inserting]! - (-340 + 62 * 440.0 / 60)) < 1e-9)
+        // Insertion ramps over 120 ms, then turns at 390°/s until 1.2 s.
+        let rampDegrees = 390.0 * 28.0 / (3600.0 * 0.12)
+        let insertedAngle = -340 + 64 * 390.0 / 60 + rampDegrees
+        #expect(abs(checkpoints[.inserting]! - insertedAngle) < 1e-9)
         #expect(checkpoints[.inserted]! == checkpoints[.inserting]!)
     }
 
@@ -61,17 +63,17 @@ struct SpoolMotionTests {
         #expect(SpoolPoseTable.animates(.editing, t: 60))
         #expect(SpoolPoseTable.animates(.notes, t: 60))
         #expect(SpoolPoseTable.animates(.inserting, t: 1.09))
-        #expect(!SpoolPoseTable.animates(.inserting, t: 1.1))
-        #expect(SpoolPoseTable.animates(.preview, t: 0.79))
-        #expect(!SpoolPoseTable.animates(.preview, t: 0.8))
+        #expect(!SpoolPoseTable.animates(.inserting, t: 1.3))
+        #expect(SpoolPoseTable.animates(.preview, t: 1.09))
+        #expect(!SpoolPoseTable.animates(.preview, t: 1.1))
         #expect(!SpoolPoseTable.animates(.idle, t: 5))
         #expect(!SpoolPoseTable.animates(.listening, t: 0.1, hidden: true))
         #expect(!SpoolPoseTable.animates(.listening, t: 0.1, reduceMotion: true))
 
         let start = Date(timeIntervalSinceReferenceDate: 1000)
         #expect(SpoolPoseTable.loopEnd(.listening, start: start) == .distantFuture)
-        #expect(SpoolPoseTable.loopEnd(.preview, start: start) == start.addingTimeInterval(0.8))
-        #expect(SpoolPoseTable.loopEnd(.inserting, start: start) == start.addingTimeInterval(1.1))
+        #expect(SpoolPoseTable.loopEnd(.preview, start: start) == start.addingTimeInterval(1.1))
+        #expect(SpoolPoseTable.loopEnd(.inserting, start: start) == start.addingTimeInterval(1.3))
         #expect(SpoolPoseTable.loopEnd(.listening, start: start, reduceMotion: true) == nil)
         #expect(SpoolPoseTable.loopEnd(.listening, start: start, hidden: true) == nil)
     }
@@ -105,7 +107,7 @@ struct SpoolMotionTests {
             let end = silent.inlet
             for (i, point) in silent.lane.enumerated() {
                 let u = Double(i) / 96
-                #expect(point.y == SpoolMath.mix(104, end.y, SpoolMath.pow(u, 9)), "\(key) sample \(i) is not flat")
+                #expect(point.y == SpoolMath.mix(98, end.y, SpoolMath.pow(u, 9)), "\(key) sample \(i) is not flat")
             }
             #expect(!SpoolSVG.string(silent.drawing).contains(SpoolPalette.tapeBack), "\(key): a flat tape shows no twist")
             let simulated = SpoolScene.frame(key, t: 1.4, drive: .simulation)
@@ -185,7 +187,7 @@ struct SpoolMotionTests {
         for _ in 0..<89 { frame(false) }
         #expect(tracker.displayedKey(.listening, at: time - 1.0 / 60) == .listening)
         let beforeQuiet = reel.angle
-        #expect(beforeQuiet < afterSpeech, "under 1.5 s of silence the reels still turn (slowly)")
+        #expect(beforeQuiet == afterSpeech, "no speech energy parks reels immediately")
         for _ in 0..<180 { frame(false) }
         #expect(tracker.displayedKey(.listening, at: time) == .quiet)
         let parked = reel.angle
@@ -199,16 +201,16 @@ struct SpoolMotionTests {
         #expect(SpoolSilenceTracker.displayedKey(.listening, silence: 1.5) == .quiet)
     }
 
-    /// Rule 3: listening speed is 150 · (0.6 + 0.4 · level) °/s.
+    /// Listening transport follows real capture energy, including zero speed during silence.
     @Test func listeningSpeedIsModulatedBySpeechActivity() {
         #expect(SpoolReelIntegrator.liveSpeed(level: nil) == 150)
-        #expect(abs(SpoolReelIntegrator.liveSpeed(level: 0) - 90) < 1e-12)
-        #expect(abs(SpoolReelIntegrator.liveSpeed(level: 0.5) - 120) < 1e-12)
+        #expect(abs(SpoolReelIntegrator.liveSpeed(level: 0) - 0) < 1e-12)
+        #expect(abs(SpoolReelIntegrator.liveSpeed(level: 0.5) - 75) < 1e-12)
         #expect(abs(SpoolReelIntegrator.liveSpeed(level: 1) - 150) < 1e-12)
         #expect(abs(SpoolReelIntegrator.liveSpeed(level: 4) - 150) < 1e-12)
         var reel = SpoolReelIntegrator()
         reel.advance(.meeting, t: 1, dt: 0.05, level: 0.5)
-        #expect(abs(reel.angle - -6) < 1e-12)
+        #expect(abs(reel.angle - -3.75) < 1e-12)
     }
 
     /// Rule 4: copy shown with Spool names the configured key, never the prototype's "Right Control".
@@ -284,15 +286,15 @@ struct SpoolMotionTests {
     // MARK: - Rendering geometry and anchors
 
     @Test func viewportFitsAndCentresLikeSVG() {
-        let pill = SpoolViewport(viewBox: [0, 0, 560, 164], size: CGSize(width: 560, height: 164))
+        let pill = SpoolViewport(viewBox: [0, 0, 560, 160], size: CGSize(width: 560, height: 160))
         #expect(pill.scale == 1 && pill.offsetX == 0 && pill.offsetY == 0)
         let cameo = SpoolViewport(viewBox: SpoolScene.cameoViewBox, size: CGSize(width: 76, height: 132))
         #expect(cameo.scale == 0.5)
         #expect(cameo.map(SpoolPoint(0, 0)) == CGPoint(x: 38, y: 69))
-        let empty = SpoolViewport(viewBox: [0, 0, 560, 164], size: .zero)
+        let empty = SpoolViewport(viewBox: [0, 0, 560, 160], size: .zero)
         #expect(empty.scale == 0)
-        #expect(SpoolView.sceneWidth(for: CGSize(width: 560, height: 164)) == 560)
-        #expect(SpoolView.sceneWidth(for: CGSize(width: 280, height: 82)) == 560)
+        #expect(SpoolView.sceneWidth(for: CGSize(width: 560, height: 160)) == 560)
+        #expect(SpoolView.sceneWidth(for: CGSize(width: 280, height: 80)) == 560)
     }
 
     @Test func pathDataHandlesTheCommandsThePrototypeUses() {
@@ -315,10 +317,10 @@ struct SpoolMotionTests {
     /// The lane ends at the cassette inlet and the flight starts at the mouth, in every layout.
     @Test func anchorsFollowTheCharacter() {
         let ready = SpoolScene.frame(.ready, t: 1.4, drive: .capture(level: 0))
-        #expect(ready.mouth == SpoolPoint(482, 111))
-        #expect(ready.inlet == SpoolPoint(420, 102))
-        let narrow = SpoolScene.frame(.ready, t: 1.4, width: 420, drive: .capture(level: 0))
-        #expect(abs(narrow.mouth.x - 366) < 1e-9 && abs(narrow.mouth.y - (74 + 31 * 0.69)) < 1e-9)
+        #expect(ready.mouth == SpoolPoint(488, 100.8))
+        #expect(ready.inlet == SpoolPoint(438.4, 93.6))
+        let narrow = SpoolScene.frame(.ready, t: 1.4, width: 380, drive: .capture(level: 0))
+        #expect(abs(narrow.mouth.x - 319) < 1e-9 && abs(narrow.mouth.y - (76 + 31 * 0.65)) < 1e-9)
         for key in SpoolStateKey.allCases {
             for t in [0.0, 0.3, 0.9, 1.6] {
                 let frame = SpoolScene.frame(key, t: t, drive: .simulation)
@@ -328,19 +330,19 @@ struct SpoolMotionTests {
         }
         // Inserting leans and lifts: the anchors move with the body.
         let inserting = SpoolScene.frame(.inserting, t: 0.5, drive: .simulation)
-        #expect(inserting.mouth != SpoolPoint(482, 111))
-        let anchors = SpoolAnchors(frame: ready, size: CGSize(width: 560, height: 164), origin: CGPoint(x: 100, y: 40))
-        #expect(anchors.mouthAnchor == CGPoint(x: 582, y: 151))
-        #expect(anchors.inletAnchor == CGPoint(x: 520, y: 142))
-        let half = SpoolAnchors(frame: ready, size: CGSize(width: 280, height: 82), origin: .zero)
-        #expect(half.mouthAnchor == CGPoint(x: 241, y: 55.5))
+        #expect(inserting.mouth != SpoolPoint(488, 100.8))
+        let anchors = SpoolAnchors(frame: ready, size: CGSize(width: 560, height: 160), origin: CGPoint(x: 100, y: 40))
+        #expect(anchors.mouthAnchor == CGPoint(x: 588, y: 140.8))
+        #expect(anchors.inletAnchor == CGPoint(x: 538.4, y: 133.6))
+        let half = SpoolAnchors(frame: ready, size: CGSize(width: 280, height: 80), origin: .zero)
+        #expect(half.mouthAnchor == CGPoint(x: 244, y: 50.4))
         let cameo = SpoolScene.cameo(.ready)
         #expect(cameo.mouth == SpoolPoint(0, 31))
     }
 
     /// The flight maths S4 uses: nothing before it starts or after the tail has fed in.
     @Test func flightIsFiniteAndReachesTheCaret() {
-        let from = SpoolPoint(482, 111), to = SpoolPoint(140, 420)
+        let from = SpoolPoint(488, 100.8), to = SpoolPoint(140, 420)
         #expect(SpoolFlight.frame(t: 0, from: from, to: to, width: 900, height: 600) == nil)
         #expect(SpoolFlight.frame(t: SpoolFlight.duration, from: from, to: to, width: 900, height: 600) == nil)
         let arrived = try? #require(SpoolFlight.frame(t: 0.65, from: from, to: to, width: 900, height: 600))
@@ -361,6 +363,76 @@ struct SpoolMotionTests {
         #expect(frame.drawing == SpoolScene.frame(.listening, t: 0, still: true, drive: .capture(level: 1)).drawing)
     }
 
+    @Test func v3MotionCarriesPhaseAndExpressionAcrossStateChanges() {
+        let animator = SpoolAnimator()
+        let start = Date(timeIntervalSinceReferenceDate: 100)
+        for i in 0...60 {
+            _ = animator.frame(.listening, stateStartedAt: start, level: 1,
+                               at: start.addingTimeInterval(Double(i) / 60), reduceMotion: false, width: 560)
+        }
+        let previous = animator.motion, angle = animator.reel.angle
+        let release = start.addingTimeInterval(1)
+        _ = animator.frame(.finishing, stateStartedAt: release, level: 0, at: release, reduceMotion: false, width: 560)
+        #expect(animator.motion == previous)
+        #expect(animator.reel.angle == angle)
+        _ = animator.frame(.finishing, stateStartedAt: release, level: 0, at: release.addingTimeInterval(0.05), reduceMotion: false, width: 560)
+        #expect(animator.motion.phase > previous.phase)
+        #expect(animator.motion.level < previous.level)
+        #expect(animator.reel.angle < angle)
+    }
+
+    @Test func verifiedAcknowledgementLetsTheFiniteFeedComplete() {
+        let animator = SpoolAnimator(), start = Date(timeIntervalSinceReferenceDate: 100)
+        _ = animator.frame(.inserting, stateStartedAt: start, level: 0, at: start, reduceMotion: false, width: 560)
+        _ = animator.frame(.inserting, stateStartedAt: start, level: 0, at: start.addingTimeInterval(0.1), reduceMotion: false, width: 560)
+        let acknowledged = start.addingTimeInterval(0.1)
+        _ = animator.frame(.inserted, stateStartedAt: acknowledged, level: 0, at: acknowledged, reduceMotion: false, width: 560)
+        let angle = animator.reel.angle
+        _ = animator.frame(.inserted, stateStartedAt: acknowledged, level: 0, at: acknowledged.addingTimeInterval(0.05), reduceMotion: false, width: 560)
+        #expect(animator.reel.angle > angle)
+        _ = animator.frame(.inserted, stateStartedAt: acknowledged, level: 0, at: start.addingTimeInterval(1.3), reduceMotion: false, width: 560)
+        let parked = animator.reel.angle
+        _ = animator.frame(.inserted, stateStartedAt: acknowledged, level: 0, at: start.addingTimeInterval(1.4), reduceMotion: false, width: 560)
+        #expect(animator.reel.angle == parked)
+    }
+
+    @Test func v3FlightTracesAllLinesAndSettlesWithoutGeometryJump() throws {
+        let lines = [SpoolFlight.Line(x: 100, y: 300, width: 220), .init(x: 100, y: 326, width: 80)]
+        let frame = try #require(SpoolFlight.frame(t: 1.299999, from: .init(488, 100.8), lines: lines,
+                                                 width: 900, height: 600, verified: true))
+        #expect(frame.points.isEmpty)
+        #expect(frame.linePoints.count == 2)
+        #expect(frame.flattening > 0.999999)
+        for (line, points) in zip(lines, frame.linePoints) {
+            #expect(points.first == SpoolPoint(line.x, line.y))
+            let end = try #require(points.last)
+            #expect(abs(end.x - (line.x + line.width)) < 1e-9)
+            #expect(abs(end.y - line.y) < 1e-9)
+        }
+        let rtl = try #require(SpoolFlight.frame(t: 1, from: .init(488, 100.8), lines: [.init(x: 320, y: 300, width: -220)],
+                                               width: 900, height: 600))
+        #expect(rtl.linePoints.first?.last?.x == 100)
+    }
+
+    @MainActor
+    @Test func ribbonWrapOpacityCompositesTheWholeMaterialOnce() throws {
+        let drawing = SpoolDrawing(viewBox: [0, 0, 30, 20], attributes: [], nodes: [
+            .group(attributes: [.init("opacity", number: 0.5)], transform: nil, children: [
+                SpoolRig.R(0, 0, 20, 20, 0, .hex(SpoolPalette.tapeFace)),
+                SpoolRig.R(10, 0, 20, 20, 0, .hex(SpoolPalette.tapeFace)),
+            ]),
+        ])
+        let renderer = ImageRenderer(content: Canvas { ctx, size in
+            SpoolCanvas.draw(drawing, in: &ctx, size: size)
+        }.frame(width: 30, height: 20))
+        renderer.scale = 1
+        let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        let single = try #require(bitmap.colorAt(x: 5, y: 10))
+        let overlap = try #require(bitmap.colorAt(x: 15, y: 10))
+        #expect(abs(single.alphaComponent - 0.5) < 0.01)
+        #expect(abs(overlap.alphaComponent - single.alphaComponent) < 0.01)
+    }
+
     /// The renderer draws the cassette where the drawing puts it (a smoke test: the pixels are the
     /// housing's warm colours, and the empty lane corner stays clear). Real-display appearance is
     /// verified by eye against the prototype (build doc §5 item 7).
@@ -368,20 +440,20 @@ struct SpoolMotionTests {
     @Test func canvasRendersTheCassette() throws {
         let frame = SpoolScene.frame(.preview, t: 1.4, drive: .capture(level: 0))
         let view = Canvas { ctx, size in SpoolCanvas.draw(frame.drawing, in: &ctx, size: size) }
-            .frame(width: 560, height: 164)
+            .frame(width: 560, height: 160)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 1
         let image = try #require(renderer.cgImage)
         let bitmap = NSBitmapImageRep(cgImage: image)
-        // Housing face just inside the top-left of the shell (482 − 55, 80 − 52).
-        let shell = try #require(bitmap.colorAt(x: 427, y: 28)?.usingColorSpace(.sRGB))
+        // Housing face just inside the top-left of the shell (488 − 44, 76 − 41).
+        let shell = try #require(bitmap.colorAt(x: 444, y: 35)?.usingColorSpace(.sRGB))
         #expect(shell.alphaComponent > 0.99)
         #expect(shell.redComponent > shell.blueComponent + 0.15, "warm housing colour, got \(shell)")
         // Top-left corner: nothing drawn.
         let corner = try #require(bitmap.colorAt(x: 4, y: 4))
         #expect(corner.alphaComponent < 0.01)
-        // The lane passes the text side at y ≈ 104.
-        let lane = try #require(bitmap.colorAt(x: 60, y: 104)?.usingColorSpace(.sRGB))
+        // The lane passes the text side at y ≈ 98.
+        let lane = try #require(bitmap.colorAt(x: 60, y: 98)?.usingColorSpace(.sRGB))
         #expect(lane.alphaComponent > 0.9)
     }
 }
