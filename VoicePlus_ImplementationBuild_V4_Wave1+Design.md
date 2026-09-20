@@ -1054,3 +1054,7 @@ Status: implementation in progress. V3 completion and hardware verification are 
 - Native installed-app checks observed listening, silence, finishing, preview, uncertain words, insertion/landed poses, held/partial/unconfirmed recovery, microphone/model failures, meeting/paused/notes, mute and undo. Direct in-notch editing, suggestion application and complete two-line scrolling were exercised.
 - Desktop screenshot tooling selected the shadow window for some non-interactive/transient states; those remain geometry/art fixture verified rather than claimed visually inspected.
 - External TextEdit insertion/tape travel remains **permission-gated**. Accessibility approval was requested, not granted by the agent. Installed app is restored to normal recognition mode. Source and local DMG are ready for review; this remaining hardware check is not marked complete.
+
+### External acceptance gates
+- Rechecked installed Privacy surface: Typing access is Off. The external insertion check remains awaiting approval.
+- GitHub Actions run `35481771092` reports an account billing/spending-limit restriction and executed no build steps. No billing change or CI bypass was attempted. Local final suite and mounted installer checks passed as recorded above.
