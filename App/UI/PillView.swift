@@ -921,6 +921,8 @@ struct PillBody: View {
 
     var body: some View {
         let lanes = self.lanes
+        let footerSpacing = PillFooterSpacing(labels: content.buttons.map(\.label), helper: content.helper,
+                                               width: lanes.helperRow.width)
         ZStack(alignment: .topLeading) {
             UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
                 .fill(Tokens.Pill.Token.background.color)
@@ -954,14 +956,13 @@ struct PillBody: View {
                 PillLevelReadout(level: model.captureLevel).place(LevelReadout.rect(in: lanes))
                     .accessibilitySortPriority(PillReadingOrder.priority(.levelReadout))
             }
-            HStack(alignment: .bottom, spacing: 12) {
+            HStack(alignment: .bottom, spacing: footerSpacing.helperGap) {
                 if content.hasActions {
                     PillActionRow(buttons: content.buttons, perform: { model.perform($0) },
-                                  onFocus: { model.setFocus($0, element: $1) })
+                                  onFocus: { model.setFocus($0, element: $1) }, spacing: footerSpacing)
                         .fixedSize(horizontal: true, vertical: false)
                         .accessibilitySortPriority(PillReadingOrder.priority(.actions))
                 }
-                Spacer(minLength: 0)
                 Text(content.helper)
                     .font(Tokens.Typography.pillStatus.font())
                     .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)
@@ -1177,6 +1178,35 @@ struct PillChipRow: View {
     }
 }
 
+/// Tighten horizontal chrome only when the helper would otherwise exceed two lines.
+struct PillFooterSpacing {
+    var buttonPadding: CGFloat = 10
+    var buttonGap: CGFloat = 6
+    var helperGap: CGFloat = 12
+
+    init() {}
+    init(labels: [String], helper: String, width: CGFloat) {
+        guard !labels.isEmpty else { return }
+        let words = helper.split(whereSeparator: \.isWhitespace).map(String.init)
+        let helperWidth = (1..<max(1, words.count)).map { split in
+            max(Self.textWidth(words[..<split].joined(separator: " ")),
+                Self.textWidth(words[split...].joined(separator: " ")))
+        }.min() ?? Self.textWidth(helper)
+        if actionWidth(labels) + helperGap + helperWidth + 2 > width {
+            buttonPadding = 6
+            buttonGap = 4
+            helperGap = 8
+        }
+    }
+    func actionWidth(_ labels: [String]) -> CGFloat {
+        labels.reduce(0) { $0 + Self.textWidth($1) + 2 * buttonPadding }
+            + CGFloat(max(0, labels.count - 1)) * buttonGap
+    }
+    private static func textWidth(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: Tokens.Typography.pillStatus.nsFont()]).width)
+    }
+}
+
 /// The full-width action row (204 pt states): primary filled, the rest outlined; labelled, never
 /// icon-only (design §11).
 struct PillActionRow: View {
@@ -1184,15 +1214,16 @@ struct PillActionRow: View {
     let perform: (PillActionKind) -> Void
     /// S3 — keyboard / VoiceOver focus on a button (`PillFocusReport`): it pauses the preview dwell.
     var onFocus: ((Bool, String) -> Void)? = nil
+    var spacing = PillFooterSpacing()
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: spacing.buttonGap) {
             ForEach(buttons) { button in
                 let quiet = button.action == .discard || button.action == .dismiss
                 Button { perform(button.action) } label: {
                     Text(button.label)
                         .font(Tokens.Typography.pillStatus.font())
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, spacing.buttonPadding)
                         .frame(minHeight: 30)
                         .foregroundStyle(button.primary ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
                         .background(RoundedRectangle(cornerRadius: Tokens.Radius.control)
