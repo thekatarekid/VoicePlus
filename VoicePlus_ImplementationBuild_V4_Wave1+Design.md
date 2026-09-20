@@ -1025,7 +1025,7 @@ The current owner request supersedes V1 visual/motion/review rules with `design/
 - [x] Match fixed notch geometry, top cap, rounded idle, shadow, subdued copy, bottom-aligned footer and scroll-only transcript.
 - [x] Wire 600 ms preview, hover pause/resume, inline alternatives, in-notch draft editing and automatic learned vocabulary.
 - [ ] Verify native installed app against the reference, including recovery, Reduce Motion and destination safeguards.
-- [ ] Run scoped and full serial tests; commit and push verified milestones.
+- [x] Run scoped and full serial tests; commit and push verified milestones.
 - [x] Build and verify a self-contained DMG; retain local artifact and record checksum/version.
 
 Status: implementation in progress. V3 completion and hardware verification are not yet claimed.
@@ -1048,3 +1048,9 @@ Status: implementation in progress. V3 completion and hardware verification are 
 - `FULL_INSTALLER=1 Packaging/verify_install.sh` passes, including actual TDT, EOU and speaker inference from the read-only mounted bundle with no user model cache/fetchers; clean-install launch and signature/relocatability checks pass.
 - All 27 prior DMGs remain byte-identical. The 681 MiB binary is retained locally and excluded from Git; checksums and release notes are tracked. No binary release or update-feed publication.
 - Installed production app requires Accessibility approval before the external TextEdit insertion check. Permission question is pending; no grant was made.
+
+### Final automated gate
+- **3,256 tests pass**, serial,448 s. Latest fixes pass119 focused tests; packaging integrity tests pass7. No known automated failures remain.
+- Native installed-app checks observed listening, silence, finishing, preview, uncertain words, insertion/landed poses, held/partial/unconfirmed recovery, microphone/model failures, meeting/paused/notes, mute and undo. Direct in-notch editing, suggestion application and complete two-line scrolling were exercised.
+- Desktop screenshot tooling selected the shadow window for some non-interactive/transient states; those remain geometry/art fixture verified rather than claimed visually inspected.
+- External TextEdit insertion/tape travel remains **permission-gated**. Accessibility approval was requested, not granted by the agent. Installed app is restored to normal recognition mode. Source and local DMG are ready for review; this remaining hardware check is not marked complete.
