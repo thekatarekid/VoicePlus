@@ -8,7 +8,7 @@ import Testing
 /// S4 — the mouth-to-caret tape flight (design §4 "Mouth-to-caret tape path", §5 step 6): anchor maths
 /// across displays and scale factors, the suppression matrix, and the flight taken down on any state
 /// change. The ribbon's own maths is S1's `SpoolFlight`, checked here through the flight's path against
-/// the prototype's six `flights` hashes. Nothing here touches Accessibility, a window or a display.
+/// the prototype's eight `flights` hashes. Nothing here touches Accessibility, a window or a display.
 @Suite("Tape flight (S4)")
 struct TapeFlightTests {
 
@@ -28,6 +28,8 @@ struct TapeFlightTests {
         var rect: CGRect?
         /// The landed text's bounds (the destination tape cue's line), AX coordinates.
         var textRect: CGRect?
+        var textLines: [CGRect]?
+        var rtl = false
         private(set) var asked: [Int] = []
         private(set) var askedRanges: [Range<Int>] = []
         init(_ rect: CGRect?) { self.rect = rect }
@@ -38,6 +40,13 @@ struct TapeFlightTests {
         func rangeRect(_ range: Range<Int>) -> CGRect? {
             askedRanges.append(range)
             return textRect
+        }
+        func lineMeasurements(_ range: Range<Int>) -> [TapeFlightLineMeasurement] {
+            lineRects(range).map { TapeFlightLineMeasurement(rect: $0, rightToLeft: rtl) }
+        }
+        func lineRects(_ range: Range<Int>) -> [CGRect] {
+            askedRanges.append(range)
+            return textLines ?? textRect.map { [$0] } ?? []
         }
     }
 
@@ -168,24 +177,24 @@ struct TapeFlightTests {
     /// origin; a scene drawn at 1×, 0.75× and 0.5× of its viewBox maps the mouth with the scene.
     @Test func mouthAnchorMapsFromTheWindowToTheDisplaysOverlay() {
         let ready = SpoolScene.frame(.ready, t: 1.4, drive: .capture(level: 0))
-        #expect(ready.mouth == SpoolPoint(482, 111))
+        #expect(ready.mouth == SpoolPoint(488, 100.8))
         let left = DisplayFrame(id: 3, frame: CGRect(x: -1920, y: 200, width: 1920, height: 1080), scale: 1)
         let displays = [Self.builtIn, left]
         struct Case { var display: DisplayFrame; var panel: CGRect; var sceneSize: CGSize }
         let cases = [
-            Case(display: Self.builtIn, panel: CGRect(x: 476, y: 982 - 32 - 164, width: 560, height: 164),
-                 sceneSize: CGSize(width: 560, height: 164)),
-            Case(display: left, panel: CGRect(x: -1920 + 680, y: 1280 - 24 - 164, width: 560, height: 164),
-                 sceneSize: CGSize(width: 560, height: 164)),
-            Case(display: left, panel: CGRect(x: -1500, y: 900, width: 420, height: 123),
-                 sceneSize: CGSize(width: 420, height: 123)),
-            Case(display: Self.builtIn, panel: CGRect(x: 200, y: 600, width: 280, height: 82),
-                 sceneSize: CGSize(width: 280, height: 82)),
+            Case(display: Self.builtIn, panel: CGRect(x: 476, y: 982 - 32 - 160, width: 560, height: 160),
+                 sceneSize: CGSize(width: 560, height: 160)),
+            Case(display: left, panel: CGRect(x: -1920 + 680, y: 1280 - 24 - 160, width: 560, height: 160),
+                 sceneSize: CGSize(width: 560, height: 160)),
+            Case(display: left, panel: CGRect(x: -1500, y: 900, width: 420, height: 120),
+                 sceneSize: CGSize(width: 420, height: 120)),
+            Case(display: Self.builtIn, panel: CGRect(x: 200, y: 600, width: 280, height: 80),
+                 sceneSize: CGSize(width: 280, height: 80)),
         ]
         for c in cases {
             let anchors = SpoolAnchors(frame: ready, size: c.sceneSize, origin: .zero)
-            let scale = c.sceneSize.height / 164
-            #expect(abs(anchors.mouthAnchor.x - 482 * scale) < 1e-9 && abs(anchors.mouthAnchor.y - 111 * scale) < 1e-9)
+            let scale = c.sceneSize.height / 160
+            #expect(abs(anchors.mouthAnchor.x - 488 * scale) < 1e-9 && abs(anchors.mouthAnchor.y - 100.8 * scale) < 1e-9)
             let content = CGRect(origin: .zero, size: c.panel.size)
             let screen = SpoolScreenGeometry.screenPoint(anchors.mouthAnchor, windowFrame: c.panel, contentFrame: content)
             #expect(screen == CGPoint(x: c.panel.minX + anchors.mouthAnchor.x, y: c.panel.maxY - anchors.mouthAnchor.y))
@@ -238,17 +247,19 @@ struct TapeFlightTests {
 
     /// The flight's path feeds `SpoolFlight` exactly as the prototype's `flight(t, from, to, w, h)`: a
     /// 900 × 600 display left of the primary, mouth and caret placed so the overlay points are the golden
-    /// file's (480, 111) → (140, 420), reproduces the six `flights` hashes at 1× and 2×.
+    /// file's (480, 111) → (140, 420), reproduces the eight `flights` hashes at 1× and 2×.
     @Test func flightPathMatchesThePrototypesGoldenFlights() throws {
         let golden = SpoolParityTests.golden.flights
-        #expect(golden.count == 6)
+        #expect(golden.count == 8)
         for scale in [1.0, 2.0] as [CGFloat] {
             let primary = DisplayFrame(id: 1, frame: CGRect(x: 0, y: 0, width: 1440, height: 900), scale: 2)
             let side = DisplayFrame(id: 9, frame: CGRect(x: -900, y: 300, width: 900, height: 600), scale: scale)
             let mouth = CGPoint(x: -900 + 480, y: 900 - 111)
             // Caret centre at AppKit (−760, 480): rect 470…490, AX y = 900 − 490.
             let caretAX = CGRect(x: -760, y: 410, width: 0, height: 20)
-            let path = try #require(try? TapeFlightGeometry.path(mouth: mouth, caretAX: caretAX, displays: [primary, side]).get())
+            var path = try #require(try? TapeFlightGeometry.path(mouth: mouth, caretAX: caretAX, displays: [primary, side]).get())
+            path.lines = golden.first?.lines ?? []
+            path.verified = false
             #expect(path.from == CGPoint(x: 480, y: 111) && path.to == CGPoint(x: 140, y: 420))
             // At the reference date `start + t − start` is `t` to the bit, as the golden times need.
             let start = Date(timeIntervalSinceReferenceDate: 0)
@@ -289,6 +300,8 @@ struct TapeFlightTests {
         #expect(TapeFlightCaretLocator.locate(at: 4) { $0 == 4 ..< 5 ? char : nil } == CGRect(x: 100, y: 50, width: 0, height: 16))
         // End of the text: the empty range's own caret rect (zero width is fine) …
         let caretRect = CGRect(x: 180, y: 50, width: 0, height: 16)
+        #expect(TapeFlightCaretLocator.locate(at: 9) { $0.isEmpty ? caretRect : char } == caretRect,
+                "Measured insertion affinity takes priority over a character edge, including RTL")
         #expect(TapeFlightCaretLocator.locate(at: 9) { $0 == 9 ..< 9 ? caretRect : nil } == caretRect)
         // … else the character before: its right edge.
         #expect(TapeFlightCaretLocator.locate(at: 9) { $0 == 8 ..< 9 ? char : nil } == CGRect(x: 107, y: 50, width: 0, height: 16))
@@ -369,7 +382,7 @@ struct TapeFlightTests {
         // The ribbon runs its full course and is taken down when the tail has fed in (1.05 s).
         h.clock.advance(1.0)
         #expect(h.surface.current === run)
-        h.clock.advance(0.06)
+        h.clock.advance(SpoolFlight.duration - 1.0 + 0.01)
         #expect(h.surface.current == nil)
         #expect(h.surface.clears == 1)
         #expect(h.controller.phase == .finished)
@@ -425,7 +438,7 @@ struct TapeFlightTests {
             #expect(h.surface.shown.isEmpty, "\(row.name)")
             #expect(model.state == .inserting(text: Self.text), "\(row.name): the pill keeps its label")
             if row.expected == .reduceMotion {
-                #expect(h.probe.reads == 0 && h.caret.asked.isEmpty, "reduce motion reads nothing")
+                #expect(h.probe.reads > 0 && !h.caret.asked.isEmpty, "reduce motion still verifies a static destination cue")
             }
             if row.expected == .secureField {
                 #expect(h.caret.asked.isEmpty, "a password field is never measured")
@@ -463,13 +476,13 @@ struct TapeFlightTests {
             h.clock.advance(2)
             #expect(h.surface.clears == 1 && h.surface.shown.count == 1, "\(state.caseName)")
         }
-        // The landed outcome of the same write lets the ribbon finish; the idle row after it does not.
+        // An unconfirmed outcome stops decoration immediately, before the next state arrives.
         let h = Harness()
         h.preview()
         h.insert()
         h.clock.advance(0.1)
         h.controller.stateChanged(.landed(LandedPillInfo(text: Self.text, verified: false)))
-        #expect(h.surface.current != nil)
+        #expect(h.surface.current == nil && h.controller.phase == .suppressed(.unconfirmed))
         h.clock.advance(0.5)
         h.controller.stateChanged(.idle)
         #expect(h.surface.current == nil && h.controller.phase == .idle)
@@ -532,7 +545,7 @@ struct TapeFlightTests {
         let h = Harness(manualQueue: true)
         h.preview()
         h.insert()
-        h.clock.advance(1.2)
+        h.clock.advance(SpoolFlight.duration + 0.15)
         h.queue?.drain()
         #expect(h.surface.shown.isEmpty)
         #expect(h.controller.phase == .finished)
@@ -550,7 +563,7 @@ struct TapeFlightTests {
         reel.advance(.inserting, t: 0.5, dt: 0.02)
         #expect(reel.angle > 0)
         let angle = reel.angle
-        reel.advance(.inserting, t: 1.1, dt: 0.02)
+        reel.advance(.inserting, t: SpoolFlight.duration + 0.1, dt: 0.02)
         #expect(reel.angle == angle)
     }
 
@@ -572,7 +585,7 @@ struct TapeFlightTests {
     /// The landed text "See you at noon." on the caret's line: AX (300, 564) 120 × 18 → overlay
     /// (300, 564) 120 × 18 on the built-in display; the cue sits 6 pt under it, 3 pt tall.
     static let landedAX = CGRect(x: 300, y: 564, width: 120, height: 18)
-    static let cueRect = CGRect(x: 300, y: 564 + 18 + 6, width: 120, height: 3)
+    static let cueRect = CGRect(x: 300, y: 564 + 18 + 7, width: 120, height: 2.4)
 
     func landed(_ h: Harness, verified: Bool = true) {
         h.controller.stateChanged(.landed(LandedPillInfo(text: Self.text, verified: verified)))
@@ -591,18 +604,18 @@ struct TapeFlightTests {
         h.clock.advance(0.65)
         h.controller.stateChanged(.undoAvailable)
         #expect(h.surface.current != nil)
-        h.clock.advance(0.36)
+        h.clock.advance(run.end.timeIntervalSince(h.clock.now) + 0.01)
         #expect(h.surface.current == nil && h.controller.phase == .finished)
         let cue = try #require(h.surface.currentCue)
         #expect(h.surface.cues.count == 1 && h.controller.cue == cue)
-        #expect(h.caret.askedRanges == [5 ..< 5 + Self.text.utf16.count], "the text this write put there")
+        #expect(!h.caret.askedRanges.isEmpty && h.caret.askedRanges.allSatisfy { $0 == 5 ..< 5 + Self.text.utf16.count }, "the text this write put there")
         #expect(cue.display == Self.builtIn)
         #expect(cue.rect == Self.cueRect)
         #expect(cue.start == run.end, "when the tail fed in")
         // linefade: opaque for 65 % of 1.2 s, then linear to nothing.
         #expect(cue.opacity(at: cue.start.addingTimeInterval(0.5)) == 1)
-        #expect(abs(cue.opacity(at: cue.start.addingTimeInterval(0.99)) - 0.5) < 1e-9)
-        #expect(cue.opacity(at: cue.start.addingTimeInterval(1.2)) == 0)
+        #expect(abs(cue.opacity(at: cue.start.addingTimeInterval(0.775)) - 0.5) < 1e-9)
+        #expect(cue.opacity(at: cue.start.addingTimeInterval(1.0)) == 0)
         // The pill retracting does not take it down; its own 1.2 s does.
         h.controller.stateChanged(.hidden)
         h.clock.advance(cue.end.timeIntervalSince(h.clock.now) - 0.01)
@@ -618,7 +631,7 @@ struct TapeFlightTests {
         h.caret.textRect = Self.landedAX
         h.preview()
         h.insert()
-        h.clock.advance(1.1)
+        h.clock.advance(SpoolFlight.duration + 0.01)
         #expect(h.controller.phase == .finished && h.surface.cues.isEmpty)
         landed(h)
         #expect(try #require(h.surface.currentCue).rect == Self.cueRect)
@@ -646,7 +659,6 @@ struct TapeFlightTests {
             var setUp: (Harness) -> Void
         }
         let rows: [Row] = [
-            Row(name: "reduce motion") { $0.config.reduced = true },
             Row(name: "secure field") {
                 $0.probe.value = TapeFlightProbe(focus: TapeFlightTests.textEdit, selection: nil, isSecure: true)
             },
@@ -674,7 +686,7 @@ struct TapeFlightTests {
             h.preview()
             h.insert()
             landed(h)
-            h.clock.advance(1.1)
+            h.clock.advance(SpoolFlight.duration + 0.01)
             #expect(h.surface.shown.count == 1 && h.surface.cues.isEmpty, "\(name)")
             #expect(h.controller.cueSuppressions == [reason], "\(name)")
         }
@@ -698,7 +710,7 @@ struct TapeFlightTests {
         #expect(TapeFieldCue.rect(under: text, avoiding: []) == Self.cueRect)
         let strip = CGRect(x: 340, y: 580, width: 30, height: 12)          // overlay space
         let below = TapeFieldCue.rect(under: text, avoiding: [strip])
-        #expect(below == CGRect(x: 300, y: 593, width: 120, height: 3))
+        #expect(below == CGRect(x: 300, y: 593, width: 120, height: 2.4))
         #expect(!below.intersects(strip))
         #expect(TapeFieldCue.rect(under: text, avoiding: [CGRect(x: 600, y: 580, width: 30, height: 12)]) == Self.cueRect)
         let chained = TapeFieldCue.rect(under: text, avoiding: [strip, CGRect(x: 380, y: 592, width: 30, height: 12)])
@@ -711,7 +723,7 @@ struct TapeFlightTests {
         h.preview()
         h.insert()
         landed(h)
-        h.clock.advance(1.1)
+        h.clock.advance(SpoolFlight.duration + 0.01)
         let cue = try #require(h.surface.currentCue)
         #expect(cue.rect == below)
         #expect(!cue.rect.intersects(TapeFlightGeometry.localRect(h.config.strips[0], in: Self.builtIn)))
@@ -726,7 +738,7 @@ struct TapeFlightTests {
             h.preview()
             h.insert()
             landed(h)
-            h.clock.advance(1.1)
+            h.clock.advance(SpoolFlight.duration + 0.01)
             _ = try #require(h.surface.currentCue)
             h.controller.stateChanged(next)
             #expect(h.surface.currentCue == nil && h.surface.cueClears == 1, "\(next.caseName)")
@@ -734,4 +746,150 @@ struct TapeFlightTests {
             #expect(h.surface.cueClears == 1, "\(next.caseName): its fade timer never fires into the next turn")
         }
     }
+    @Test func verifiedLinesCarryTheSameRibbonIntoEveryDestinationUnderline() throws {
+        let h = Harness()
+        h.caret.textLines = [Self.landedAX, CGRect(x: 300, y: 588, width: 220, height: 18),
+                            CGRect(x: 300, y: 612, width: 84, height: 18)]
+        h.preview(); h.insert()
+        let run = try #require(h.surface.current)
+        #expect(run.path.lines.isEmpty, "No text geometry is invented before delivery acknowledgement")
+        landed(h)
+        #expect(run.path.verified)
+        #expect(run.path.lines.map(\.width) == [120, 220, 84])
+        #expect(run.path.lines.map(\.x) == [300, 300, 300])
+        let animated = try #require(run.frame(at: run.start.addingTimeInterval(1.15)))
+        #expect(animated.linePoints.count == 3)
+        h.clock.advance(SpoolFlight.duration + 0.01)
+        let cue = try #require(h.surface.currentCue)
+        #expect(cue.rects.count == 3)
+        for (line, rect) in zip(run.path.lines, cue.rects) {
+            #expect(line.x == Double(rect.minX))
+            #expect(line.y == Double(rect.midY))
+            #expect(line.width == Double(rect.width))
+        }
+    }
+
+    @Test func lineGeometryNeverTransfersToAChangedDestination() throws {
+        let h = Harness()
+        h.caret.textLines = [Self.landedAX]
+        h.preview(); h.insert(); landed(h)
+        #expect(try #require(h.surface.current).path.lines.count == 1)
+        h.probe.value = TapeFlightProbe(focus: nil, selection: nil)
+        h.clock.advance(TapeFlightController.refreshInterval + 0.01)
+        #expect(h.surface.current == nil)
+        #expect(h.surface.currentCue == nil)
+        #expect(h.controller.phase == .suppressed(.targetChanged))
+    }
+
+    @Test func reduceMotionLeavesOnlyAStaticVerifiedCue() throws {
+        let h = Harness()
+        h.config.reduced = true
+        h.caret.textLines = [Self.landedAX]
+        h.preview(); h.insert()
+        #expect(h.surface.shown.isEmpty && h.surface.cues.isEmpty)
+        landed(h)
+        let cue = try #require(h.surface.currentCue)
+        #expect(cue.reduced && cue.rects.count == 1)
+        #expect(cue.opacity(at: cue.start.addingTimeInterval(0.9)) == 1)
+        h.clock.advance(TapeFieldCue.lifetime + 0.01)
+        #expect(h.surface.currentCue == nil && h.surface.shown.isEmpty)
+    }
+
+    @Test func unconfirmedOutcomeDiscardsPendingVerifiedGeometry() {
+        let h = Harness(manualQueue: true)
+        h.caret.textLines = [Self.landedAX]
+        h.preview(); h.insert(); h.queue?.drain()
+        landed(h)
+        landed(h, verified: false)
+        h.queue?.drain()
+        h.clock.advance(3)
+        #expect(h.controller.phase == .suppressed(.unconfirmed))
+        #expect(h.surface.current == nil && h.surface.cues.isEmpty)
+    }
+
+    @Test func failedVerifiedGeometryTakesDownTheExistingRibbon() {
+        let h = Harness()
+        h.caret.textLines = [Self.landedAX]
+        h.preview(); h.insert(); landed(h)
+        h.caret.textLines = []
+        h.clock.advance(TapeFlightController.refreshInterval + 0.01)
+        #expect(h.controller.phase == .suppressed(.caretUnavailable))
+        #expect(h.surface.current == nil)
+        h.clock.advance(2)
+        #expect(h.surface.cues.isEmpty)
+    }
+
+    @Test func cueValidatesFocusGeometryAndDisplayThroughoutItsLifetime() throws {
+        let changes: [(Harness) -> Void] = [
+            { $0.probe.value = TapeFlightProbe(focus: nil, selection: nil) },
+            { $0.caret.textLines = [] },
+            { $0.caret.textLines = [Self.landedAX.offsetBy(dx: 0, dy: 40)] },
+            { $0.config.displays = [Self.external] },
+        ]
+        for reduced in [false, true] {
+            for change in changes {
+                let h = Harness()
+                h.config.reduced = reduced
+                h.caret.textLines = [Self.landedAX]
+                h.preview(); h.insert(); landed(h)
+                if !reduced { h.clock.advance(SpoolFlight.duration) }
+                _ = try #require(h.surface.currentCue)
+                change(h)
+                h.clock.advance(TapeFlightController.refreshInterval + 0.01)
+                #expect(h.surface.currentCue == nil && h.surface.cueClears == 1)
+                h.clock.advance(2)
+                #expect(h.surface.cues.count == 1 && h.surface.cueClears == 1)
+            }
+        }
+    }
+
+    @Test func settlingCannotJumpToGeometryChangedAfterTheLastFlightRead() {
+        let h = Harness()
+        h.caret.textLines = [Self.landedAX]
+        h.preview(); h.insert(); landed(h)
+        h.clock.advance(1.29)
+        h.caret.textLines = [Self.landedAX.offsetBy(dx: 60, dy: 0)]
+        h.clock.advance(0.02)
+        #expect(h.surface.cues.isEmpty)
+        #expect(h.controller.phase == .suppressed(.geometryChanged))
+    }
+
+    @Test func verifiedGeometryEasesOutOfTheExistingCaretBridge() throws {
+        let h = Harness()
+        h.caret.textLines = [Self.landedAX]
+        h.preview(); h.insert()
+        h.clock.advance(0.6)
+        let run = try #require(h.surface.current)
+        let before = try #require(run.frame(at: h.clock.now))
+        landed(h)
+        let atAcknowledgement = try #require(run.frame(at: h.clock.now))
+        #expect(atAcknowledgement.points == before.points)
+        #expect(atAcknowledgement.linePoints.isEmpty)
+        h.clock.advance(0.06)
+        let midway = try #require(run.frame(at: h.clock.now))
+        #expect(midway.points != before.points && !midway.linePoints.isEmpty)
+        h.clock.advance(0.07)
+        let finished = try #require(run.frame(at: h.clock.now))
+        #expect(finished == run.path.frame(t: h.clock.now.timeIntervalSince(run.start)))
+    }
+
+    @Test func measuredRTLUsesLogicalEndpointCaretsAndNegativeFlightWidths() throws {
+        let rect = Self.landedAX
+        let left = CGRect(x: rect.minX, y: rect.minY, width: 0, height: rect.height)
+        let right = CGRect(x: rect.maxX, y: rect.minY, width: 0, height: rect.height)
+        #expect(TapeFlightLineMeasurement.measuredRTL(rect: rect, start: right, end: left))
+        #expect(!TapeFlightLineMeasurement.measuredRTL(rect: rect, start: left, end: right))
+        #expect(!TapeFlightLineMeasurement.measuredRTL(rect: rect, start: right, end: left.offsetBy(dx: 0, dy: 24)))
+        #expect(!TapeFlightLineMeasurement.measuredRTL(rect: rect, start: right, end: left.offsetBy(dx: 20, dy: 0)))
+        #expect(!TapeFlightLineMeasurement.measuredRTL(rect: rect, start: nil, end: left))
+        let h = Harness()
+        h.caret.textLines = [rect]
+        h.caret.rtl = true
+        h.preview(); h.insert(); landed(h)
+        let line = try #require(h.surface.current?.path.lines.first)
+        #expect(line.x == rect.maxX && line.width == -rect.width)
+        h.clock.advance(SpoolFlight.duration)
+        #expect(try #require(h.surface.currentCue).rect == Self.cueRect)
+    }
+
 }

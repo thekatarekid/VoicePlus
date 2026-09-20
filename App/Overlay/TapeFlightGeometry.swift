@@ -12,6 +12,9 @@ import Injection
 /// flight only ever subscribes to the pill, it never delays or triggers the write.
 enum TapeFlightSuppression: String, CaseIterable, Equatable, Sendable, Error {
     /// Reduce Motion (macOS, or Settings › Appearance): still Spool, no travel.
+    case unconfirmed
+    /// The measured line layout changed after settling or cannot be joined continuously.
+    case geometryChanged
     case reduceMotion
     /// No verified caret rectangle at the pre-insertion point: no Accessibility, no selection, a range
     /// the app will not measure, a rect off every display, or no preview sample to start from.
@@ -101,6 +104,9 @@ struct TapeFlightPath: Equatable, Sendable {
     var from: CGPoint
     /// The centre of the verified caret rectangle (the prototype aims at the caret's centre).
     var to: CGPoint
+    /// Verified line underlines in overlay coordinates; no guessed wrapping.
+    var lines: [SpoolFlight.Line] = []
+    var verified = false
 
     var size: CGSize { display.frame.size }
 
@@ -108,6 +114,10 @@ struct TapeFlightPath: Equatable, Sendable {
     /// `mouth` replaces `from` when the pill moved since the path was planned.
     func frame(t: Double, mouth: CGPoint? = nil) -> SpoolFlight.Frame? {
         let source = mouth ?? from
+        if !lines.isEmpty {
+            return SpoolFlight.frame(t: t, from: SpoolPoint(Double(source.x), Double(source.y)), lines: lines,
+                                     width: Double(size.width), height: Double(size.height), verified: verified)
+        }
         return SpoolFlight.frame(t: t, from: SpoolPoint(Double(source.x), Double(source.y)),
                                  to: SpoolPoint(Double(to.x), Double(to.y)),
                                  width: Double(size.width), height: Double(size.height))
@@ -160,19 +170,16 @@ enum TapeFlightGeometry {
     }
 }
 
-/// Which rectangle marks the insertion point: `kAXBoundsForRangeParameterizedAttribute` (the query
-/// `WordRectProvider` makes) asked, in order, for the character after the caret (its left edge is the
-/// caret, and after the write it is the first inserted character), the empty range at the caret (a
-/// zero-width caret rect, where the app supports it), and the character before (its right edge). The
-/// result is a zero-width rect in AX coordinates, or `nil`: no rect is invented.
+/// Prefer the measured insertion caret, preserving its RTL affinity. Apps without caret bounds fall
+/// back to the following character's left edge, then the previous character's right edge. Every
+/// returned rectangle comes from AX; missing or invalid geometry never creates a destination.
 enum TapeFlightCaretLocator {
     static func locate(at index: Int, bounds: (Range<Int>) -> CGRect?) -> CGRect? {
         guard index >= 0 else { return nil }
+        // A real insertion caret preserves RTL affinity; a character's left edge cannot.
+        if let caret = measured(bounds(index ..< index)), caret.width <= 2 { return caret }
         if let after = measured(bounds(index ..< index + 1)), after.width > 0 {
             return CGRect(x: after.minX, y: after.minY, width: 0, height: after.height)
-        }
-        if let caret = measured(bounds(index ..< index)) {
-            return CGRect(x: caret.minX, y: caret.minY, width: 0, height: caret.height)
         }
         if index > 0, let before = measured(bounds(index - 1 ..< index)), before.width > 0 {
             return CGRect(x: before.maxX, y: before.minY, width: 0, height: before.height)
