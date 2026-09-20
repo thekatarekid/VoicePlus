@@ -3,6 +3,8 @@
 .DS_Store
 .swiftpm/
 Packaging/build/
+Packaging/build-v3-qa/
+Packaging/build-v3-full/
 Models/
 
 # Real-room recordings: audio stays local, transcripts and manifests are committed

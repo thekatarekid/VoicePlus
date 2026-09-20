@@ -1,0 +1,7 @@
+VoicePlus bundles the legacy pyannote_segmentation.mlmodelc and wespeaker_v2.mlmodelc conversions, unchanged from FluidInference. These are not the newer Community-1 artifact set.
+
+Credits: pyannote (Herve Bredin and contributors), WeSpeaker (Wenet community and contributors), and FluidInference for the CoreML conversion and optimization.
+Original segmentation: https://huggingface.co/pyannote/segmentation-3.0 (MIT; included upstream LICENSE).
+Original embedding: https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM (CC-BY-4.0; included upstream model card and CC-BY license text).
+The historical FluidInference card identifies the 3.1/WeSpeaker lineage and labels its conversion Apache-2.0; the current NOTICE clarifies that Community-1 confirmation does not cover legacy artifacts. Both notices are retained without broadening their scope.
+VoicePlus does not modify the converted model weights or claim endorsement. File integrity is recorded in each model's voiceplus-manifest.json. Notice source revisions identify documentation, not a claimed conversion build revision.

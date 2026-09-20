@@ -49,6 +49,24 @@ if CommandLine.arguments.contains("--onboarding-selftest") {
     exit(MainActor.assumeIsolated { OnboardingViewModel.runPhaseSelfTest() })
 }
 
+if CommandLine.arguments.contains("--bundled-model-selftest") {
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var result: Int32 = 1
+    Task.detached { result = await BundledModelSelfTest.run(); done.signal() }
+    done.wait()
+    exit(result)
+}
+
+// Explicit native visual QA; fully isolated from the live capture/insertion composition root.
+if CommandLine.arguments.contains("--design-v3-review") {
+    let app = NSApplication.shared
+    let review = SpoolDesignReview()
+    app.delegate = review
+    app.setActivationPolicy(.regular)
+    app.run()
+    exit(0)
+}
+
 Log.app.info("VoicePlus starting (Shared \(SharedModule.version))")
 let app = NSApplication.shared
 let delegate = AppDelegate()

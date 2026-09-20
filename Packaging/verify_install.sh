@@ -70,6 +70,15 @@ hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MNT" "$DMG"
 [ -d "$MNT/VoicePlus.app" ] || fail "VoicePlus.app missing from dmg"
 [ -L "$MNT/Applications" ] || fail "Applications symlink missing from dmg"
 
+if [ "${FULL_INSTALLER:-0}" = "1" ]; then
+  [ -d "$MNT/VoicePlus.app/Contents/Resources/Models" ] || fail "full installer lacks bundled models"
+fi
+if [ -d "$MNT/VoicePlus.app/Contents/Resources/Models" ]; then
+  echo "[verify] bundled stack from read-only mounted app, empty model cache, no fetchers"
+  "$MNT/VoicePlus.app/Contents/MacOS/VoicePlus" --bundled-model-selftest \
+    || fail "bundled model self-test"
+fi
+
 echo "[verify] clean install -> $APPS"
 cp -R "$MNT/VoicePlus.app" "$APPS/"
 codesign -vv --deep --strict "$APP" 2>&1 | sed 's/^/  /'

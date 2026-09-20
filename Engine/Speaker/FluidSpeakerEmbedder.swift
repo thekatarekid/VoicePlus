@@ -57,7 +57,9 @@ public final class FluidSpeakerEmbedder: SpeakerEmbedder, @unchecked Sendable {
 public enum SpeakerEmbedderFactory {
     /// Where the weights may be, in preference order.
     public static func modelDirectories(modelsRoot: URL = ModelCatalog.modelsRoot()) -> [URL] {
-        [ModelCatalog.folder(for: .speakerEmbedding, in: modelsRoot), FluidSpeakerEmbedding.modelDirectory]
+        [ModelCatalog.folder(for: .speakerEmbedding, in: modelsRoot)]
+            + [BundledModelResources.candidates()[.speakerEmbedding]].compactMap { $0 }
+            + [FluidSpeakerEmbedding.modelDirectory]
     }
 
     /// The first candidate holding a complete copy — every required bundle, each with its
