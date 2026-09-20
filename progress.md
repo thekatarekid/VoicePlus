@@ -1674,3 +1674,5 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Remaining acceptance: external TextEdit insertion and visual destination tape travel after Accessibility approval. Installed app restored to normal recognition mode; no mock capture is left running.
 - Review branch is pushed and clean; draft PR: https://github.com/thekatarekid/VoicePlus/pull/1. Kept draft until the permission-gated external insertion check is completed.
 - Continuation audit: installed app Privacy confirms Typing access Off; Accessibility approval remains pending. GitHub CI run35481771092 started no build steps because of an account billing/spending-limit restriction; local3256-test and DMG passes remain the available validation.
+
+- Accessibility approval received; refreshed the VoicePlus switch in macOS to On. App-side recognition and external insertion are still unverified. Relaunched app is blocked opening Settings in `SyncSettingsViewModel → SyncService.key → SecItemCopyMatching` (process sample); macOS security dialog requires user handling because computer use cannot access SecurityAgent.

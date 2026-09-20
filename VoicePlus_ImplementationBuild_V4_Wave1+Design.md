@@ -1058,3 +1058,9 @@ Status: implementation in progress. V3 completion and hardware verification are 
 ### External acceptance gates
 - Rechecked installed Privacy surface: Typing access is Off. The external insertion check remains awaiting approval.
 - GitHub Actions run `35481771092` reports an account billing/spending-limit restriction and executed no build steps. No billing change or CI bypass was attempted. Local final suite and mounted installer checks passed as recorded above.
+
+### Acceptance continuation — Accessibility granted
+
+- User explicitly approved Accessibility; System Settings confirms VoicePlus On after refreshing the grant.
+- External insertion remains unchecked: relaunch followed by Settings blocks the main thread on the sync Keychain read (`SecItemCopyMatching`), confirmed by process sampling. This is distinct from Spool animation rendering.
+- User handoff requested for the macOS security prompt; computer use refuses access to SecurityAgent. No credentials or other permissions were changed.
