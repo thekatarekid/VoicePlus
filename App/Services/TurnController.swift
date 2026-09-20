@@ -136,7 +136,7 @@ public enum TurnKeyDown: Equatable, Sendable {
 
 /// What freezes the dwell (design §5 step 4, §6 F1).
 public enum DwellPause: String, CaseIterable, Sendable {
-    case hover, focus, selection, review, composition, emptyDraft, hiddenApp
+    case hover, focus, selection, review, editing, composition, emptyDraft, hiddenApp
 }
 
 /// The 10 s finishing offer (design §5): "Use available text" when a partial exists, else "Cancel".
@@ -992,7 +992,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// "Insert text" — the manual-review action, or skipping the rest of the dwell.
     public func insertNow() {
         guard let id = lock.withLock({ () -> TurnID? in
-            guard let turn = previewTurnLocked(), !turn.pauses.contains(.composition),
+            guard let turn = previewTurnLocked(), !turn.pauses.contains(.editing), !turn.pauses.contains(.composition),
                   !turn.pauses.contains(.emptyDraft), !turn.pauses.contains(.hiddenApp),
                   !(turn.payload?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { return nil }
             return turn.id
@@ -1028,7 +1028,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         let continuation = lock.withLock { () -> CheckedContinuation<DwellExit, Never>? in
             guard let turn = turns[id], turn.pendingExit == nil else { return nil }
             if case .insert = exit {
-                guard !turn.pauses.contains(.composition), !turn.pauses.contains(.emptyDraft),
+                guard !turn.pauses.contains(.editing), !turn.pauses.contains(.composition), !turn.pauses.contains(.emptyDraft),
                       !turn.pauses.contains(.hiddenApp),
                       !(turn.payload?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { return nil }
             }

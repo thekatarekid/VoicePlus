@@ -739,7 +739,7 @@ struct WordMarksCoordinatorTests {
         h.pill.reviewMark(0)
         #expect(h.pill.isEditingDraft && h.pill.editingMarkID == 0)
         #expect(!h.popover.isShown && !h.review.isShown)
-        #expect(h.dwell.log == ["pause.review"])
+        #expect(h.dwell.log == ["pause.editing", "pause.review"])
         h.pill.cancelDraftEdits()
         #expect(!h.pill.isEditingDraft)
         #expect(h.pill.marks(for: .final(Self.text)).count == 1)
@@ -845,6 +845,6 @@ struct WordMarksCoordinatorTests {
         #expect(!h.review.isShown && !h.popover.isShown)
         h.pill.cancelDraftEdits()
         #expect(!h.pill.isEditingDraft && !h.pill.turn.reviewing)
-        #expect(h.dwell.log.last == "resume.review")
+        #expect(h.dwell.log.last == "resume.editing")
     }
 }

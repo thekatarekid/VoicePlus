@@ -34,7 +34,7 @@ struct V3DraftReviewTests {
         let h = TurnControllerTests.Harness()
         let id = try #require(await h.holdToPreview(TurnControllerTests.words("hello")))
         h.controller.finalRendered(id)
-        for reason in [DwellPause.composition, .emptyDraft, .hiddenApp] {
+        for reason in [DwellPause.editing, .composition, .emptyDraft, .hiddenApp] {
             h.controller.pauseDwell(reason)
             h.controller.insertNow()
             h.clock.advance(20)
@@ -44,6 +44,74 @@ struct V3DraftReviewTests {
         h.controller.insertNow()
         #expect(await h.wait { h.events.landed.count == 1 })
         #expect(h.system.postCount == 1)
+    }
+
+    @MainActor @Test func activeEditorCannotInsertItsPreviousPayload() async throws {
+        let h = TurnControllerTests.Harness()
+        let pill = PillViewModel()
+        h.controller.onPresent = { pill.present($0) }
+        pill.onDraftPause = { reason, paused in
+            if paused { h.controller.pauseDwell(reason) } else { h.controller.resumeDwell(reason) }
+        }
+        pill.onApplyDraft = { h.controller.revisePreview(text: $0, mapping: $1, spans: $2) }
+        pill.onAction = { action, shown in _ = TurnWiring.route(action, shown: shown, to: h.controller, finishLatch: nil) }
+        let id = try #require(await h.holdToPreview(TurnControllerTests.words("previous draft")))
+        h.controller.finalRendered(id)
+        pill.beginEditingDraft()
+        pill.draftText = "edited draft"
+        h.controller.insertNow()  // A separate Insert control must not dispatch stale text.
+        h.clock.advance(20)
+        #expect(h.system.postCount == 0)
+        #expect(pill.isEditingDraft)
+        pill.draftText = ""
+        pill.perform(.insert)
+        #expect(h.system.postCount == 0 && pill.isEditingDraft)
+        pill.draftText = "composed draft"
+        pill.setCompositionActive(true)
+        pill.perform(.insert)
+        #expect(h.system.postCount == 0 && pill.isEditingDraft)
+        pill.setCompositionActive(false)
+        pill.perform(.insert)
+        #expect(await h.wait { h.events.landed.count == 1 })
+        #expect(h.field == TurnControllerTests.original + "composed draft")
+        #expect(h.system.postCount == 1)
+    }
+
+    @MainActor @Test func keyboardReadingReacquiresFocusAfterMouseExit() {
+        let pill = PillViewModel()
+        pill.present(.finalPreview(FinalPreviewInfo(text: "a long transcript", dwellRemaining: 0.6)))
+        pill.setPointerInside(true)
+        pill.setFocus(true, element: "draft.editor")
+        pill.setPointerInside(false)
+        #expect(!pill.focusInside)
+        pill.noteKeyboardInteraction()
+        #expect(pill.focusInside && !pill.isEditingDraft)
+        pill.setPointerInside(true)
+        pill.setPointerInside(false)
+        #expect(pill.focusInside)
+        pill.setFocus(false, element: "draft.editor")
+        #expect(!pill.focusInside)
+    }
+
+    @MainActor @Test func keyboardFocusDepartureAppliesButInternalTabDoesNot() async {
+        let pill = PillViewModel()
+        var accepted: [String] = []
+        pill.present(.finalPreview(FinalPreviewInfo(text: "before", dwellRemaining: 0.6)))
+        pill.onApplyDraft = { text, _, _ in accepted.append(text); return true }
+        pill.beginEditingDraft()
+        pill.draftText = "after"
+        pill.setFocus(true, element: "draft.editor")
+        pill.setFocus(false, element: "draft.editor")
+        pill.setFocus(true, element: "draft.done")
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(pill.isEditingDraft && accepted.isEmpty)
+        pill.setFocus(false, element: "draft.done")
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(!pill.isEditingDraft && accepted == ["after"])
     }
 
     @Test func revisedTargetStillRevalidatesBeforeWrite() async throws {

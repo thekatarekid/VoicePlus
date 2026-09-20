@@ -422,6 +422,8 @@ public final class PillViewModel: ObservableObject {
         case .finalPreview, .held, .error: break
         default: return
         }
+        // A separate edit guard also blocks direct controller Insert requests from older controls.
+        onDraftPause?(.editing, true)
         onDraftPause?(.review, true)
         originalDraft = actionText
         originalMapping = markMapping(for: originalDraft)
@@ -489,6 +491,7 @@ public final class PillViewModel: ObservableObject {
         onDraftPause?(.composition, false)
         onDraftPause?(.emptyDraft, false)
         onDraftPause?(.review, false)
+        onDraftPause?(.editing, false)
     }
 
     public func setCompositionActive(_ active: Bool) {
@@ -531,15 +534,18 @@ public final class PillViewModel: ObservableObject {
 
     /// One piece of the pill (`element`) gained or lost keyboard / VoiceOver focus. The pill is
     /// focused while any piece is; `onKeyboardFocusChange` fires only when that changes.
-    public func noteKeyboardInteraction() {
+    public func noteKeyboardInteraction(element: String = "draft.editor") {
         mouseFocusedElements.removeAll()
-        if isEditingDraft, !pointerInside { setFocus(true, element: "draft.editor") }
+        if !pointerInside { setFocus(true, element: element) }
     }
 
     public func setFocus(_ focused: Bool, element: String = "pill") {
         if focused {
             focusedElements.insert(element)
-            if pointerInside { mouseFocusedElements.insert(element) }
+            let event = NSApp?.currentEvent?.type
+            if pointerInside && event != .keyDown && event != .keyUp {
+                mouseFocusedElements.insert(element)
+            }
         } else {
             focusedElements.remove(element)
             mouseFocusedElements.remove(element)
@@ -548,6 +554,14 @@ public final class PillViewModel: ObservableObject {
         guard inside != focusInside else { return }
         focusInside = inside
         onKeyboardFocusChange?(inside)
+        if !inside, !pointerInside, isEditingDraft {
+            // A Tab move can report old-focus loss before the next notch control gains focus.
+            // Apply only after the aggregate focus has actually left the notch.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.focusInside, !self.pointerInside, self.isEditingDraft else { return }
+                _ = self.applyDraftEdits()
+            }
+        }
     }
 
     // MARK: Content
@@ -597,7 +611,7 @@ public final class PillViewModel: ObservableObject {
         case .editDraft: beginEditingDraft(); return
         case .doneEditing: _ = applyDraftEdits(); return
         case .cancelEditing: cancelDraftEdits(); return
-        case .commit: guard applyDraftEdits(), !hasMarkedText else { return }
+        case .commit, .insert: guard applyDraftEdits(), !hasMarkedText else { return }
         case .reviewAll:
             if case .finalPreview = state { beginEditingDraft(); return }
         default: break
