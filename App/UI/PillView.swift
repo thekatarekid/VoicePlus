@@ -173,6 +173,8 @@ public final class PillViewModel: ObservableObject {
     public var keyLabel: () -> String = { HotkeyBinding.default.label }
     /// The destination's display name at key-down ("Mail"); asked once per turn.
     public var destinationProvider: (() -> String?)?
+    /// Menu capture has no held key whose release could finish the turn.
+    public var requiresExplicitCaptureFinish: () -> Bool = { false }
 
     private var reducer = PillStateReducer()
     /// S5b — every write to `state` goes through `route(_:)`; nothing sets it directly.
@@ -579,6 +581,12 @@ public final class PillViewModel: ObservableObject {
     /// The rendered pill for the current state at `date`.
     public func content(at date: Date? = nil) -> PillContent {
         var result = PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)
+        if requiresExplicitCaptureFinish(), MenuCapturePillWiring.canFinish(state, captureOpen: turn.captureOpen) {
+            result.helper = "Click Finish to stop dictation"
+            if !result.buttons.contains(where: { $0.action == .finish }) {
+                result.buttons.insert(PillButton("Finish", .finish), at: 0)
+            }
+        }
         if !isEditingDraft, !actionText.isEmpty {
             switch state {
             case .held, .error: result.buttons.insert(PillButton("Edit draft", .editDraft), at: 0)

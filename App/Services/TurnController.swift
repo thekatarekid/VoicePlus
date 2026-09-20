@@ -1579,6 +1579,7 @@ public final class TurnWiring {
             if let controller, Self.route(action, shown: shown, to: controller, finishLatch: finishLatch) { return }
             previousAction?(action, shown)
         }
+        MenuCapturePillWiring.attach(session, pill: pill)
         let previousHover = pill.onPointerInsideChange
         pill.onPointerInsideChange = { [weak controller] inside in
             previousHover?(inside)
