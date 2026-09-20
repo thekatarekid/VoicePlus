@@ -239,6 +239,7 @@ private struct PillPanelSurface: View {
                 .padding(.top, cap)
         }
         .frame(width: size.width, height: size.height + cap, alignment: .topLeading)
+        .onHover { model.setPointerInside($0) }
         .preferredColorScheme(.dark)
     }
 }

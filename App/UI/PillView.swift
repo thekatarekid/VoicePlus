@@ -852,7 +852,6 @@ public struct PillView: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .onHover { model.setPointerInside($0) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(PillSpeech.containerLabel(content))   // S10: never live words or the ticking timer
         .accessibilityIdentifier("pill.\(model.state.caseName)")

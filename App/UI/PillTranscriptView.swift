@@ -87,12 +87,14 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             if let model, !model.pointerInside { model.noteKeyboardInteraction() }
         }
         text.onCompositionChange = { [weak self] in self?.publishEditorText() }
+        text.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: "draft.editor") }
         let began = !editing && model.isEditingDraft
         let ended = editing && !model.isEditingDraft
         editing = model.isEditingDraft
         needsDisplay = true
         let wasLive = live
         if case .live = words { live = true } else { live = false }
+        text.permitsKeyboardFocus = editing || !live
         let source = editing ? model.draftText : words.text ?? ""
         let followsEnd = scroll.contentView.bounds.minY >= maximumOffset - 3
         let changed = source != lastSource || shownMarks != marks || began || ended || wasLive != live
@@ -261,6 +263,19 @@ private final class TranscriptRail: NSView {
 
 
 final class DraftTextView: NSTextView {
+    var permitsKeyboardFocus = true
+    var onFocusChange: ((Bool) -> Void)?
+    override var acceptsFirstResponder: Bool { permitsKeyboardFocus }
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChange?(true) }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocusChange?(false) }
+        return accepted
+    }
     var onKeyInteraction: (() -> Void)?
     var onCompositionChange: (() -> Void)?
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {

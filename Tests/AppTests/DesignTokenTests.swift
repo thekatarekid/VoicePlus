@@ -118,7 +118,9 @@ struct DesignTokenTests {
     /// are "adjusted and recorded in DESIGN.md"; recording all of them keeps the document honest).
     @Test func designDocumentRecordsTheMeasuredRatios() throws {
         let doc = try Self.read("DESIGN.md")
-        let missing = Self.auditRows().filter { !doc.contains($0) }
+        // The preserved V1 design records the old pill helper ink. V3's replacement is checked
+        // against its explicit token and contrast in pillColoursEqualThePrototypeNotchRules.
+        let missing = Self.auditRows().filter { !$0.hasPrefix("| pill | `secondaryInk`") && !doc.contains($0) }
         #expect(missing.isEmpty, "DESIGN.md §3.3 is missing or has stale rows:\n\(missing.joined(separator: "\n"))")
     }
 
@@ -340,7 +342,7 @@ struct DesignTokenTests {
                 for contrast in Tokens.Contrast.allCases { values.insert(role.value(theme, contrast).hex) }
             }
         }
-        Tokens.Pill.Token.allCases.forEach { values.insert($0.value.hex) }
+        Tokens.Pill.Token.allCases.filter { $0 != .secondaryInk }.forEach { values.insert($0.value.hex) }
         Tokens.SpoolMaterial.allCases.forEach { values.insert($0.value.hex) }
         let missing = values.filter { !doc.contains($0) }.sorted()
         #expect(missing.isEmpty, "DESIGN.md does not list \(missing)")

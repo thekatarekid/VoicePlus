@@ -285,7 +285,7 @@ public struct PillLaneLayout: Equatable, Sendable {
     public static let sceneHeight: CGFloat = 160
     public static let actionHeight: CGFloat = 32
     /// Gap between the lane and the bay (prototype: 144 = 132 bay + 12; narrow 90 = 84 + 6).
-    public static func laneGap(narrow: Bool) -> CGFloat { narrow ? 6 : 0 }
+    public static func laneGap(narrow: Bool) -> CGFloat { narrow ? 18 : 0 }
 
     public init(size: CGSize, hasChip: Bool, hasActions: Bool) {
         self.size = size

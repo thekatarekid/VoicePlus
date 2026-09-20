@@ -131,7 +131,7 @@ struct NotchGeometryTests {
         #expect(NotchGeometry.isNarrow(width: size.width))
         let lanes = PillLaneLayout(size: size, hasChip: false, hasActions: true)
         #expect(lanes.bay.width == CGFloat(84 + 20))
-        #expect(lanes.wordsLane.width == CGFloat(368 - 40 - 84 - 6))
+        #expect(lanes.wordsLane.width == CGFloat(368 - 40 - 84 - 18))
         // The Spool scene agrees: scale 0.69 below the same width.
         #expect(SpoolScene.placement(width: Double(size.width)).scale == 0.65)
         #expect(SpoolScene.placement(width: 560).scale == 0.8)
