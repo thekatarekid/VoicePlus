@@ -128,19 +128,25 @@ struct SettingsSubpagesS7gTests {
         let expected = SettingsCopy.dwellOrder.map(SettingsCopy.dwellTitle)
         #expect(expected == ["600 ms · default", "1200 ms", "Manual review"])
         #expect(SettingsCopy.dwellOrder.map(\.seconds) == [0.6, 1.2, nil])
-        // Low confidence extends a timed dwell to 1800 ms and leaves manual review manual.
+        // V3 keeps the selected delay identical at every confidence; manual remains explicit.
         #expect(PreviewDwell.standard.seconds(lowConfidence: true) == 0.6)
         #expect(PreviewDwell.manual.seconds(lowConfidence: true) == nil)
     }
 
-    @Test("General rows use the prototype's words")
+    @Test("General retains inherited row copy and describes V3 confidence-independent preview timing")
     func generalCopyIsThePrototypes() throws {
         let settings = try Self.prototypeScreen("settings")
         for text in [SettingsCopy.shortcutTitle, SettingsCopy.shortcutDetail, SettingsCopy.previewTitle,
-                     SettingsCopy.previewDetail, SettingsCopy.lowConfidenceTitle, SettingsCopy.lowConfidenceDetail,
+                     SettingsCopy.previewDetail, SettingsCopy.lowConfidenceTitle,
                      SettingsCopy.reviewable, SettingsCopy.soundCuesTitle, SettingsCopy.launchTitle,
                      SettingsCopy.launchDetail, SettingsCopy.moreSettings] {
             #expect(settings.contains(text), "“\(text)” is not in the prototype's Settings screen")
+        }
+        // The archived V1 screen intentionally retains its 1800 ms uncertainty extension.
+        // V3 replaces that one row with the same selected delay for every transcript.
+        #expect(SettingsCopy.lowConfidenceDetail == "Same preview delay for every transcript; hover pauses it.")
+        for dwell in SettingsCopy.dwellOrder {
+            #expect(dwell.seconds(lowConfidence: true) == dwell.seconds(lowConfidence: false))
         }
         #expect(SettingsCopy.soundCuesDetail.hasPrefix("Subtle start and stop feedback."))
         #expect(settings.contains("Subtle start and stop feedback."))

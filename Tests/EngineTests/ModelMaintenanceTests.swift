@@ -1,4 +1,5 @@
 import Foundation
+import FluidAudio
 import Testing
 import Shared
 @testable import Engine
@@ -332,7 +333,13 @@ struct ModelMaintenanceTests {
     /// `~/Library/Application Support/FluidAudio/Models` belongs to a different application. We read
     /// models out of it as a warm-start courtesy and are never entitled to delete inside it.
     @Test func theSweeperRefusesAnotherApplicationsModelsRoot() throws {
-        let foreign = ModelManager.defaultExternalCaches()[.parakeetTDTv3]!.first!.deletingLastPathComponent()
+        // Bundled resources can precede borrowed caches. The foreign owner is FluidAudio,
+        // regardless of candidate search order or the test runner's bundle location.
+        let foreign = MLModelConfigurationUtils.defaultModelsDirectory()
+        let candidates = try #require(ModelManager.defaultExternalCaches()[.parakeetTDTv3])
+        #expect(candidates.contains {
+            $0.deletingLastPathComponent().standardizedFileURL == foreign.standardizedFileURL
+        })
         #expect(!ParkedModelDirectories.isSweepableRoot(foreign))
         #expect(!ParkedModelDirectories.isSweepableRoot(foreign.appendingPathComponent("anything")))
         #expect(ParkedModelDirectories.isSweepableRoot(ModelCatalog.modelsRoot()))

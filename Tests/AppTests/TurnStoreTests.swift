@@ -178,15 +178,23 @@ struct TurnStoreTests {
         #expect(texts == ["r5", "r4", "r3", "held"])
     }
 
-    @Test("the settings: dwell defaults to 900 ms, low confidence extends to 1800, persistence defaults on")
+    @Test("V3 dwell defaults to 600 ms regardless of confidence, longer is 1200 ms, persistence defaults on")
     func settings() {
         let store = InMemorySettingsStore()
         #expect(TurnSettings.previewDwell(store) == .standard)
-        #expect(PreviewDwell.standard.seconds(lowConfidence: false) == 0.9)
-        #expect(PreviewDwell.standard.seconds(lowConfidence: true) == 1.8)
-        #expect(PreviewDwell.short.seconds(lowConfidence: true) == 1.8)
-        #expect(PreviewDwell.long.seconds(lowConfidence: false) == 1.5)
-        #expect(PreviewDwell.manual.seconds(lowConfidence: true) == nil)
+        let choices: [(PreviewDwell, TimeInterval?)] = [
+            (.standard, 0.6), (.short, 0.6), (.long, 1.2), (.manual, nil)
+        ]
+        for (choice, seconds) in choices {
+            #expect(choice.seconds(lowConfidence: false) == seconds)
+            #expect(choice.seconds(lowConfidence: true) == seconds)
+        }
+        // Saved preference identifiers remain readable across the V3 timing change.
+        let legacyChoices: [(String, TimeInterval?)] = [("900", 0.6), ("600", 0.6), ("1500", 1.2), ("manual", nil)]
+        for (raw, seconds) in legacyChoices {
+            store.set(raw, for: SettingsKeys.previewDwell)
+            #expect(TurnSettings.previewDwell(store).seconds == seconds)
+        }
         TurnSettings.setPreviewDwell(.manual, store: store)
         #expect(TurnSettings.previewDwell(store) == .manual)
         store.set("bogus", for: SettingsKeys.previewDwell)
