@@ -1672,3 +1672,4 @@ DMG per wave, version bumped each time, previous DMGs kept.
 
 - Final integration gate: **3,256 tests passed** (`swift test --no-parallel`, 448 s); latest V3 fixes also pass119 focused tests, and packaging passes7 tests. Merged the concurrent documentation-only main update; no runtime change.
 - Remaining acceptance: external TextEdit insertion and visual destination tape travel after Accessibility approval. Installed app restored to normal recognition mode; no mock capture is left running.
+- Review branch is pushed and clean; draft PR: https://github.com/thekatarekid/VoicePlus/pull/1. Kept draft until the permission-gated external insertion check is completed.
