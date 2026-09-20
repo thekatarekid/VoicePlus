@@ -1064,3 +1064,5 @@ Status: implementation in progress. V3 completion and hardware verification are 
 - User explicitly approved Accessibility; System Settings confirms VoicePlus On after refreshing the grant.
 - External insertion remains unchecked: relaunch followed by Settings blocks the main thread on the sync Keychain read (`SecItemCopyMatching`), confirmed by process sampling. This is distinct from Spool animation rendering.
 - User handoff requested for the macOS security prompt; computer use refuses access to SecurityAgent. No credentials or other permissions were changed.
+
+- App Privacy now confirms Typing access Allowed after restart. Removed eager sync Keychain access from Settings initialization; 56 integrated sync/settings/Phase6 regression tests pass. Native menu capture QA also exposed a missing in-notch Finish affordance; correction and replacement installer are in progress.
