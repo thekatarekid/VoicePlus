@@ -118,7 +118,7 @@ public enum PillDeck {
         case (true, true): return PillCopy.reviewHelperManual
         }
     }
-    public static let manualPreviewButtons = [PillButton("Insert text", .commit, primary: true), PillButton("Cancel", .cancel)]
+    public static let manualPreviewButtons = [PillButton("Insert now", .commit), PillButton("Edit draft", .editDraft), PillButton("Cancel", .cancel)]
 
     // D0 inserting
     public static func insertingStatus(destination: String?) -> String {

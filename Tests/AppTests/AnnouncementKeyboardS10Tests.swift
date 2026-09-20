@@ -246,7 +246,7 @@ struct AnnouncementKeyboardS10Tests {
         let final = PillContent.make(.finalPreview(FinalPreviewInfo(text: "long", dwellRemaining: 0, manual: true)),
                                      context: PillTurnContext())
         let chain = PillReadingOrder.focusChain(final, overflowLabel: "42 words · Review all")
-        #expect(chain.map(\.label) == ["42 words · Review all", "Insert text", "Cancel"])
+        #expect(chain.map(\.label) == ["42 words · Review all", "Insert now", "Edit draft", "Cancel"])
         let priorities = PillReadingOrder.chainPriorities(final, overflowLabel: "42 words · Review all")
         #expect(zip(priorities, priorities.dropFirst()).allSatisfy { $0 > $1 })
     }

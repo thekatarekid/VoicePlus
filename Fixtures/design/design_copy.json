@@ -76,16 +76,22 @@
       "strings": [
         "Ready for Mail",
         "#manualReview",
-        "Final text · insert when ready",
-        "Final text · inserts after the preview",
+        "Manual review · insert when ready",
+        "Final preview · hover to pause",
         "#manualReview",
-        ""
+        "",
+        "Paused · move away to insert"
       ],
       "buttons": [
         {
-          "label": "Insert text",
+          "label": "Insert now",
           "action": "commit",
-          "primary": true
+          "primary": false
+        },
+        {
+          "label": "Edit draft",
+          "action": "editDraft",
+          "primary": false
         },
         {
           "label": "Cancel",
@@ -102,18 +108,24 @@
         "Ready for Mail · ",
         "reviewed",
         "1 word to review",
-        "Click the dotted word to review",
+        "Choose a suggestion or edit the draft",
         "#manualReview",
-        "Review mode · insert when ready",
+        "Manual review · insert when ready",
         "Final preview · hover to pause",
         "#manualReview",
-        ""
+        "",
+        "Paused · move away to insert"
       ],
       "buttons": [
         {
-          "label": "Insert text",
+          "label": "Insert now",
           "action": "commit",
-          "primary": true
+          "primary": false
+        },
+        {
+          "label": "Edit draft",
+          "action": "editDraft",
+          "primary": false
         },
         {
           "label": "Cancel",
@@ -1307,5 +1319,6 @@
       "data": "Preserve available data; technical details in diagnostics",
       "evidence": "EngineErrorMessage; proposed catch-all"
     }
-  ]
+  ],
+  "preview_runtime_source": "design/design_v3.html: pillHtml and updateDwellLabel (live automatic/manual preview)"
 }

@@ -276,6 +276,7 @@ public struct FinalPreviewInfo: Equatable, Sendable {
     }
 
     public var helper: String {
+        if paused, !manual { return "Paused · move away to insert" }
         switch (needsReview, manual) {
         case (false, false): return PillCopy.previewHelperAuto
         case (false, true): return PillCopy.previewHelperManual
@@ -384,10 +385,10 @@ public enum PillCopy {
     public static let finishingSlowStatus = "Still finishing your text"
     public static let finishingHelper = "Microphone closed · nothing inserted yet"
 
-    public static let previewHelperAuto = "Final text · inserts after the preview"
-    public static let previewHelperManual = "Final text · insert when ready"
+    public static let previewHelperAuto = "Final preview · hover to pause"
+    public static let previewHelperManual = "Manual review · insert when ready"
     public static let reviewHelperAuto = "Final preview · hover to pause"
-    public static let reviewHelperManual = "Review mode · insert when ready"
+    public static let reviewHelperManual = "Manual review · insert when ready"
     public static func readyFor(_ destination: String) -> String { "Ready for \(destination)" }
     public static func wordsToReview(_ count: Int) -> String {
         "\(count) word\(count == 1 ? "" : "s") to review"

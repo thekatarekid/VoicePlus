@@ -177,8 +177,8 @@ struct PillWiringTests {
         model.onAction = { action, _ in seen.append(action) }
         model.apply(.starting)
         model.present(Self.preview)
-        #expect(model.content().buttons.map(\.action) == [.editDraft, .commit, .cancel])
-        #expect(model.content().helper.isEmpty)
+        #expect(model.content().buttons.map(\.action) == [.commit, .editDraft, .cancel])
+        #expect(model.content().helper == "Final preview · hover to pause")
         model.perform(.reviewAll)
         #expect(seen.isEmpty && model.isEditingDraft)
         let review = model.content()

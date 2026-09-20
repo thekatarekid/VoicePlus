@@ -57,8 +57,8 @@ struct DesignCopyParityTests {
     /// State key → the rendered content in the prototype's context, and the fixture helper it must draw.
     static func rendered() -> [(key: String, content: PillContent, helper: String?)] {
         let c = prototypeContext()
-        let final = FinalPreviewInfo(text: sample, dwellRemaining: 0.9, manual: true, destination: "Mail")
-        let uncertain = FinalPreviewInfo(text: sample, uncertainCount: 1, dwellRemaining: 1.8, manual: true, destination: "Mail")
+        let final = FinalPreviewInfo(text: sample, dwellRemaining: 0.6, manual: true, destination: "Mail")
+        let uncertain = FinalPreviewInfo(text: sample, uncertainCount: 1, dwellRemaining: 0.6, manual: true, destination: "Mail")
         var inserted = c
         inserted.uncertainCount = 1
         var closed = c
@@ -71,8 +71,8 @@ struct DesignCopyParityTests {
             ("latched", PillContent.make(.latched(elapsed: 6), context: c), "Tap Right Control to finish"),
             ("finishing", PillContent.make(.finishing(elapsedWarning: false), context: closed),
              "Microphone closed · nothing inserted yet"),
-            ("preview", PillContent.make(.finalPreview(final), context: closed), "Final text · insert when ready"),
-            ("uncertain", PillContent.make(.finalPreview(uncertain), context: closed), "Review mode · insert when ready"),
+            ("preview", PillContent.make(.finalPreview(final), context: closed), "Manual review · insert when ready"),
+            ("uncertain", PillContent.make(.finalPreview(uncertain), context: closed), "Manual review · insert when ready"),
             ("inserting", PillContent.make(.inserting(text: sample), context: closed), "Same text · one insertion attempt"),
             ("inserted", PillContent.make(.landed(LandedPillInfo(text: sample, verified: true)), context: inserted),
              "1 word to review in the field"),
