@@ -1021,11 +1021,24 @@ Open after the fixes (details in the Pending doc §B):
 The current owner request supersedes V1 visual/motion/review rules with `design/design_v3.html` and `design/design_v3.md`. Earlier Wave 1 implementation and release records above remain historical evidence, not V3 acceptance.
 
 - [x] Split implementation into isolated parallel worktrees with disjoint rendering, layout and review-flow ownership.
-- [ ] Port V3 cassette art, per-state pose, continuous reel motion, ribbon material and multi-line insertion landing.
-- [ ] Match fixed notch geometry, top cap, rounded idle, shadow, subdued copy, bottom-aligned footer and scroll-only transcript.
-- [ ] Wire 600 ms preview, hover pause/resume, inline alternatives, in-notch draft editing and automatic learned vocabulary.
+- [x] Port V3 cassette art, per-state pose, continuous reel motion, ribbon material and multi-line insertion landing.
+- [x] Match fixed notch geometry, top cap, rounded idle, shadow, subdued copy, bottom-aligned footer and scroll-only transcript.
+- [x] Wire 600 ms preview, hover pause/resume, inline alternatives, in-notch draft editing and automatic learned vocabulary.
 - [ ] Verify native installed app against the reference, including recovery, Reduce Motion and destination safeguards.
 - [ ] Run scoped and full serial tests; commit and push verified milestones.
 - [ ] Build and verify a self-contained DMG; retain local artifact and record checksum/version.
 
 Status: implementation in progress. V3 completion and hardware verification are not yet claimed.
+
+### V3 integration checkpoint
+- Integrated commits through native copy/scroll/IME and review/dwell audits; 33 layout tests and 146 review tests pass in isolated worktrees.
+- Exact artwork evidence: 658 generated comparisons against V3 SVG; runtime window rendering remains a separate acceptance gate.
+- Full serial run is exercising the combined app; stale V1 fixture expectations identified and updated against actual V3 behavior. No full-suite pass claimed yet.
+- Full installer includes the three default model sets with size/SHA256 validation, upstream attribution and license copies. Seven packaging tests pass; mounted-app model loading/inference and DMG verification remain pending.
+- Remaining before release: flight verification fixes, installed native visual/interaction inspection, final full serial run, signed bundle/DMG checks, GitHub milestone push.
+
+### Native candidate acceptance
+- Installed release candidate 1.12.0: observed production notch, per-state cassette poses, listening ribbon motion, inline alternative replacement, in-notch long-draft editing, scroll arrows and held correction without delivery.
+- Native inspection found and fixed retained-word actions, chip-induced transcript shrinkage, and crowded recovery footer truncation; focused regressions pass.
+- All three bundled models passed actual inference from app resources with an empty model root and no fetchers: TDT decode, EOU streaming/final flush, 256-D speaker embedding. Synthetic non-speech input checks execution, not recognition accuracy.
+- Final full serial run and mounted DMG checks in progress. No completion claim yet.

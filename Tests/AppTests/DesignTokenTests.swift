@@ -298,11 +298,11 @@ struct DesignTokenTests {
         #expect(Tokens.ControlSize.compactMinimumHeight == 28 && Tokens.ControlSize.mainMinimumHeight == 32)
     }
 
-    // MARK: - DESIGN.md v2 content
+    // MARK: - DESIGN.md V3 authority
 
     @Test func designDocumentRecordsAuthorityAndOwnerDecisions() throws {
         let doc = try Self.read("DESIGN.md")
-        #expect(doc.contains("prototype code → `design/design_v1.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`"))
+        #expect(doc.contains("`design/design_v3.html` → `design/design_v3.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`"))
         for decision in ["fn / 🌐", "Voice enrollment", "Deixis box", "latch pause"] {
             #expect(doc.contains(decision), "owner decision missing: \(decision)")
         }

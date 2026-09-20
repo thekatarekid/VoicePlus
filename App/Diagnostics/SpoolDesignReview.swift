@@ -72,6 +72,8 @@ final class SpoolDesignReview: NSObject, NSApplicationDelegate, ObservableObject
     func inspectNotch() {
         // Hide only the diagnostic controller so computer-use inspection can target the actual
         // production panel, without moving it or changing its content/geometry.
+        // Restart transient visual states here so they are still visible after selecting a control.
+        show()
         window?.orderOut(nil)
         NSApp.windows.first { $0 is NSPanel && $0.isVisible && !$0.ignoresMouseEvents }?.makeKeyAndOrderFront(nil)
     }
@@ -79,6 +81,7 @@ final class SpoolDesignReview: NSObject, NSApplicationDelegate, ObservableObject
     func show() {
         guard let pill else { return }
         began = Date()
+        pill.model.dismissNotice()
         pill.model.hide()
         // Production reducer/context receives a labelled synthetic capture for visual inspection.
         pill.model.apply(.listening(level: 0.55))

@@ -1654,3 +1654,14 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Parallel isolated worktrees: cassette/tape rendering; notch geometry/layout; preview/edit/correction flow.
 - Integration gates: native visual QA, state/recovery tests, release build and self-contained DMG verification.
 - Pending: merge verified milestones, install candidate and compare all states, publish tested commits and local DMG.
+- Native implementation underway: cassette golden parity, fixed160pt layout, inline draft/correction flow; no completion claim before integration.
+- Full installer staging: all three installed default models pass SHA256 verification; bundle lookup stays read-only and outside maintenance/deletion roots.
+- Added explicit native visual-review and bundled-model self-test entry points for installed-build acceptance.
+
+- Integrated V3 layout and draft flow; cassette/tape port has 658 exact SVG comparisons. Native layout/editing audit passes 33 focused tests; review flow passes 146.
+- Full serial integration run exposed stale V1 copy, focus and pointer expectations; migrated to V3 contracts. Final full run and installed-app QA remain pending.
+- Packaging now verifies default model bytes and includes pinned upstream notice/license copies; 7 packaging tests pass. Full-installer gate refuses missing model source.
+
+- Native release candidate inspected: inline alternatives, in-notch edits, scroll-only transcript and retained corrections work; cassette/tape/state layouts checked.
+- Fixed native QA findings: retained-word actions, contextual-chip viewport shrink, crowded four-action footer.
+- Bundled TDT, EOU and speaker models pass real offline synthetic inference; final full suite and DMG checks running.
