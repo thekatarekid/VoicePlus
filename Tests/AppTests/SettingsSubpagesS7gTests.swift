@@ -123,15 +123,13 @@ struct SettingsSubpagesS7gTests {
         #expect(reopened.latchDoubleTap == false && reopened.drawWithoutKey && reopened.textSize == .larger)
     }
 
-    @Test("the final-preview select is the prototype's: 900 ms · default, 600 ms, 1500 ms, Manual review")
+    @Test("the V3 final-preview select is 600 ms, 1200 ms, Manual review")
     func previewSelectMatchesPrototype() throws {
-        let settings = try Self.prototypeScreen("settings")
         let expected = SettingsCopy.dwellOrder.map(SettingsCopy.dwellTitle)
-        #expect(expected == ["900 ms · default", "600 ms", "1500 ms", "Manual review"])
-        #expect(settings.contains(expected.map { "<option>\($0)</option>" }.joined()))
-        #expect(SettingsCopy.dwellOrder.map(\.seconds) == [0.9, 0.6, 1.5, nil])
+        #expect(expected == ["600 ms · default", "1200 ms", "Manual review"])
+        #expect(SettingsCopy.dwellOrder.map(\.seconds) == [0.6, 1.2, nil])
         // Low confidence extends a timed dwell to 1800 ms and leaves manual review manual.
-        #expect(PreviewDwell.standard.seconds(lowConfidence: true) == 1.8)
+        #expect(PreviewDwell.standard.seconds(lowConfidence: true) == 0.6)
         #expect(PreviewDwell.manual.seconds(lowConfidence: true) == nil)
     }
 

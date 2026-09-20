@@ -167,6 +167,7 @@ public enum PillActionKind: String, CaseIterable, Equatable, Sendable {
     case useAvailable
     /// design §4 "Transcript layout": long final text shows "N words · Review all".
     case reviewAll
+    case editDraft, doneEditing, cancelEditing
 
     /// The held-queue action a held row's button maps onto.
     public var heldAction: HeldAction? {
@@ -392,8 +393,10 @@ public struct PillContent: Equatable, Sendable {
                                                             uncertain: review ? info.uncertainCount : nil,
                                                             phrase: info.needsPhraseReview),
                                trailing: destinationTrailing(named), words: .final(info.text),
-                               helper: PillDeck.previewHelper(review: review, manual: manual),
-                               buttons: manual ? PillDeck.manualPreviewButtons : [],
+                               helper: info.paused ? "Paused · move away to insert" : (manual ? "Review, then insert when ready" : ""),
+                               buttons: [PillButton("Edit draft", .editDraft),
+                                         PillButton(info.paused || manual ? "Insert now" : String(format: "Insert in %.1fs", info.dwellRemaining), .commit),
+                                         PillButton("Cancel", .cancel)],
                                spoolKey: review ? "uncertain" : "preview")
         case .inserting(let text):
             return PillContent(designKey: "inserting", status: PillDeck.insertingStatus(destination: c.destinationName),

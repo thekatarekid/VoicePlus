@@ -107,7 +107,7 @@ public enum PillActionRoute {
         case .permissions: return .open(.privacy)
         case .meeting, .pause, .resume: return .open(.meetings)
         case .stop: return .stopMeeting
-        case .insert, .discard, .dismiss: return .none
+        case .insert, .discard, .dismiss, .editDraft, .doneEditing, .cancelEditing: return .none
         }
     }
 }
@@ -360,6 +360,7 @@ public final class PillViewModel: ObservableObject {
 
     /// A dotted word was clicked (or activated from the keyboard / VoiceOver).
     public func reviewMark(_ id: Int, anchor: CGRect? = nil) {
+        if case .finalPreview = state { beginEditingMark(id); return }
         let mapping = marks(for: content().words)
         guard let mark = mapping.mark(id: id) else { return }
         onReviewMark?(mark, mapping, anchor)
@@ -374,6 +375,95 @@ public final class PillViewModel: ObservableObject {
     /// The Review surface closed: the row leaves review mode (the dwell resumes, design §5 / F2).
     public func endReview() { turn.reviewing = false }
 
+    // MARK: V3 in-notch editing
+
+    @Published public private(set) var isEditingDraft = false
+    @Published public var draftText = "" {
+        didSet {
+            guard isEditingDraft else { return }
+            onDraftPause?(.emptyDraft, draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+    @Published public private(set) var editingMarkID: Int?
+    @Published public private(set) var hasMarkedText = false
+    public var onDraftPause: ((DwellPause, Bool) -> Void)?
+    public var onApplyDraft: ((String, MarkMapping, [TranscriptSpan]) -> Bool)?
+    public var onLearnDraft: ((String, String) -> Void)?
+    private var originalDraft = ""
+    private var originalMapping = MarkMapping.empty
+    private var mouseFocusedElements: Set<String> = []
+
+    public func suggestion(for mark: UncertainMark) -> String? {
+        mark.alternatives.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0 != mark.text }
+    }
+
+    public func beginEditingDraft() {
+        guard case .finalPreview = state, !isEditingDraft else { return }
+        onDraftPause?(.review, true)
+        originalDraft = actionText
+        originalMapping = markMapping(for: originalDraft)
+        draftText = originalDraft
+        isEditingDraft = true
+    }
+
+    public func beginEditingMark(_ id: Int) {
+        beginEditingDraft()
+        guard isEditingDraft, originalMapping.mark(id: id) != nil else { return }
+        editingMarkID = id
+    }
+
+    @discardableResult
+    public func applyDraftEdits() -> Bool {
+        guard isEditingDraft else { return true }
+        guard !hasMarkedText, !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let edited = draftText
+        if edited != originalDraft {
+            let mapping = DraftRevision.mapping(originalMapping, edited: edited)
+            let spans = DraftRevision.spans(for: mapping)
+            guard onApplyDraft?(edited, mapping, spans) ?? false else { return false }
+            finalSpans = spans
+            payloadText = edited
+            resolvedMarks = []
+            markCache = mapping
+            turn.uncertainCount = mapping.count
+            turn.needsPhraseReview = mapping.needsPhraseReview
+            onLearnDraft?(originalDraft, edited)
+        }
+        finishDraftEditing()
+        return true
+    }
+
+    public func cancelDraftEdits() {
+        guard isEditingDraft else { return }
+        draftText = originalDraft
+        finishDraftEditing()
+    }
+
+    private func finishDraftEditing() {
+        isEditingDraft = false
+        editingMarkID = nil
+        hasMarkedText = false
+        onDraftPause?(.composition, false)
+        onDraftPause?(.emptyDraft, false)
+        onDraftPause?(.review, false)
+    }
+
+    public func setCompositionActive(_ active: Bool) {
+        let wasComposing = hasMarkedText
+        hasMarkedText = active
+        onDraftPause?(.composition, active)
+        if wasComposing, !active, !pointerInside, !focusInside, isEditingDraft { _ = applyDraftEdits() }
+    }
+
+    public func acceptSuggestion(markID: Int, replacement: String) {
+        guard case .finalPreview = state, !hasMarkedText,
+              let mark = markMapping(for: actionText).mark(id: markID),
+              mark.alternatives.contains(replacement) else { return }
+        beginEditingDraft()
+        draftText = (originalDraft as NSString).replacingCharacters(in: NSRange(mark.range), with: replacement)
+        _ = applyDraftEdits()
+    }
+
     /// G3 → S2 — the boxes drawn this turn, with their crops.
     public func showDeixis(_ regions: [DeixisRegion], image: (DeixisRegion) -> CGImage?) {
         deixisChips = regions.enumerated().map { PillDeixisChip.make($0.element, index: $0.offset + 1, image: image($0.element)) }
@@ -386,13 +476,28 @@ public final class PillViewModel: ObservableObject {
     public func setPointerInside(_ inside: Bool) {
         guard inside != pointerInside else { return }
         pointerInside = inside
+        if !inside {
+            _ = applyDraftEdits()
+            focusedElements.subtract(mouseFocusedElements)
+            mouseFocusedElements.removeAll()
+            let focused = !focusedElements.isEmpty
+            if focused != focusInside { focusInside = focused; onKeyboardFocusChange?(focused) }
+        }
         onPointerInsideChange?(inside)
     }
 
     /// One piece of the pill (`element`) gained or lost keyboard / VoiceOver focus. The pill is
     /// focused while any piece is; `onKeyboardFocusChange` fires only when that changes.
+    public func noteKeyboardInteraction() { mouseFocusedElements.removeAll() }
+
     public func setFocus(_ focused: Bool, element: String = "pill") {
-        if focused { focusedElements.insert(element) } else { focusedElements.remove(element) }
+        if focused {
+            focusedElements.insert(element)
+            if pointerInside { mouseFocusedElements.insert(element) }
+        } else {
+            focusedElements.remove(element)
+            mouseFocusedElements.remove(element)
+        }
         let inside = !focusedElements.isEmpty
         guard inside != focusInside else { return }
         focusInside = inside
@@ -403,7 +508,12 @@ public final class PillViewModel: ObservableObject {
 
     /// The rendered pill for the current state at `date`.
     public func content(at date: Date? = nil) -> PillContent {
-        PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)   // W3H
+        var result = PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)
+        if isEditingDraft {
+            result.buttons = [PillButton("Done", .doneEditing), PillButton("Cancel edits", .cancelEditing)]
+            result.helper = hasMarkedText ? "Finish typing before inserting" : "Done or ⌘Return applies edits"
+        }
+        return result
     }
 
     func context(at date: Date? = nil) -> PillTurnContext {
@@ -429,6 +539,15 @@ public final class PillViewModel: ObservableObject {
 
     /// A pill button was pressed.
     public func perform(_ action: PillActionKind) {
+        switch action {
+        case .editDraft: beginEditingDraft(); return
+        case .doneEditing: _ = applyDraftEdits(); return
+        case .cancelEditing: cancelDraftEdits(); return
+        case .commit: guard applyDraftEdits(), !hasMarkedText else { return }
+        case .reviewAll:
+            if case .finalPreview = state { beginEditingDraft(); return }
+        default: break
+        }
         let shown = state
         if case .held(let info) = shown, let held = action.heldAction {
             onHeldAction?(info, held)
@@ -537,6 +656,7 @@ public final class PillViewModel: ObservableObject {
 
     /// Keeps the turn context in step with what is drawn.
     private func noteTransition(to next: PillState) {
+        if case .finalPreview = next {} else if isEditingDraft { finishDraftEditing() }
         let t = now()
         switch next {
         case .hidden:

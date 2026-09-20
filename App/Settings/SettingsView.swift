@@ -615,17 +615,17 @@ enum SettingsCopy {
     static let previewTitle = "Final preview"
     static let previewDetail = "Shown before the first insertion attempt."
     /// The prototype's `<select>` order: 900 ms · default, 600 ms, 1500 ms, Manual review.
-    static let dwellOrder: [PreviewDwell] = [.standard, .short, .long, .manual]
+    static let dwellOrder: [PreviewDwell] = [.standard, .long, .manual]
     static func dwellTitle(_ dwell: PreviewDwell) -> String {
         switch dwell {
-        case .standard: return "900 ms · default"
+        case .standard: return "600 ms · default"
         case .short: return "600 ms"
-        case .long: return "1500 ms"
+        case .long: return "1200 ms"
         case .manual: return "Manual review"
         }
     }
     static let lowConfidenceTitle = "Low-confidence preview"
-    static let lowConfidenceDetail = "At least 1800 ms; hover pauses it."
+    static let lowConfidenceDetail = "Same preview delay for every transcript; hover pauses it."
     static let reviewable = "Reviewable"
     static let soundCuesTitle = "Sound cues"
     static let soundCuesDetail = "Subtle start and stop feedback. No success sound until an insertion is verified."
