@@ -65,7 +65,7 @@ struct PresenceGeometryTests {
     /// drifted apart and one of them is behind the housing.
     @Test func sharesTheTopBoundaryWithThePill() {
         for metrics in allFixtures {
-            let pillTop = NotchGeometry.pillLayout(for: metrics).shown.maxY
+            let pillTop = NotchGeometry.pillLayout(for: metrics).contentFrame.maxY
             #expect(pillTop == NotchGeometry.pillTopEdge(on: metrics))
             for state in everyState {
                 for hovered in [false, true] {

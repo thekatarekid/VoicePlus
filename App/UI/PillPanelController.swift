@@ -8,6 +8,8 @@ import SwiftUI
 public final class PillPanelController {
     public let model = PillViewModel()
     private let panel: NSPanel
+    private let shadowPanel: NSPanel
+    private var attached = true
     private var cancellable: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
     private var lastSurface: NotchGeometry.Surface = .hidden
@@ -15,6 +17,7 @@ public final class PillPanelController {
     private var pinnedMetrics: ScreenMetrics?
 
     public init() {
+        shadowPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel = PillInteractionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.level = .statusBar + 1
         panel.isOpaque = false
@@ -35,6 +38,18 @@ public final class PillPanelController {
         panel.contentView = host
         panel.contentMinSize = .zero
         panel.contentMaxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        shadowPanel.level = panel.level
+        shadowPanel.isOpaque = false
+        shadowPanel.backgroundColor = .clear
+        shadowPanel.hasShadow = false
+        shadowPanel.hidesOnDeactivate = false
+        shadowPanel.ignoresMouseEvents = true
+        shadowPanel.collectionBehavior = panel.collectionBehavior
+        shadowPanel.isReleasedWhenClosed = false
+        shadowPanel.animationBehavior = .none
+        let shadowHost = NSHostingView(rootView: PillShadowSurface(size: NotchGeometry.activeSize, attached: true))
+        shadowHost.sizingOptions = []
+        shadowPanel.contentView = shadowHost
         // State, turn (latched timer, chips, live words) and the clock can each change the surface
         // (e.g. the finishing offer's buttons appear at 10 s); render when the surface or state does.
         cancellable = model.$state
@@ -105,7 +120,7 @@ public final class PillPanelController {
     /// hover-pause area while a preview dwells — the dictation's final preview, or a selected-text
     /// edit's before/after preview (`.transform` notice, S12). It never takes keyboard focus.
     static func acceptsMouse(_ state: PillState, content: PillContent) -> Bool {
-        if content.hasActions { return true }
+        if content.hasActions || content.words.text?.isEmpty == false { return true }
         switch state {
         case .finalPreview, .held: return true
         case .transform(let info):
@@ -138,20 +153,27 @@ public final class PillPanelController {
         if let host = panel.contentView as? NSHostingView<PillPanelSurface> {
             host.rootView = PillPanelSurface(model: model, size: layout.contentFrame.size, attached: layout.attached, cap: layout.backgroundCap)
         }
+        attached = layout.attached
+        if let host = shadowPanel.contentView as? NSHostingView<PillShadowSurface> {
+            host.rootView = PillShadowSurface(size: layout.shown.size, attached: layout.attached)
+        }
         panel.ignoresMouseEvents = !Self.acceptsMouse(state, content: content)
         switch (wasVisible, surface != .hidden) {
         case (false, true):
-            panel.setFrame(Self.shadowFrame(layout.retracted, attached: layout.attached), display: false)
+            panel.setFrame(layout.retracted, display: false)
+            shadowPanel.setFrame(Self.shadowFrame(layout.retracted, attached: layout.attached), display: false)
+            shadowPanel.orderFrontRegardless()
             panel.orderFrontRegardless()
-            animate(to: Self.shadowFrame(layout.shown, attached: layout.attached))
+            animate(to: layout.shown)
         case (true, false):
-            animate(to: Self.shadowFrame(layout.retracted, attached: layout.attached)) { [weak self] in
+            animate(to: layout.retracted) { [weak self] in
                 guard let self, !self.model.state.isVisible else { return }
                 self.panel.orderOut(nil)
+                self.shadowPanel.orderOut(nil)
                 self.pinnedMetrics = nil
             }
         case (true, true):
-            animate(to: Self.shadowFrame(layout.shown, attached: layout.attached))
+            animate(to: layout.shown)
         case (false, false):
             break
         }
@@ -171,6 +193,7 @@ public final class PillPanelController {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             ctx.allowsImplicitAnimation = true
             panel.animator().setFrame(frame, display: true)
+            shadowPanel.animator().setFrame(Self.shadowFrame(frame, attached: attached), display: true)
         }, completionHandler: completion)
     }
 }
@@ -209,15 +232,30 @@ private struct PillPanelSurface: View {
             UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
                 .fill(Tokens.Pill.Token.background.color)
                 .frame(width: size.width, height: size.height + cap)
-                .shadow(color: .black.opacity(0.22), radius: 12, x: 0, y: 4)
-                .shadow(color: .black.opacity(0.28), radius: 40, x: 0, y: 18)
                 .allowsHitTesting(false)
             PillView(model: model, size: size, attached: attached)
                 .padding(.top, cap)
         }
-        .padding(.horizontal, 40)
-        .padding(.top, attached ? 0 : 40)
-        .padding(.bottom, 60)
+        .frame(width: size.width, height: size.height + cap, alignment: .topLeading)
         .preferredColorScheme(.dark)
+    }
+}
+
+
+/// Shadows live in a click-through sibling, so no transparent margin can consume an app click.
+private struct PillShadowSurface: View {
+    let size: CGSize
+    let attached: Bool
+    var body: some View {
+        UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
+            .fill(Tokens.Pill.Token.background.color)
+            .frame(width: size.width, height: size.height)
+            .shadow(color: .black.opacity(0.22), radius: 12, x: 0, y: 4)
+            .shadow(color: .black.opacity(0.28), radius: 40, x: 0, y: 18)
+            .padding(.horizontal, 40)
+            .padding(.top, attached ? 0 : 40)
+            .padding(.bottom, 60)
+            .allowsHitTesting(false)
+            .preferredColorScheme(.dark)
     }
 }
