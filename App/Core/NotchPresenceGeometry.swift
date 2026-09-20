@@ -164,7 +164,7 @@ public enum PresenceHover {
 
     /// The width the hint row needs for `hint` (12 pt padding each side, min 190), measured by `measure`.
     public static func hintWidth(_ hint: String, on metrics: ScreenMetrics, measure: (String) -> CGFloat) -> CGFloat {
-        PresenceGeometry.rowSize(width: measure(hint) + NotchGeometry.hintHorizontalPadding, on: metrics).width
+        PresenceGeometry.rowSize(width: max(NotchGeometry.hintSize.width, measure(hint) + NotchGeometry.hintHorizontalPadding), on: metrics).width
     }
 }
 

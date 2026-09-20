@@ -35,6 +35,8 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         super.init(frame: frame)
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
+        scroll.focusRingType = .none
+        text.focusRingType = .none
         scroll.hasVerticalScroller = false
         scroll.hasHorizontalScroller = false
         scroll.contentView.postsBoundsChangedNotifications = true
@@ -81,15 +83,25 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
 
     func configure(model: PillViewModel, words: PillContent.Words, marks: MarkMapping) {
         self.model = model
-        text.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction() }
+        text.onKeyInteraction = { [weak model] in
+            if let model, !model.pointerInside { model.noteKeyboardInteraction() }
+        }
+        text.onCompositionChange = { [weak self] in self?.publishEditorText() }
         let began = !editing && model.isEditingDraft
         let ended = editing && !model.isEditingDraft
         editing = model.isEditingDraft
+        needsDisplay = true
+        let wasLive = live
         if case .live = words { live = true } else { live = false }
         let source = editing ? model.draftText : words.text ?? ""
         let followsEnd = scroll.contentView.bounds.minY >= maximumOffset - 3
-        let changed = source != lastSource || shownMarks != marks || began || ended
+        let changed = source != lastSource || shownMarks != marks || began || ended || wasLive != live
         text.isEditable = editing
+        if ended {
+            model.setFocus(false, element: "draft.editor")
+            if window?.firstResponder === text { window?.makeFirstResponder(nil) }
+            window?.resignKey()
+        }
         text.setAccessibilityLabel(editing ? "Edit dictation draft" : "Dictation text. Scroll to read the full text.")
         if changed && !text.hasMarkedText() {
             updating = true
@@ -102,7 +114,7 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             needsLayout = true
             layoutSubtreeIfNeeded()
             if live && followsEnd { scrollTo(maximumOffset) }
-            if ended { scrollTo(0) }
+            if ended || (wasLive && !live) { scrollTo(0) }
         }
         if began || (editing && selectedMark != model.editingMarkID) {
             selectedMark = model.editingMarkID
@@ -151,10 +163,16 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         return result
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        guard editing else { return }
+        Tokens.Pill.controlBorder.setFill()
+        CGRect(x: 0, y: max(0, bounds.height - 1), width: scroll.frame.width, height: 1).fill()
+    }
+
     override func layout() {
         super.layout()
         // The rail occupies the dedicated gap before the character bay.
-        scroll.frame = CGRect(x: 0, y: 0, width: max(1, bounds.width - 20), height: bounds.height)
+        scroll.frame = CGRect(x: 0, y: 0, width: max(1, bounds.width - 30), height: bounds.height)
         text.frame.size.width = scroll.contentSize.width
         text.textContainer?.containerSize = CGSize(width: scroll.contentSize.width, height: .greatestFiniteMagnitude)
         text.layoutManager?.ensureLayout(for: text.textContainer!)
@@ -187,13 +205,17 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
     @objc private func scrollDown() { scrollTo(scroll.contentView.bounds.minY + 21) }
     func textDidChange(_ notification: Notification) {
         guard !updating, editing else { return }
-        model?.setCompositionActive(text.hasMarkedText())
+        publishEditorText()
+    }
+    private func publishEditorText() {
+        guard !updating, editing else { return }
         model?.draftText = text.string
         lastSource = text.string
+        model?.setCompositionActive(text.hasMarkedText())
         needsLayout = true
     }
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-        guard let link = link as? String, let id = Int(link.split(separator: ":").last ?? "") else { return false }
+        guard let link = (link as? URL)?.absoluteString ?? (link as? String), let id = Int(link.split(separator: ":").last ?? "") else { return false }
         if link.hasPrefix("suggest:"), let mark = shownMarks.mark(id: id), let suggestion = model?.suggestion(for: mark) {
             model?.acceptSuggestion(markID: id, replacement: suggestion)
         } else { model?.reviewMark(id) }
@@ -240,6 +262,15 @@ private final class TranscriptRail: NSView {
 
 final class DraftTextView: NSTextView {
     var onKeyInteraction: (() -> Void)?
+    var onCompositionChange: (() -> Void)?
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        onCompositionChange?()
+    }
+    override func unmarkText() {
+        super.unmarkText()
+        onCompositionChange?()
+    }
     override func keyDown(with event: NSEvent) {
         onKeyInteraction?()
         super.keyDown(with: event)

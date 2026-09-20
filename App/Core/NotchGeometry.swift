@@ -105,7 +105,7 @@ public enum NotchGeometry {
     /// Narrowest a pill is ever made before the display clamp; below this nothing is legible.
     public static let minimumPillWidth: CGFloat = 240
     /// Below this width the review layout uses the 84 pt cameo bay and Spool at scale 0.69.
-    public static let narrowBelow: CGFloat = 460
+    public static let narrowBelow: CGFloat = 400
     public static let characterBay: CGFloat = 126
     public static let cameoBay: CGFloat = 84
     /// Floating pills sit this far below the menu-bar band (external displays).
@@ -137,7 +137,7 @@ public enum NotchGeometry {
     public static func nominalSize(for surface: Surface) -> CGSize {
         switch surface {
         case .hidden: return .zero
-        case .hint(let textWidth): return CGSize(width: max(hintMinimumWidth, textWidth + hintHorizontalPadding),
+        case .hint(let textWidth): return CGSize(width: max(hintSize.width, textWidth + hintHorizontalPadding),
                                                  height: hintSize.height)
         case .active: return activeSize
         case .actionable: return actionableSize
@@ -271,7 +271,7 @@ public struct PillLaneLayout: Equatable, Sendable {
     public static let statusHeight: CGFloat = 14
     public static let wordsGap: CGFloat = 4
     public static let lineHeight: CGFloat = 21
-    public static let chipHeight: CGFloat = 18
+    public static let chipHeight: CGFloat = 17
     public static let chipGap: CGFloat = 4
     /// Height of the confidence-dots lane under the last word line (fits in `chipGap`).
     public static let confidenceHeight: CGFloat = 4
@@ -298,7 +298,7 @@ public struct PillLaneLayout: Equatable, Sendable {
         lineCount = hasChip ? 1 : 2
         let wordsY = Self.top + Self.statusHeight + Self.wordsGap
         wordsLane = CGRect(x: inset, y: wordsY, width: laneWidth, height: CGFloat(lineCount) * Self.lineHeight + 6)
-        confidenceLane = CGRect(x: inset, y: wordsLane.maxY, width: laneWidth, height: Self.confidenceHeight)
+        confidenceLane = CGRect(x: inset, y: wordsLane.maxY - Self.confidenceHeight, width: laneWidth, height: Self.confidenceHeight)
         chipRow = hasChip
             ? CGRect(x: inset, y: wordsLane.maxY + Self.chipGap, width: laneWidth, height: Self.chipHeight)
             : nil

@@ -271,6 +271,8 @@ enum Tokens {
             var color: Color { value.color }
         }
 
+        static let statusAttention = RGB("#D3AE78").nsColor
+        static let statusVerified = RGB("#94AD94").nsColor
         static let background = Token.background.nsColor
         static let ink = Token.ink.nsColor
         static let secondaryInk = Token.secondaryInk.nsColor

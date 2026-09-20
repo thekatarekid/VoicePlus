@@ -26,7 +26,7 @@ struct NotchGeometryTests {
     let externalNoMenuBar = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
                                           topInset: 0, notchWidth: nil, menuBarHeight: 0)
     /// A small display: usable width 440, so the ceiling is 408 and the review layout is narrow.
-    let narrow = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 440, height: 700), topInset: 0, menuBarHeight: 24)
+    let narrow = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 400, height: 700), topInset: 0, menuBarHeight: 24)
 
     var all: [ScreenMetrics] { [notched, notchedOffOrigin, autoHiddenMenuBar, external, externalNoMenuBar, narrow] }
 
@@ -40,7 +40,7 @@ struct NotchGeometryTests {
         #expect(NotchGeometry.actionableSize == CGSize(width: 560, height: 160))
         #expect(NotchGeometry.characterBay == 126)
         #expect(NotchGeometry.cameoBay == 84)
-        #expect(NotchGeometry.narrowBelow == 460)
+        #expect(NotchGeometry.narrowBelow == 400)
         #expect(NotchGeometry.cornerRadius == Tokens.Radius.pill)
     }
 
@@ -73,7 +73,7 @@ struct NotchGeometryTests {
             (.meeting(MeetingPillInfo(phase: .recording, elapsed: 1)), actionable),
             (.meeting(MeetingPillInfo(phase: .paused, elapsed: 1)), actionable),
             (.meeting(MeetingPillInfo(phase: .preparingNotes, elapsed: 1)), actionable),
-            (.ready(hint: "Hold or Double Tap fn / 🌐 to dictate"), CGSize(width: 190, height: 38)),
+            (.ready(hint: "Hold or Double Tap fn / 🌐 to dictate"), CGSize(width: 360, height: 38)),
         ]
         for (state, size) in expected {
             #expect(NotchGeometry.size(for: state) == size, "\(state.caseName)")
@@ -81,10 +81,10 @@ struct NotchGeometryTests {
     }
 
     @Test func theHintIsTextSizedAndNeverUnder190() {
-        #expect(NotchGeometry.size(for: .hint(textWidth: 100), on: notched) == CGSize(width: 190, height: 38))
-        #expect(NotchGeometry.size(for: .hint(textWidth: 300), on: notched) == CGSize(width: 324, height: 38))
+        #expect(NotchGeometry.size(for: .hint(textWidth: 100), on: notched) == CGSize(width: 360, height: 38))
+        #expect(NotchGeometry.size(for: .hint(textWidth: 300), on: notched) == CGSize(width: 360, height: 38))
         let measured = NotchGeometry.size(for: .ready(hint: "Hold or Double Tap fn / 🌐 to dictate"), on: notched) { _ in 236 }
-        #expect(measured == CGSize(width: 260, height: 38))
+        #expect(measured == CGSize(width: 360, height: 38))
         let sliver = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 160, height: 600), menuBarHeight: 24)
         #expect(NotchGeometry.size(for: .hint(textWidth: 300), on: sliver).width == 144)
     }
@@ -94,7 +94,7 @@ struct NotchGeometryTests {
     @Test func theCompactCeilingIsMin560UsableMinus32By160() {
         #expect(NotchGeometry.ceiling(on: notched) == CGSize(width: 560, height: 160))
         #expect(NotchGeometry.ceiling(on: external) == CGSize(width: 560, height: 160))
-        #expect(NotchGeometry.ceiling(on: narrow) == CGSize(width: 408, height: 160))
+        #expect(NotchGeometry.ceiling(on: narrow) == CGSize(width: 368, height: 160))
         // The Dock on the side narrows the usable width, and the ceiling follows it.
         let docked = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 520, height: 800), menuBarHeight: 24,
                                    visibleFrame: CGRect(x: 60, y: 0, width: 460, height: 776))
@@ -124,17 +124,17 @@ struct NotchGeometryTests {
 
     @Test func belowFourSixtyTheBayIsAnEightyFourPointCameo() {
         #expect(NotchGeometry.bayWidth(forPillWidth: 560) == 126)
-        #expect(NotchGeometry.bayWidth(forPillWidth: 460) == 126)
-        #expect(NotchGeometry.bayWidth(forPillWidth: 459) == 84)
+        #expect(NotchGeometry.bayWidth(forPillWidth: 400) == 126)
+        #expect(NotchGeometry.bayWidth(forPillWidth: 399) == 84)
         let size = NotchGeometry.size(for: .actionable, on: narrow)
-        #expect(size == CGSize(width: 408, height: 160))
+        #expect(size == CGSize(width: 368, height: 160))
         #expect(NotchGeometry.isNarrow(width: size.width))
         let lanes = PillLaneLayout(size: size, hasChip: false, hasActions: true)
         #expect(lanes.bay.width == CGFloat(84 + 20))
-        #expect(lanes.wordsLane.width == CGFloat(408 - 40 - 84 - 6))
+        #expect(lanes.wordsLane.width == CGFloat(368 - 40 - 84 - 6))
         // The Spool scene agrees: scale 0.69 below the same width.
-        #expect(SpoolScene.placement(width: Double(size.width)).scale == 0.69)
-        #expect(SpoolScene.placement(width: 560).scale == 1)
+        #expect(SpoolScene.placement(width: Double(size.width)).scale == 0.65)
+        #expect(SpoolScene.placement(width: 560).scale == 0.8)
     }
 
     // MARK: - Placement: attached vs floating
@@ -233,7 +233,7 @@ struct NotchGeometryTests {
     /// Never text under the face: the status row, the words lane and the chip row stay left of the
     /// character bay at every width; the helper and action rows sit below it.
     @Test func noTextIsLaidOutUnderTheCharacter() {
-        for width: CGFloat in [560, 500, 460, 459, 408, 300] {
+        for width: CGFloat in [560, 500, 400, 399, 368, 300] {
             for hasChip in [false, true] {
                 for hasActions in [false, true] {
                     let lanes = PillLaneLayout(size: CGSize(width: width, height: 160),
@@ -271,7 +271,7 @@ struct NotchGeometryTests {
         // The confidence dots sit between the words and the chip / tape, never under either.
         for hasChip in [false, true] {
             let l = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: hasChip, hasActions: false)
-            #expect(l.confidenceLane.minY == l.wordsLane.maxY)
+            #expect(l.confidenceLane.maxY == l.wordsLane.maxY)
             #expect(l.confidenceLane.maxY <= (l.chipRow?.minY ?? l.tapeTop))
             #expect(l.confidenceLane.maxY <= l.tapeTop)
         }

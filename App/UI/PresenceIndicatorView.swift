@@ -62,7 +62,7 @@ struct PresenceIndicatorView: View {
         if hovered, state == .ready {
             // I1: text only — no dot, no brand prefix, no "Ready", no cassette.
             Text(rowText)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 12, weight: .regular))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("presence.hint")

@@ -867,7 +867,7 @@ struct PillHintView: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 12, weight: .regular))
             .foregroundStyle(Tokens.Pill.Token.ink.color)
             .lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -914,7 +914,8 @@ struct PillBody: View {
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             } else {
                 PillTranscriptView(model: model, words: content.words, marks: model.marks(for: content.words))
-                    .place(lanes.wordsLane)
+                    .place(CGRect(x: lanes.wordsLane.minX, y: lanes.wordsLane.minY,
+                                  width: lanes.wordsLane.width + 20, height: lanes.wordsLane.height))
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))
             }
             if let chipRow = lanes.chipRow {
@@ -954,7 +955,7 @@ struct PillBody: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(content.status)
                 .font(Tokens.Typography.pillStatus.font())
-                .foregroundStyle(content.tone == .warn ? Tokens.Pill.Token.attention.color : Tokens.Pill.Token.secondaryInk.color)
+                .foregroundStyle(content.tone == .warn ? Color(nsColor: Tokens.Pill.statusAttention) : (content.designKey == "inserted" ? Color(nsColor: Tokens.Pill.statusVerified) : Tokens.Pill.Token.secondaryInk.color))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .accessibilityIdentifier("pill.status")
@@ -1160,6 +1161,7 @@ struct PillActionRow: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(buttons) { button in
+                let quiet = button.action == .discard || button.action == .dismiss
                 Button { perform(button.action) } label: {
                     Text(button.label)
                         .font(Tokens.Typography.pillStatus.font())
@@ -1167,9 +1169,9 @@ struct PillActionRow: View {
                         .frame(minHeight: 30)
                         .foregroundStyle(button.primary ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
                         .background(RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                            .fill(button.primary ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color))
+                            .fill(quiet ? Color.clear : (button.primary ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color)))
                         .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                            .strokeBorder(button.primary ? Color.clear : Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+                            .strokeBorder(button.primary || quiet ? Color.clear : Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(button.identifier)

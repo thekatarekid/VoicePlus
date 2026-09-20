@@ -61,8 +61,8 @@ struct PresenceHoverTests {
     @Test func theHintIsTextSized() {
         let ruler: (String) -> CGFloat = { CGFloat($0.count) * 6 }
         let width = PresenceHover.hintWidth(hint, on: notched, measure: ruler)
-        #expect(width == max(190, ruler(hint) + 24))
-        #expect(PresenceHover.hintWidth("Hi", on: notched, measure: ruler) == 190)
+        #expect(width == max(360, ruler(hint) + 24))
+        #expect(PresenceHover.hintWidth("Hi", on: notched, measure: ruler) == 360)
         let hovered = PresenceGeometry.layout(for: notched, state: .ready, hovered: true, rowWidth: width)
         #expect(hovered.frame.size == CGSize(width: width, height: 38))
         #expect(hovered.cornerRadius == Tokens.Radius.presenceHint)

@@ -35,6 +35,7 @@ public final class PillPanelController {
         // the panel to it. The pill's frame is placement math (`NotchGeometry`), never content.
         let host = NSHostingView(rootView: PillPanelSurface(model: model, size: NotchGeometry.activeSize, attached: true, cap: 0))
         host.sizingOptions = []
+        host.focusRingType = .none
         panel.contentView = host
         panel.contentMinSize = .zero
         panel.contentMaxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
@@ -49,6 +50,7 @@ public final class PillPanelController {
         shadowPanel.animationBehavior = .none
         let shadowHost = NSHostingView(rootView: PillShadowSurface(size: NotchGeometry.activeSize, attached: true))
         shadowHost.sizingOptions = []
+        shadowHost.focusRingType = .none
         shadowPanel.contentView = shadowHost
         // State, turn (latched timer, chips, live words) and the clock can each change the surface
         // (e.g. the finishing offer's buttons appear at 10 s); render when the surface or state does.
