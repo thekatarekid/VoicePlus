@@ -101,6 +101,9 @@ public struct PillPresenter: Equatable, Sendable {
     public private(set) var shownAt: Date?
     /// The retraction that is waiting for `displayed` to finish its dwell.
     public private(set) var pending: PillState?
+    private var insertionStartedAt: Date?
+    private var verifiedReleaseTime: Date?
+    var hasFiniteFlightHold: Bool { verifiedReleaseTime != nil }
 
     public init() {}
 
@@ -110,7 +113,7 @@ public struct PillPresenter: Equatable, Sendable {
         guard let shownAt else { return nil }
         switch PillDwell.rule(for: displayed) {
         case .none: return shownAt
-        case .minimum(let seconds): return shownAt.addingTimeInterval(seconds)
+        case .minimum(let seconds): return max(shownAt.addingTimeInterval(seconds), verifiedReleaseTime ?? shownAt)
         case .untilAction: return .distantFuture
         }
     }
@@ -121,9 +124,9 @@ public struct PillPresenter: Equatable, Sendable {
         return now < release
     }
 
-    public mutating func request(_ next: PillState, now: Date) -> Decision {
+    public mutating func request(_ next: PillState, now: Date, reducedMotion: Bool = false) -> Decision {
         // A visible state is always news — it never waits behind an older one.
-        if next.isVisible { return commit(next, now: now) }
+        if next.isVisible { return commit(next, now: now, reducedMotion: reducedMotion) }
         if displayed == .hidden { pending = nil; return .unchanged }
         if let release = releaseTime(), now < release {
             pending = next
@@ -147,9 +150,22 @@ public struct PillPresenter: Equatable, Sendable {
         return commit(pending, now: now)
     }
 
-    private mutating func commit(_ state: PillState, now: Date) -> Decision {
+    private mutating func commit(_ state: PillState, now: Date, reducedMotion: Bool = false) -> Decision {
         pending = nil
         guard state != displayed else { return .unchanged }
+        verifiedReleaseTime = nil
+        switch state {
+        case .inserting:
+            if case .inserting = displayed {} else { insertionStartedAt = now }
+        case .landed(let info) where info.verified:
+            if !reducedMotion, let insertionStartedAt {
+                // Acknowledgement stays immediate; only source retraction waits for the finite feed
+                // and its 650 ms verified hold. Slow acknowledgements still get their full hold.
+                verifiedReleaseTime = max(now, insertionStartedAt.addingTimeInterval(SpoolFlight.duration))
+                    .addingTimeInterval(PillDwell.inserted)
+            }
+        default: insertionStartedAt = nil
+        }
         displayed = state
         shownAt = now
         return .show(state)

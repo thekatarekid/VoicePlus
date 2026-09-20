@@ -186,6 +186,7 @@ public final class PillViewModel: ObservableObject {
     private var drawnSpoolKey = ""
     /// Injectable clock so tests can drive dwell without sleeping.
     public var now: () -> Date = Date.init
+    var deliveryReduceMotion: () -> Bool = { AppearanceSettings.effectiveReduceMotion(UserDefaultsSettingsStore()) }
     private var cancellables: Set<AnyCancellable> = []
     private var lastCapturedLevel: Date?
     private var capturedLevelsAreLive: Bool {
@@ -671,6 +672,12 @@ public final class PillViewModel: ObservableObject {
     public func retractDelivery(immediately: Bool = false) {
         deliveryTimer?.invalidate()
         deliveryTimer = nil
+        if !immediately, presenter.hasFiniteFlightHold, case .landed(let info) = state, info.verified,
+           let release = presenter.releaseTime(), release > now() {
+            // Includes latched delivery: returning to the live row must not remove the source early.
+            scheduleDeliveryRetraction(after: release.timeIntervalSince(now()))
+            return
+        }
         switch state {
         case .landed, .held, .error, .landedPartial, .unavailable, .muted, .cancelled, .undoAvailable, .preview:
             if case .preview = state, turn.captureOpen { return }
@@ -696,7 +703,8 @@ public final class PillViewModel: ObservableObject {
             deliveryTimer = nil
             return
         }
-        scheduleDeliveryRetraction(after: dwell)
+        let remaining = presenter.releaseTime()?.timeIntervalSince(now()) ?? dwell
+        scheduleDeliveryRetraction(after: max(dwell, remaining))
     }
 
     private func scheduleDeliveryRetraction(after dwell: TimeInterval) {
@@ -718,7 +726,10 @@ public final class PillViewModel: ObservableObject {
         // Unmute (`dismissNotice`): the cancellation the mute itself triggers, a late notice or a stray
         // engine tick never replaces it.
         if case .muted = state, next.isVisible, next != .muted { return }
-        apply(decision: presenter.request(next, now: now()))
+        let reduced: Bool
+        if case .landed(let info) = next, info.verified { reduced = deliveryReduceMotion() }
+        else { reduced = false }
+        apply(decision: presenter.request(next, now: now(), reducedMotion: reduced))
     }
 
     /// Test seam and timer callback: let a held retraction through once its deadline has passed.

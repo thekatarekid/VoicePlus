@@ -107,6 +107,64 @@ struct PillPresenterTests {
         model.apply(.prewarming)
         #expect(model.state == .idle)
     }
+    @Test func verifiedDeliveryKeepsTheNativeSourceThroughFlightAndSettledHold() {
+        let model = PillViewModel()
+        var clock = t0
+        model.now = { clock }
+        model.deliveryReduceMotion = { false }
+        model.present(.inserting(text: "A verified line."))
+        clock = t0.addingTimeInterval(0.14)
+        model.present(delivery: .delivered(verified: true, method: "ax"), text: "A verified line.")
+        let acknowledged = model.state
+        #expect(acknowledged == .landed(LandedPillInfo(text: "A verified line.", verified: true)))
+        // The old delivery timer fired here; this is the actual timer callback, with a controlled clock.
+        clock = t0.addingTimeInterval(0.84)
+        model.retractDelivery()
+        #expect(model.state == acknowledged)
+        // Engine idle/repeated hide requests must obey the same gate as the scheduled dismissal.
+        model.hide()
+        for offset in [1.0, 1.3, 1.94] {
+            clock = t0.addingTimeInterval(offset)
+            model.flushPillHold()
+            #expect(model.state == acknowledged)
+        }
+        clock = t0.addingTimeInterval(SpoolFlight.duration + PillDwell.inserted + 0.001)
+        model.flushPillHold()
+        #expect(model.state == .hidden)
+    }
+
+    @Test func reducedMotionAndLateAcknowledgementUseOnlyTheirNormalVerifiedHold() {
+        for (reduced, acknowledgedAt) in [(true, 0.14), (false, 2.0)] {
+            let model = PillViewModel()
+            var clock = t0
+            model.now = { clock }
+            model.deliveryReduceMotion = { reduced }
+            model.present(.inserting(text: "Done."))
+            clock = t0.addingTimeInterval(acknowledgedAt)
+            model.present(delivery: .delivered(verified: true, method: "ax"), text: "Done.")
+            let acknowledged = model.state
+            model.hide()
+            clock = t0.addingTimeInterval(acknowledgedAt + 0.64)
+            model.flushPillHold()
+            #expect(model.state == acknowledged)
+            clock = t0.addingTimeInterval(acknowledgedAt + 0.651)
+            model.flushPillHold()
+            #expect(model.state == .hidden)
+        }
+    }
+
+    @Test func finiteFlightHoldNeverDelaysANewCaptureOrExplicitDismissal() {
+        for dismiss in [false, true] {
+            let model = PillViewModel()
+            model.now = { t0 }
+            model.deliveryReduceMotion = { false }
+            model.present(.inserting(text: "Done."))
+            model.present(delivery: .delivered(verified: true, method: "ax"), text: "Done.")
+            if dismiss { model.dismissNotice(); #expect(model.state == .hidden) }
+            else { model.present(.starting); #expect(model.state == .starting) }
+        }
+    }
+
 }
 
 @Suite("Presence click routing")
