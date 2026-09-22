@@ -1085,3 +1085,11 @@ The native tape now uses a display-only compressed loudness curve before its exi
 ### Optional secure storage — 2026-09-22
 
 Local dictation does not require Keychain approval. Optional provider/connector credentials and sync keys retain secure storage, but every get/update/add/delete explicitly forbids authentication UI, including the legacy macOS ACL path. Locked/unavailable storage is surfaced as unavailable rather than missing; no replacement key or plaintext fallback is created. Settings offers “Check again”. Security calls are injected in regression tests; tests no longer touch the user's real Keychain. This preserves stored credentials without requiring the user to supply a Keychain password. Native installed verification and the combined release gate are pending.
+
+### 1.12.2 quiet-speech and secure-storage update
+
+- Whisper/normal speech now drives a compressed visual response; maximum native tape displacement is 15% higher. Audio samples, VAD and recognition remain unchanged. 48 focused Spool tests pass.
+- Optional provider, connector and sync storage forbids authentication dialogs. Locked storage stays unavailable rather than being overwritten. Guided onboarding event ownership is corrected.
+- Self-contained `VoicePlus_V3-Spool-Full_1.12.2.dmg`, build `202609220510`, 714,180,189 bytes. SHA256 `6a2c1b5b96068b8760e210c7106f47ac7981d2750ef1dc148dd676fc4ad89690`. Mounted offline model inference, signature/dependency and clean-install checks pass. All 29 prior installers are byte-identical.
+- Installed 1.12.2 via the mounted DMG. Native Settings, Providers and Sync respond without a Keychain prompt; Privacy reports microphone and typing access Allowed. Restored normal recognition after controlled QA; microphone closed.
+- External insertion remains unverified: the computer-use focus action selects TextEdit's blank field but macOS identifies Brave as foreground. Controlled attempt ended Cancelled / Nothing inserted; awaiting a manual foreground click. No TextEdit delivery or tape-travel pass claimed. Combined serial regression run: **3,276 tests passed**, 484.832 seconds; the earlier onboarding race no longer fails.

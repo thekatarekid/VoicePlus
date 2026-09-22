@@ -1692,3 +1692,5 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - 2026-09-22: made native Spool visibly respond to whisper-level capture using display-only loudness compression; increased maximum displacement 15% without changing audio or recognition. All 48 Spool tests pass, including whisper/normal/loud motion, silence settling, Reduce Motion and historical SVG parity. Replacement installer pending.
 
 - 2026-09-22: integrated noninteractive Keychain policy across providers, connectors and sync; unavailable secrets remain errors and are never replaced or stored in plaintext. 54 isolated storage regressions pass. Combined suite and 1.12.2 release build running.
+
+- Built and installed 1.12.2 (714,180,189 bytes; SHA256 `6a2c1b5b96068b8760e210c7106f47ac7981d2750ef1dc148dd676fc4ad89690`). Mounted offline model and installability checks pass; 29 prior DMGs unchanged. Native Settings/Providers/Sync show no Keychain prompt; normal mode restored with microphone closed. **3,276 tests passed** in the combined serial run (484.832 s); external insertion still needs a manual TextEdit foreground click because macOS reports Brave.
