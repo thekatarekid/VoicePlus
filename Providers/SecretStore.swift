@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import Shared
 
 /// Keychain abstraction so tests never touch the real Keychain.
 public protocol SecretStore: Sendable {
@@ -24,12 +25,16 @@ public final class InMemorySecretStore: SecretStore, @unchecked Sendable {
 /// Security.framework wrapper. Generic-password items under one service name.
 public struct KeychainSecretStore: SecretStore {
     public let service: String
-    public init(service: String = "in.adityakatare.voiceplus") { self.service = service }
+    private let security: any SecurityItemClient
+    public init(service: String = "in.adityakatare.voiceplus", security: any SecurityItemClient = SystemSecurityItemClient()) {
+        self.service = service
+        self.security = security
+    }
 
     public struct KeychainError: Error, Equatable { public let status: OSStatus }
 
     private func query(_ key: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: key]
+        NoninteractiveKeychainQuery.genericPassword(service: service, account: key)
     }
 
     public func get(_ key: String) throws -> String? {
@@ -37,7 +42,7 @@ public struct KeychainSecretStore: SecretStore {
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        let status = security.copyMatching(q as CFDictionary, result: &item)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = item as? Data else { throw KeychainError(status: status) }
         return String(decoding: data, as: UTF8.self)
@@ -45,18 +50,18 @@ public struct KeychainSecretStore: SecretStore {
 
     public func set(_ value: String, for key: String) throws {
         let data = Data(value.utf8)
-        let update = SecItemUpdate(query(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let update = security.update(query(key) as CFDictionary, attributes: [kSecValueData as String: data] as CFDictionary)
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else { throw KeychainError(status: update) }
         var q = query(key)
         q[kSecValueData as String] = data
         q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let add = SecItemAdd(q as CFDictionary, nil)
+        let add = security.add(q as CFDictionary)
         guard add == errSecSuccess else { throw KeychainError(status: add) }
     }
 
     public func delete(_ key: String) throws {
-        let status = SecItemDelete(query(key) as CFDictionary)
+        let status = security.delete(query(key) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
     }
 }

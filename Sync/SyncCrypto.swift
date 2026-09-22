@@ -1,4 +1,5 @@
 import Foundation
+import Shared
 @preconcurrency import CryptoKit
 
 /// Keychain abstraction mirroring Providers' `SecretStore`; Sync keeps its own to avoid a module dependency.
@@ -74,33 +75,37 @@ public extension SyncKey {
 
 #if canImport(Security)
 import Security
-/// Real Keychain store (generic password items). Untested here — no Keychain in CI; exercised via InMemorySyncKeyStore.
+/// Real Keychain store. Authentication UI is forbidden; tests inject Security calls.
 public struct KeychainSyncKeyStore: SyncKeyStore {
     public let service: String
-    public init(service: String = "in.adityakatare.voiceplus.sync") { self.service = service }
+    private let security: any SecurityItemClient
+    public init(service: String = "in.adityakatare.voiceplus.sync", security: any SecurityItemClient = SystemSecurityItemClient()) {
+        self.service = service
+        self.security = security
+    }
     public struct KeychainError: Error, Equatable { public let status: OSStatus }
     private func query(_ key: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: key]
+        NoninteractiveKeychainQuery.genericPassword(service: service, account: key)
     }
     public func get(_ key: String) throws -> Data? {
         var q = query(key); q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        let status = security.copyMatching(q as CFDictionary, result: &item)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = item as? Data else { throw KeychainError(status: status) }
         return data
     }
     public func set(_ value: Data, for key: String) throws {
-        let update = SecItemUpdate(query(key) as CFDictionary, [kSecValueData as String: value] as CFDictionary)
+        let update = security.update(query(key) as CFDictionary, attributes: [kSecValueData as String: value] as CFDictionary)
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else { throw KeychainError(status: update) }
         var q = query(key); q[kSecValueData as String] = value
         q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let add = SecItemAdd(q as CFDictionary, nil)
+        let add = security.add(q as CFDictionary)
         guard add == errSecSuccess else { throw KeychainError(status: add) }
     }
     public func delete(_ key: String) throws {
-        let status = SecItemDelete(query(key) as CFDictionary)
+        let status = security.delete(query(key) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
     }
 }
