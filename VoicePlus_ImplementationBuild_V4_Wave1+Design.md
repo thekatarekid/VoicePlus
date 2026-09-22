@@ -1159,3 +1159,15 @@ The complete integrated serial run passed **3,288 tests in 679.292 seconds** on 
 - Owner follow-up: no doubling in 2–3 previously affected apps with VoicePlus closed; exact trigger and affected app names remain unknown. Reopened the installed app through native app control and observed its idle green dot. Process inventory confirms exactly one VoicePlus process and no test processes. Manual typing with VoicePlus idle is now pending; no synthetic keyboard events were sent. This is evidence of recovery after quitting, not proof of causation or a fix.
 
 - Comparison completed: the owner confirms no doubling after reopening VoicePlus either. Record as currently unreproduced, not fixed or attributed to VoicePlus/testing. No runtime changes are justified by this comparison alone. Automated typing remains paused; if the issue recurs, capture the affected app and immediately preceding dictation/edit interaction without logging raw keystrokes.
+
+### Remaining V3 acceptance evidence — scope audit
+
+No new confirmed implementation defect was found. Earlier descriptions of system accessibility/display checks as “optional” describe their user/hardware prerequisites only; they do not waive explicit design requirements or establish completion.
+
+- [ ] Native Tab traversal through transcript, scroll controls and footer, and physical Escape outside the inline editor (design §11, §13.8/15). Existing tests validate calculated focus order and directly invoked handlers; installed-app Tab/global Escape checks were inconclusive. Automated typing remains paused after the unreproduced duplication report.
+- [ ] Native VoiceOver announcements/focus and system Increase Contrast readability (§11, §13.15). Implementation/token tests pass; the earlier permission request to temporarily change system preferences is unanswered.
+- [ ] External-display floating placement, display pinning/loss recovery and onboarding (§4, §13.13/15). Geometry tests pass; monitor availability remains unanswered. An AirPlay display listing alone is not native acceptance.
+- [ ] Native RTL destination tape flight and persistent uncertainty/correction in a supported target (§7, §13.4/15). Measured RTL/grapheme/overlay tests exist; successful English TextEdit insertion does not prove this integration.
+- [ ] Enumerated installed-app visual pass for all 26 state chips, including transient states, plus genuine recovery transitions (V3 validation additions). Existing artwork parity and selected native inspections are narrower evidence. The isolated `--design-v3-review` entry point can prove visual presentation but cannot prove recovery behavior or external writes.
+
+These are evidence gaps, not claims that the listed behavior is broken. Keep the native-acceptance checkbox open and preserve the verified 1.12.4 installer until a justified runtime correction requires rebuilding.

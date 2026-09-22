@@ -1716,3 +1716,5 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Owner reports typing is now normal in 2–3 previously affected apps with VoicePlus closed, but no reliable pattern. Reopened the installed app once; native idle green dot and a single app process confirmed, no test processes or automated typing. Awaiting manual typing comparison with VoicePlus idle before attributing a cause; software remains unchanged.
 
 - Owner confirms typing also remains normal after reopening VoicePlus. Duplication is currently unreproduced, with no established cause or keyboard patch; automated typing stays paused. This resolves the pending idle comparison, not the remaining native design/accessibility acceptance checks.
+
+- Bounded acceptance audit found no new confirmed defect. Clarified that native keyboard/VoiceOver/Increase Contrast and display behavior are explicit design requirements, not optional completion criteria. Native RTL/uncertainty destination coverage and an enumerated transient-state visual pass also remain incomplete; unit/fixture evidence is not a substitute. No test or installer rerun for this documentation-only audit.
