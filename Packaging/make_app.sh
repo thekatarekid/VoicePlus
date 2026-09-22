@@ -273,14 +273,14 @@ if [ -z "$IDENTITY" ] && security find-identity -v -p codesigning 2>/dev/null | 
   log "found a valid code-signing identity in the keychain: $CERT_NAME"
 fi
 DR_ARGS=()
-if [ -n "$IDENTITY" ]; then
+if [ -n "$IDENTITY" ] && [ "$IDENTITY" != "-" ]; then
   # codesign derives `identifier … and certificate leaf …` on its own; do not
   # override it with something weaker.
   log "codesign identity: $IDENTITY (certificate leaf -> TCC grants survive rebuilds)"
 else
   IDENTITY="-"
   DR_ARGS=(-r "=designated => identifier \"$SIGN_ID\"")
-  log "codesign identity: ad-hoc (no \"$CERT_NAME\" in the keychain)"
+  log "codesign identity: ad-hoc (explicitly selected or no matching certificate)"
   log "  pinning an explicit designated requirement: identifier \"$SIGN_ID\""
   log "  run Packaging/make_signing_cert.sh for the stronger certificate-backed identity"
 fi
