@@ -1690,3 +1690,5 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - 2026-09-22: fixed guided/practice onboarding event ownership; queued guided events no longer erase a completed result. Added optional-credential unavailable status instead of presenting locked storage as missing keys. 270 integrated onboarding/settings/sync regression tests pass. Non-interactive secure-store queries are being validated before the replacement installer.
 
 - 2026-09-22: made native Spool visibly respond to whisper-level capture using display-only loudness compression; increased maximum displacement 15% without changing audio or recognition. All 48 Spool tests pass, including whisper/normal/loud motion, silence settling, Reduce Motion and historical SVG parity. Replacement installer pending.
+
+- 2026-09-22: integrated noninteractive Keychain policy across providers, connectors and sync; unavailable secrets remain errors and are never replaced or stored in plaintext. 54 isolated storage regressions pass. Combined suite and 1.12.2 release build running.
