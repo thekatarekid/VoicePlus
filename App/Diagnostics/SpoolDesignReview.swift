@@ -16,6 +16,23 @@ final class SpoolDesignReview: NSObject, NSApplicationDelegate, ObservableObject
     private var timer: Timer?
     private var began = Date()
     static let keys = ["idle", "ready", "starting", "listening", "quiet", "latched", "finishing", "preview", "uncertain", "inserting", "inserted", "held", "unconfirmed", "partial", "micWarning", "cancelled", "muted", "unavailable", "editing", "undo", "meeting", "paused", "notes", "error", "correcting", "blocked"]
+    enum Surface: Equatable {
+        case pill, presence
+
+        /// The content owner determines the target even when it is click-through. A shadow panel
+        /// or an unrelated app panel is never a candidate.
+        func panel(pill: NSPanel, presence: NSPanel) -> NSPanel {
+            self == .presence ? presence : pill
+        }
+    }
+
+    static func surface(for selection: String) -> Surface { selection == "idle" ? .presence : .pill }
+
+    /// Production model subscribers render on this queue. Enqueue inspection behind their work.
+    static func afterPendingPresentation(_ action: @escaping () -> Void) {
+        DispatchQueue.main.async(execute: action)
+    }
+
     var text: String {
         "Can we meet with Mira on Friday?" + (longText ? " I would like to go through the launch checklist, confirm who owns each task, and leave enough time to discuss the customer feedback. Please bring the latest designs and the revised timeline. We can make the remaining decisions together, then send a clear summary to everyone who could not join. There is no need to rush the review; I would rather resolve the open questions before we announce the date." : "")
     }
@@ -75,20 +92,38 @@ final class SpoolDesignReview: NSObject, NSApplicationDelegate, ObservableObject
         // Restart transient visual states here so they are still visible after selecting a control.
         show()
         window?.orderOut(nil)
-        NSApp.windows.first { $0 is NSPanel && $0.isVisible && !$0.ignoresMouseEvents }?.makeKeyAndOrderFront(nil)
+        let inspectedSelection = selection
+        Self.afterPendingPresentation { [weak self] in
+            guard let self, self.selection == inspectedSelection, let presence = self.presence else { return }
+            let target = Self.surface(for: inspectedSelection).panel(
+                pill: self.pill.diagnosticPanel, presence: presence.diagnosticPanel)
+            // Only this explicitly launched diagnostic names the owned target. Presence remains
+            // non-key and click-through; inspectors can select its stable titled window directly.
+            target.title = "VoicePlus · V3 notch · " + inspectedSelection
+            target.identifier = NSUserInterfaceItemIdentifier("spool-review-notch")
+            target.orderFrontRegardless()
+            if target.canBecomeKey { target.makeKey() }
+        }
     }
 
     func show() {
         guard let pill else { return }
         began = Date()
-        pill.model.dismissNotice()
-        pill.model.hide()
+        Self.present(selection: selection, text: text, on: pill.model)
+        if selection == "idle" { presence?.setEngine(.idle) }
+    }
+
+    /// Synthetic state fixtures use the actual model but never construct capture, insertion or
+    /// persistence services. Idle is the ordinary presence chin, not the pill's startup state.
+    static func present(selection: String, text: String, on model: PillViewModel) {
+        model.dismissNotice()
+        model.hide()
+        guard selection != "idle" else { return }
         // Production reducer/context receives a labelled synthetic capture for visual inspection.
-        pill.model.apply(.listening(level: 0.55))
-        pill.model.apply(.previewing(text: text))
+        model.apply(.listening(level: 0.55))
+        model.apply(.previewing(text: text))
         let state: PillState
         switch selection {
-        case "idle": state = .idle
         case "ready": state = .ready(hint: "Hold or Double Tap Right Control to dictate")
         case "starting": state = .starting
         case "listening": state = .preview(text: text)
@@ -114,13 +149,13 @@ final class SpoolDesignReview: NSObject, NSApplicationDelegate, ObservableObject
         case "blocked": state = .error(message: RecoveryCatalog.entry(.P01).headline)
         default: state = .error(message: RecoveryCatalog.entry(.T01).headline)
         }
-        if selection != "listening" { pill.model.present(state) }
+        if selection != "listening" { model.present(state) }
         if ["uncertain", "held", "unconfirmed", "partial", "inserted"].contains(selection) {
             let spans = text.split(separator: " ").map { word in
                 TranscriptSpan(text: String(word), confidence: word == "Mira" ? 0.3 : 0.95, audioRange: 0...1,
                                alternates: word == "Mira" ? [Alternate(text: "Meera", score: 0.8, source: .beam)] : [])
             }
-            pill.model.setFinalSpans(spans, text: text)
+            model.setFinalSpans(spans, text: text)
         }
     }
 

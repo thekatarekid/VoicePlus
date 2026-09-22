@@ -8,6 +8,8 @@ import SwiftUI
 public final class PillPanelController {
     public let model = PillViewModel()
     private let panel: NSPanel
+    /// Read-only ownership seam for isolated native diagnostics; never discover a shadow by window order.
+    var diagnosticPanel: NSPanel { panel }
     private let shadowPanel: NSPanel
     private var attached = true
     private var cancellable: AnyCancellable?

@@ -45,6 +45,8 @@ public final class PresenceIndicatorController {
     public var microphoneOwnership: (() -> MicrophoneOwnership)?
 
     private let panel: NSPanel
+    /// Read-only ownership seam for isolated native diagnostics; never discover a shadow by window order.
+    var diagnosticPanel: NSPanel { panel }
     private let container = PresenceContainerView()
     private var hosting: NSHostingView<PresenceIndicatorView>
     private var inputs = PresenceInputs()
