@@ -1164,13 +1164,14 @@ The complete integrated serial run passed **3,288 tests in 679.292 seconds** on 
 
 No new confirmed implementation defect was found. Earlier descriptions of system accessibility/display checks as “optional” describe their user/hardware prerequisites only; they do not waive explicit design requirements or establish completion.
 
-- [ ] Native Tab traversal through transcript, scroll controls and footer, and physical Escape outside the inline editor (design §11, §13.8/15). Existing tests validate calculated focus order and directly invoked handlers; installed-app Tab/global Escape checks were inconclusive. Automated typing remains paused after the unreproduced duplication report.
+- [ ] Native Tab traversal through transcript, scroll controls and footer, and physical Escape outside the inline editor (design §11, §13.8/15). Installed 1.12.6 reaches transcript/rail but skips footer buttons; a focused correction is underway. Global Escape remains unverified. The owner deferred the unrelated typing report; scoped native acceptance has resumed.
 - [ ] Native VoiceOver announcements/focus and system Increase Contrast readability (§11, §13.15). Implementation/token tests pass; the earlier permission request to temporarily change system preferences is unanswered.
 - [ ] External-display floating placement, display pinning/loss recovery and onboarding (§4, §13.13/15). Geometry tests pass; monitor availability remains unanswered. An AirPlay display listing alone is not native acceptance.
 - [ ] Native RTL destination tape flight and persistent uncertainty/correction in a supported target (§7, §13.4/15). Measured RTL/grapheme/overlay tests exist; successful English TextEdit insertion does not prove this integration.
-- [ ] Enumerated installed-app visual pass for all 26 state chips, including transient states, plus genuine recovery transitions (V3 validation additions). Existing artwork parity and selected native inspections are narrower evidence. The isolated `--design-v3-review` entry point can prove visual presentation but cannot prove recovery behavior or external writes.
+- [x] Enumerated installed-app visual pass for all 26 state chips (22 on 1.12.4; the remaining four on 1.12.6 after diagnostic targeting was fixed). Isolated `--design-v3-review` proves visual presentation only.
+- [ ] Genuine recovery transitions and external effects for the state matrix; static diagnostic presentations do not close this separate gate.
 
-These are evidence gaps, not claims that the listed behavior is broken. Keep the native-acceptance checkbox open and preserve the verified 1.12.4 installer until a justified runtime correction requires rebuilding.
+These are evidence gaps, not claims that the listed behavior is broken. Keep the overall native-acceptance checkbox open; preserve previous verified installers as newer corrections are checked.
 
 ### Menu clarification and investigation deferred
 
@@ -1199,3 +1200,5 @@ Thus **22 of 26 diagnostic state presentations** were visibly captured; the comp
 - Replacement artifact: `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.6.dmg`, build **202609220840**, **714,972,305 bytes**, SHA256 **d73f649fb4391a5ea9949f96a2458a9e3992e25d3259315e2f658cb14d5debaa**. Actual mounted bundled TDT/EOU/speaker inference with empty cache/no fetchers, signature/dependency/installability and clean-install launch pass. All 32 installers predating this task remain unchanged. Installed from mounted DMG; old app retained at `/tmp/VoicePlus-before-1.12.6-QA.app`. Public appcast/Homebrew cask unchanged; locally signed, not notarized, no public release.
 - Native keyboard probe of long uncertain preview: first Tab selects transcript, next selects scroll rail, subsequent presses alternate those two and skip Insert now/Edit draft/Cancel. This is now a concrete acceptance failure rather than an inconclusive focus observation. An isolated investigation is running; do not check off full traversal. Diagnostic review uses no microphone, real insertion or correction persistence.
 - Full-suite result remains 3,288 on 1.12.4; no claim of a complete newer full-suite run. The new application binary differs only in diagnostic inspection; normal input/menu behavior is unchanged. Accessibility preference approval and external-display availability remain pending.
+
+- Normal installed 1.12.6 restored after isolated review; native screenshot confirms the green idle chip. No dictation, external insertion, saved correction or system preference change during this visual pass.
