@@ -687,7 +687,7 @@ enum SettingsCopy {
         "Spool and the pill stop moving and still show every state. macOS Reduce Motion is \(system ? "on" : "off"), and always applies."
     }
     static let textSizeTitle = "Larger text"
-    static let textSizeDetail = "Window text only. The pill keeps its size and moves overflow to Review."
+    static let textSizeDetail = "Window text only. The pill keeps its size; scroll within its two-line transcript to read more."
     static let presenceTitle = "Presence"
     static let presenceIndicatorTitle = "Show indicator under the notch"
     static let presenceIndicatorDetail = "A small chin under the camera housing that says VoicePlus is alive — and shows when the mic is open or muted."
