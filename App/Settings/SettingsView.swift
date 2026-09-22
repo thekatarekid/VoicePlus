@@ -451,7 +451,7 @@ struct ProvidersSettingsPage: View {
 
     var body: some View {
         let state = ProvidersPage.state(hasKey: credentials.hasAnyKey, discovered: models.connectedProviders,
-                                        connectorsSignedIn: connectors.anySignedIn, exploring: exploring, hotkey: hotkey)
+                                        connectorsSignedIn: connectors.anySignedIn, exploring: exploring || credentials.hasStorageFailure, hotkey: hotkey)
         SectionPage(.settings(.providers), state: state, onStateAction: { exploring = true }, hotkey: hotkey) {
             VStack(alignment: .leading, spacing: MainWindowLayout.sectionGap) {
                 GroupBox(ProvidersCopy.routeTitle, layout: .rows) {
@@ -493,7 +493,10 @@ struct ProvidersSettingsPage: View {
         let status = credentials.status(service)
         RowView(service.name, detail: status.line) {
             HStack(spacing: Tokens.Spacing.s) {
-                if status.hasKey {
+                if status == .storageUnavailable {
+                    Button(ProvidersCopy.checkStorage) { credentials.reload() }
+                        .accessibilityIdentifier("settings.provider.\(service.id).retryStorage")
+                } else if status.hasKey {
                     if status == .reachable { StatusTag(ProvidersCopy.connected, kind: .good) }
                     Button(ProvidersCopy.test) { Task { await credentials.test(service) } }
                         .disabled(status == .testing)

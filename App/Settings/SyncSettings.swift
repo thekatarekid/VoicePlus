@@ -600,5 +600,5 @@ public enum SyncCopy {
     public static let importPassphraseFirst = "Enter the file’s passphrase first."
     public static func exported(_ name: String) -> String { "Exported everything to \(name)." }
     public static func imported(_ name: String) -> String { "Imported and merged \(name)." }
-    public static let footnote = "Dictionary, personas, snippets, adapter weights and settings sync end-to-end encrypted. Audio never syncs. Transfers with invalid keys are rejected. Offline devices never block local dictation."
+    public static let footnote = "Dictionary, personas, snippets, adapter weights and settings sync end-to-end encrypted. Audio never syncs. Transfers with invalid keys are rejected. Sync is optional. Its encryption key stays in Keychain; unavailable secure storage never blocks local dictation."
 }
