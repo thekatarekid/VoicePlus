@@ -1,4 +1,4 @@
-# VoicePlus 1.12.4 — V3 Spool full installer
+# VoicePlus 1.12.9 — V3 Spool full installer
 
 The native notch now follows the approved V3 design: smaller detailed cassette, shared copper tape material, counterclockwise listening reels, clockwise insertion reels, fixed active height, attached top cap, rounded idle pill, and neutral shadow.
 
@@ -11,10 +11,10 @@ The native notch now follows the approved V3 design: smaller detailed cassette, 
 
 ## Artifact and validation
 
-- Local artifact: `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.0.dmg`.
-- Build: `202609200651`. SHA256 is recorded in `Packaging/releases/CHECKSUMS.txt`.
+- Local artifact: `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.9.dmg`.
+- Build: `202609230530`. Size: **714,279,554 bytes**. SHA256: `de94a917dcf1fd1f8e29a82a561f9439290ac39cb21dc9c0b4b733ad64b25a2d`.
 - Source branch: `codex/spool-v3-native`.
-- Final test count and mounted-artifact checks are recorded in `progress.md` and the V4 Wave 1 build document.
+- The exact 1.12.9 source passes **3,299 integrated tests** in 544.709 seconds. Mounted-artifact checks are recorded in `progress.md` and the V4 Wave 1 build document.
 - This is a local release candidate; no GitHub binary release or update-feed publication was performed. Existing appcast and Homebrew download entries remain unchanged.
 
 ## Practical limits
@@ -52,3 +52,20 @@ The native notch now follows the approved V3 design: smaller detailed cassette, 
 - Secondary control boundaries meet at least 3:1 against their fill and pill; Increase Contrast strengthens helper ink, boundaries and scroll thumb. Cassette/tape material is unchanged.
 - `VoicePlus_V3-Spool-Full_1.12.4.dmg`, build `202609220651`, **714,314,563 bytes**; SHA256 `e534eebd7f30f294e20c9d0f056fad8d725afc38e3d371a1ce1f09a71da9bf67`. Mounted offline model inference, clean-install, signature/dependency and installability checks pass. All 31 earlier installers remain byte-identical. Installed app retains normal recognition and original preview settings.
 - **3,288 tests passed** in the complete integrated run (679.292 s). Native Cmd+A/replacement, Undo/Redo, Escape-to-original-preview and Cmd+Return pass; test cancelled with nothing inserted. High-contrast unit resolution is not system-toggle visual evidence. VoiceOver, complete keyboard traversal/physical global Escape, system high contrast and external-display acceptance remain unverified.
+
+### 1.12.5–1.12.7 diagnostic and keyboard follow-up
+
+- 1.12.5 exposed an explicit ad-hoc signing branch error and was rejected without installation. It remains only as provenance and must not be distributed.
+- 1.12.6 corrected signing selection and diagnostic targeting. All 26 native state presentations were captured across the installed review passes.
+- 1.12.7 fixes native text-only keyboard traversal through the transcript, scroll rail, applicable arrows and every footer action while preserving the V3 artwork and layout. Installed Tab/Shift-Tab, scrolling, Edit draft activation and inline-editor Escape pass.
+- The 1.12.7 DMG passes UDIF integrity, app/DMG signature checks, clean copied-install checks, portable dependency checks, model manifest/license validation and actual offline TDT, EOU and speaker inference from mounted resources. The installed copy has the same CDHash as the mounted app.
+- This build is ad-hoc signed and unnotarized. It is a verified local self-contained installer, not a public Gatekeeper-ready release; appcast and Homebrew metadata remain unchanged.
+
+### 1.12.9 final fidelity follow-up
+
+- Active dictation turns remain pinned to the display where they began. If that display disappears, VoicePlus moves a recovery surface to an available display, retains the transcript and requires an explicit **Insert here** revalidation before delivery.
+- Runtime and diagnostic copy now use the V3 language, including **Hands-free · listening**, **Finish dictation**, **Couldn’t confirm insertion**, **Check destination** and **Review inserted text**.
+- The transcript scroll rail exposes direction, range, value and the transcript it controls to accessibility clients. The obsolete V1 **Review All** flow and its unused expanded-review surface were removed.
+- Native inspection on installed 1.12.9 confirmed the new hands-free and unconfirmed states, inline red suggestion copy, and bidirectional long-text scrolling. The rail moved from 100% to 83% and exposed both scroll directions; review mode then exited and the normal green idle chip returned.
+- The first local 1.12.8 packaging attempt was rejected and deleted because it omitted the required full-installer model flags. It was never installed, published or recorded as a valid release. The replacement 1.12.9 DMG contains 688 MB of verified models and passes read-only mounted TDT, EOU and speaker inference, clean-copy launch, signature, permission-description, dependency, quarantine and writability checks.
+- Public appcast and Homebrew metadata remain unchanged. The verified DMG is local and excluded from Git because it exceeds GitHub's 100 MB file limit.

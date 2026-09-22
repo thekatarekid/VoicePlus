@@ -1650,6 +1650,9 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - 1.11.2 DMG done · R3 `8e690f6` · `Packaging/releases/VoicePlus_V4-w1_1.11.2.dmg`, 20 MB, sha256 `86d8cdd5c4f2914e36dc7748ea274ebfe3a436c3e27bb95d52ae522713b37ae9`, from `5a02a51` in a clean worktree (`--no-github`); `verify_install.sh` OK; 27 DMGs retained, none overwritten; tag `release/phase-V4-w1/v1.11.2`.
 
 ## V3 native Spool parity — 2026-09-20
+
+Initial checkpoint (superseded by the dated entries below):
+
 - In progress: exact `design/design_v3.html` / `.md` port; earlier design versions preserved.
 - Parallel isolated worktrees: cassette/tape rendering; notch geometry/layout; preview/edit/correction flow.
 - Integration gates: native visual QA, state/recovery tests, release build and self-contained DMG verification.
@@ -1670,10 +1673,10 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Source milestones pushed to `codex/spool-v3-native`. Binary remains local; existing update feed/cask kept unchanged.
 - Real external-app insertion QA is awaiting explicit Accessibility approval for the installed app; no permission was changed. Native visual/review checks and mock/unit delivery checks are distinct from this pending hardware check.
 
-- Final integration gate: **3,256 tests passed** (`swift test --no-parallel`, 448 s); latest V3 fixes also pass119 focused tests, and packaging passes7 tests. Merged the concurrent documentation-only main update; no runtime change.
+- Final integration gate: **3,256 tests passed** (`swift test --no-parallel`, 448 s); latest V3 fixes also pass 119 focused tests, and packaging passes 7 tests. Merged the concurrent documentation-only main update; no runtime change.
 - Remaining acceptance: external TextEdit insertion and visual destination tape travel after Accessibility approval. Installed app restored to normal recognition mode; no mock capture is left running.
 - Review branch is pushed and clean; draft PR: https://github.com/thekatarekid/VoicePlus/pull/1. Kept draft until the permission-gated external insertion check is completed.
-- Continuation audit: installed app Privacy confirms Typing access Off; Accessibility approval remains pending. GitHub CI run35481771092 started no build steps because of an account billing/spending-limit restriction; local3256-test and DMG passes remain the available validation.
+- Continuation audit: installed app Privacy confirms Typing access Off; Accessibility approval remains pending. GitHub CI run 35481771092 started no build steps because of an account billing/spending-limit restriction; local 3,256-test and DMG passes remain the available validation.
 
 - Accessibility approval received; refreshed the VoicePlus switch in macOS to On. App-side recognition and external insertion are still unverified. Relaunched app is blocked opening Settings in `SyncSettingsViewModel → SyncService.key → SecItemCopyMatching` (process sample); macOS security dialog requires user handling because computer use cannot access SecurityAgent.
 
@@ -1740,3 +1743,9 @@ DMG per wave, version bumped each time, previous DMGs kept.
 
 - Destination-change acceptance exposed a foreground mismatch: although TextEdit's field was raised and focused through accessibility, macOS still reported an open Brave Google Docs tab as the target. The test produced one unconfirmed paste there; that single action was immediately undone, and Google Docs exposed Redo afterward, confirming the reversal. No further automated destination writes will be attempted without manual foreground confirmation.
 - Stopped the controlled fixture, restored the installed app's normal recognizer and 600 ms preview preference, and verified the green idle chip. Destination-change/partial-write recovery remains open; no source, test or installer claim changed.
+- Exact 1.12.7 branch gate: **3,295 tests passed** (`swift test --no-parallel`, 564.004 s) on `codex/spool-v3-native`. Recovery subcases verified above remain distinct from the open destination-change/partial-write paths. Current GitHub CI run 35791416139 executed no steps and failed at startup under the existing account restriction; local suite and installer evidence remain authoritative. Documentation update follows pushed commit `3d747eb`; worktree was clean before this record.
+
+- Final fidelity audit integrated V3 runtime/fixture copy, stable active-turn display pinning with display-loss recovery, complete transcript-scroll accessibility metadata and removal of the obsolete V1 Review All surface. The combined focused gate passed **323 tests**; the exact integrated branch then passed **3,299 tests** (`swift test --no-parallel`, 544.709 s).
+- The first 1.12.8 packaging attempt omitted the required full-installer model flags. It was rejected before installation and deleted; no appcast, cask or checksum entry was retained. Rebuilt as self-contained **1.12.9**, build **202609230530**: `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.9.dmg`, **714,279,554 bytes**, SHA256 `de94a917dcf1fd1f8e29a82a561f9439290ac39cb21dc9c0b4b733ad64b25a2d`.
+- The mounted 1.12.9 app passed actual offline TDT, EOU and speaker inference from its read-only resources with an empty model cache/no fetchers, followed by clean-copy launch, signature, stable designated requirement, portable dependency, nine TCC usage-description, quarantine and owner-writability checks. Installed version/build and its 688 MB model directory were verified before launch.
+- Installed 1.12.9 native review confirmed **Hands-free · listening**, **Finish dictation**, **Couldn’t confirm insertion**, **Check destination**, inline red alternatives, and bidirectional scrolling for the full long transcript. The rail moved from 100% to 83% and exposed both direction buttons. Exited review and restored normal green idle with preview preference raw value 900 (the app's 600 ms default). Public appcast/Homebrew metadata remain unchanged; the DMG is retained locally and ignored because it exceeds 100 MB.
