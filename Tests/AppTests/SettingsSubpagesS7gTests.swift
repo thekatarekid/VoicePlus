@@ -163,7 +163,7 @@ struct SettingsSubpagesS7gTests {
         #expect(SoundCuePolicy.cue(for: .captureClosed, enabled: true) == .stop)
         #expect(SoundCuePolicy.cue(for: .delivered(verified: true), enabled: true) == .success)
         #expect(SoundCuePolicy.cue(for: .delivered(verified: false), enabled: true) == nil,
-                "“Inserted · not confirmed” never sounds like success")
+                "“Couldn’t confirm insertion” never sounds like success")
         #expect(SoundCuePolicy.cue(for: .notDelivered, enabled: true) == nil)
 
         let store = InMemorySettingsStore()

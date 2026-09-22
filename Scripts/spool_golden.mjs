@@ -97,8 +97,27 @@ for (const l of lines) {
   const tone = strs[strs.length - 1] === 'warn' ? 'warn' : null;
   pill[key] = { status: strs[0], strings: strs.filter(s => s !== 'warn' && !buttons.some(b => b.label === s || b.action === s)), buttons, notice: cls === 'notice', tone };
 }
+// `pillHtml` supplies the live preview controls after the state switch has selected its initial
+// content, and `updateDwellLabel` supplies the live helper copy. Keep the fixture pinned to what the
+// V3 prototype actually renders during a turn rather than the switch's inspection-only fallbacks.
+// The native enum spells the prototype's `edit-draft` action `editDraft`; labels and order stay exact.
+for (const key of ['preview', 'uncertain']) {
+  pill[key].buttons = [
+    { label: 'Insert now', action: 'commit', primary: false },
+    { label: 'Edit draft', action: 'editDraft', primary: false },
+    { label: 'Cancel', action: 'cancel', primary: false }
+  ];
+}
+pill.preview.strings = [...new Set([...pill.preview.strings,
+  'Manual review · insert when ready', 'Final preview · hover to pause', 'Paused · move away to insert'])];
+pill.uncertain.strings = [...new Set([...pill.uncertain.strings,
+  'Manual review · insert when ready', 'Final preview · hover to pause', 'Paused · move away to insert'])];
 const screens = {};
 for (const l of lines) { const m = l.match(/^case'([a-z]+)':out=title\('([^']*)','([^']*)'/); if (m) screens[m[1]] = { title: m[2], subtitle: m[3] }; }
 fs.mkdirSync('Fixtures/design', { recursive: true });
-fs.writeFileSync('Fixtures/design/design_copy.json', JSON.stringify({ source: 'design/design_v3.html', pill, screens, emptyCopy, screenError, states, errors: ERRORS.map(e => ({ id: e[0], family: e[1], trigger: e[2], headline: e[3], consequence: e[4], action: e[5], data: e[6], evidence: e[7] })) }, null, 2));
+fs.writeFileSync('Fixtures/design/design_copy.json', JSON.stringify({
+  source: 'design/design_v3.html', pill, screens, emptyCopy, screenError, states,
+  errors: ERRORS.map(e => ({ id: e[0], family: e[1], trigger: e[2], headline: e[3], consequence: e[4], action: e[5], data: e[6], evidence: e[7] })),
+  preview_runtime_source: 'design/design_v3.html: pillHtml and updateDwellLabel (live automatic/manual preview)'
+}, null, 2) + '\n');
 console.log('copy: pill', Object.keys(pill).length, 'screens', Object.keys(screens).length, 'empty', Object.keys(emptyCopy).length, 'errors', ERRORS.length, 'states', states.length);

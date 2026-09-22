@@ -4,7 +4,7 @@ import Testing
 @testable import VoicePlusApp
 
 /// S2 — every pill state's rendered status, helper and button labels equal the verified prototype's
-/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v1.html`), after the three
+/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v3.html`), after the three
 /// runtime substitutions: the sample transcript → the real text, "Mail" → the real destination,
 /// "Right Control" → the configured key. The timer is the real elapsed time.
 @Suite("S2 — design copy parity (pill)")
@@ -38,6 +38,21 @@ struct DesignCopyParityTests {
             return Entry(status: raw["status"] as? String, text: raw["text"] as? String,
                          strings: raw["strings"] as? [String] ?? [], buttons: buttons,
                          notice: raw["notice"] as? Bool ?? false, tone: raw["tone"] as? String)
+        }
+    }
+
+    @Test func fixtureAndParitySourcesAreV3() throws {
+        let dir = try #require(AppPaths.fixturesDirectory())
+        let data = try Data(contentsOf: dir.appendingPathComponent("design/design_copy.json"))
+        let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(root["source"] as? String == "design/design_v3.html")
+        #expect((root["preview_runtime_source"] as? String)?.hasPrefix("design/design_v3.html:") == true)
+
+        let designRoot = dir.deletingLastPathComponent()
+        let html = try String(contentsOf: designRoot.appendingPathComponent("design/design_v3.html"), encoding: .utf8)
+        for phrase in ["Hands-free · listening", "Finish dictation", "Couldn’t confirm insertion",
+                       "Check destination", "Review inserted text"] {
+            #expect(html.contains(phrase), "V3 prototype is missing \(phrase)")
         }
     }
 
@@ -190,15 +205,15 @@ struct DesignCopyParityTests {
         #expect(fixture["idle"]?.status == nil)
     }
 
-    /// Strings the fixture does not carry come from the prototype's own sources: "Esc · cancel" from
-    /// `pillHtml`, the finishing timeouts from design §5.
+    /// Strings the fixture does not carry come from the prototype's own sources: "Esc · Cancel"
+    /// from the V3 transport, and the finishing timeouts from design §5.
     @Test func copyOutsideTheFixtureIsTheDesignsOwn() throws {
         let dir = try #require(AppPaths.fixturesDirectory())
         let root = dir.deletingLastPathComponent()
-        let html = try String(contentsOf: root.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
-        #expect(html.contains("'\(PillDeck.escapeHint)'"))
+        let html = try String(contentsOf: root.appendingPathComponent("design/design_v3.html"), encoding: .utf8)
+        #expect(html.contains(PillDeck.escapeHint))
         #expect(html.contains("'\(PillDeck.listeningPlaceholder)'"))
-        let md = try String(contentsOf: root.appendingPathComponent("design/design_v1.md"), encoding: .utf8)
+        let md = try String(contentsOf: root.appendingPathComponent("design/design_v3.md"), encoding: .utf8)
         for phrase in [PillDeck.finishingSlowStatus, PillDeck.useAvailableText, "“\(PillDeck.cancelLabel)”"] {
             #expect(md.contains(phrase), "\(phrase)")
         }

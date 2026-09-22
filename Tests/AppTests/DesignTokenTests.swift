@@ -321,7 +321,7 @@ struct DesignTokenTests {
         let pill = try #require(copy["pill"] as? [String: Any])
         let latched = try #require(pill["latched"] as? [String: Any])
         let status = try #require(latched["status"] as? String)
-        #expect(status == "Latched · hands-free")
+        #expect(status == "Hands-free · listening")
         #expect(doc.contains(status))
     }
 

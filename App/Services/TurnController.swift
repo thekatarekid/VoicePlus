@@ -1491,7 +1491,7 @@ public final class TurnWiring {
             }
     }
 
-    /// `finishLatch`: the latched pill's "Finish" (the same as a tap while latched).
+    /// `finishLatch`: the latched pill's "Finish dictation" (the same as a tap while latched).
     @MainActor
     @discardableResult
     public static func attach(container: AppContainer, pill: PillViewModel, coordinator: DictationCoordinator,

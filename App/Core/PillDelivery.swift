@@ -26,7 +26,7 @@ public enum DeliveryCopy {
     public static let noSpeechDetected = RecoveryCatalog.entry(.A06).headline
     /// D05 — "Couldn’t insert your text": any failure reason the catalogue does not name otherwise.
     public static let couldNotType = RecoveryCatalog.entry(.D05).headline
-    /// D06 — "Inserted · not confirmed". "Inserted" alone means *verified*, so an unconfirmed
+    /// D06 — "Couldn’t confirm insertion". "Inserted" alone means *verified*, so an unconfirmed
     /// delivery says so in words, not only in colour; it is never retried automatically.
     public static let landedUnverified = RecoveryCatalog.entry(.D06).headline
 
@@ -56,7 +56,7 @@ public enum DeliveryCopy {
 // MARK: - The Spool pill's copy deck (S2)
 
 /// Every sentence and button the Spool pill draws, verbatim from the verified prototype
-/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v1.html` `renderState`),
+/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v3.html` `renderState`),
 /// asserted string by string by `DesignCopyParityTests`. Nothing here is retyped from the markdown.
 ///
 /// Three runtime substitutions only (build doc S2): the fixture's sample transcript becomes the real
@@ -80,7 +80,7 @@ public enum PillDeck {
     public static let listeningHelperTemplate = "Release Right Control to finish"
     public static func listeningHelper(key: String) -> String { PillState.withHotkey(listeningHelperTemplate, key: key) }
     /// Beside the helper while capture is open (prototype `pillHtml`: listening, quiet, latched).
-    public static let escapeHint = "Esc · cancel"
+    public static let escapeHint = "Esc · Cancel"
 
     // C2 quiet
     public static let quietStatus = PillCopy.quietStatus
@@ -90,7 +90,7 @@ public enum PillDeck {
     public static let latchedStatus = PillCopy.latchedStatus
     public static let latchedHelperTemplate = "Tap Right Control to finish"
     public static func latchedHelper(key: String) -> String { PillState.withHotkey(latchedHelperTemplate, key: key) }
-    public static let latchedButtons = [PillButton("Finish", .finish)]
+    public static let latchedButtons = [PillButton("Finish dictation", .finish)]
 
     // F0 finishing (design §5: 2 s "Still finishing your text"; 10 s "Use available text" / "Cancel")
     public static let finishingStatus = PillCopy.finishingStatus
@@ -136,14 +136,14 @@ public enum PillDeck {
     }
 
     // D2 unconfirmed (readback did not confirm, or could not run)
-    public static let unconfirmedStatus = "⚠ Inserted · not confirmed"
+    public static let unconfirmedStatus = "⚠ Couldn’t confirm insertion"
     public static let unconfirmedHelper = "Check the field before trying again"
-    public static let unconfirmedButtons = [PillButton("Check text", .check, primary: true), PillButton("Dismiss", .dismiss)]
+    public static let unconfirmedButtons = [PillButton("Check destination", .check, primary: true), PillButton("Dismiss", .dismiss)]
 
     // D3 partial
     public static let partialStatus = PillCopy.partialStatus
     public static let partialHelper = PillCopy.partialHelper
-    public static let partialButtons = [PillButton("Review result", .check, primary: true)]
+    public static let partialButtons = [PillButton("Review inserted text", .check, primary: true)]
 
     // H0 held
     public static let heldStatus = "⚠ Destination changed · text held"
@@ -226,7 +226,7 @@ public struct LandedPillInfo: Equatable, Sendable {
     }
 
     /// Verified: the committed text itself, in the `preview` row's style. Unverified: the fixed
-    /// D06 "Inserted · not confirmed" headline (S11), with the committed text in the subtitle slot.
+    /// D06 "Couldn’t confirm insertion" headline (S11), with the committed text in the subtitle slot.
     public var headline: String { verified ? text : DeliveryCopy.landedUnverified }
     public var subtitle: String? { verified ? nil : text }
 }

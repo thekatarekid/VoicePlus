@@ -387,7 +387,7 @@ struct W3HHandoffTests {
         #expect(PillReviewRoute.resolve(shown: .error(message: "x"), text: "never said", drafts: drafts, turns: []) == .today)
     }
 
-    @Test("Review result on the pill's partial row opens Today's recovery sheet for that draft")
+    @Test("Review inserted text on the pill's partial row opens Today's recovery sheet for that draft")
     func pillReviewOpensTheRecoverySheet() async throws {
         let partial = S7bRig.entry(S7bRig.record("Half of this landed.", app: "Slack", outcome: .partial(method: "keystroke")), .landed)
         let rig = S7bRig([partial])
@@ -400,7 +400,8 @@ struct W3HHandoffTests {
 
         pill.present(delivery: .partial(method: "keystroke"), text: "Half of this landed.", destination: "Slack")
         let content = pill.content()
-        #expect(content.buttons.map(\.action) == [.check], "the design's partial row: Review result")
+        #expect(content.buttons.map(\.label) == ["Review inserted text"])
+        #expect(content.buttons.map(\.action) == [.check], "the design's partial row review action")
         pill.perform(.check)
 
         #expect(opened.value == 1, "Today is opened")
@@ -410,8 +411,8 @@ struct W3HHandoffTests {
         #expect(passed.value.isEmpty, "the old 'open Today' route did not also run")
     }
 
-    @Test("Check text on an unconfirmed row opens that turn's detail (delivery evidence), not a sheet")
-    func checkTextOpensTheTurnDetail() async throws {
+    @Test("Check destination on an unconfirmed row opens that turn's detail (delivery evidence), not a sheet")
+    func checkDestinationOpensTheTurnDetail() async throws {
         let unconfirmed = S7bRig.entry(S7bRig.record("Open the configuration file.", app: "Editor",
                                                      outcome: .delivered(verified: false, method: "keystroke")), .landed)
         let rig = S7bRig([unconfirmed])

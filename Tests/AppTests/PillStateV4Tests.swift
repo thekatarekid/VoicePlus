@@ -210,7 +210,7 @@ struct PillStateV4Tests {
 
     @Test func slowFinishingSaysWhatTheDesignSays() throws {
         let dir = try #require(AppPaths.fixturesDirectory())
-        let spec = try String(contentsOf: dir.deletingLastPathComponent().appendingPathComponent("design/design_v1.md"),
+        let spec = try String(contentsOf: dir.deletingLastPathComponent().appendingPathComponent("design/design_v3.md"),
                               encoding: .utf8)
         #expect(spec.contains("After 2 s of finalization say “\(PillCopy.finishingSlowStatus)”"))
         #expect(PillState.finishingWarningDelay == 2)

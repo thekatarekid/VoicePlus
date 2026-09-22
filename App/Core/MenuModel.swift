@@ -318,7 +318,7 @@ public enum MenuCopy {
         public static let starting = "Starting microphone…"
         public static let startingDetail = "Recording starts when the microphone is open"
         public static let listening = "Listening"
-        public static let latched = "Latched · hands-free"
+        public static let latched = "Hands-free · listening"
         public static let finishing = "Finishing…"
         public static let finishingDetail = "Microphone closed · nothing inserted yet"
         public static let meeting = "Meeting · recording"

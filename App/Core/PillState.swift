@@ -2,7 +2,7 @@ import Foundation
 import Shared
 
 /// The five pill states from the Build doc (T2) plus `hidden` for "retracted", and (G0.4) every
-/// state of the verified Spool design's inventory (design_v1 §6).
+/// state of the verified Spool design's inventory (design_v3 §6).
 public enum PillState: Equatable, Sendable {
     case hidden
     case idle
@@ -10,7 +10,7 @@ public enum PillState: Equatable, Sendable {
     case preview(text: String)
     case landing
     /// R2.4 — the delivery actually happened: the pill drops the preview and shows the *committed*
-    /// text for a beat (V3 §4.1, §14.1). `verified: false` draws the D06 "Inserted · not confirmed"
+    /// text for a beat (V3 §4.1, §14.1). `verified: false` draws the D06 "Couldn’t confirm insertion"
     /// variant instead of claiming a success readback could not confirm (V3 §6).
     case landed(LandedPillInfo)
     /// R2.4 — committed text with no safe destination: the destination is named and the row offers
@@ -27,7 +27,7 @@ public enum PillState: Equatable, Sendable {
     /// P2.3 — "talk to your text": tinted pill, "editing N words", then the 5 s ghost / 8 s warm window.
     case transform(TransformPillInfo)
 
-    // MARK: V4 / Spool states (G0.4, design_v1 §6). Additive: every case above keeps its meaning.
+    // MARK: V4 / Spool states (G0.4, design_v3 §6). Additive: every case above keeps its meaning.
 
     /// I1 — pointer hover over the idle chin. `hint` is already rendered with the *configured* key
     /// (`PillState.readyHint(key:latchEnabled:)`), never a hard-coded "Right Control".
@@ -151,7 +151,7 @@ public enum PillState: Equatable, Sendable {
         return "Noisy mic — \(Int(q.snr)) dB SNR"
     }
 
-    // MARK: V4 timing that defines the states above (design_v1 §5, build doc S3)
+    // MARK: V4 timing that defines the states above (design_v3 §5, build doc S3)
 
     /// After this long in `.finishing`, `elapsedWarning` is set ("Still finishing your text").
     public static let finishingWarningDelay: TimeInterval = 2
@@ -159,7 +159,7 @@ public enum PillState: Equatable, Sendable {
     public static let quietAfter: TimeInterval = 1.5
 
     /// The I1 hover hint for the configured key. With the double-tap latch off the design drops the
-    /// "or Double Tap" half (design_v1 §5).
+    /// "or Double Tap" half (design_v3 §5).
     public static func readyHint(key: String, latchEnabled: Bool = true) -> String {
         latchEnabled ? "Hold or Double Tap \(key) to dictate" : "Hold \(key) to dictate"
     }
@@ -374,14 +374,14 @@ public enum PillCopy {
     public static let quietStatus = "Listening · quiet"
     public static let quietHelper = "Still listening while you hold"
 
-    public static let latchedStatus = "Latched · hands-free"
+    public static let latchedStatus = "Hands-free · listening"
 
     public static let cancelledStatus = "Cancelled"
     public static let cancelledWords = "Nothing inserted"
     public static let cancelledHelper = "You can start a new dictation"
 
     public static let finishingStatus = "Finishing…"
-    /// design_v1 §5: said once finalization has taken `PillState.finishingWarningDelay`.
+    /// design_v3 §5: said once finalization has taken `PillState.finishingWarningDelay`.
     public static let finishingSlowStatus = "Still finishing your text"
     public static let finishingHelper = "Microphone closed · nothing inserted yet"
 
@@ -414,7 +414,7 @@ public enum PillCopy {
 
     public static let meetingRecordingStatus = "Meeting · recording"
     public static let meetingTracksBoth = "Microphone + system audio"
-    /// design_v1 §8.2: system-audio denial falls back to microphone-only capture, labelled as such.
+    /// design_v3 §8.2: system-audio denial falls back to microphone-only capture, labelled as such.
     public static let meetingTracksMicrophoneOnly = "Microphone only"
     public static let meetingRecordingHelper = "Capture is separate from dictation"
     public static let meetingPausedStatus = "Meeting paused"

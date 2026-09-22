@@ -91,7 +91,7 @@ struct AnnouncementKeyboardS10Tests {
         let cases: [(PillState, String, PillAnnouncement.Priority)] = [
             (.landed(LandedPillInfo(text: "Hi", verified: true)), "✓ Inserted in Mail", .medium),
             (.landed(LandedPillInfo(text: "Hi", verified: false)),
-             "⚠ Inserted · not confirmed · Check the field before trying again", .high),
+             "⚠ Couldn’t confirm insertion · Check the field before trying again", .high),
             (.landedPartial(text: "Hi"), PillDeck.partialStatus + " · " + PillDeck.partialHelper, .high),
             (.held(HeldPillInfo(text: "Hi", destination: "Mail", reason: "")),
              "⚠ Destination changed · text held · Nothing was typed into the new field", .high),
@@ -255,7 +255,7 @@ struct AnnouncementKeyboardS10Tests {
     func escapeHintIsNotFocusable() {
         let latched = PillContent.make(.latched(elapsed: 4), context: PillTurnContext())
         #expect(latched.escapeHint)
-        #expect(PillReadingOrder.focusChain(latched, overflowLabel: "3 words · Review all").map(\.label) == ["Finish"])
+        #expect(PillReadingOrder.focusChain(latched, overflowLabel: "3 words · Review all").map(\.label) == ["Finish dictation"])
     }
 
     // MARK: - Keyboard: Escape closes a popover before cancelling the turn

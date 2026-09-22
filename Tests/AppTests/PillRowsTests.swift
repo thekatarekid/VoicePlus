@@ -278,7 +278,7 @@ struct PillRowsTests {
         #expect(model.state.caseName == "landedUnverified")
         model.perform(.dismiss)
         #expect(model.state == .hidden)
-        // Check text hands off (to Today) and takes the row down.
+        // Check destination hands off (to Today) and takes the row down.
         model.present(delivery: .partial(method: "paste"), text: "t", destination: "Docs")
         model.perform(.check)
         #expect(actions.last == .check)

@@ -45,13 +45,13 @@ struct DeliveryRowTests {
         let state = PillDeliveryRouter.state(for: .delivered(verified: false, method: "paste"),
                                              text: Self.text, destination: "Brave Browser")
         guard case .landed(let info) = state else { Issue.record("expected a landed row"); return }
-        // S11: the catalogue's D06, "Inserted · not confirmed".
-        #expect(info.headline == "Inserted · not confirmed")
+        // S11: the catalogue's D06, "Couldn’t confirm insertion".
+        #expect(info.headline == "Couldn’t confirm insertion")
         #expect(info.headline == DeliveryCopy.landedUnverified)
         #expect(!info.verified)
         // The committed text is still shown — in the subtitle slot, under the honest headline.
         #expect(info.subtitle == Self.text)
-        #expect(state.messageLines.contains("Inserted · not confirmed"))
+        #expect(state.messageLines.contains("Couldn’t confirm insertion"))
     }
 
     @Test func heldRowNamesTheDestinationAndOffersThreeActions() {
@@ -298,7 +298,7 @@ struct DeliveryCopyTests {
         #expect(DeliveryCopy.microphoneDisconnected == "Microphone disconnected")         // A02
         #expect(DeliveryCopy.noSpeechDetected == "No speech detected")                    // A06
         #expect(DeliveryCopy.couldNotType == "Couldn’t insert your text")                 // D05
-        #expect(DeliveryCopy.landedUnverified == "Inserted · not confirmed")              // D06
+        #expect(DeliveryCopy.landedUnverified == "Couldn’t confirm insertion")            // D06
     }
 
     @Test func reasonsMapThroughTheCatalogue() {

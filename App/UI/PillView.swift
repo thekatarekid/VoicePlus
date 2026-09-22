@@ -57,7 +57,7 @@ public enum PillActionEffect: Equatable, Sendable {
     case useAvailableText
     /// "Review all": pause the dwell for review; the row turns into review mode (Insert text / Cancel).
     case pauseForReview
-    /// "Finish" on the latched row: stop the latch and finish like a key tap.
+    /// "Finish dictation" on the latched row: stop the latch and finish like a key tap.
     case finishLatch
     /// "Undo" on the undo row (R2): range-safe undo, the turn controller's.
     case undo
@@ -65,7 +65,7 @@ public enum PillActionEffect: Equatable, Sendable {
     case unmute
     /// Copy this row's text to the clipboard (E0 "Copy text").
     case copy(String)
-    /// Open a window destination: Today's turn detail (Check text, Review result, Review text, Review
+    /// Open a window destination: Today's turn detail (Check destination, Review inserted text, Review text, Review
     /// word), Voice (Check microphone, Choose microphone), Models, Privacy (Review permissions), Meetings.
     case open(PillDestinationScreen)
     /// "Stop" on the meeting row.
@@ -156,7 +156,7 @@ public final class PillViewModel: ObservableObject {
     public var onGhostAction: ((TransformGhost.Action) -> Void)?
     /// R2.4 — Insert here / Copy / Discard from the held row.
     public var onHeldAction: ((HeldPillInfo, HeldAction) -> Void)?
-    /// S2 — every other pill button (Finish, Insert text, Cancel, Check text, Unmute, Open Models…).
+    /// S2 — every other pill button (Finish dictation, Insert now, Cancel, Check destination, Unmute, Open Models…).
     /// Dismiss and the held actions are handled here; everything else goes to the composition root / S3.
     public var onAction: ((PillActionKind, PillState) -> Void)?
     /// S2 — hover entered / left the pill (S3 freezes the preview dwell while inside).

@@ -136,7 +136,7 @@ public struct PillPresenter: Equatable, Sendable {
     }
 
     /// Take the current row down *now*, ignoring its dwell: the user acted on it (Insert here, Copy,
-    /// Discard, Dismiss, Check text…). The dwell exists so a notice cannot flash past unread; it is not
+    /// Discard, Dismiss, Check destination…). The dwell exists so a notice cannot flash past unread; it is not
     /// there to hold a row in front of someone who has just dealt with it.
     public mutating func dismiss(now: Date) -> Decision {
         pending = nil
@@ -318,7 +318,7 @@ public struct PillContent: Equatable, Sendable {
     public var trailing: Trailing
     public var words: Words
     public var helper: String
-    /// "Esc · cancel" beside the helper while capture is open (prototype `pillHtml`).
+    /// "Esc · Cancel" beside the helper while capture is open (V3 transport copy).
     public var escapeHint: Bool
     public var buttons: [PillButton]
     /// A notice the user must act on (`design_copy.json` › `notice`).

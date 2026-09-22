@@ -114,7 +114,7 @@ struct MenuModelTests {
             status("VoicePlus · Listening", "Microphone is open."), mic, stop, mute(),
         ] + tail),
         Case(name: "latched", state: state(.latched, capturing: true), rows: [
-            status("VoicePlus · Latched · hands-free", "Microphone is open."), mic, stop, mute(),
+            status("VoicePlus · Hands-free · listening", "Microphone is open."), mic, stop, mute(),
         ] + tail),
         Case(name: "finishing", state: state(.finishing), rows: [
             status("VoicePlus · Finishing…", "Microphone closed · nothing inserted yet"), mic,
@@ -187,7 +187,7 @@ struct MenuModelTests {
         let everything = Self.cases.flatMap { StatusMenuSpec.entries($0.state) }
         let ids = Set(everything.filter { !$0.isSeparator }.map(\.id))
         #expect(ids == [ID.status, ID.microphone, ID.dictate, ID.mute, ID.held, ID.openWindow, ID.settings, ID.quit])
-        // Titles are compared by prefix: the status line ("VoicePlus · Latched · hands-free") may name
+        // Titles are compared by prefix: the status line ("VoicePlus · Hands-free · listening") may name
         // a state; no row may *be* one of these.
         let titles = everything.filter { !$0.isSeparator }.map(\.title)
         for gone in ["Latch", "Copy last text", "Start meeting", "Stop meeting", "Recover text", "Lab",
