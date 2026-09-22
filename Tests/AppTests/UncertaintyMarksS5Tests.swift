@@ -206,22 +206,16 @@ struct PillMarkTests {
         #expect(!UncertaintyMarkMapper.belongs([], to: "Meet Mira."))
     }
 
-    @Test("a dotted word opens review; Review all opens the Review surface; closing leaves review mode")
+    @Test("a dotted word opens the inline notch editor")
     func reviewHooks() throws {
         let model = PillViewModel()
         model.setFinalSpans(spans([("meet", 0.9), ("mira", 0.3)]))
         model.present(.finalPreview(FinalPreviewInfo(text: "Meet Mira.", uncertainCount: 1, dwellRemaining: 1.8)))
-        var opened: [String] = []
-        var all: [MarkMapping] = []
-        model.onReviewMark = { mark, _, _ in opened.append(mark.text) }
-        model.onReviewAll = { all.append($0) }
         model.reviewMark(0)
         model.reviewMark(9)
-        #expect(opened.isEmpty && model.isEditingDraft && model.editingMarkID == 0)
-        model.perform(.reviewAll)
-        #expect(all.isEmpty && model.isEditingDraft)
-        model.endReview()
-        #expect(!model.turn.reviewing)
+        #expect(model.isEditingDraft && model.editingMarkID == 0)
+        model.cancelDraftEdits()
+        #expect(!model.isEditingDraft)
     }
 }
 
@@ -440,22 +434,17 @@ struct CorrectionPopoverS5Tests {
         #expect(m.stage == .textChanged(replacement: "Meera", copied: true))
     }
 
-    @Test("Escape over a turn closes the popover first (an Escape layer), then the Review surface, then the turn")
+    @Test("Escape over a turn closes the legacy correction popover before the turn")
     @MainActor
     func escapeLayers() {
         let layers = EscapeLayerStack()
-        let popover = CorrectionPopoverController(), review = FinalTextReviewPanel()
+        let popover = CorrectionPopoverController()
         popover.escapeLayers = layers
-        review.escapeLayers = layers
         var decisions: [WordReviewDecision] = []
         popover.onDecision = { d, _ in decisions.append(d) }
-        review.show(FinalTextReviewModel(mapping: MarkMapping(text: "Meet Mira.", marks: [Self.mark], confidenceAvailable: true)),
-                    below: CGRect(x: 100, y: 400, width: 10, height: 10))
         popover.show(CorrectionPopoverModel(mark: Self.mark, origin: .preview), anchoredTo: CGRect(x: 100, y: 400, width: 30, height: 18))
         #expect(layers.topID == ObjectIdentifier(popover))
         #expect(layers.dismissTop() && !popover.isShown && decisions == [.dismiss])
-        #expect(review.isShown && layers.topID == ObjectIdentifier(review))
-        #expect(layers.dismissTop() && !review.isShown)
         #expect(!layers.dismissTop(), "nothing left: the next press is the turn's")
     }
 
@@ -587,40 +576,11 @@ struct RangeGuardedReplaceTests {
 
 // MARK: - Coordinator
 
-final class FakeDwell: ReviewDwellControlling {
+final class FakeDwell {
     var log: [String] = []
     func pauseDwell(_ reason: DwellPause) { log.append("pause.\(reason.rawValue)") }
     func resumeDwell(_ reason: DwellPause) { log.append("resume.\(reason.rawValue)") }
     func resetDwell() { log.append("reset") }
-}
-
-final class FakePopover: CorrectionPopoverPresenting {
-    var onDecision: ((WordReviewDecision, CorrectionPopoverModel) -> Void)?
-    var onCopy: ((String) -> Void)?
-    var onNext: (() -> Void)?
-    var onClose: (() -> Void)?
-    var model: CorrectionPopoverModel?
-    var anchors: [CGRect] = []
-    var isShown: Bool { model != nil }
-    func show(_ model: CorrectionPopoverModel, anchoredTo word: CGRect, hasNext: Bool) { self.model = model; anchors.append(word) }
-    func showTextChanged(replacement: String) { model?.textChanged(replacement: replacement) }
-    func close() { guard model != nil else { return }; model = nil; onClose?() }
-    /// The user picks in the open popover (a decision other than dismiss leaves closing to the coordinator).
-    func decide(_ d: WordReviewDecision) {
-        guard let model else { return }
-        onDecision?(d, model)
-        if d == .dismiss { close() }
-    }
-}
-
-final class FakeReview: FinalTextReviewPresenting {
-    var onReviewMark: ((Int) -> Void)?
-    var onClose: (() -> Void)?
-    var model: FinalTextReviewModel?
-    var isShown: Bool { model != nil }
-    func show(_ model: FinalTextReviewModel, below anchor: CGRect) { self.model = model }
-    func update(_ mapping: MarkMapping) { if model != nil { model = FinalTextReviewModel(mapping: mapping) } }
-    func close() { guard model != nil else { return }; model = nil; onClose?() }
 }
 
 final class FakeDestination: MarkDestinationReading {
@@ -677,8 +637,6 @@ struct WordMarksCoordinatorTests {
 
         let pill: PillViewModel
         let dwell: FakeDwell
-        let popover: FakePopover
-        let review: FakeReview
         let destination: FakeDestination
         let editor: MemoryEditor
         let clipboard: MemoryClipboard
@@ -690,12 +648,12 @@ struct WordMarksCoordinatorTests {
 
         init(bundle: String = "com.apple.Notes", fieldPrefix: String = "Dear team ") {
             let value = fieldPrefix + WordMarksCoordinatorTests.text
-            let pill = PillViewModel(), dwell = FakeDwell(), popover = FakePopover(), review = FakeReview()
+            let pill = PillViewModel(), dwell = FakeDwell()
             let destination = FakeDestination(bundle: bundle, value: value), editor = MemoryEditor(value)
             let clipboard = MemoryClipboard(), spelling = MemorySpelling(), recorder = MemoryRecorder()
             let store = TurnStore(database: nil), box = Box()
             let coordinator = WordMarksCoordinator(
-                pill: pill, dwell: dwell, popover: popover, review: review,
+                pill: pill,
                 ladder: WordMarkLadder(ownBundleID: "com.voiceplus.app"), recorder: recorder,
                 destination: destination, spelling: spelling, clipboard: clipboard, store: store,
                 makeEditor: { _ in editor },
@@ -717,7 +675,7 @@ struct WordMarksCoordinatorTests {
             pill.onLearnDraft = { before, after in spelling.remember(heard: before, spelling: after, audioRange: 0...0) }
             store.save(TurnRecord(finalText: WordMarksCoordinatorTests.text,
                                   uncertainSpans: [utf16(WordMarksCoordinatorTests.text, of: "Mira")]), stage: .landed)
-            self.pill = pill; self.dwell = dwell; self.popover = popover; self.review = review
+            self.pill = pill; self.dwell = dwell
             self.destination = destination; self.editor = editor; self.clipboard = clipboard; self.spelling = spelling
             self.recorder = recorder; self.store = store; self.box = box; self.coordinator = coordinator
         }
@@ -738,7 +696,6 @@ struct WordMarksCoordinatorTests {
         h.preview()
         h.pill.reviewMark(0)
         #expect(h.pill.isEditingDraft && h.pill.editingMarkID == 0)
-        #expect(!h.popover.isShown && !h.review.isShown)
         #expect(h.dwell.log == ["pause.editing", "pause.review"])
         h.pill.cancelDraftEdits()
         #expect(!h.pill.isEditingDraft)
@@ -749,10 +706,10 @@ struct WordMarksCoordinatorTests {
     func previewEndsUnderReview() {
         let h = Harness()
         h.preview()
-        h.pill.perform(.reviewAll)
-        #expect(h.pill.isEditingDraft && !h.review.isShown)
+        h.pill.perform(.editDraft)
+        #expect(h.pill.isEditingDraft)
         h.pill.present(.cancelled)
-        #expect(!h.pill.isEditingDraft && !h.popover.isShown && h.coordinator.staged.isEmpty)
+        #expect(!h.pill.isEditingDraft)
     }
 
     @Test("a visible suggestion revises the preview without a post-insert staging write")
@@ -762,7 +719,6 @@ struct WordMarksCoordinatorTests {
         h.pill.acceptSuggestion(markID: 0, replacement: "Meera")
         #expect(h.pill.actionText == "Can we meet with Meera on Friday?")
         #expect(h.pill.markMapping(for: h.pill.actionText).isEmpty)
-        #expect(h.coordinator.staged.isEmpty)
         #expect(h.editor.document == "Dear team " + Self.text)
         #expect(h.spelling.remembered.count == 1)
     }
@@ -775,7 +731,7 @@ struct WordMarksCoordinatorTests {
         h.pill.draftText = "Can we meet with Meera on Friday?"
         h.pill.cancelDraftEdits()
         #expect(h.pill.actionText == Self.text)
-        #expect(h.coordinator.staged.isEmpty && h.spelling.remembered.isEmpty)
+        #expect(h.spelling.remembered.isEmpty)
     }
 
     @Test("landed in a validated app: the overlay shows, the app is recorded as supported, a click reviews in place")
@@ -791,12 +747,12 @@ struct WordMarksCoordinatorTests {
         h.pill.now = { later }   // the inserted row's 650 ms have passed
         h.pill.hide()
         h.coordinator.openDestination(0, box: CGRect(x: 5, y: 5, width: 20, height: 20))
-        #expect(h.pill.isEditingDraft && !h.popover.isShown)
+        #expect(h.pill.isEditingDraft)
         #expect(h.pill.state == .correcting, "R0 while the notch edits the word")
         h.pill.draftText = "Meera"
         #expect(h.pill.applyDraftEdits())
         #expect(h.editor.document == "Dear team Can we meet with Meera on Friday?")
-        #expect(!h.popover.isShown && h.pill.state == .hidden)
+        #expect(h.pill.state == .hidden)
         #expect(tracker.session.phase == .cleared(.corrected))
         #expect(h.store.recent(limit: 1).first?.record.uncertainSpans == [])
     }
@@ -836,15 +792,4 @@ struct WordMarksCoordinatorTests {
         #expect(h.box.notices == [.D09] && h.recorder.records == ["com.apple.Notes": false])
     }
 
-    @Test("Review all shows the whole text; its marks open word review; closing resumes the dwell")
-    func reviewAll() throws {
-        let h = Harness()
-        h.preview()
-        h.pill.perform(.reviewAll)
-        #expect(h.pill.isEditingDraft && h.pill.draftText == Self.text)
-        #expect(!h.review.isShown && !h.popover.isShown)
-        h.pill.cancelDraftEdits()
-        #expect(!h.pill.isEditingDraft && !h.pill.turn.reviewing)
-        #expect(h.dwell.log.last == "resume.editing")
-    }
 }

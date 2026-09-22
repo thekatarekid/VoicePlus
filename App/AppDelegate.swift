@@ -650,7 +650,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .stopMeeting:
                 let meeting = container.meeting
                 Task { _ = await meeting.finishSession() }
-            case .insertNow, .cancelPreview, .cancelFinishing, .useAvailableText, .pauseForReview, .undo,
+            case .insertNow, .cancelPreview, .cancelFinishing, .useAvailableText, .undo,
                  .finishLatch, .none:
                 break
             }

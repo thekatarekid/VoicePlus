@@ -76,6 +76,7 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             self.scrollTo(fraction * self.maximumOffset)
         }
         track.onScroll = { [weak self] command in self?.navigate(command) }
+        track.controlledTranscript = text
         addSubview(track)
         text.nextKeyView = up
         up.nextKeyView = track
@@ -282,6 +283,7 @@ enum TranscriptScrollCommand {
 final class TranscriptRail: NSView {
     var fraction: CGFloat = 0
     var visibleFraction: CGFloat = 1
+    weak var controlledTranscript: NSView?
     var onFraction: ((CGFloat) -> Void)?
     var onScroll: ((TranscriptScrollCommand) -> Void)?
     var onFocusChange: ((Bool) -> Void)?
@@ -306,6 +308,7 @@ final class TranscriptRail: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.scrollBar)
         setAccessibilityLabel("Transcript position")
+        setAccessibilityOrientation(.vertical)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func viewDidChangeEffectiveAppearance() {
@@ -335,6 +338,11 @@ final class TranscriptRail: NSView {
         onFraction?(min(1, max(0, (point.y - height / 2) / max(1, bounds.height - height))))
     }
     override func accessibilityValue() -> Any? { Int(fraction * 100) }
+    override func accessibilityMinValue() -> Any? { 0 }
+    override func accessibilityMaxValue() -> Any? { 100 }
+    override func accessibilityLinkedUIElements() -> [Any]? {
+        controlledTranscript.map { [$0] }
+    }
     override func accessibilityPerformIncrement() -> Bool { onKeyInteraction?(); onScroll?(.lineDown); return true }
     override func accessibilityPerformDecrement() -> Bool { onKeyInteraction?(); onScroll?(.lineUp); return true }
 }

@@ -172,6 +172,26 @@ struct V3TranscriptViewportTests {
         #expect(!model.focusInside)
     }
 
+    @Test func scrollbarExposesItsRangeAndControlledTranscript() {
+        let model = PillViewModel()
+        let view = PillTranscriptViewport(frame: CGRect(x: 0, y: 0, width: 414, height: 48))
+        view.configure(model: model, words: .final(String(repeating: "Readable words ", count: 50)), marks: .empty)
+        view.layout()
+
+        #expect(view.track.accessibilityRole() == .scrollBar)
+        #expect(view.track.accessibilityOrientation() == .vertical)
+        #expect(view.track.accessibilityMinValue() as? Int == 0)
+        #expect(view.track.accessibilityMaxValue() as? Int == 100)
+        #expect(view.track.accessibilityValue() as? Int == 0)
+        let linked = view.track.accessibilityLinkedUIElements()
+        #expect(linked?.count == 1)
+        #expect((linked?.first as? NSView) === view.text)
+
+        #expect(view.track.accessibilityPerformIncrement())
+        #expect((view.track.accessibilityValue() as? Int ?? 0) > 0)
+        #expect(view.text.accessibilityIdentifier() == "pill.words")
+    }
+
     private func key(_ code: UInt16, flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
                                      timestamp: 0, windowNumber: 0, context: nil,

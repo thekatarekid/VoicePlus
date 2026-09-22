@@ -175,14 +175,12 @@ public struct PillPresenter: Equatable, Sendable {
 // MARK: - What a pill shows (S2)
 
 /// The actions a pill button can carry. Raw values are the prototype's `data-pill-action` names
-/// (`design_copy.json` › `pill` › `buttons` › `action`), plus the two the finishing and overflow rows add.
+/// (`design_copy.json` › `pill` › `buttons` › `action`), plus the finishing recovery action.
 public enum PillActionKind: String, CaseIterable, Equatable, Sendable {
     case finish, commit, cancel, insert, copy, discard, check, dismiss, voice, unmute, models, undo
     case pause, stop, meeting, resume, review, permissions
     /// design §5: after 10 s of finishing, keep the valid partial text instead of waiting.
     case useAvailable
-    /// design §4 "Transcript layout": long final text shows "N words · Review all".
-    case reviewAll
     case editDraft, doneEditing, cancelEditing
 
     /// The held-queue action a held row's button maps onto.
@@ -241,10 +239,6 @@ public struct PillTurnContext: Equatable, Sendable {
     public var finishingSince: Date?
     /// Deixis boxes drawn this turn (the chip row shows when > 0).
     public var chipCount: Int
-    /// "Review all" was opened on this turn's final preview: the dwell is paused for review and the
-    /// row offers Insert text / Cancel, as the manual preview does.
-    public var reviewing: Bool = false
-
     public init(keyLabel: String = HotkeyBinding.default.label, destination: String? = nil, startedAt: Date? = nil,
                 now: Date = Date(), liveText: String = "", captureOpen: Bool = false, latchElapsed: TimeInterval? = nil,
                 uncertainWords: Set<String> = [], uncertainCount: Int = 0, finishingSince: Date? = nil,
@@ -286,7 +280,7 @@ public struct PillContent: Equatable, Sendable {
         case fixed(String)
         /// Live words: the newest two lines with a leading fade.
         case live(String)
-        /// The final payload: last two lines plus "N words · Review all"; uncertain words dotted.
+        /// The final payload: a fixed-height, directly scrollable transcript; uncertain words dotted.
         case final(String)
 
         public var text: String? {
@@ -403,7 +397,7 @@ public struct PillContent: Equatable, Sendable {
             var named = c
             if let d = info.destination { named.destination = d }
             let review = info.needsReview
-            let manual = info.manual || c.reviewing
+            let manual = info.manual
             return PillContent(designKey: review ? "uncertain" : "preview",
                                status: PillDeck.readyStatus(destination: named.destinationName,
                                                             uncertain: review ? info.uncertainCount : nil,
@@ -613,51 +607,10 @@ public enum PillNotice {
 }
 
 /// S2 — the text lane's line breaking: natural-language words, wrapped forward at the lane width, so a
-/// stable word never moves when later words arrive; the newest `maxLines` are shown, with a leading
-/// fade when earlier lines scrolled away (design §4 "Transcript layout"). Words are never split: a
-/// grapheme cluster or identifier wider than the lane gets a line of its own.
+/// Word identity used by confidence marks.
 public enum PillTextLane {
-    public struct Lines: Equatable, Sendable {
-        /// The lines to draw, oldest first.
-        public var lines: [String]
-        /// Earlier lines exist above the first drawn one (draw the leading fade / "Review all").
-        public var clippedLeading: Bool
-        public var wordCount: Int
-        public var totalLines: Int
-    }
-
-    public static func wrap(_ text: String, width: CGFloat, measure: (String) -> CGFloat) -> [String] {
-        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
-        var lines: [String] = []
-        var current = ""
-        for word in words {
-            let candidate = current.isEmpty ? word : current + " " + word
-            if current.isEmpty || measure(candidate) <= width {
-                current = candidate
-            } else {
-                lines.append(current)
-                current = word
-            }
-        }
-        if !current.isEmpty { lines.append(current) }
-        return lines
-    }
-
-    public static func tail(_ text: String, width: CGFloat, maxLines: Int, measure: (String) -> CGFloat) -> Lines {
-        let all = wrap(text, width: width, measure: measure)
-        let keep = max(1, maxLines)
-        let shown = Array(all.suffix(keep))
-        return Lines(lines: shown, clippedLeading: all.count > keep,
-                     wordCount: text.split(whereSeparator: \.isWhitespace).count, totalLines: all.count)
-    }
-
     /// Word identity for confidence marks: lower-cased, surrounding punctuation dropped.
     public static func normalized(_ word: String) -> String {
         word.trimmingCharacters(in: .punctuationCharacters.union(.symbols).union(.whitespaces)).lowercased()
-    }
-
-    /// "42 words · Review all" (design §4).
-    public static func reviewAllLabel(wordCount: Int) -> String {
-        "\(wordCount) word\(wordCount == 1 ? "" : "s") · Review all"
     }
 }

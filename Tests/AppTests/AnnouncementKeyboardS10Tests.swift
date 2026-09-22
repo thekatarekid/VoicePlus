@@ -234,7 +234,7 @@ struct AnnouncementKeyboardS10Tests {
         #expect(blocked.map(\.label) == blockedExpected.map(\.label))
     }
 
-    @Test("rows are read top to bottom: status, words, chips, level, helper with Review all, then the actions")
+    @Test("rows are read top to bottom; native transcript scrolling precedes footer actions")
     func regionOrder() {
         let order = PillReadingOrder.Region.allCases.map(PillReadingOrder.priority)
         #expect(zip(order, order.dropFirst()).allSatisfy { $0 > $1 })
@@ -245,9 +245,9 @@ struct AnnouncementKeyboardS10Tests {
         }
         let final = PillContent.make(.finalPreview(FinalPreviewInfo(text: "long", dwellRemaining: 0, manual: true)),
                                      context: PillTurnContext())
-        let chain = PillReadingOrder.focusChain(final, overflowLabel: "42 words · Review all")
-        #expect(chain.map(\.label) == ["42 words · Review all", "Insert now", "Edit draft", "Cancel"])
-        let priorities = PillReadingOrder.chainPriorities(final, overflowLabel: "42 words · Review all")
+        let chain = PillReadingOrder.focusChain(final)
+        #expect(chain.map(\.label) == ["Insert now", "Edit draft", "Cancel"])
+        let priorities = PillReadingOrder.chainPriorities(final)
         #expect(zip(priorities, priorities.dropFirst()).allSatisfy { $0 > $1 })
     }
 
@@ -255,7 +255,7 @@ struct AnnouncementKeyboardS10Tests {
     func escapeHintIsNotFocusable() {
         let latched = PillContent.make(.latched(elapsed: 4), context: PillTurnContext())
         #expect(latched.escapeHint)
-        #expect(PillReadingOrder.focusChain(latched, overflowLabel: "3 words · Review all").map(\.label) == ["Finish dictation"])
+        #expect(PillReadingOrder.focusChain(latched).map(\.label) == ["Finish dictation"])
     }
 
     // MARK: - Keyboard: Escape closes a popover before cancelling the turn

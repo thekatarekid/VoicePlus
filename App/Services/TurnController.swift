@@ -1652,8 +1652,7 @@ public final class TurnWiring {
             controller.cancelFinishing()
         case (.useAvailable, _):
             controller.useAvailableText()
-        case (.review, .finalPreview), (.reviewAll, .finalPreview):
-            // The review surface (S5) resumes it with `resumeDwell(.review)` when it closes.
+        case (.review, .finalPreview):
             controller.pauseDwell(.review)
         case (.undo, .undoAvailable) where controller.isUndoAvailable:
             controller.performUndo()

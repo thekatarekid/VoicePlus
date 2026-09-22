@@ -6,7 +6,7 @@ import Testing
 @testable import VoicePlusApp
 
 /// S2 — what the pill hands the rest of the app: where every button goes, the latch timer never
-/// cutting a segment's outcome row short, review mode, the destination name, and the key hints.
+/// cutting a segment's outcome row short, inline editing, the destination name, and the key hints.
 @Suite("S2 — pill wiring")
 struct PillWiringTests {
     static let t0 = Date(timeIntervalSince1970: 90_000)
@@ -23,7 +23,6 @@ struct PillWiringTests {
             (.cancel, Self.preview, .cancelPreview),
             (.cancel, finishing, .cancelFinishing),
             (.useAvailable, finishing, .useAvailableText),
-            (.reviewAll, Self.preview, .pauseForReview),
             (.finish, .latched(elapsed: 4), .finishLatch),
             (.undo, .undoAvailable, .undo),
             (.unmute, .muted, .unmute),
@@ -49,7 +48,7 @@ struct PillWiringTests {
         // so no button is handled twice.
         for (action, shown, _) in table {
             let effect = PillActionRoute.effect(for: action, shown: shown, text: "t")
-            let turnOwned: Set<PillActionKind> = [.commit, .cancel, .useAvailable, .reviewAll, .finish, .undo]
+            let turnOwned: Set<PillActionKind> = [.commit, .cancel, .useAvailable, .finish, .undo]
             #expect(effect.isTurnEffect == turnOwned.contains(action), "\(action.rawValue)")
         }
     }
@@ -171,9 +170,9 @@ struct PillWiringTests {
         #expect(model.state == .starting)
     }
 
-    // MARK: - Review all
+    // MARK: - Inline draft editing
 
-    @Test func reviewAllTurnsThePreviewIntoReviewMode() {
+    @Test func editDraftTurnsThePreviewIntoInlineEditingMode() {
         let model = PillViewModel()
         model.now = { Self.t0 }
         var seen: [PillActionKind] = []
@@ -182,7 +181,7 @@ struct PillWiringTests {
         model.present(Self.preview)
         #expect(model.content().buttons.map(\.action) == [.commit, .editDraft, .cancel])
         #expect(model.content().helper == "Final preview · hover to pause")
-        model.perform(.reviewAll)
+        model.perform(.editDraft)
         #expect(seen.isEmpty && model.isEditingDraft)
         let review = model.content()
         #expect(review.buttons.map(\.action) == [.doneEditing, .cancelEditing])
@@ -190,7 +189,7 @@ struct PillWiringTests {
         #expect(review.surface { _ in 0 } == .actionable)
         // The next turn starts out of review mode.
         model.apply(.starting)
-        #expect(!model.turn.reviewing)
+        #expect(!model.isEditingDraft)
     }
 
     // MARK: - Destination and key hints
