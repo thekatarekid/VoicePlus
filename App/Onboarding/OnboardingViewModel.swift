@@ -481,7 +481,11 @@ public final class OnboardingViewModel: ObservableObject {
         practiceEvents = Task { [weak self] in
             for await event in events {
                 guard !Task.isCancelled else { return }
-                await MainActor.run { self?.practiceEvent(event) }
+                await MainActor.run {
+                    // Cancellation may happen while this event waits for the main actor.
+                    guard !Task.isCancelled else { return }
+                    self?.practiceEvent(event)
+                }
             }
         }
     }
@@ -755,6 +759,9 @@ public final class OnboardingViewModel: ObservableObject {
             Log.app.notice("onboarding: dictation test refused — \(self.dictationGate.banner)")
             return
         }
+        // The button owns this run. Merely checking isDictating when practice events arrive
+        // lets a buffered listening/partial event clear the result after the button has finished.
+        stopPractice()
         send(.retryDictation)
         isDictating = true
         dictationPreview = ""
@@ -843,6 +850,8 @@ public final class OnboardingViewModel: ObservableObject {
         dictationEvents?.cancel(); dictationEvents = nil
         Log.app.notice("onboarding dictation: \(outcome.logLabel)")
         send(.dictationFinished(outcome))
+        // Subscribe afresh after the guided run drains, so only the next real hold reaches practice.
+        if machine.step == .firstDictation { startPractice() }
     }
 
     private func startDictationWatchdog() {
