@@ -1,4 +1,4 @@
-# VoicePlus 1.12.0 — V3 Spool full installer
+# VoicePlus 1.12.3 — V3 Spool full installer
 
 The native notch now follows the approved V3 design: smaller detailed cassette, shared copper tape material, counterclockwise listening reels, clockwise insertion reels, fixed active height, attached top cap, rounded idle pill, and neutral shadow.
 
@@ -37,3 +37,11 @@ The native notch now follows the approved V3 design: smaller detailed cassette, 
 - Self-contained `VoicePlus_V3-Spool-Full_1.12.2.dmg`, build `202609220510`, 714,180,189 bytes. SHA256 `6a2c1b5b96068b8760e210c7106f47ac7981d2750ef1dc148dd676fc4ad89690`. Mounted offline model inference, signature/dependency and clean-install checks pass. All 29 prior installers are byte-identical.
 - Installed 1.12.2 via the mounted DMG. Native Settings, Providers and Sync respond without a Keychain prompt; Privacy reports microphone and typing access Allowed. Restored normal recognition after controlled QA; microphone closed.
 - External insertion remains unverified: the computer-use focus action selects TextEdit's blank field but macOS identifies Brave as foreground. Controlled attempt ended Cancelled / Nothing inserted; awaiting a manual foreground click. No TextEdit delivery or tape-travel pass claimed. Combined serial regression run: **3,276 tests passed**, 484.832 seconds; the earlier onboarding race no longer fails.
+
+### 1.12.3 verified installer
+
+- Includes the completed V3 implementation, quiet-speech visualization and noninteractive optional secure storage. Corrects Appearance guidance to describe scrolling within the two-line notch.
+- `VoicePlus_V3-Spool-Full_1.12.3.dmg`, build `202609220618`, 714,314,380 bytes; SHA256 `e511742ee970026224a6f3a2009c03b79a90fffea976cca2bfc1b531803cac4f`.
+- Mounted offline model inference, signature/dependency and clean-install checks pass; 30 earlier installers unchanged. Installed copy and preserved permissions/settings verified natively.
+- One-sentence and five-line TextEdit insertions verified; user confirmed ribbon travel and settled underlines. Native scrolling, app Reduce Motion, light/dark and larger text checked. Simulated transcript input was used for delivery tests; this is not microphone recognition-accuracy evidence.
+- Latest full suite: 3,276 passes; the subsequent copy-only change passes 46 Settings tests. System VoiceOver/high contrast and external-display acceptance remain unverified. Earlier pending TextEdit records above are historical.
