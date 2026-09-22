@@ -1175,3 +1175,19 @@ These are evidence gaps, not claims that the listed behavior is broken. Keep the
 ### Menu clarification and investigation deferred
 
 The owner clarified that clicking the notch correctly opens the menu there, clicking the menu-bar icon correctly opens it there, and manually opening either did not reproduce doubled typing. The owner then explicitly requested that this issue be ignored so V3 work can continue. The arbitrary-position observation is consistent with an automation press retaining an unrelated pointer position; it is not a confirmed defect in manual menu placement. Source-only experiment `698f487` remains in the isolated `codex/v3-menu-anchor` worktree, untested, unintegrated and unpushed. Do not ship it: preferring the status icon for every notch click would change the now-confirmed manual behavior. Installed 1.12.4 and production source remain unchanged.
+
+### Enumerated installed native visual pass — 2026-09-22
+
+Used installed 1.12.4's isolated `--design-v3-review` mode, which instantiates production panel/artwork without the capture/insertion composition root. State selection, native accessibility text and window screenshots establish visual presentation only. Diagnostic sample words may be seeded in states that would not have a transcript in a fresh real turn; they do not establish state-transition semantics.
+
+| State chips | Observed result |
+| --- | --- |
+| starting, listening, quiet, latched, finishing | Captured status/helper, fixed text/tape/Spool composition and appropriate action placement. Listening/latched show a wave; quiet/finishing show a taut strip. |
+| preview, uncertain, inserting, inserted | Captured preview actions, inline red alternatives, insertion pose and success pose. This isolated pass performs no destination writes or flight. |
+| held, unconfirmed, partial, micWarning | Captured distinct warning copy and recovery controls with stable geometry. |
+| muted, unavailable, undo | Captured closed-face mute pose, model recovery and undo presentation. |
+| meeting, paused, notes | Captured recording wave, paused reel treatment and notes-processing presentation. |
+| error, correcting, blocked | Captured retained-text/review/permission presentations; compact multi-action footer remains readable. |
+| idle, ready, cancelled, editing | Diagnostic capture inconclusive: content was gone or a stale panel was selected. Do not count as passes or infer a production defect. Normal-mode idle green dot verified after restoring the app; earlier inline editing checks remain separate evidence. |
+
+Thus **22 of 26 diagnostic state presentations** were visibly captured; the complete state/native-recovery gate remains open. Long uncertain transcript displayed two readable lines and a directional scroll rail; invoking its native Increment action advanced to the final “announce the date.” without expanding the notch. The displayed suggestion was resolved during concurrent interaction, so no claim is made that the scroll action itself performed that correction. Review process exited successfully; normal app relaunched with its green idle dot. No product code, settings, permissions or installer changed, and no new full-suite run was needed for this evidence-only update.
