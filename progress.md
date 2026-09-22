@@ -1714,3 +1714,5 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Ordinary keyboard duplication reported in external apps after 1.12.4 QA; cause unconfirmed. Stopped automated UI testing and quit the sole VoicePlus process; fresh process check confirms no app/test process remains. Read-only keyboard tracing found no physical-key replay path. Awaiting same-app manual typing comparison with VoicePlus closed; native acceptance remains open and no speculative runtime fix or replacement installer was made.
 
 - Owner reports typing is now normal in 2–3 previously affected apps with VoicePlus closed, but no reliable pattern. Reopened the installed app once; native idle green dot and a single app process confirmed, no test processes or automated typing. Awaiting manual typing comparison with VoicePlus idle before attributing a cause; software remains unchanged.
+
+- Owner confirms typing also remains normal after reopening VoicePlus. Duplication is currently unreproduced, with no established cause or keyboard patch; automated typing stays paused. This resolves the pending idle comparison, not the remaining native design/accessibility acceptance checks.
