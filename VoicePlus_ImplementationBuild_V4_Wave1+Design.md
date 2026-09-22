@@ -1104,3 +1104,9 @@ Local dictation does not require Keychain approval. Optional provider/connector 
 
 - Reference provenance rechecked without altering source/fixtures: regenerated `spool_spec.json` and `spool_golden.json` from the current V3 HTML in a temporary directory; both match committed fixtures byte-for-byte. The intentional quiet-speech native deviation is separately tested and documented.
 - Independent read-only completion audit found no additional confirmed runtime bug, but identified unclosed native accessibility/display evidence. These remain open under §10; TextEdit is the next actionable native gate, not the only unverified hardware scenario.
+
+### Native foreground blocker revalidated — 2026-09-22
+
+A further controlled installed-app test used Manual review to prevent any automatic insertion. The automation selected the blank TextEdit field, but the actual final preview explicitly reported “Ready for ChatGPT”. The test was cancelled before delivery and the app confirmed “Nothing inserted”. Normal recognition and the original 600 ms preview were restored and verified through native UI. An intervening setup-restart notice was dismissed and the requested normal relaunch returned the app to Ready; no permissions changed.
+
+The same inability to establish the intended external destination has now recurred across three consecutive goal turns. The manual TextEdit foreground confirmation is still unanswered; native acceptance remains blocked rather than complete. VoiceOver/accessibility/display and transient rendering gaps remain as stated in the current-status summary. Source and installer are unchanged by this check.

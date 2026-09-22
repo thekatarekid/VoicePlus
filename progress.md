@@ -1698,3 +1698,5 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Completion audit: clarified the current 1.12.2 status versus historical checkpoints. Latest CI35690322841 again executes no steps due to account billing/spending limits; local tests/installer remain green. Native external delivery awaits the outstanding manual TextEdit foreground response.
 
 - V3 artwork fixtures regenerated from the current HTML in temporary storage and matched byte-for-byte. Independent audit found no further confirmed runtime bug; native accessibility/display acceptance remains open alongside TextEdit delivery. Marked the 1.11.x pending-decision document as superseded for model bundling and notch direction.
+
+- Native gate revalidated with Manual review: TextEdit field selected by automation, but the held preview explicitly names ChatGPT. Cancelled before insertion; “Nothing inserted” confirmed. Normal recognition and 600 ms preview restored. Same foreground blocker has persisted across three goal turns; awaiting a manual TextEdit foreground confirmation. Native accessibility/display checks remain open.
