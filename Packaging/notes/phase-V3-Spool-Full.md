@@ -1,4 +1,4 @@
-# VoicePlus 1.12.3 — V3 Spool full installer
+# VoicePlus 1.12.4 — V3 Spool full installer
 
 The native notch now follows the approved V3 design: smaller detailed cassette, shared copper tape material, counterclockwise listening reels, clockwise insertion reels, fixed active height, attached top cap, rounded idle pill, and neutral shadow.
 
@@ -45,3 +45,10 @@ The native notch now follows the approved V3 design: smaller detailed cassette, 
 - Mounted offline model inference, signature/dependency and clean-install checks pass; 30 earlier installers unchanged. Installed copy and preserved permissions/settings verified natively.
 - One-sentence and five-line TextEdit insertions verified; user confirmed ribbon travel and settled underlines. Native scrolling, app Reduce Motion, light/dark and larger text checked. Simulated transcript input was used for delivery tests; this is not microphone recognition-accuracy evidence.
 - Latest full suite: 3,276 passes; the subsequent copy-only change passes 46 Settings tests. System VoiceOver/high contrast and external-display acceptance remain unverified. Earlier pending TextEdit records above are historical.
+
+### 1.12.4 keyboard and contrast corrections
+
+- In-notch editing supports Select All, Copy, Cut, Paste, Undo and Redo through the focused native field, with draft-owned undo history. Escape cancels inline edits before the parent turn, preserves composition handling and ignores repeated Carbon presses until release.
+- Secondary control boundaries meet at least 3:1 against their fill and pill; Increase Contrast strengthens helper ink, boundaries and scroll thumb. Cassette/tape material is unchanged.
+- `VoicePlus_V3-Spool-Full_1.12.4.dmg`, build `202609220651`, **714,314,563 bytes**; SHA256 `e534eebd7f30f294e20c9d0f056fad8d725afc38e3d371a1ce1f09a71da9bf67`. Mounted offline model inference, clean-install, signature/dependency and installability checks pass. All 31 earlier installers remain byte-identical. Installed app retains normal recognition and original preview settings.
+- **3,288 tests passed** in the complete integrated run (679.292 s). Native Cmd+A/replacement, Undo/Redo, Escape-to-original-preview and Cmd+Return pass; test cancelled with nothing inserted. High-contrast unit resolution is not system-toggle visual evidence. VoiceOver, complete keyboard traversal/physical global Escape, system high contrast and external-display acceptance remain unverified.
