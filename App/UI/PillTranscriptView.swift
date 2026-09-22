@@ -305,11 +305,19 @@ final class TranscriptRail: NSView {
         setAccessibilityLabel("Transcript position")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(srgbRed: 0.09, green: 0.067, blue: 0.05, alpha: 1).setFill()
+        Tokens.Pill.scrollTrack.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        Tokens.Pill.controlBorder.setStroke()
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 3.5, yRadius: 3.5)
+        outline.lineWidth = 1
+        outline.stroke()
         let height = max(8, bounds.height * visibleFraction)
-        NSColor(srgbRed: 0.67, green: 0.47, blue: 0.35, alpha: 1).setFill()
+        Tokens.Pill.scrollThumb.setFill()
         NSBezierPath(roundedRect: CGRect(x: 2, y: (bounds.height - height) * fraction, width: max(2, bounds.width - 4), height: height), xRadius: 2, yRadius: 2).fill()
     }
     override func mouseDown(with event: NSEvent) {

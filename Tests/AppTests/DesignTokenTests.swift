@@ -120,7 +120,10 @@ struct DesignTokenTests {
         let doc = try Self.read("DESIGN.md")
         // The preserved V1 design records the old pill helper ink. V3's replacement is checked
         // against its explicit token and contrast in pillColoursEqualThePrototypeNotchRules.
-        let missing = Self.auditRows().filter { !$0.hasPrefix("| pill | `secondaryInk`") && !doc.contains($0) }
+        let v3NativeRoles = ["secondaryInk", "controlBorder", "scrollTrack", "scrollThumb"]
+        let missing = Self.auditRows().filter { row in
+            !v3NativeRoles.contains { row.hasPrefix("| pill | `\($0)`") } && !doc.contains(row)
+        }
         #expect(missing.isEmpty, "DESIGN.md §3.3 is missing or has stale rows:\n\(missing.joined(separator: "\n"))")
     }
 
@@ -151,7 +154,6 @@ struct DesignTokenTests {
             (".notch{position:relative;", "color", .ink),
             (".notch .words{font-size:14px;", "color", .ink),
             (".notch .actions button{background:", "background", .control),
-            (".notch .actions button{background:", "border-color", .controlBorder),
             (".notch .actions .primary{", "background", .primary),
             (".notch .actions .primary{", "color", .onPrimary),
             (".notch .uncertain{", "border-color", .uncertainty),
@@ -163,6 +165,9 @@ struct DesignTokenTests {
             #expect(Self.cssColor(value) == token.value, "\(token) ≠ \(selector) \(property) \(value)")
         }
         #expect(P.secondaryInk.value == RGB("#A19387")) // V3 supporting ink
+        // Native control boundaries intentionally exceed the prototype's decorative border.
+        #expect(P.controlBorder.value == RGB("#8A7364"))
+        #expect(P.controlBorder.value.contrastRatio(against: P.control.value) >= 3)
         // Attention in the pill is the dark `--amber`: the pill never takes the light theme.
         #expect(P.attention.value == Role.attention.value(.dark))
     }
@@ -342,7 +347,9 @@ struct DesignTokenTests {
                 for contrast in Tokens.Contrast.allCases { values.insert(role.value(theme, contrast).hex) }
             }
         }
-        Tokens.Pill.Token.allCases.filter { $0 != .secondaryInk }.forEach { values.insert($0.value.hex) }
+        // V3 rail and supporting ink are verified by native contrast tests; this document is V1.
+        Tokens.Pill.Token.allCases.filter { ![.secondaryInk, .scrollTrack, .scrollThumb].contains($0) }
+            .forEach { values.insert($0.value.hex) }
         Tokens.SpoolMaterial.allCases.forEach { values.insert($0.value.hex) }
         let missing = values.filter { !doc.contains($0) }.sorted()
         #expect(missing.isEmpty, "DESIGN.md does not list \(missing)")
@@ -375,7 +382,10 @@ struct DesignTokenTests {
         PillPair(fg: .ink, bg: .control, required: 4.5),
         PillPair(fg: .onPrimary, bg: .primary, required: 4.5),
         PillPair(fg: .primary, bg: .background, required: 3),
-        PillPair(fg: .controlBorder, bg: .background, required: 0),
+        PillPair(fg: .controlBorder, bg: .background, required: 3),
+        PillPair(fg: .controlBorder, bg: .control, required: 3),
+        PillPair(fg: .controlBorder, bg: .scrollTrack, required: 3),
+        PillPair(fg: .scrollThumb, bg: .scrollTrack, required: 3),
     ]
 
     static func format(_ ratio: Double) -> String { String(format: "%.2f", ratio) }
