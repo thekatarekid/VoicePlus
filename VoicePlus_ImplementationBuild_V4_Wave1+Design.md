@@ -1030,6 +1030,8 @@ The current owner request supersedes V1 visual/motion/review rules with `design/
 
 **Current status — 2026-09-22:** native V3 implementation and self-contained **1.12.4** are built and installed. All **3,288 local tests** and mounted-installer checks pass. Latest corrections add contrast-aware pill controls and native draft shortcuts; Cmd+A/replacement, Undo/Redo, inline Escape and Cmd+Return are verified in the installed app. Earlier real TextEdit single/multiline delivery and user-observed tape landing remain verified. Normal recognition and 600 ms preview are restored, microphone closed. Remaining native evidence: VoiceOver, complete keyboard traversal/physical global Escape, system Increase Contrast and external-display behavior; some transient screenshot checks remain fixture-only. System-setting approval/display availability requests remain unanswered; no system-wide settings were changed.
 
+**New acceptance issue:** the owner reports doubled characters during ordinary physical typing in external apps. VoicePlus has now been quit and automated UI testing paused for isolation; the cause and relationship to VoicePlus are unconfirmed. The manual same-app comparison with VoicePlus closed is pending. Passing local tests do not resolve this report; native acceptance remains open.
+
 The checkpoints below are chronological history. Earlier statements about permissions, Keychain blocking, running tests and older candidate failures are superseded by the latest release and native acceptance records at the end of this section.
 
 ### V3 integration checkpoint
@@ -1145,3 +1147,11 @@ The pill's custom colors previously bypassed Increase Contrast, and its secondar
 ### 1.12.4 final local regression result
 
 The complete integrated serial run passed **3,288 tests in 679.292 seconds** on source through `556dafa`, including the contrast and keyboard corrections. A longer recorded-audio inference stage explained the extended duration; the live process completed normally without restart. Release build, mounted installer and native editor checks above all pass. This does not turn the separately pending VoiceOver/system contrast/display checks into native passes.
+
+### Physical keyboard duplication investigation — 2026-09-22
+
+- Owner reports repeated letters in some external apps while typing manually. Affected app identity and reproduction conditions are not yet confirmed. Do not treat the screenshot as proof of a VoicePlus cause.
+- Process inventory found one installed VoicePlus instance and no leftover test process. Quit VoicePlus through its menu; subsequent process checks confirm it remains closed. All keyboard/UI automation is paused while the owner compares manual typing in the same app. No message content was modified or sent.
+- Source trace: current draft shortcuts are scoped to the VoicePlus text view's first responder and Command modifier; the Carbon registration handles only its owned Escape shortcut. Dictation hotkey monitors observe modifier changes. The global ordinary-key observer only invalidates remembered caret context; it does not repost events.
+- Existing synthetic insertion code attaches Unicode to both key-down and key-up events. This is a separate, unverified app-specific synthetic-input hypothesis, not evidence explaining physical keyboard duplication. No speculative change, new key listener, or raw-keystroke logging was added.
+- Next evidence: whether physical typing still doubles with VoicePlus closed, plus affected app name. If quitting reliably resolves it, compare the same field with VoicePlus idle; if it persists, investigate the app/input source/keyboard independently. Keep 1.12.4 acceptance open until the report is understood.
