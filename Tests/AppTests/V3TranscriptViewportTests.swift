@@ -179,4 +179,106 @@ struct V3TranscriptViewportTests {
                                      isARepeat: false, keyCode: code))
     }
 
+    @Test func commandASelectsTheFocusedDraftWithoutAnEditMenu() throws {
+        _ = NSApplication.shared
+        let text = DraftTextView(frame: CGRect(x: 0, y: 0, width: 300, height: 48))
+        let window = NSWindow(contentRect: text.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = text
+        text.isEditable = true
+        text.string = "Original draft"
+        #expect(window.makeFirstResponder(text))
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "a",
+            charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
+        #expect(text.performKeyEquivalent(with: event))
+        #expect(text.selectedRange() == NSRange(location: 0, length: text.string.utf16.count))
+        text.insertText("Replacement", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(text.string == "Replacement")
+        #expect(window.makeFirstResponder(nil))
+        text.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(!text.performKeyEquivalent(with: event))
+        #expect(text.selectedRange().length == 0, "an unfocused transcript must not take another field's shortcut")
+    }
+
+    @Test func localEscapeRestoresDraftWithoutCancellingThePreview() {
+        let model = PillViewModel()
+        let original = "Original draft"
+        model.present(.finalPreview(FinalPreviewInfo(text: original, dwellRemaining: 0.6)))
+        model.setPointerInside(true)
+        model.beginEditingDraft()
+        let view = PillTranscriptViewport(frame: CGRect(x: 0, y: 0, width: 414, height: 48))
+        view.configure(model: model, words: .final(original), marks: .empty)
+        view.text.string = "Uncommitted edit"
+        view.textDidChange(Notification(name: NSText.didChangeNotification, object: view.text))
+        #expect(model.draftText == "Uncommitted edit")
+        let parent = CancelProbe()
+        view.text.nextResponder = parent
+        view.text.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        #expect(!model.isEditingDraft)
+        #expect(model.draftText == original)
+        #expect(model.actionText == original)
+        #expect(parent.cancellations == 0, "the editor must consume this command without bubbling")
+        if case .finalPreview = model.state {} else { Issue.record("Escape cancelled the parent preview") }
+    }
+
+    @Test func localCompositionDoesNotCancelTheDraft() {
+        let text = DraftTextView(frame: CGRect(x: 0, y: 0, width: 300, height: 48))
+        text.isEditable = true
+        text.string = "Draft"
+        var cancelled = false
+        text.onCancelDraft = { cancelled = true }
+        text.setMarkedText("候補", selectedRange: NSRange(location: 2, length: 0),
+                           replacementRange: NSRange(location: 0, length: 0))
+        #expect(text.hasMarkedText())
+        text.cancelOperation(nil)
+        #expect(!cancelled)
+        text.unmarkText()
+    }
+
+    @Test func editingShortcutsRouteToNativeCommandsAndUndoRedo() throws {
+        _ = NSApplication.shared
+        let text = ClipboardCommandProbe(frame: CGRect(x: 0, y: 0, width: 300, height: 48))
+        let window = NSWindow(contentRect: text.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = text
+        text.isEditable = true
+        text.allowsUndo = true
+        text.string = "Original draft"
+        #expect(window.makeFirstResponder(text))
+        func command(_ character: String, flags: NSEvent.ModifierFlags = .command) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: character,
+                charactersIgnoringModifiers: character, isARepeat: false, keyCode: 0))
+        }
+        for character in ["c", "x", "v"] {
+            #expect(text.performKeyEquivalent(with: try command(character)))
+        }
+        #expect(text.commands == ["copy", "cut", "paste"])
+        #expect(text.string == "Original draft", "spies must not touch the user's general pasteboard")
+
+        let undo = try #require(text.undoManager)
+        #expect(undo !== window.undoManager, "draft session history must not be shared with the window")
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        text.selectAll(nil)
+        text.insertText("Replacement", replacementRange: NSRange(location: NSNotFound, length: 0))
+        undo.endUndoGrouping()
+        #expect(undo.canUndo)
+        #expect(text.performKeyEquivalent(with: try command("z")))
+        #expect(text.string == "Original draft")
+        #expect(text.performKeyEquivalent(with: try command("z", flags: [.command, .shift])))
+        #expect(text.string == "Replacement")
+    }
+
+    private final class ClipboardCommandProbe: DraftTextView {
+        var commands: [String] = []
+        override func copy(_ sender: Any?) { commands.append("copy") }
+        override func cut(_ sender: Any?) { commands.append("cut") }
+        override func paste(_ sender: Any?) { commands.append("paste") }
+    }
+
+    private final class CancelProbe: NSResponder {
+        var cancellations = 0
+        override func cancelOperation(_ sender: Any?) { cancellations += 1 }
+    }
+
 }

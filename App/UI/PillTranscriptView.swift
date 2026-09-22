@@ -42,6 +42,7 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         scroll.contentView.postsBoundsChangedNotifications = true
         text.drawsBackground = false
         text.isRichText = false
+        text.allowsUndo = true
         text.isEditable = false
         text.isSelectable = true
         text.isVerticallyResizable = true
@@ -92,6 +93,7 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             self?.publishEditorText()
             return model?.applyDraftEdits() ?? false
         }
+        text.onCancelDraft = { [weak model] in model?.cancelDraftEdits() }
         for (control, id) in [(up, "transcript.scroll.up"), (down, "transcript.scroll.down")] {
             control.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: id) }
             control.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction(element: id) }
@@ -103,6 +105,7 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         let began = !editing && model.isEditingDraft
         let ended = editing && !model.isEditingDraft
         editing = model.isEditingDraft
+        if began { text.undoManager?.removeAllActions() }
         needsDisplay = true
         let wasLive = live
         if case .live = words { live = true } else { live = false }
@@ -359,9 +362,22 @@ final class TranscriptScrollButton: NSButton {
     override func keyDown(with event: NSEvent) { onKeyInteraction?(); super.keyDown(with: event) }
 }
 
-final class DraftTextView: NSTextView {
+class DraftTextView: NSTextView {
     var editsWord = false
     var onApplyDraft: (() -> Bool)?
+    var onCancelDraft: (() -> Void)?
+    // A new draft may clear its own history without touching any window/other field's undo.
+    private let draftUndoManager = UndoManager()
+    override var undoManager: UndoManager? { draftUndoManager }
+
+    override func cancelOperation(_ sender: Any?) {
+        // The input method gets Escape while composing. Otherwise this editor owns the
+        // cancellation: never forward the same command to the parent turn or window.
+        // NSTextView has no superclass implementation of this optional responder command.
+        // Marked-text key events already pass through its native input context in keyDown.
+        guard isEditable, !hasMarkedText() else { return }
+        onCancelDraft?()
+    }
 
     /// AppKit's Copy, Services and selection-drag paths all use this hook. Export plain text only,
     /// stripping exactly the attributed presentation fragments, including partial selections.
@@ -416,6 +432,25 @@ final class DraftTextView: NSTextView {
         onCompositionChange?()
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // The nonactivating notch does not have an Edit menu to route editing commands.
+        // Send them through the native responder, scoped to this focused text view.
+        if window?.firstResponder === self, isSelectable, !hasMarkedText(),
+           let key = event.charactersIgnoringModifiers?.lowercased() {
+            let flags = event.modifierFlags.intersection([.command, .control, .shift, .option])
+            let action: (() -> Void)?
+            switch (key, flags) {
+            case ("a", .command): action = { self.selectAll(nil) }
+            case ("c", .command): action = { self.copy(nil) }
+            case ("x", .command) where isEditable: action = { self.cut(nil) }
+            case ("v", .command) where isEditable: action = { self.paste(nil) }
+            case ("z", .command) where isEditable:
+                action = { if self.undoManager?.canUndo == true { self.undoManager?.undo() } }
+            case ("z", [.command, .shift]) where isEditable:
+                action = { if self.undoManager?.canRedo == true { self.undoManager?.redo() } }
+            default: action = nil
+            }
+            if let action { onKeyInteraction?(); action(); return true }
+        }
         if event.modifierFlags.contains(.command), handleDraftReturn(event) {
             onKeyInteraction?()
             return true

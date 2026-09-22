@@ -1553,9 +1553,8 @@ public final class TurnWiring {
             }
             escape.update(phase: phase, turn: controller.currentTurn)
         }
-        escape.onEscape = { [weak controller, weak pill] _ in
-            if pill?.isEditingDraft == true { pill?.cancelDraftEdits() } else { controller?.escape() }
-        }
+        escape.bindDraftEditor(to: pill)
+        escape.onEscape = { [weak controller] _ in controller?.escape() }
         escape.observeMenuTracking()
         pill.$state
             .receive(on: DispatchQueue.main)

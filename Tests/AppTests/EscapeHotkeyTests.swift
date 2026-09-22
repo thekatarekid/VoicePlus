@@ -63,6 +63,80 @@ struct EscapeHotkeyTests {
 
     private final class Box { var fired: [EscapeResolution] = [] }
 
+    @MainActor
+    @Test func draftEscapeDoesNotSpendTheParentsCancellation() {
+        let (escape, _, box) = make()
+        escape.layers = EscapeLayerStack()
+        let pill = PillViewModel()
+        pill.present(.finalPreview(preview))
+        pill.setPointerInside(true)
+        pill.beginEditingDraft()
+        pill.draftText = "Uncommitted correction"
+        escape.bindDraftEditor(to: pill)
+        escape.update(.finalPreview(preview))
+
+        escape.press()
+        #expect(!pill.isEditingDraft)
+        #expect(pill.actionText == preview.text)
+        #expect(box.fired.isEmpty, "the same press must stop at the editor")
+        #expect(escape.firedCount == 0)
+
+        escape.press()
+        #expect(box.fired == [.cancel], "the next press still belongs to the turn")
+        escape.press()
+        #expect(box.fired == [.cancel], "parent cancellation remains once-only")
+    }
+
+    @MainActor
+    @Test func markedCompositionReturnsEscapeToAppKitBeforeDraftCancellation() {
+        let (escape, stub, box) = make()
+        escape.layers = EscapeLayerStack()
+        let pill = PillViewModel()
+        pill.present(.finalPreview(preview))
+        pill.setPointerInside(true)
+        pill.beginEditingDraft()
+        escape.bindDraftEditor(to: pill)
+        escape.update(.finalPreview(preview))
+        #expect(escape.isRegistered)
+        pill.setCompositionActive(true)
+        #expect(!escape.isRegistered)
+        #expect(stub.live.isEmpty)
+        escape.press() // a retired callback cannot cancel either layer
+        #expect(pill.isEditingDraft)
+        #expect(box.fired.isEmpty)
+        pill.setCompositionActive(false)
+        #expect(escape.isRegistered)
+        escape.press()
+        #expect(!pill.isEditingDraft)
+        #expect(box.fired.isEmpty)
+        escape.press()
+        #expect(box.fired == [.cancel])
+    }
+
+    @MainActor
+    @Test func repeatedCarbonPressCannotCancelParentUntilTheEditorEscapeIsReleased() throws {
+        let (escape, stub, box) = make()
+        escape.layers = EscapeLayerStack()
+        let pill = PillViewModel()
+        pill.present(.finalPreview(preview))
+        pill.setPointerInside(true)
+        pill.beginEditingDraft()
+        escape.bindDraftEditor(to: pill)
+        escape.update(.finalPreview(preview))
+        let token = try #require(stub.live.first)
+        let handler = try #require(EscapeHotkey.installCarbonHandler(token: token))
+        defer { RemoveEventHandler(handler) }
+        let id = EventHotKeyID(signature: EscapeHotkey.carbonSignature, id: UInt32(token))
+        #expect(try send(kEventHotKeyPressed, id: id) == noErr)
+        #expect(!pill.isEditingDraft)
+        #expect(box.fired.isEmpty)
+        #expect(try send(kEventHotKeyPressed, id: id) == noErr)
+        #expect(box.fired.isEmpty, "repeat/duplicate callbacks are still the editor's physical keypress")
+        #expect(try send(kEventHotKeyReleased, id: id) == noErr)
+        #expect(try send(kEventHotKeyPressed, id: id) == noErr)
+        #expect(box.fired == [.cancel])
+    }
+
     // MARK: Registration lifecycle per state
 
     @Test func everyPillStateHasAKnownAnswer() {
@@ -315,17 +389,20 @@ struct EscapeHotkeyTests {
         #expect(try send(kEventHotKeyPressed, id: escapeID) == noErr)
         #expect(fired == [.cancel])
         #expect(actions.isEmpty, "Escape must not read as a chord press")
-        #expect(try send(kEventHotKeyReleased, id: escapeID) == OSStatus(eventNotHandledErr))
+        #expect(try send(kEventHotKeyReleased, id: escapeID) == noErr)
         #expect(actions.isEmpty, "Escape's release must not read as a chord key-up")
 
         #expect(try send(kEventHotKeyPressed, id: chordID) == noErr)
         #expect(actions == [.startCapture])
         #expect(fired == [.cancel], "a chord press must not read as Escape")
+        #expect(try send(kEventHotKeyReleased, id: chordID) == noErr)
+        #expect(actions.count == 2, "Escape's release listener must not swallow the dictation key-up")
+        #expect(fired == [.cancel])
 
         let stranger = EventHotKeyID(signature: OSType(0x5858_5858), id: UInt32(escapeToken))
         #expect(try send(kEventHotKeyPressed, id: stranger) == OSStatus(eventNotHandledErr))
         #expect(fired == [.cancel])
-        #expect(actions == [.startCapture])
+        #expect(actions.count == 2)
     }
 
     @Test func hotKeyIDsMatchOnSignatureAndToken() throws {

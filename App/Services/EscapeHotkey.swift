@@ -167,6 +167,10 @@ public final class EscapeHotkey {
     private var menuObservers: [NSObjectProtocol] = []
     private var menuCenter: NotificationCenter?
     private var stateSubscription: AnyCancellable?
+    private var draftSubscription: AnyCancellable?
+    private var compositionOwnsEscape = false
+    private var dismissDraft: (() -> Bool)?
+    private var physicalKeyDown = false
 
     public init(backend: EscapeKeyBackend = .carbon) {
         self.backend = backend
@@ -241,6 +245,23 @@ public final class EscapeHotkey {
         }
     }
 
+    /// Inline editing consumes a press before the parent turn's once-only cancellation.
+    /// During IME composition Carbon must release Escape to the native input context.
+    public func bindDraftEditor(to pill: PillViewModel) {
+        dismissDraft = { [weak pill] in
+            guard let pill, pill.isEditingDraft else { return false }
+            guard !pill.hasMarkedText else { return true }
+            pill.cancelDraftEdits()
+            return true
+        }
+        draftSubscription = pill.$isEditingDraft.combineLatest(pill.$hasMarkedText)
+            .sink { [weak self] editing, composing in
+                guard let self else { return }
+                self.compositionOwnsEscape = editing && composing
+                self.reconcile()
+            }
+    }
+
     private func menuTracking(began: Bool) {
         let apply = { [weak self] in
             guard let self else { return }
@@ -260,6 +281,7 @@ public final class EscapeHotkey {
             Log.app.notice("escape: closed a popover over the turn")
             return
         }
+        if dismissDraft?() == true { return }
         guard !firedThisTurn else {
             swallowedCount += 1
             return
@@ -273,7 +295,7 @@ public final class EscapeHotkey {
     // MARK: Registration
 
     private func reconcile() {
-        if Self.wantsRegistration(phase, menuOpen: isMenuOpen) { register() } else { unregister() }
+        if !compositionOwnsEscape, Self.wantsRegistration(phase, menuOpen: isMenuOpen) { register() } else { unregister() }
     }
 
     private func register() {
@@ -292,6 +314,7 @@ public final class EscapeHotkey {
 
     /// Idempotent, and safe from `deinit`.
     private func unregister() {
+        physicalKeyDown = false
         installed?.invalidate()
         installed = nil
         if let token { EscapeHotkeyRegistry.retire(token) }
@@ -303,12 +326,16 @@ public final class EscapeHotkey {
     /// 'VPES' — the signature on the Escape registration, distinct from the chord's 'VOIC'.
     static let carbonSignature = OSType(0x5650_4553)
 
-    static func deliver(token: Int) {
+    static func deliver(token: Int, pressed: Bool = true) {
         guard Thread.isMainThread else {
-            DispatchQueue.main.async { EscapeHotkeyRegistry.owner(for: token)?.press() }
+            DispatchQueue.main.async { deliver(token: token, pressed: pressed) }
             return
         }
-        EscapeHotkeyRegistry.owner(for: token)?.press()
+        guard let owner = EscapeHotkeyRegistry.owner(for: token) else { return }
+        if !pressed { owner.physicalKeyDown = false; return }
+        guard !owner.physicalKeyDown else { return }
+        owner.physicalKeyDown = true
+        owner.press()
     }
 
     static func installCarbonEscape(token: Int) -> InstalledHotkeySource? {
@@ -338,7 +365,10 @@ public final class EscapeHotkey {
     /// working while Escape is held. Split from the registration so dispatch is testable.
     static func installCarbonHandler(token: Int) -> EventHandlerRef? {
         var handlerRef: EventHandlerRef?
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var specs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
             let token = Int(bitPattern: userData)
             guard let event,
@@ -346,9 +376,9 @@ public final class EscapeHotkey {
                                             signature: EscapeHotkey.carbonSignature, token: token) else {
                 return OSStatus(eventNotHandledErr)
             }
-            EscapeHotkey.deliver(token: token)
+            EscapeHotkey.deliver(token: token, pressed: GetEventKind(event) == UInt32(kEventHotKeyPressed))
             return noErr
-        }, 1, &spec, UnsafeMutableRawPointer(bitPattern: token), &handlerRef)
+        }, specs.count, &specs, UnsafeMutableRawPointer(bitPattern: token), &handlerRef)
         guard status == noErr, let handlerRef else {
             Log.app.error("escape: InstallEventHandler failed (\(status))")
             return nil
