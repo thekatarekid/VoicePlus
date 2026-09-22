@@ -1077,3 +1077,7 @@ Status: implementation in progress. V3 completion and hardware verification are 
 - Full run: 3,266 tests, one onboarding event-ownership race failure; remaining tests passed. Race correction and external TextEdit delivery acceptance are pending; this candidate is not the final verified release.
 
 - 2026-09-22: fixed guided/practice onboarding event ownership; queued guided events no longer erase a completed result. Added optional-credential unavailable status instead of presenting locked storage as missing keys. 270 integrated onboarding/settings/sync regression tests pass. Non-interactive secure-store queries are being validated before the replacement installer.
+
+### Quiet-speech visualization refinement — 2026-09-22
+
+The native tape now uses a display-only compressed loudness curve before its existing 40 ms attack / 250 ms release. The capture feed is RMS × 4: 0.002 reaches 55% visual activity, with logarithmic headroom to 100% at 0.6. A smooth knee from 0.00008 to 0.002 avoids a binary jump; zero/invalid input stays flat. This is a visual sensitivity range, not a claim that all microphones measure whispers identically. Ordinary speech stays expressive without shouting. Native maximum wave displacement is 15% higher; tape thickness, fold count, copper/oxide material, and insertion flight remain unchanged. Reels use the same compressed activity. VAD, audio samples, transcription, numeric microphone meter, quiet state and Reduce Motion behavior are unchanged. Historical simulated SVG fixtures remain unchanged.

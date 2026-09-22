@@ -70,6 +70,13 @@ enum SpoolScene {
         let art = SpoolRig.art(key, t: t, angle: angle, motion: still ? nil : motion, gradientID: gradientID)
         let end = SpoolPoint(cx + art.inlet.x * scale, cy + art.inlet.y * scale)
         let activity = still ? 0 : motion?.level ?? activity(key, t: t, still: still, drive: drive)
+        // Raise the live product's maximum displacement without adding folds or narrowing tape.
+        // Golden prototype simulation remains an exact historical reference.
+        let amplitude: Double
+        switch drive {
+        case .simulation: amplitude = activity
+        case .capture: amplitude = activity * SpoolVisualLevel.amplitudeGain
+        }
         let phase = motion?.phase ?? t
 
         var lane: [SpoolPoint] = []
@@ -79,8 +86,8 @@ enum SpoolScene {
             let envelope = SpoolMath.sin(u * Double.pi)
             let x = SpoolMath.mix(tapeStart.x, end.x, u)
             var y = SpoolMath.mix(tapeStart.y, end.y, SpoolMath.pow(u, 9))
-            y += activity * 1.6 * SpoolMath.sin(phase * 3.1 - 0.35) * (1 - u)
-            y += activity * 8.4 * envelope * (0.88 * SpoolMath.sin(u * SpoolMath.tau * 2.8 - phase * 3.5)
+            y += amplitude * 1.6 * SpoolMath.sin(phase * 3.1 - 0.35) * (1 - u)
+            y += amplitude * 8.4 * envelope * (0.88 * SpoolMath.sin(u * SpoolMath.tau * 2.8 - phase * 3.5)
                 + 0.12 * SpoolMath.sin(u * SpoolMath.tau * 4.2 - phase * 2))
             lane.append(SpoolPoint(x, y))
         }

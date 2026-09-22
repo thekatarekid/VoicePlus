@@ -91,7 +91,7 @@ final class SpoolAnimator {
         lastState = (key, start)
         lastFrame = date
         let t = continuingFeed ? feedTime! : Swift.max(0, date.timeIntervalSince(start))
-        let energy = SpoolPoseTable.isLive(presentationKey) ? level : 0
+        let energy = SpoolPoseTable.isLive(presentationKey) ? SpoolVisualLevel.activity(for: level) : 0
         let smoothed = smoother.advance(toward: energy, dt: SpoolMath.min(dt, SpoolReelIntegrator.dtClamp))
         if !reduceMotion { motion.advance(presentationKey, t: t, dt: dt, level: smoothed) }
         reel.advance(presentationKey, t: t, dt: dt, level: smoothed, reduceMotion: reduceMotion)

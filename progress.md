@@ -1688,3 +1688,5 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - Full run: 3,266 tests, one onboarding event-ownership race failure; remaining tests passed. Race correction and external TextEdit delivery acceptance are pending; this candidate is not the final verified release.
 
 - 2026-09-22: fixed guided/practice onboarding event ownership; queued guided events no longer erase a completed result. Added optional-credential unavailable status instead of presenting locked storage as missing keys. 270 integrated onboarding/settings/sync regression tests pass. Non-interactive secure-store queries are being validated before the replacement installer.
+
+- 2026-09-22: made native Spool visibly respond to whisper-level capture using display-only loudness compression; increased maximum displacement 15% without changing audio or recognition. All 48 Spool tests pass, including whisper/normal/loud motion, silence settling, Reduce Motion and historical SVG parity. Replacement installer pending.

@@ -118,7 +118,11 @@ struct SpoolMotionTests {
     @Test func tapeAmplitudeScalesWithTheCaptureLevel() {
         let full = SpoolScene.frame(.listening, t: 0.8, drive: .capture(level: 1))
         let simulated = SpoolScene.frame(.listening, t: 0.8, drive: .simulation)
-        #expect(full.drawing == simulated.drawing, "full level draws exactly the prototype's live tape")
+        let simulatedRest = SpoolScene.frame(.listening, t: 0.8, drive: .capture(level: 0))
+        for i in [10, 30, 48, 70, 90] {
+            let reference = simulated.lane[i].y - simulatedRest.lane[i].y
+            #expect(abs(full.lane[i].y - simulatedRest.lane[i].y - reference * 1.15) < 1e-9)
+        }
         let half = SpoolScene.frame(.listening, t: 0.8, drive: .capture(level: 0.5))
         let flat = SpoolScene.frame(.listening, t: 0.8, drive: .capture(level: 0))
         #expect(half.activity == 0.5)
@@ -148,6 +152,49 @@ struct SpoolMotionTests {
         let speaking = animator.frame(.listening, stateStartedAt: start, level: 1, at: start.addingTimeInterval(1 + 0.05),
                                       reduceMotion: false, width: 560)
         #expect(speaking.activity > 0.7)
+    }
+
+    @Test func whispersProduceReadableWavesWithoutAmplifyingAudio() {
+        let start = Date(timeIntervalSinceReferenceDate: 500)
+        for key in SpoolPoseTable.liveStates {
+            var priorActivity = 0.0
+            for input in [0.002, 0.006, 0.04, 0.2, 0.6] {
+                let animator = SpoolAnimator()
+                var frame = animator.frame(key, stateStartedAt: start, level: input, at: start,
+                                           reduceMotion: false, width: 560)
+                for tick in 1...60 {
+                    frame = animator.frame(key, stateStartedAt: start, level: input,
+                                           at: start.addingTimeInterval(Double(tick) / 60),
+                                           reduceMotion: false, width: 560)
+                }
+                #expect(frame.activity >= 0.54, "Even the quiet input must remain readable")
+                #expect(frame.activity > priorActivity, "Keep expressive headroom above whisper volume")
+                priorActivity = frame.activity
+                let rest = SpoolScene.frame(key, t: 1, drive: .capture(level: 0))
+                let excursion = zip(frame.lane, rest.lane).map { abs($0.y - $1.y) }.max() ?? 0
+                #expect(excursion > 3, "Whisper tape must visibly depart from its rest line")
+                #expect(animator.reel.angle < -65, "Quiet speech must visibly transport the tape")
+            }
+        }
+    }
+
+    @Test func visualSensitivityIsBoundedAndSilenceSettles() {
+        for input in [0, -1, Double.nan, .infinity, -.infinity, 0.00008] {
+            #expect(SpoolVisualLevel.activity(for: input) == 0)
+        }
+        #expect(SpoolVisualLevel.activity(for: 4) == 1)
+        #expect(SpoolVisualLevel.activity(for: 0.001) > 0.2)
+        let animator = SpoolAnimator()
+        let start = Date(timeIntervalSinceReferenceDate: 100)
+        for tick in 0...60 {
+            _ = animator.frame(.listening, stateStartedAt: start, level: 0.004,
+                               at: start.addingTimeInterval(Double(tick) / 60), reduceMotion: false, width: 560)
+        }
+        for tick in 61...180 {
+            _ = animator.frame(.listening, stateStartedAt: start, level: 0,
+                               at: start.addingTimeInterval(Double(tick) / 60), reduceMotion: false, width: 560)
+        }
+        #expect(animator.motion.level < 0.001)
     }
 
     @Test func levelSmootherHasA40msAttackAnd250msRelease() {

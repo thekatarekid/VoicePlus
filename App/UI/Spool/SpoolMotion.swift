@@ -47,6 +47,28 @@ struct SpoolReelIntegrator: Equatable, Sendable {
     }
 }
 
+/// Display-only loudness compression. The capture feed is RMS × 4, not perceptual loudness;
+/// multiplying geometry by that value makes normal speech almost invisible. Preserve silence,
+/// softly reach a readable whisper wave, then retain headroom for ordinary and loud speech.
+/// This never changes recorded audio, VAD thresholds, transcription, or the numeric mic meter.
+enum SpoolVisualLevel {
+    static let noiseFloor = 0.00008
+    static let whisperLevel = 0.002
+    static let loudLevel = 0.6
+    static let whisperActivity = 0.55
+    static let amplitudeGain = 1.15
+
+    static func activity(for level: Double) -> Double {
+        guard level.isFinite, level > noiseFloor else { return 0 }
+        if level < whisperLevel {
+            let x = (level - noiseFloor) / (whisperLevel - noiseFloor)
+            return whisperActivity * (x * x * (3 - 2 * x))
+        }
+        let fraction = min(1, log(level / whisperLevel) / log(loudLevel / whisperLevel))
+        return whisperActivity + (1 - whisperActivity) * fraction
+    }
+}
+
 /// S1.6 rule 1 — the capture level that drives the tape: a one-pole follower with a 40 ms attack and a
 /// 250 ms release, so the tape rises with speech and settles flat when the microphone goes quiet.
 struct SpoolLevelSmoother: Equatable, Sendable {
