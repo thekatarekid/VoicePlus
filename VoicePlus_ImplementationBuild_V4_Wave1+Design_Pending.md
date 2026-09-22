@@ -4,6 +4,8 @@ Date: 2026-09-19 · Build: 1.11.1 (`VoicePlus_V4-w1_1.11.1.dmg`, sha256 `8a2edfd
 
 Purpose: items that need the owner's decision or were deliberately left open after 1.11.x.
 
+**Superseded where noted — 2026-09-22:** this is a historical 1.11.x decision record. Item #1 is resolved by the requested self-contained V3 installer: versions 1.12.0–1.12.2 bundle the default TDT, streaming EOU and speaker models, and runtime lookup supports the read-only bundle. Item #5's notch direction is superseded by the approved V3 Spool design. Current implementation, installer evidence and remaining native acceptance are recorded in [build document §10](VoicePlus_ImplementationBuild_V4_Wave1+Design.md#10-v3-native-fidelity-follow-up--2026-09-20). Statements below about “today,” absent model bundles or absent bundle lookup describe 1.11.1, not the installed 1.12.2 release.
+
 Numbers #1, #2 and #5 are the owner's issue numbers from the 1.11.1 fresh-install report. Issues #3, #4 and #6
 are bugs. They were fixed in code as FX1–FX5 for 1.11.2 (build doc §9), so they are not listed here. The open items
 those fixes left are at the end of §B.

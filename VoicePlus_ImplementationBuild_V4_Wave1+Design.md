@@ -1028,7 +1028,9 @@ The current owner request supersedes V1 visual/motion/review rules with `design/
 - [x] Run scoped and full serial tests; commit and push verified milestones.
 - [x] Build and verify a self-contained DMG; retain local artifact and record checksum/version.
 
-Status: implementation in progress. V3 completion and hardware verification are not yet claimed.
+**Current status — 2026-09-22:** native V3 implementation and the self-contained 1.12.2 installer are built, installed and pushed. All 3,276 local tests and mounted-installer checks pass. Installed Privacy reports microphone and typing access Allowed; Settings/Providers/Sync open without a Keychain prompt. Open native acceptance includes external TextEdit insertion/destination tape travel after a manual foreground click, VoiceOver/keyboard announcements and focus, high contrast/larger text/light-dark, Reduce Motion, and external-display behavior. Some transient screenshot checks remain fixture-only. The source and automated evidence cover these paths, but do not establish a full native accessibility/display pass.
+
+The checkpoints below are chronological history. Earlier statements about permissions, Keychain blocking, running tests and older candidate failures are superseded by the 1.12.2 result at the end of this section.
 
 ### V3 integration checkpoint
 - Integrated commits through native copy/scroll/IME and review/dwell audits; 33 layout tests and 146 review tests pass in isolated worktrees.
@@ -1093,3 +1095,12 @@ Local dictation does not require Keychain approval. Optional provider/connector 
 - Self-contained `VoicePlus_V3-Spool-Full_1.12.2.dmg`, build `202609220510`, 714,180,189 bytes. SHA256 `6a2c1b5b96068b8760e210c7106f47ac7981d2750ef1dc148dd676fc4ad89690`. Mounted offline model inference, signature/dependency and clean-install checks pass. All 29 prior installers are byte-identical.
 - Installed 1.12.2 via the mounted DMG. Native Settings, Providers and Sync respond without a Keychain prompt; Privacy reports microphone and typing access Allowed. Restored normal recognition after controlled QA; microphone closed.
 - External insertion remains unverified: the computer-use focus action selects TextEdit's blank field but macOS identifies Brave as foreground. Controlled attempt ended Cancelled / Nothing inserted; awaiting a manual foreground click. No TextEdit delivery or tape-travel pass claimed. Combined serial regression run: **3,276 tests passed**, 484.832 seconds; the earlier onboarding race no longer fails.
+
+### Current completion audit — 2026-09-22
+
+- Current source milestone `63f659d` is pushed, worktree clean at audit, installed version 1.12.2. The remaining unchecked native acceptance item is deliberate.
+- Latest GitHub CI run `35690322841` / check `106625739748` executed zero steps. Its annotation reports failed account payments or a spending limit; this is not a test failure. No billing/security setting was changed.
+- The manual TextEdit foreground request remains unanswered. Do not retry against the unrelated foreground app or infer successful external insertion from the passing fixtures.
+
+- Reference provenance rechecked without altering source/fixtures: regenerated `spool_spec.json` and `spool_golden.json` from the current V3 HTML in a temporary directory; both match committed fixtures byte-for-byte. The intentional quiet-speech native deviation is separately tested and documented.
+- Independent read-only completion audit found no additional confirmed runtime bug, but identified unclosed native accessibility/display evidence. These remain open under §10; TextEdit is the next actionable native gate, not the only unverified hardware scenario.
