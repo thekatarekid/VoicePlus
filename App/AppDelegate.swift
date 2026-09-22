@@ -223,11 +223,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Every hold and every latch segment goes key-down snapshot → final preview → one insert
         // through `TurnController` (the lander's gate). Escape (I2), the pill's turn buttons, hover,
         // lock/sleep/mute and deixis are wired inside; the turn records go to `TurnStore.current`.
-        TurnWiring.attach(container: container, pill: pill.model, coordinator: coordinator, session: sessionCoordinator,
-                          finishLatch: { [weak self] in
-                              self?.session?.stop(.hotkey)
-                              self?.hotkey.resetGesture()
-                          })
+        let turnWiring = TurnWiring.attach(
+            container: container, pill: pill.model, coordinator: coordinator, session: sessionCoordinator,
+            finishLatch: { [weak self] in
+                self?.session?.stop(.hotkey)
+                self?.hotkey.resetGesture()
+            })
+        pill.onPinnedDisplayLost = { [weak controller = turnWiring.controller] in
+            controller?.pinnedDisplayWasLost()
+        }
         // K02 (design §13 scenario 9): a key-up the listener never delivered is synthesized from the
         // modifier state by `HotkeyService`; the turn controller then posts "Dictation stopped".
         TurnWiring.wireLostKeyUp(hotkey)

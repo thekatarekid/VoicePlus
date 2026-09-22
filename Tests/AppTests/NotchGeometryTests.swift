@@ -228,6 +228,35 @@ struct NotchGeometryTests {
         #expect(NotchGeometry.hostScreen(screens: [], mouse: .zero, main: nil) == nil)
     }
 
+    @Test func activeTurnKeepsItsDisplayPinAcrossPointerAndGeometryChanges() throws {
+        let builtIn = ScreenMetrics(frame: notched.frame, topInset: 38, notchWidth: 220, menuBarHeight: 39,
+                                    displayID: 11)
+        let external = ScreenMetrics(frame: self.external.frame, menuBarHeight: 30, displayID: 22)
+        let resizedBuiltIn = ScreenMetrics(frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+                                           topInset: 32, notchWidth: 200, menuBarHeight: 32, displayID: 11)
+
+        let resolved = NotchGeometry.resolveDisplayPin(
+            builtIn, screens: [resizedBuiltIn, external], mouse: CGPoint(x: 2500, y: 500), main: external)
+
+        #expect(resolved.metrics == resizedBuiltIn, "the same display id wins over pointer and main-screen changes")
+        #expect(!resolved.pinnedDisplayLost)
+    }
+
+    @Test func removedPinnedDisplayMovesRecoveryToRemainingDisplay() throws {
+        let builtIn = ScreenMetrics(frame: notched.frame, topInset: 38, notchWidth: 220, menuBarHeight: 39,
+                                    displayID: 11)
+        let external = ScreenMetrics(frame: self.external.frame, menuBarHeight: 30, displayID: 22)
+
+        let resolved = NotchGeometry.resolveDisplayPin(
+            builtIn, screens: [external], mouse: CGPoint(x: 900, y: 600), main: external)
+
+        #expect(resolved.metrics == external)
+        #expect(resolved.pinnedDisplayLost, "only disappearance invalidates the destination")
+        let noDisplays = NotchGeometry.resolveDisplayPin(builtIn, screens: [], mouse: .zero, main: nil)
+        #expect(noDisplays.metrics == nil)
+        #expect(noDisplays.pinnedDisplayLost)
+    }
+
     // MARK: - Lanes inside the pill
 
     /// Never text under the face: the status row, the words lane and the chip row stay left of the

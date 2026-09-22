@@ -17,6 +17,9 @@ public final class PillPanelController {
     private var lastSurface: NotchGeometry.Surface = .hidden
     /// The display chosen when the turn became visible; pinned for the turn (design §4).
     private var pinnedMetrics: ScreenMetrics?
+    /// A real removal is a delivery-safety event: the turn must retain its text and require an
+    /// explicit retarget instead of following a window that macOS moved to another display.
+    public var onPinnedDisplayLost: (() -> Void)?
 
     public init() {
         shadowPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -60,14 +63,28 @@ public final class PillPanelController {
             .combineLatest(model.$turn, model.$clockTick, model.$laneNote)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state, _, _, _ in self?.render(state) }
-        // Display arrangement can change mid-turn: re-place the pill against the new geometry.
+        // Display arrangement can change mid-turn. Refresh the same display's geometry while it is
+        // present; only a real removal moves the recovery surface and invalidates delivery.
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             guard let self else { return }
             Self.logPlacementDiagnostics()
-            self.pinnedMetrics = nil
             guard self.model.state.isVisible else { return }
+            let screens = NSScreen.screens.map(Self.metrics(for:))
+            let main = NSScreen.main.map(Self.metrics(for:))
+            let resolution = NotchGeometry.resolveDisplayPin(
+                self.pinnedMetrics, screens: screens, mouse: NSEvent.mouseLocation, main: main)
+            self.pinnedMetrics = resolution.metrics
+            if resolution.pinnedDisplayLost {
+                Log.app.notice("pill display removed during active turn — moving recovery and invalidating destination")
+                self.onPinnedDisplayLost?()
+            }
+            guard resolution.metrics != nil else {
+                self.panel.orderOut(nil)
+                self.shadowPanel.orderOut(nil)
+                return
+            }
             self.render(self.model.state, force: true)
         }
         Self.logPlacementDiagnostics()
@@ -91,9 +108,10 @@ public final class PillPanelController {
             // the same space as `screen.frame` for a display that is not at the global origin.
             notchWidth = max(0, screen.frame.width - (left.width + right.width))
         }
+        let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
         return ScreenMetrics(frame: screen.frame, topInset: screen.safeAreaInsets.top, notchWidth: notchWidth,
                              menuBarHeight: max(0, screen.frame.maxY - screen.visibleFrame.maxY),
-                             visibleFrame: screen.visibleFrame)
+                             visibleFrame: screen.visibleFrame, displayID: displayID)
     }
 
     /// One-shot startup diagnostic: where the pill lands on every display, attached or floating, and

@@ -657,6 +657,42 @@ struct TurnControllerTests {
         #expect(muted.focusGuard.held.isEmpty)
     }
 
+    @Test("display loss during preview holds the payload and never follows the moved destination")
+    func displayLossDuringPreview() async throws {
+        let h = Harness()
+        let id = try #require(await h.holdToPreview(Self.words("hello there")))
+        let previewedText = try #require(h.controller.previewInfo?.text)
+        h.controller.finalRendered(id)
+        h.controller.pinnedDisplayWasLost()
+        h.clock.advance(5)
+        #expect(await h.wait { h.events.landed.count == 1 })
+
+        #expect(h.system.postCount == 0)
+        #expect(h.store.entry(id)?.stage == .held)
+        #expect(h.store.entry(id)?.record.writeAttempted == false)
+        #expect(h.focusGuard.heldText(turn: id)?.text == previewedText)
+        #expect(h.events.landed.first?.delivery == .held(reason: DeliveryReason.destinationChanged))
+    }
+
+    @Test("display loss while capture is open defers safe recovery until final text exists")
+    func displayLossDuringCapture() async throws {
+        let h = Harness()
+        guard case .began(let id) = h.controller.keyDown() else {
+            Issue.record("turn did not begin")
+            return
+        }
+        h.controller.captureOpened(id)
+        h.controller.pinnedDisplayWasLost()
+        #expect(h.controller.keyUp(id))
+        await h.controller.finalize(id, spans: Self.words("preserve this"))
+        #expect(await h.wait { h.events.landed.count == 1 })
+
+        #expect(h.system.postCount == 0)
+        #expect(h.store.entry(id)?.stage == .held)
+        #expect(h.focusGuard.heldText(turn: id)?.text.contains("preserve this") == true)
+        #expect(h.events.landed.first?.delivery == .held(reason: DeliveryReason.destinationChanged))
+    }
+
     // MARK: - The record
 
     @Test("the turn record is written at key down and updated at every transition")

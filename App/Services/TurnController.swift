@@ -1206,6 +1206,33 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         if kept { notice(.K02) }
     }
 
+    /// The display hosting this turn disappeared. Capture may finish, but its text must not follow
+    /// a window macOS moved elsewhere: a preview is held immediately and an earlier stage is marked
+    /// to enter held recovery as soon as formatting completes. The recovery surface itself is moved
+    /// by `PillPanelController`; reinsertion requires the existing explicit “Insert here” retarget.
+    public func pinnedDisplayWasLost() {
+        let reason = DeliveryReason.destinationChanged
+        var previews: [TurnID] = []
+        var deferred: [TurnID] = []
+        lock.withLock {
+            for turn in turns.values where turn.stage.isBeforeWrite {
+                switch turn.stage {
+                case .finalPreview:
+                    previews.append(turn.id)
+                case .starting, .listening, .listeningQuiet, .finishing:
+                    turn.holdWhenReady = reason
+                    deferred.append(turn.id)
+                default:
+                    break
+                }
+            }
+        }
+        previews.forEach { exitDwell($0, .hold(reason: reason)) }
+        if !previews.isEmpty || !deferred.isEmpty {
+            Log.app.notice("display removed: \(previews.count) preview(s) held, \(deferred.count) active turn(s) require retarget")
+        }
+    }
+
     // MARK: Undo (R2)
 
     private func offerUndo(_ id: TurnID, range: Range<Int>, text: String, focus: FocusSnapshot?) {

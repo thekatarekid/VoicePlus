@@ -3,6 +3,9 @@ import Foundation
 
 /// Screen facts needed to place the pill, decoupled from `NSScreen` so tests can cover it.
 public struct ScreenMetrics: Equatable, Sendable {
+    /// Stable Core Graphics display identity. Live metrics always carry this; `nil` keeps synthetic
+    /// fixtures and callers that only know geometry source-compatible.
+    public var displayID: UInt32?
     /// Full screen frame in global (bottom-left origin) coordinates.
     public var frame: CGRect
     /// Height of the top safe-area inset (the notch) — 0 on notch-less displays.
@@ -15,7 +18,8 @@ public struct ScreenMetrics: Equatable, Sendable {
     public var visibleFrame: CGRect?
 
     public init(frame: CGRect, topInset: CGFloat = 0, notchWidth: CGFloat? = nil, menuBarHeight: CGFloat = 24,
-                visibleFrame: CGRect? = nil) {
+                visibleFrame: CGRect? = nil, displayID: UInt32? = nil) {
+        self.displayID = displayID
         self.frame = frame
         self.topInset = topInset
         self.notchWidth = notchWidth
@@ -47,6 +51,20 @@ public struct ScreenMetrics: Equatable, Sendable {
     public var notchRect: CGRect? {
         guard hasNotch, let width = notchWidth, width > 0 else { return nil }
         return CGRect(x: frame.midX - width / 2, y: frame.maxY - topInset, width: width, height: topInset)
+    }
+}
+
+/// Result of reconciling a turn's display pin with the current display arrangement.
+public struct DisplayPinResolution: Equatable, Sendable {
+    /// Refreshed geometry for the same display, or the recovery display after a real removal.
+    public var metrics: ScreenMetrics?
+    /// True exactly when an existing pin no longer exists. Moving the mouse, changing the main
+    /// screen or changing resolution on the pinned display does not count as loss.
+    public var pinnedDisplayLost: Bool
+
+    public init(metrics: ScreenMetrics?, pinnedDisplayLost: Bool) {
+        self.metrics = metrics
+        self.pinnedDisplayLost = pinnedDisplayLost
     }
 }
 
@@ -236,6 +254,31 @@ public enum NotchGeometry {
     /// Pick the screen that should host the pill: the one containing the mouse, else the main screen.
     public static func hostScreen(screens: [ScreenMetrics], mouse: CGPoint, main: ScreenMetrics?) -> ScreenMetrics? {
         screens.first { $0.frame.contains(mouse) } ?? main ?? screens.first
+    }
+
+    /// Preserve the display selected when the turn appeared. A display-parameter notification is
+    /// also emitted for resolution, menu-bar and arrangement changes, so those changes refresh the
+    /// pinned display's metrics instead of silently following the pointer. Only removal chooses a
+    /// recovery display and reports loss to the turn controller.
+    public static func resolveDisplayPin(_ pinned: ScreenMetrics?, screens: [ScreenMetrics], mouse: CGPoint,
+                                         main: ScreenMetrics?) -> DisplayPinResolution {
+        guard let pinned else {
+            return DisplayPinResolution(metrics: hostScreen(screens: screens, mouse: mouse, main: main),
+                                        pinnedDisplayLost: false)
+        }
+        let sameDisplay: ScreenMetrics?
+        if let id = pinned.displayID {
+            sameDisplay = screens.first { $0.displayID == id }
+        } else {
+            // Geometry-only values exist in tests and older call sites. Live `NSScreen` metrics have
+            // an id, so a resolution change cannot be mistaken for removal in production.
+            sameDisplay = screens.first { $0.frame == pinned.frame }
+        }
+        if let sameDisplay {
+            return DisplayPinResolution(metrics: sameDisplay, pinnedDisplayLost: false)
+        }
+        return DisplayPinResolution(metrics: hostScreen(screens: screens, mouse: mouse, main: main),
+                                    pinnedDisplayLost: true)
     }
 }
 
