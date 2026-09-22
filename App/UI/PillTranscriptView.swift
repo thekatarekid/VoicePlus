@@ -349,6 +349,7 @@ final class TranscriptScrollButton: NSButton {
     var onFocusChange: ((Bool) -> Void)?
     var onKeyInteraction: (() -> Void)?
     override var acceptsFirstResponder: Bool { !isHidden }
+    override var canBecomeKeyView: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted { onFocusChange?(true) }

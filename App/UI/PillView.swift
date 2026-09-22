@@ -552,12 +552,14 @@ public final class PillViewModel: ObservableObject {
         if !pointerInside { setFocus(true, element: element) }
     }
 
-    public func setFocus(_ focused: Bool, element: String = "pill") {
+    public func setFocus(_ focused: Bool, element: String = "pill", tracksPointer: Bool = true) {
         if focused {
             focusedElements.insert(element)
             let event = NSApp?.currentEvent?.type
-            if pointerInside && event != .keyDown && event != .keyUp {
+            if tracksPointer && pointerInside && event != .keyDown && event != .keyUp {
                 mouseFocusedElements.insert(element)
+            } else {
+                mouseFocusedElements.remove(element)
             }
         } else {
             focusedElements.remove(element)
@@ -978,7 +980,9 @@ struct PillBody: View {
             HStack(alignment: .bottom, spacing: footerSpacing.helperGap) {
                 if content.hasActions {
                     PillActionRow(buttons: content.buttons, perform: { model.perform($0) },
-                                  onFocus: { model.setFocus($0, element: $1) }, spacing: footerSpacing)
+                                  onFocus: { model.setFocus($0, element: $1) },
+                                  onAccessibilityFocus: { model.setFocus($0, element: $1, tracksPointer: false) },
+                                  spacing: footerSpacing)
                         .fixedSize(horizontal: true, vertical: false)
                         .accessibilitySortPriority(PillReadingOrder.priority(.actions))
                 }
@@ -1233,26 +1237,27 @@ struct PillActionRow: View {
     let perform: (PillActionKind) -> Void
     /// S3 — keyboard / VoiceOver focus on a button (`PillFocusReport`): it pauses the preview dwell.
     var onFocus: ((Bool, String) -> Void)? = nil
+    var onAccessibilityFocus: ((Bool, String) -> Void)? = nil
     var spacing = PillFooterSpacing()
 
     var body: some View {
         HStack(spacing: spacing.buttonGap) {
             ForEach(buttons) { button in
                 let quiet = button.action == .discard || button.action == .dismiss
-                Button { perform(button.action) } label: {
-                    Text(button.label)
-                        .font(Tokens.Typography.pillStatus.font())
-                        .padding(.horizontal, spacing.buttonPadding)
-                        .frame(minHeight: 30)
-                        .foregroundStyle(button.primary ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
-                        .background(RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                            .fill(quiet ? Color.clear : (button.primary ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color)))
-                        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                            .strokeBorder(button.primary || quiet ? Color.clear : Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+                Text(button.label)
+                    .font(Tokens.Typography.pillStatus.font())
+                    .padding(.horizontal, spacing.buttonPadding)
+                    .frame(minHeight: 30)
+                    .foregroundStyle(button.primary ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
+                    .background(RoundedRectangle(cornerRadius: Tokens.Radius.control)
+                        .fill(quiet ? Color.clear : (button.primary ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color)))
+                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.control)
+                        .strokeBorder(button.primary || quiet ? Color.clear : Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+                .accessibilityHidden(true)
+                .overlay {
+                    PillActionButton(button: button, perform: perform, onFocus: onFocus)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(button.identifier)
-                .pillFocusReport("action.\(button.identifier)", onFocus)
+                .modifier(PillActionAccessibilityFocus(element: "voiceOver.\(button.identifier)", report: onAccessibilityFocus))
                 // S10 — reading order: left to right, the primary recovery first as drawn.
                 .accessibilitySortPriority(PillReadingOrder.actionPriority(index: buttons.firstIndex(of: button) ?? 0,
                                                                            count: buttons.count))
