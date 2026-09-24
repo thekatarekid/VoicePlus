@@ -9,7 +9,7 @@ import Testing
 /// S10 — Reduce Motion (design §11, §11.1): the motion flag gives a static pose, no flight, no twist,
 /// no animated transitions, a numeric level readout in place of tape motion, and state labels and
 /// dwell exactly as without it. Plus Larger Text: the window root scales and reflows; the pill stays
-/// bounded and sends overflow to "Review all".
+/// bounded and keeps overflow in a directly scrollable transcript.
 @Suite("S10 — Reduce Motion and Larger Text")
 struct MotionAccessibilityS10Tests {
 
@@ -203,28 +203,26 @@ struct MotionAccessibilityS10Tests {
         #expect(AppearanceSettings.textSize(store) == .larger)
     }
 
-    @Test("the pill stays bounded under Larger Text: two lines at most, overflow to “N words · Review all”")
-    func pillBoundedWithReviewAll() {
+    @Test("the pill stays bounded under Larger Text and long text remains directly scrollable")
+    @MainActor
+    func pillBoundedWithScrollableTranscript() {
         let store = InMemorySettingsStore()
         AppearanceSettings.setTextSize(.larger, store: store)
         let text = Array(repeating: "Can we meet with Mira on Friday", count: 6).joined(separator: " ")
         let lanes = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: false, hasActions: false)
-        let font = Tokens.Typography.pillTranscript.nsFont()
-        let lines = PillTextLane.tail(text, width: lanes.wordsLane.width, maxLines: lanes.lineCount) { s in
-            ceil((s as NSString).size(withAttributes: [.font: font]).width)
-        }
-        #expect(lines.lines.count <= 2)
-        #expect(lines.clippedLeading)
         #expect(PillLaneLayout(size: NotchGeometry.activeSize, hasChip: false, hasActions: false) == lanes,
                 "the pill's geometry has no text-size input")
-        let label = PillTextLane.reviewAllLabel(wordCount: lines.wordCount)
-        #expect(label == "42 words · Review all")
+        let model = PillViewModel()
+        let viewport = PillTranscriptViewport(frame: CGRect(x: 0, y: 0,
+            width: lanes.wordsLane.width + 20, height: lanes.wordsLane.height))
+        viewport.configure(model: model, words: .final(text), marks: .empty)
+        viewport.layout()
+        #expect(viewport.frame.height == lanes.wordsLane.height)
+        #expect(viewport.text.frame.height > viewport.scroll.contentSize.height)
+        #expect(!viewport.track.isHidden)
         let content = PillContent.make(.finalPreview(FinalPreviewInfo(text: text, dwellRemaining: 0.9)),
                                        context: PillTurnContext(destination: "Mail"))
-        let chain = PillReadingOrder.focusChain(content, overflowLabel: label)
-        #expect(chain.first?.action == .reviewAll, "full review is reachable first")
-        #expect(PillActionRoute.effect(for: .reviewAll, shown: .finalPreview(FinalPreviewInfo(text: text, dwellRemaining: 0.9)),
-                                       text: text) == .pauseForReview)
+        #expect(PillReadingOrder.focusChain(content).map(\.action) == [.commit, .editDraft, .cancel])
     }
 }
 

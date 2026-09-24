@@ -1,0 +1,473 @@
+import AppKit
+import SwiftUI
+
+/// The fixed two-line reading window. TextKit preserves native selection, keyboard scrolling,
+/// input methods and grapheme boundaries while the rail remains visible independently of macOS's
+/// auto-hiding scrollbar preference.
+struct PillTranscriptView: NSViewRepresentable {
+    @ObservedObject var model: PillViewModel
+    let words: PillContent.Words
+    let marks: MarkMapping
+
+    func makeNSView(context: Context) -> PillTranscriptViewport { PillTranscriptViewport() }
+    func updateNSView(_ view: PillTranscriptViewport, context: Context) {
+        view.configure(model: model, words: words, marks: marks)
+    }
+}
+
+final class PillTranscriptViewport: NSView, NSTextViewDelegate {
+    let scroll = NSScrollView()
+    let text = DraftTextView()
+    let up = TranscriptScrollButton()
+    let down = TranscriptScrollButton()
+    let track = TranscriptRail()
+    private weak var model: PillViewModel?
+    private var observed: NSObjectProtocol?
+    private var editing = false
+    private var selectedMark: Int?
+    private var updating = false
+    private var live = false
+    private var lastSource = ""
+    private var shownMarks: MarkMapping = .empty
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.focusRingType = .none
+        text.focusRingType = .none
+        scroll.hasVerticalScroller = false
+        scroll.hasHorizontalScroller = false
+        scroll.contentView.postsBoundsChangedNotifications = true
+        text.drawsBackground = false
+        text.isRichText = false
+        text.allowsUndo = true
+        text.isEditable = false
+        text.isSelectable = true
+        text.isVerticallyResizable = true
+        text.isHorizontallyResizable = false
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        text.textContainer?.lineFragmentPadding = 0
+        text.insertionPointColor = Tokens.Pill.primary
+        text.selectedTextAttributes = [.backgroundColor: Tokens.Pill.control]
+        text.linkTextAttributes = [:]
+        text.delegate = self
+        text.setAccessibilityIdentifier("pill.words")
+        text.setAccessibilityLabel("Dictation text. Scroll to read the full text.")
+        scroll.documentView = text
+        addSubview(scroll)
+        for (button, name, symbol, action) in [
+            (up, "Scroll transcript up", "chevron.up", #selector(scrollUp)),
+            (down, "Scroll transcript down", "chevron.down", #selector(scrollDown))
+        ] {
+            button.isBordered = false
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)
+            button.imageScaling = .scaleProportionallyDown
+            button.contentTintColor = Tokens.Pill.secondaryInk
+            button.target = self
+            button.action = action
+            button.setAccessibilityLabel(name)
+            addSubview(button)
+        }
+        track.onFraction = { [weak self] fraction in
+            guard let self else { return }
+            self.scrollTo(fraction * self.maximumOffset)
+        }
+        track.onScroll = { [weak self] command in self?.navigate(command) }
+        track.controlledTranscript = text
+        addSubview(track)
+        text.nextKeyView = up
+        up.nextKeyView = track
+        track.nextKeyView = down
+        observed = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+            object: scroll.contentView, queue: .main) { [weak self] _ in self?.refreshRail() }
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    deinit { if let observed { NotificationCenter.default.removeObserver(observed) } }
+
+    func configure(model: PillViewModel, words: PillContent.Words, marks: MarkMapping) {
+        self.model = model
+        text.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction() }
+        text.onApplyDraft = { [weak self, weak model] in
+            self?.publishEditorText()
+            return model?.applyDraftEdits() ?? false
+        }
+        text.onCancelDraft = { [weak model] in model?.cancelDraftEdits() }
+        for (control, id) in [(up, "transcript.scroll.up"), (down, "transcript.scroll.down")] {
+            control.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: id) }
+            control.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction(element: id) }
+        }
+        track.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: "transcript.scroll") }
+        track.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction(element: "transcript.scroll") }
+        text.onCompositionChange = { [weak self] in self?.publishEditorText() }
+        text.onFocusChange = { [weak model] focused in model?.setFocus(focused, element: "draft.editor") }
+        let began = !editing && model.isEditingDraft
+        let ended = editing && !model.isEditingDraft
+        editing = model.isEditingDraft
+        if began { text.undoManager?.removeAllActions() }
+        needsDisplay = true
+        let wasLive = live
+        if case .live = words { live = true } else { live = false }
+        text.permitsKeyboardFocus = editing || !live
+        let source = editing ? model.draftText : words.text ?? ""
+        let followsEnd = scroll.contentView.bounds.minY >= maximumOffset - 3
+        let changed = source != lastSource || shownMarks != marks || began || ended || wasLive != live
+        text.isEditable = editing
+        if editing, !text.hasMarkedText() {
+            text.typingAttributes = [.font: Tokens.Typography.pillTranscript.nsFont(),
+                                     .foregroundColor: Tokens.Pill.ink,
+                                     .paragraphStyle: Tokens.Typography.pillTranscript.paragraphStyle()]
+        }
+        text.editsWord = model.editingMarkID != nil
+        if ended {
+            model.setFocus(false, element: "draft.editor")
+            if window?.firstResponder === text { window?.makeFirstResponder(nil) }
+            window?.resignKey()
+        }
+        text.setAccessibilityLabel(editing ? "Edit dictation draft" : "Dictation text. Scroll to read the full text.")
+        if changed && !text.hasMarkedText() {
+            updating = true
+            let selection = text.selectedRange()
+            text.textStorage?.setAttributedString(attributed(source, words: words, marks: marks))
+            text.setSelectedRange(NSRange(location: min(selection.location, text.string.utf16.count), length: 0))
+            lastSource = source
+            shownMarks = marks
+            updating = false
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            if live && followsEnd { scrollTo(maximumOffset) }
+            if ended || (wasLive && !live) { scrollTo(0) }
+        }
+        if began || (editing && selectedMark != model.editingMarkID) {
+            selectedMark = model.editingMarkID
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.editing else { return }
+                self.window?.makeKey()
+                self.window?.makeFirstResponder(self.text)
+                if let id = self.selectedMark, let mark = marks.mark(id: id) {
+                    let range = NSRange(location: mark.range.lowerBound, length: mark.range.count)
+                    if NSMaxRange(range) <= self.text.string.utf16.count {
+                        self.text.setSelectedRange(range)
+                        self.text.scrollRangeToVisible(range)
+                    }
+                }
+            }
+        }
+    }
+
+    private func attributed(_ source: String, words: PillContent.Words, marks: MarkMapping) -> NSAttributedString {
+        let ink: NSColor
+        if case .fixed = words { ink = Tokens.Pill.secondaryInk } else { ink = Tokens.Pill.ink }
+        let result = NSMutableAttributedString(string: source, attributes: [
+            .font: Tokens.Typography.pillTranscript.nsFont(), .foregroundColor: ink,
+            .paragraphStyle: Tokens.Typography.pillTranscript.paragraphStyle()
+        ])
+        guard !editing else { return result }
+        // Insert alternatives backwards so every original UTF-16 range stays valid.
+        for mark in marks.marks.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
+            let range = NSRange(location: mark.range.lowerBound, length: mark.range.count)
+            guard range.location >= 0, NSMaxRange(range) <= source.utf16.count else { continue }
+            result.addAttributes([
+                .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
+                .underlineColor: Tokens.Pill.uncertainty,
+                .link: "word:\(mark.id)"
+            ], range: range)
+            if let suggestion = model?.suggestion(for: mark) {
+                let alternative = NSMutableAttributedString(string: " [or did you mean \(suggestion)]", attributes: [
+                    .font: Tokens.Typography.pillTranscript.nsFont(scale: 0.84),
+                    .foregroundColor: Tokens.Pill.uncertainty,
+                    .paragraphStyle: Tokens.Typography.pillTranscript.paragraphStyle(),
+                    .link: "suggest:\(mark.id)",
+                    .transcriptSuggestion: true
+                ])
+                result.insert(alternative, at: NSMaxRange(range))
+            }
+        }
+        return result
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard editing else { return }
+        Tokens.Pill.controlBorder.setFill()
+        CGRect(x: 0, y: max(0, bounds.height - 1), width: scroll.frame.width, height: 1).fill()
+    }
+
+    override func layout() {
+        super.layout()
+        // The rail occupies the dedicated gap before the character bay.
+        scroll.frame = CGRect(x: 0, y: 0, width: max(1, bounds.width - 30), height: bounds.height)
+        text.frame.size.width = scroll.contentSize.width
+        text.textContainer?.containerSize = CGSize(width: scroll.contentSize.width, height: .greatestFiniteMagnitude)
+        text.layoutManager?.ensureLayout(for: text.textContainer!)
+        let used = text.layoutManager?.usedRect(for: text.textContainer!).height ?? 21
+        let single = used <= 22 && !editing
+        text.textContainerInset = CGSize(width: 0, height: single ? 13.5 : 3)
+        text.frame.size.height = max(bounds.height, ceil(used) + (single ? 27 : 6))
+        up.frame = CGRect(x: bounds.width - 16, y: 0, width: 16, height: 11)
+        down.frame = CGRect(x: bounds.width - 16, y: bounds.height - 11, width: 16, height: 11)
+        track.frame = CGRect(x: bounds.width - 12, y: 12, width: 8, height: max(1, bounds.height - 24))
+        refreshRail()
+    }
+    private var maximumOffset: CGFloat { max(0, text.frame.height - scroll.contentSize.height) }
+    private func scrollTo(_ y: CGFloat) {
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: min(max(0, y), maximumOffset)))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        refreshRail()
+    }
+    private func refreshRail() {
+        let maximum = maximumOffset
+        let y = scroll.contentView.bounds.minY
+        track.isHidden = maximum < 1
+        up.isHidden = maximum < 1 || y < 1
+        down.isHidden = maximum < 1 || y >= maximum - 1
+        track.fraction = maximum > 0 ? y / maximum : 0
+        track.visibleFraction = min(1, scroll.contentSize.height / max(1, text.frame.height))
+        track.needsDisplay = true
+    }
+    private func navigate(_ command: TranscriptScrollCommand) {
+        let y = scroll.contentView.bounds.minY
+        switch command {
+        case .lineUp: scrollTo(y - 21)
+        case .lineDown: scrollTo(y + 21)
+        case .pageUp: scrollTo(y - max(21, scroll.contentSize.height - 6))
+        case .pageDown: scrollTo(y + max(21, scroll.contentSize.height - 6))
+        case .start: scrollTo(0)
+        case .end: scrollTo(maximumOffset)
+        }
+    }
+    @objc private func scrollUp() { scrollTo(scroll.contentView.bounds.minY - 21) }
+    @objc private func scrollDown() { scrollTo(scroll.contentView.bounds.minY + 21) }
+    func textDidChange(_ notification: Notification) {
+        guard !updating, editing else { return }
+        publishEditorText()
+    }
+    private func publishEditorText() {
+        guard !updating, editing else { return }
+        model?.draftText = text.string
+        lastSource = text.string
+        model?.setCompositionActive(text.hasMarkedText())
+        needsLayout = true
+    }
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard let link = (link as? URL)?.absoluteString ?? (link as? String), let id = Int(link.split(separator: ":").last ?? "") else { return false }
+        if link.hasPrefix("suggest:"), let mark = shownMarks.mark(id: id), let suggestion = model?.suggestion(for: mark) {
+            model?.acceptSuggestion(markID: id, replacement: suggestion)
+        } else { model?.reviewMark(id) }
+        return true
+    }
+    func textDidBeginEditing(_ notification: Notification) { model?.setFocus(true, element: "draft.editor") }
+    func textDidEndEditing(_ notification: Notification) {
+        model?.setCompositionActive(text.hasMarkedText())
+        model?.setFocus(false, element: "draft.editor")
+    }
+}
+
+enum TranscriptScrollCommand {
+    case lineUp, lineDown, pageUp, pageDown, start, end
+
+    static func key(_ event: NSEvent) -> Self? {
+        switch event.keyCode {
+        case 126: return event.modifierFlags.contains(.command) ? .start : .lineUp
+        case 125: return event.modifierFlags.contains(.command) ? .end : .lineDown
+        case 116: return .pageUp
+        case 121: return .pageDown
+        case 115: return .start
+        case 119: return .end
+        default: return nil
+        }
+    }
+}
+
+final class TranscriptRail: NSView {
+    var fraction: CGFloat = 0
+    var visibleFraction: CGFloat = 1
+    weak var controlledTranscript: NSView?
+    var onFraction: ((CGFloat) -> Void)?
+    var onScroll: ((TranscriptScrollCommand) -> Void)?
+    var onFocusChange: ((Bool) -> Void)?
+    var onKeyInteraction: (() -> Void)?
+    override var acceptsFirstResponder: Bool { !isHidden }
+    override func becomeFirstResponder() -> Bool { onFocusChange?(true); return true }
+    override func resignFirstResponder() -> Bool { onFocusChange?(false); return true }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill() }
+    override func keyDown(with event: NSEvent) {
+        onKeyInteraction?()
+        if event.keyCode == 48 {
+            if event.modifierFlags.contains(.shift) { window?.selectPreviousKeyView(self) }
+            else { window?.selectNextKeyView(self) }
+        } else if let command = TranscriptScrollCommand.key(event) { onScroll?(command) }
+        else { super.keyDown(with: event) }
+    }
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        focusRingType = .exterior
+        setAccessibilityElement(true)
+        setAccessibilityRole(.scrollBar)
+        setAccessibilityLabel("Transcript position")
+        setAccessibilityOrientation(.vertical)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        Tokens.Pill.scrollTrack.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        Tokens.Pill.controlBorder.setStroke()
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 3.5, yRadius: 3.5)
+        outline.lineWidth = 1
+        outline.stroke()
+        let height = max(8, bounds.height * visibleFraction)
+        Tokens.Pill.scrollThumb.setFill()
+        NSBezierPath(roundedRect: CGRect(x: 2, y: (bounds.height - height) * fraction, width: max(2, bounds.width - 4), height: height), xRadius: 2, yRadius: 2).fill()
+    }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        window?.makeFirstResponder(self)
+        move(event)
+    }
+    override func mouseDragged(with event: NSEvent) { move(event) }
+    private func move(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let height = max(8, bounds.height * visibleFraction)
+        onFraction?(min(1, max(0, (point.y - height / 2) / max(1, bounds.height - height))))
+    }
+    override func accessibilityValue() -> Any? { Int(fraction * 100) }
+    override func accessibilityMinValue() -> Any? { 0 }
+    override func accessibilityMaxValue() -> Any? { 100 }
+    override func accessibilityLinkedUIElements() -> [Any]? {
+        controlledTranscript.map { [$0] }
+    }
+    override func accessibilityPerformIncrement() -> Bool { onKeyInteraction?(); onScroll?(.lineDown); return true }
+    override func accessibilityPerformDecrement() -> Bool { onKeyInteraction?(); onScroll?(.lineUp); return true }
+}
+
+
+extension NSAttributedString.Key {
+    /// Visual suggestions are decorations, never part of a copied or inserted transcript.
+    static let transcriptSuggestion = NSAttributedString.Key("VoicePlus.transcriptSuggestion")
+}
+
+final class TranscriptScrollButton: NSButton {
+    var onFocusChange: ((Bool) -> Void)?
+    var onKeyInteraction: (() -> Void)?
+    override var acceptsFirstResponder: Bool { !isHidden }
+    override var canBecomeKeyView: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChange?(true) }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocusChange?(false) }
+        return accepted
+    }
+    override func keyDown(with event: NSEvent) { onKeyInteraction?(); super.keyDown(with: event) }
+}
+
+class DraftTextView: NSTextView {
+    var editsWord = false
+    var onApplyDraft: (() -> Bool)?
+    var onCancelDraft: (() -> Void)?
+    // A new draft may clear its own history without touching any window/other field's undo.
+    private let draftUndoManager = UndoManager()
+    override var undoManager: UndoManager? { draftUndoManager }
+
+    override func cancelOperation(_ sender: Any?) {
+        // The input method gets Escape while composing. Otherwise this editor owns the
+        // cancellation: never forward the same command to the parent turn or window.
+        // NSTextView has no superclass implementation of this optional responder command.
+        // Marked-text key events already pass through its native input context in keyDown.
+        guard isEditable, !hasMarkedText() else { return }
+        onCancelDraft?()
+    }
+
+    /// AppKit's Copy, Services and selection-drag paths all use this hook. Export plain text only,
+    /// stripping exactly the attributed presentation fragments, including partial selections.
+    override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .string, let storage = textStorage else { return false }
+        let slices = selectedRanges.compactMap { value -> String? in
+            let range = NSIntersectionRange(value.rangeValue, NSRange(location: 0, length: storage.length))
+            guard range.length > 0 else { return nil }
+            var payload = ""
+            storage.enumerateAttribute(.transcriptSuggestion, in: range) { suggestion, span, _ in
+                if isEditable || suggestion as? Bool != true {
+                    payload += (storage.string as NSString).substring(with: span)
+                }
+            }
+            return payload
+        }
+        guard !slices.isEmpty else { return false }
+        return pasteboard.setString(slices.joined(separator: "\n"), forType: .string)
+    }
+
+    @discardableResult
+    func handleDraftReturn(_ event: NSEvent) -> Bool {
+        guard isEditable, !hasMarkedText(), event.keyCode == 36 || event.keyCode == 76 else { return false }
+        let flags = event.modifierFlags.intersection([.command, .control, .shift, .option])
+        let wholeDraftShortcut = !flags.intersection([.command, .control]).isEmpty
+        guard wholeDraftShortcut || (editsWord && flags.isEmpty) else { return false }
+        _ = onApplyDraft?()
+        return true
+    }
+
+    var permitsKeyboardFocus = true
+    var onFocusChange: ((Bool) -> Void)?
+    override var acceptsFirstResponder: Bool { permitsKeyboardFocus }
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChange?(true) }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocusChange?(false) }
+        return accepted
+    }
+    var onKeyInteraction: (() -> Void)?
+    var onCompositionChange: (() -> Void)?
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        onCompositionChange?()
+    }
+    override func unmarkText() {
+        super.unmarkText()
+        onCompositionChange?()
+    }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // The nonactivating notch does not have an Edit menu to route editing commands.
+        // Send them through the native responder, scoped to this focused text view.
+        if window?.firstResponder === self, isSelectable, !hasMarkedText(),
+           let key = event.charactersIgnoringModifiers?.lowercased() {
+            let flags = event.modifierFlags.intersection([.command, .control, .shift, .option])
+            let action: (() -> Void)?
+            switch (key, flags) {
+            case ("a", .command): action = { self.selectAll(nil) }
+            case ("c", .command): action = { self.copy(nil) }
+            case ("x", .command) where isEditable: action = { self.cut(nil) }
+            case ("v", .command) where isEditable: action = { self.paste(nil) }
+            case ("z", .command) where isEditable:
+                action = { if self.undoManager?.canUndo == true { self.undoManager?.undo() } }
+            case ("z", [.command, .shift]) where isEditable:
+                action = { if self.undoManager?.canRedo == true { self.undoManager?.redo() } }
+            default: action = nil
+            }
+            if let action { onKeyInteraction?(); action(); return true }
+        }
+        if event.modifierFlags.contains(.command), handleDraftReturn(event) {
+            onKeyInteraction?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+    override func keyDown(with event: NSEvent) {
+        onKeyInteraction?()
+        if !handleDraftReturn(event) { super.keyDown(with: event) }
+    }
+}

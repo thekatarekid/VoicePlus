@@ -163,6 +163,7 @@ public struct ProviderService: Identifiable, Equatable, Sendable {
 /// What a service row says about itself.
 public enum ProviderServiceStatus: Equatable, Sendable {
     case noKey
+    case storageUnavailable
     case saved
     /// "Testing connection…" (design §9, Providers loading).
     case testing
@@ -172,6 +173,7 @@ public enum ProviderServiceStatus: Equatable, Sendable {
     public var line: String {
         switch self {
         case .noKey: return ProvidersCopy.noKey
+        case .storageUnavailable: return ProvidersCopy.storageUnavailable
         case .saved: return ProvidersCopy.keySaved
         case .testing: return ProvidersCopy.testing
         case .reachable: return ProvidersCopy.reachable
@@ -179,7 +181,7 @@ public enum ProviderServiceStatus: Equatable, Sendable {
         }
     }
 
-    public var hasKey: Bool { self != .noKey }
+    public var hasKey: Bool { self != .noKey && self != .storageUnavailable }
 }
 
 /// Connectivity: a real, keyed request that costs no tokens (`GET <base>/models`), refused when the
@@ -248,11 +250,13 @@ public final class ProviderCredentialsModel: ObservableObject {
     public func status(_ service: ProviderService) -> ProviderServiceStatus { statuses[service.id] ?? .noKey }
 
     public var hasAnyKey: Bool { statuses.values.contains(where: \.hasKey) }
+    public var hasStorageFailure: Bool { statuses.values.contains(.storageUnavailable) }
 
     public func reload() {
         for service in services {
-            let stored = (try? secrets.get(service.secretKey)) ?? ""
-            let keyed = !stored.isEmpty
+            let keyed: Bool
+            do { keyed = !(try secrets.get(service.secretKey) ?? "").isEmpty }
+            catch { statuses[service.id] = .storageUnavailable; continue }
             switch statuses[service.id] {
             case .reachable?, .failed?, .testing?: if !keyed { statuses[service.id] = .noKey }
             default: statuses[service.id] = keyed ? .saved : .noKey
@@ -288,7 +292,10 @@ public final class ProviderCredentialsModel: ObservableObject {
     /// Scoped to the row and disabled while it runs (design §9: retry is disabled during the retry).
     public func test(_ service: ProviderService) async {
         guard statuses[service.id] != .testing else { return }
-        guard let key = try? secrets.get(service.secretKey), !key.isEmpty else {
+        let saved: String?
+        do { saved = try secrets.get(service.secretKey) }
+        catch { statuses[service.id] = .storageUnavailable; return }
+        guard let key = saved, !key.isEmpty else {
             statuses[service.id] = .noKey
             return
         }
@@ -365,10 +372,12 @@ public enum ProvidersCopy {
     public static let remove = "Remove key"
     public static let test = "Test connection"
     public static let noKey = "No key saved."
+    public static let storageUnavailable = "Secure storage unavailable. Local dictation still works."
+    public static let checkStorage = "Check again"
     public static let keySaved = "Key saved in your Keychain."
     public static let testing = "Testing connection…"
     public static let reachable = "Connected · the key was accepted."
-    public static let keysFootnote = "Keys are kept in your Keychain and never shown again. A new key is picked up the next time VoicePlus starts."
+    public static let keysFootnote = "Cloud services are optional. Saved keys stay in Keychain; VoicePlus never asks to unlock it automatically. Local dictation needs no Keychain access. A new key is picked up the next time VoicePlus starts."
     public static let connectorsTitle = "Connected services"
     public static let connectorsUnavailable = "Connectors are unavailable in this session."
     public static let connectorsFootnote = "Minimal scopes; every call is logged to the Data Panel."

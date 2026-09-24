@@ -1,0 +1,6 @@
+Licensed by NVIDIA Corporation under the NVIDIA Open Model License
+
+Parakeet realtime EOU 120M, converted to CoreML by FluidInference.
+VoicePlus redistributes the converted weights unchanged.
+https://huggingface.co/FluidInference/parakeet-realtime-eou-120m-coreml
+https://huggingface.co/nvidia/parakeet-realtime-eou-120m-v1

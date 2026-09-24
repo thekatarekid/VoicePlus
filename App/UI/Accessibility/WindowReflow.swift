@@ -1,10 +1,10 @@
 import SwiftUI
 
 // S10 — Larger Text in the window (design §11: "Large text: window reflows; compact pill remains
-// bounded and offers full review"). Settings › Appearance › Larger text scales every window type role
+// bounded with a directly scrollable transcript"). Settings › Appearance › Larger text scales every window type role
 // (`windowTextScale`, applied at the window root) and, once text is larger than the default, rows and
 // page headers put their trailing control under the text when the two no longer fit side by side.
-// The pill keeps its sizes: its overflow goes to "N words · Review all", which opens the window.
+// The pill keeps its size; transcript overflow remains available through its native text viewport.
 
 public enum WindowReflow {
     /// Larger than the default size: rows may stack.

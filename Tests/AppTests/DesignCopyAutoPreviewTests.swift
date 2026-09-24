@@ -13,16 +13,16 @@ struct DesignCopyAutoPreviewTests {
         c.captureOpen = false
         let sample = DesignCopyParityTests.sample
 
-        let auto = FinalPreviewInfo(text: sample, dwellRemaining: 0.9, manual: false, destination: "Mail")
+        let auto = FinalPreviewInfo(text: sample, dwellRemaining: 0.6, manual: false, destination: "Mail")
         let preview = PillContent.make(.finalPreview(auto), context: c)
         let previewEntry = try #require(fixture["preview"])
         #expect(preview.designKey == "preview")
         #expect(preview.status == previewEntry.status)
-        #expect(preview.helper == "Final text · inserts after the preview")
+        #expect(preview.helper == "Final preview · hover to pause")
         #expect(previewEntry.strings.contains(preview.helper))
         #expect(preview.words.text == sample)
 
-        let autoReview = FinalPreviewInfo(text: sample, uncertainCount: 1, dwellRemaining: 1.8, manual: false,
+        let autoReview = FinalPreviewInfo(text: sample, uncertainCount: 1, dwellRemaining: 0.6, manual: false,
                                           destination: "Mail")
         let review = PillContent.make(.finalPreview(autoReview), context: c)
         let reviewEntry = try #require(fixture["uncertain"])

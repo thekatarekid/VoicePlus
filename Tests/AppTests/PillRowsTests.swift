@@ -278,7 +278,7 @@ struct PillRowsTests {
         #expect(model.state.caseName == "landedUnverified")
         model.perform(.dismiss)
         #expect(model.state == .hidden)
-        // Check text hands off (to Today) and takes the row down.
+        // Check destination hands off (to Today) and takes the row down.
         model.present(delivery: .partial(method: "paste"), text: "t", destination: "Docs")
         model.perform(.check)
         #expect(actions.last == .check)
@@ -308,29 +308,9 @@ struct PillRowsTests {
 
     // MARK: - Text lane
 
-    /// Forward wrapping keeps stable words where they are: adding words never reflows earlier lines.
-    @Test func theTextLaneKeepsAStablePrefixAndShowsTheNewestTwoLines() {
-        let measure: (String) -> CGFloat = { CGFloat($0.count) * 10 }
-        let short = PillTextLane.tail("can we meet with Mira", width: 120, maxLines: 2, measure: measure)
-        let long = PillTextLane.tail("can we meet with Mira on Friday at noon please", width: 120, maxLines: 2, measure: measure)
-        let allShort = PillTextLane.wrap("can we meet with Mira", width: 120, measure: measure)
-        let allLong = PillTextLane.wrap("can we meet with Mira on Friday at noon please", width: 120, measure: measure)
-        #expect(Array(allLong.prefix(allShort.count - 1)) == Array(allShort.dropLast()))
-        #expect(short.lines == allShort.suffix(2).map { $0 })
-        #expect(!short.clippedLeading || allShort.count > 2)
-        #expect(long.lines.count == 2)
-        #expect(long.clippedLeading)
-        #expect(long.lines.last?.hasSuffix("please") == true)
-        #expect(long.wordCount == 10)
-        // A word wider than the lane is never split.
-        #expect(PillTextLane.wrap("supercalifragilistic ok", width: 50, measure: measure) == ["supercalifragilistic", "ok"])
-        #expect(PillTextLane.reviewAllLabel(wordCount: 42) == "42 words · Review all")
-        #expect(PillTextLane.reviewAllLabel(wordCount: 1) == "1 word · Review all")
-    }
-
     // MARK: - Deixis chip
 
-    @Test func theDeixisChipLivesInTheTurnsTextLane() {
+    @Test func theDeixisChipLivesInTheTurnsHeader() {
         let model = PillViewModel()
         model.now = { Self.t0 }
         model.apply(.listening(level: 0.2))
@@ -343,6 +323,8 @@ struct PillRowsTests {
         #expect(model.turn.chipCount == 2)
         let lanes = PillLaneLayout(size: NotchGeometry.activeSize, hasChip: true, hasActions: false)
         #expect(lanes.chipRow != nil && !(lanes.chipRow!.intersects(lanes.bay)))
+        #expect(lanes.wordsLane.height == 48)
+        #expect(lanes.chipRow!.maxY < lanes.wordsLane.minY)
         // The turn ends: the chip goes with it.
         model.apply(.idle)
         #expect(model.deixisChips.isEmpty)

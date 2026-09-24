@@ -11,6 +11,12 @@ BUILD_NUMBER="${2:-$(date -u +%Y%m%d%H%M)}"
 PKG_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$PKG_DIR/.." && pwd)"
 SCRATCH="${SCRATCH_PATH:-$ROOT/.build-release}"
+CONFIG="${BUILD_CONFIGURATION:-release}"
+case "$CONFIG" in debug|release) ;; *) echo "Invalid BUILD_CONFIGURATION" >&2; exit 2 ;; esac
+if [ "${FULL_INSTALLER:-0}" = "1" ] && [ -z "${BUNDLE_MODELS_FROM:-}" ]; then
+  echo "FULL_INSTALLER requires BUNDLE_MODELS_FROM; refusing a model-free installer" >&2
+  exit 2
+fi
 OUT="${OUT_DIR:-$PKG_DIR/build}"
 APP="$OUT/VoicePlus.app"
 CONTENTS="$APP/Contents"
@@ -26,10 +32,10 @@ if [ -f Scripts/bootstrap-toolchain.sh ] && ! xcode-select -p 2>/dev/null | grep
   eval "$(Scripts/bootstrap-toolchain.sh)"
 fi
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  log "swift build -c release --product $PRODUCT (scratch: $SCRATCH)"
-  swift build -c release --product "$PRODUCT" --scratch-path "$SCRATCH" --disable-keychain
+  log "swift build -c "$CONFIG" --product $PRODUCT (scratch: $SCRATCH)"
+  swift build -c "$CONFIG" --product "$PRODUCT" --scratch-path "$SCRATCH" --disable-keychain
 fi
-BUILD_DIR="$(swift build -c release --product "$PRODUCT" --scratch-path "$SCRATCH" --show-bin-path)"
+BUILD_DIR="$(swift build -c "$CONFIG" --product "$PRODUCT" --scratch-path "$SCRATCH" --show-bin-path)"
 [ -x "$BUILD_DIR/$PRODUCT" ] || { echo "binary not found: $BUILD_DIR/$PRODUCT" >&2; exit 1; }
 
 # --- 2. Bundle skeleton -----------------------------------------------------
@@ -112,6 +118,13 @@ for b in "$BUILD_DIR"/*.bundle; do
   log "resource bundle: $(basename "$b")"
   cp -R "$b" "$CONTENTS/Resources/"
 done
+
+# Full installer: a validated default stack makes first-run recognition available offline.
+# Explicit opt-in preserves lightweight developer builds; the release gate supplies this source.
+if [ -n "${BUNDLE_MODELS_FROM:-}" ]; then
+  log "bundling verified default speech models"
+  python3 "$PKG_DIR/bundle_models.py" "$BUNDLE_MODELS_FROM" "$CONTENTS/Resources/Models"
+fi
 
 # --- 4. Dynamic libraries / frameworks the binary links ---------------------
 # Anything under the build dir (or a binary xcframework artifact) referenced via @rpath.
@@ -260,14 +273,14 @@ if [ -z "$IDENTITY" ] && security find-identity -v -p codesigning 2>/dev/null | 
   log "found a valid code-signing identity in the keychain: $CERT_NAME"
 fi
 DR_ARGS=()
-if [ -n "$IDENTITY" ]; then
+if [ -n "$IDENTITY" ] && [ "$IDENTITY" != "-" ]; then
   # codesign derives `identifier … and certificate leaf …` on its own; do not
   # override it with something weaker.
   log "codesign identity: $IDENTITY (certificate leaf -> TCC grants survive rebuilds)"
 else
   IDENTITY="-"
   DR_ARGS=(-r "=designated => identifier \"$SIGN_ID\"")
-  log "codesign identity: ad-hoc (no \"$CERT_NAME\" in the keychain)"
+  log "codesign identity: ad-hoc (explicitly selected or no matching certificate)"
   log "  pinning an explicit designated requirement: identifier \"$SIGN_ID\""
   log "  run Packaging/make_signing_cert.sh for the stronger certificate-backed identity"
 fi

@@ -55,9 +55,7 @@ public enum PillActionEffect: Equatable, Sendable {
     case cancelFinishing
     /// "Use available text" on the 10 s finishing offer.
     case useAvailableText
-    /// "Review all": pause the dwell for review; the row turns into review mode (Insert text / Cancel).
-    case pauseForReview
-    /// "Finish" on the latched row: stop the latch and finish like a key tap.
+    /// "Finish dictation" on the latched row: stop the latch and finish like a key tap.
     case finishLatch
     /// "Undo" on the undo row (R2): range-safe undo, the turn controller's.
     case undo
@@ -65,7 +63,7 @@ public enum PillActionEffect: Equatable, Sendable {
     case unmute
     /// Copy this row's text to the clipboard (E0 "Copy text").
     case copy(String)
-    /// Open a window destination: Today's turn detail (Check text, Review result, Review text, Review
+    /// Open a window destination: Today's turn detail (Check destination, Review inserted text, Review text, Review
     /// word), Voice (Check microphone, Choose microphone), Models, Privacy (Review permissions), Meetings.
     case open(PillDestinationScreen)
     /// "Stop" on the meeting row.
@@ -76,7 +74,7 @@ public enum PillActionEffect: Equatable, Sendable {
     /// root carries out the rest.
     public var isTurnEffect: Bool {
         switch self {
-        case .insertNow, .cancelPreview, .cancelFinishing, .useAvailableText, .pauseForReview, .undo, .finishLatch:
+        case .insertNow, .cancelPreview, .cancelFinishing, .useAvailableText, .undo, .finishLatch:
             return true
         case .unmute, .copy, .open, .stopMeeting, .none:
             return false
@@ -96,7 +94,6 @@ public enum PillActionRoute {
             if case .finalPreview = shown { return .cancelPreview }
             return .cancelFinishing
         case .useAvailable: return .useAvailableText
-        case .reviewAll: return .pauseForReview
         case .finish: return .finishLatch
         case .undo: return .undo
         case .unmute: return .unmute
@@ -107,7 +104,7 @@ public enum PillActionRoute {
         case .permissions: return .open(.privacy)
         case .meeting, .pause, .resume: return .open(.meetings)
         case .stop: return .stopMeeting
-        case .insert, .discard, .dismiss: return .none
+        case .insert, .discard, .dismiss, .editDraft, .doneEditing, .cancelEditing: return .none
         }
     }
 }
@@ -156,7 +153,7 @@ public final class PillViewModel: ObservableObject {
     public var onGhostAction: ((TransformGhost.Action) -> Void)?
     /// R2.4 — Insert here / Copy / Discard from the held row.
     public var onHeldAction: ((HeldPillInfo, HeldAction) -> Void)?
-    /// S2 — every other pill button (Finish, Insert text, Cancel, Check text, Unmute, Open Models…).
+    /// S2 — every other pill button (Finish dictation, Insert now, Cancel, Check destination, Unmute, Open Models…).
     /// Dismiss and the held actions are handled here; everything else goes to the composition root / S3.
     public var onAction: ((PillActionKind, PillState) -> Void)?
     /// S2 — hover entered / left the pill (S3 freezes the preview dwell while inside).
@@ -173,6 +170,8 @@ public final class PillViewModel: ObservableObject {
     public var keyLabel: () -> String = { HotkeyBinding.default.label }
     /// The destination's display name at key-down ("Mail"); asked once per turn.
     public var destinationProvider: (() -> String?)?
+    /// Menu capture has no held key whose release could finish the turn.
+    public var requiresExplicitCaptureFinish: () -> Bool = { false }
 
     private var reducer = PillStateReducer()
     /// S5b — every write to `state` goes through `route(_:)`; nothing sets it directly.
@@ -184,6 +183,7 @@ public final class PillViewModel: ObservableObject {
     private var drawnSpoolKey = ""
     /// Injectable clock so tests can drive dwell without sleeping.
     public var now: () -> Date = Date.init
+    var deliveryReduceMotion: () -> Bool = { AppearanceSettings.effectiveReduceMotion(UserDefaultsSettingsStore()) }
     private var cancellables: Set<AnyCancellable> = []
     private var lastCapturedLevel: Date?
     private var capturedLevelsAreLive: Bool {
@@ -336,8 +336,6 @@ public final class PillViewModel: ObservableObject {
     private var markCache: MarkMapping?
     /// A dotted word was clicked or activated: its mark, the turn's marks, the word's screen rect.
     public var onReviewMark: ((UncertainMark, MarkMapping, CGRect?) -> Void)?
-    /// "Review all" opened the Review surface for the final text.
-    public var onReviewAll: ((MarkMapping) -> Void)?
 
     /// Where the marks go in `text` (the final payload on screen). Nothing for a text the spans did not
     /// produce (another turn's words, a notice): `UncertaintyMarkMapper.belongs`.
@@ -360,6 +358,13 @@ public final class PillViewModel: ObservableObject {
 
     /// A dotted word was clicked (or activated from the keyboard / VoiceOver).
     public func reviewMark(_ id: Int, anchor: CGRect? = nil) {
+        switch state {
+        case .finalPreview, .held, .error:
+            guard markMapping(for: actionText).mark(id: id) != nil else { return }
+            beginEditingMark(id)
+            return
+        default: break
+        }
         let mapping = marks(for: content().words)
         guard let mark = mapping.mark(id: id) else { return }
         onReviewMark?(mark, mapping, anchor)
@@ -371,8 +376,144 @@ public final class PillViewModel: ObservableObject {
         resolvedMarks.formUnion(ids)
     }
 
-    /// The Review surface closed: the row leaves review mode (the dwell resumes, design §5 / F2).
-    public func endReview() { turn.reviewing = false }
+    // MARK: V3 in-notch editing
+
+    @Published public private(set) var isEditingDraft = false
+    @Published public var draftText = "" {
+        didSet {
+            guard isEditingDraft else { return }
+            onDraftPause?(.emptyDraft, draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+    @Published public private(set) var editingMarkID: Int?
+    @Published public private(set) var hasMarkedText = false
+    public var onDraftPause: ((DwellPause, Bool) -> Void)?
+    public var onApplyDraft: ((String, MarkMapping, [TranscriptSpan]) -> Bool)?
+    public var onLearnDraft: ((String, String) -> Void)?
+    public var onApplyRetainedDraft: ((PillState, String, String, MarkMapping) -> Bool)?
+    public var onHeldDraftApplied: ((UUID, String) -> Void)?
+    private var originalDraft = ""
+    private var originalMapping = MarkMapping.empty
+    private var mouseFocusedElements: Set<String> = []
+    private var destinationEdit: ((String) -> Bool)?
+
+    public func suggestion(for mark: UncertainMark) -> String? {
+        mark.alternatives.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0 != mark.text }
+    }
+
+    /// Review a landed word in the same notch editor. The callback owns target/range validation.
+    public func beginDestinationEditing(_ mark: UncertainMark, apply: @escaping (String) -> Bool) {
+        present(.correcting)
+        turn.liveText = mark.text
+        originalDraft = mark.text
+        var local = mark
+        local.range = 0..<mark.text.utf16.count
+        originalMapping = MarkMapping(text: mark.text, marks: [local], confidenceAvailable: true)
+        markCache = originalMapping
+        payloadText = mark.text
+        draftText = mark.text
+        destinationEdit = apply
+        editingMarkID = mark.id
+        isEditingDraft = true
+    }
+
+    public func beginEditingDraft() {
+        guard !isEditingDraft, !actionText.isEmpty else { return }
+        switch state {
+        case .finalPreview, .held, .error: break
+        default: return
+        }
+        // A separate edit guard also blocks direct controller Insert requests from older controls.
+        onDraftPause?(.editing, true)
+        onDraftPause?(.review, true)
+        originalDraft = actionText
+        originalMapping = markMapping(for: originalDraft)
+        draftText = originalDraft
+        isEditingDraft = true
+    }
+
+    public func beginEditingMark(_ id: Int) {
+        beginEditingDraft()
+        guard isEditingDraft, originalMapping.mark(id: id) != nil else { return }
+        editingMarkID = id
+    }
+
+    @discardableResult
+    public func applyDraftEdits() -> Bool {
+        guard isEditingDraft else { return true }
+        guard !hasMarkedText, !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let edited = draftText
+        if edited != originalDraft {
+            var mapping = DraftRevision.mapping(originalMapping, edited: edited)
+            let spans = DraftRevision.spans(for: mapping, source: finalSpans)
+            mapping = DraftRevision.indexing(mapping, spans: spans)
+            switch state {
+            case .finalPreview:
+                guard onApplyDraft?(edited, mapping, spans) ?? false else { return false }
+            case .held(var info):
+                guard onApplyRetainedDraft?(state, originalDraft, edited, mapping) ?? false else { return false }
+                info.text = edited
+                onHeldDraftApplied?(info.id, edited)
+                route(.held(info))
+            case .correcting:
+                guard destinationEdit?(edited) ?? false else { return false }
+            case .error:
+                guard onApplyRetainedDraft?(state, originalDraft, edited, mapping) ?? false else { return false }
+                turn.liveText = edited
+            default: return false
+            }
+            finalSpans = spans
+            payloadText = edited
+            resolvedMarks = []
+            markCache = mapping
+            turn.uncertainCount = mapping.count
+            turn.needsPhraseReview = mapping.needsPhraseReview
+            onLearnDraft?(originalDraft, edited)
+        }
+        let wasDestination = destinationEdit != nil
+        finishDraftEditing()
+        if wasDestination { hide() }
+        return true
+    }
+
+    public func cancelDraftEdits() {
+        guard isEditingDraft else { return }
+        draftText = originalDraft
+        let wasDestination = destinationEdit != nil
+        finishDraftEditing()
+        if wasDestination { hide() }
+    }
+
+    private func finishDraftEditing() {
+        isEditingDraft = false
+        destinationEdit = nil
+        editingMarkID = nil
+        hasMarkedText = false
+        onDraftPause?(.composition, false)
+        onDraftPause?(.emptyDraft, false)
+        onDraftPause?(.review, false)
+        onDraftPause?(.editing, false)
+    }
+
+    public func setCompositionActive(_ active: Bool) {
+        let wasComposing = hasMarkedText
+        hasMarkedText = active
+        onDraftPause?(.composition, active)
+        if wasComposing, !active, !pointerInside, !focusInside, isEditingDraft { _ = applyDraftEdits() }
+    }
+
+    public func acceptSuggestion(markID: Int, replacement: String) {
+        switch state {
+        case .finalPreview, .held, .error: break
+        default: return
+        }
+        guard !isEditingDraft, !hasMarkedText,
+              let mark = markMapping(for: actionText).mark(id: markID),
+              mark.alternatives.contains(replacement) else { return }
+        beginEditingDraft()
+        draftText = (originalDraft as NSString).replacingCharacters(in: NSRange(mark.range), with: replacement)
+        _ = applyDraftEdits()
+    }
 
     /// G3 → S2 — the boxes drawn this turn, with their crops.
     public func showDeixis(_ regions: [DeixisRegion], image: (DeixisRegion) -> CGImage?) {
@@ -386,24 +527,73 @@ public final class PillViewModel: ObservableObject {
     public func setPointerInside(_ inside: Bool) {
         guard inside != pointerInside else { return }
         pointerInside = inside
+        if !inside {
+            _ = applyDraftEdits()
+            focusedElements.subtract(mouseFocusedElements)
+            mouseFocusedElements.removeAll()
+            let focused = !focusedElements.isEmpty
+            if focused != focusInside { focusInside = focused; onKeyboardFocusChange?(focused) }
+        }
         onPointerInsideChange?(inside)
     }
 
     /// One piece of the pill (`element`) gained or lost keyboard / VoiceOver focus. The pill is
     /// focused while any piece is; `onKeyboardFocusChange` fires only when that changes.
-    public func setFocus(_ focused: Bool, element: String = "pill") {
-        if focused { focusedElements.insert(element) } else { focusedElements.remove(element) }
+    public func noteKeyboardInteraction(element: String = "draft.editor") {
+        mouseFocusedElements.removeAll()
+        if !pointerInside { setFocus(true, element: element) }
+    }
+
+    public func setFocus(_ focused: Bool, element: String = "pill", tracksPointer: Bool = true) {
+        if focused {
+            focusedElements.insert(element)
+            let event = NSApp?.currentEvent?.type
+            if tracksPointer && pointerInside && event != .keyDown && event != .keyUp {
+                mouseFocusedElements.insert(element)
+            } else {
+                mouseFocusedElements.remove(element)
+            }
+        } else {
+            focusedElements.remove(element)
+            mouseFocusedElements.remove(element)
+        }
         let inside = !focusedElements.isEmpty
         guard inside != focusInside else { return }
         focusInside = inside
         onKeyboardFocusChange?(inside)
+        if !inside, !pointerInside, isEditingDraft {
+            // A Tab move can report old-focus loss before the next notch control gains focus.
+            // Apply only after the aggregate focus has actually left the notch.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.focusInside, !self.pointerInside, self.isEditingDraft else { return }
+                _ = self.applyDraftEdits()
+            }
+        }
     }
 
     // MARK: Content
 
     /// The rendered pill for the current state at `date`.
     public func content(at date: Date? = nil) -> PillContent {
-        PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)   // W3H
+        var result = PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)
+        if requiresExplicitCaptureFinish(), MenuCapturePillWiring.canFinish(state, captureOpen: turn.captureOpen) {
+            result.helper = "Click Finish to stop dictation"
+            if !result.buttons.contains(where: { $0.action == .finish }) {
+                result.buttons.insert(PillButton("Finish", .finish), at: 0)
+            }
+        }
+        if !isEditingDraft, !actionText.isEmpty {
+            switch state {
+            case .held, .error: result.buttons.insert(PillButton("Edit draft", .editDraft), at: 0)
+            default: break
+            }
+        }
+        if isEditingDraft {
+            result.buttons = [PillButton("Done", .doneEditing), PillButton("Cancel edits", .cancelEditing)]
+            if destinationEdit != nil, laneNote != nil { result.buttons.append(PillButton("Copy correction", .copy)) }
+            result.helper = hasMarkedText ? "Finish typing before inserting" : "Done or ⌘Return applies edits"
+        }
+        return result
     }
 
     func context(at date: Date? = nil) -> PillTurnContext {
@@ -416,6 +606,7 @@ public final class PillViewModel: ObservableObject {
 
     /// The text a Copy / Review action on the current row acts on.
     public var actionText: String {
+        if isEditingDraft { return draftText }
         switch state {
         case .held(let info): return info.text
         case .landed(let info): return info.text
@@ -429,6 +620,13 @@ public final class PillViewModel: ObservableObject {
 
     /// A pill button was pressed.
     public func perform(_ action: PillActionKind) {
+        switch action {
+        case .editDraft: beginEditingDraft(); return
+        case .doneEditing: _ = applyDraftEdits(); return
+        case .cancelEditing: cancelDraftEdits(); return
+        case .commit, .insert: guard applyDraftEdits(), !hasMarkedText else { return }
+        default: break
+        }
         let shown = state
         if case .held(let info) = shown, let held = action.heldAction {
             onHeldAction?(info, held)
@@ -441,13 +639,6 @@ public final class PillViewModel: ObservableObject {
         switch action {
         case .dismiss:
             dismissNotice()
-        case .reviewAll:
-            // Opening Review pauses auto-insertion (design §4, §5); the row shows Insert text / Cancel
-            // so a paused payload is never stranded.
-            turn.reviewing = true
-            onAction?(action, shown)
-            // S5 — the Review surface: the whole final text with its marks.
-            if case .finalPreview(let info) = shown { onReviewAll?(markMapping(for: info.text)) }
         default:
             onAction?(action, shown)
             // A row the user acted on comes down; the handler has taken the next step.
@@ -466,6 +657,12 @@ public final class PillViewModel: ObservableObject {
     public func retractDelivery(immediately: Bool = false) {
         deliveryTimer?.invalidate()
         deliveryTimer = nil
+        if !immediately, presenter.hasFiniteFlightHold, case .landed(let info) = state, info.verified,
+           let release = presenter.releaseTime(), release > now() {
+            // Includes latched delivery: returning to the live row must not remove the source early.
+            scheduleDeliveryRetraction(after: release.timeIntervalSince(now()))
+            return
+        }
         switch state {
         case .landed, .held, .error, .landedPartial, .unavailable, .muted, .cancelled, .undoAvailable, .preview:
             if case .preview = state, turn.captureOpen { return }
@@ -491,7 +688,8 @@ public final class PillViewModel: ObservableObject {
             deliveryTimer = nil
             return
         }
-        scheduleDeliveryRetraction(after: dwell)
+        let remaining = presenter.releaseTime()?.timeIntervalSince(now()) ?? dwell
+        scheduleDeliveryRetraction(after: max(dwell, remaining))
     }
 
     private func scheduleDeliveryRetraction(after dwell: TimeInterval) {
@@ -513,7 +711,10 @@ public final class PillViewModel: ObservableObject {
         // Unmute (`dismissNotice`): the cancellation the mute itself triggers, a late notice or a stray
         // engine tick never replaces it.
         if case .muted = state, next.isVisible, next != .muted { return }
-        apply(decision: presenter.request(next, now: now()))
+        let reduced: Bool
+        if case .landed(let info) = next, info.verified { reduced = deliveryReduceMotion() }
+        else { reduced = false }
+        apply(decision: presenter.request(next, now: now(), reducedMotion: reduced))
     }
 
     /// Test seam and timer callback: let a held retraction through once its deadline has passed.
@@ -537,6 +738,10 @@ public final class PillViewModel: ObservableObject {
 
     /// Keeps the turn context in step with what is drawn.
     private func noteTransition(to next: PillState) {
+        switch next {
+        case .finalPreview, .held, .error, .correcting: break
+        default: if isEditingDraft { finishDraftEditing() }
+        }
         let t = now()
         switch next {
         case .hidden:
@@ -675,7 +880,6 @@ public struct PillView: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .onHover { model.setPointerInside($0) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(PillSpeech.containerLabel(content))   // S10: never live words or the ticking timer
         .accessibilityIdentifier("pill.\(model.state.caseName)")
@@ -690,7 +894,7 @@ struct PillHintView: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 12, weight: .regular))
             .foregroundStyle(Tokens.Pill.Token.ink.color)
             .lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -721,7 +925,8 @@ struct PillBody: View {
 
     var body: some View {
         let lanes = self.lanes
-        let lines = wordLines(width: lanes.wordsLane.width, maxLines: lanes.lineCount)
+        let footerSpacing = PillFooterSpacing(labels: content.buttons.map(\.label), helper: content.helper,
+                                               width: lanes.helperRow.width)
         ZStack(alignment: .topLeading) {
             UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
                 .fill(Tokens.Pill.Token.background.color)
@@ -737,14 +942,17 @@ struct PillBody: View {
                 PillTransformLane(model: transform).place(lanes.wordsLane)   // W3H: S12 before / after
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             } else {
-                PillWordsLane(lines: lines, words: content.words, marks: model.marks(for: content.words),   // S5
-                              onReview: { model.reviewMark($0, anchor: $1) },
-                              onFocus: { model.setFocus($0, element: $1) })   // S3: focus pauses the dwell
-                    .place(lanes.wordsLane)
-                    .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
+                PillTranscriptView(model: model, words: content.words, marks: model.marks(for: content.words))
+                    .place(CGRect(x: lanes.wordsLane.minX, y: lanes.wordsLane.minY,
+                                  width: lanes.wordsLane.width + 20, height: lanes.wordsLane.height))
+                    .accessibilitySortPriority(PillReadingOrder.priority(.words))
             }
             if let chipRow = lanes.chipRow {
-                PillChipRow(chips: model.deixisChips, note: model.laneNote).place(chipRow)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    PillChipRow(chips: model.deixisChips, note: model.laneNote)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                    .place(chipRow)
                     .accessibilitySortPriority(PillReadingOrder.priority(.chips))   // S10
             }
             if let key = SpoolStateKey(rawValue: content.spoolKey), motion.policy.showsLevelReadout(for: key) {
@@ -752,14 +960,26 @@ struct PillBody: View {
                 PillLevelReadout(level: model.captureLevel).place(LevelReadout.rect(in: lanes))
                     .accessibilitySortPriority(PillReadingOrder.priority(.levelReadout))
             }
-            helperRow(overflow: overflowLabel(lines)).place(lanes.helperRow)
-                .accessibilitySortPriority(PillReadingOrder.priority(.helper))   // S10
-            if let actionRow = lanes.actionRow {
-                PillActionRow(buttons: content.buttons, perform: { model.perform($0) },
-                              onFocus: { model.setFocus($0, element: $1) })   // S3: focus pauses the dwell
-                    .place(actionRow)
-                    .accessibilitySortPriority(PillReadingOrder.priority(.actions))   // S10
+            HStack(alignment: .bottom, spacing: footerSpacing.helperGap) {
+                if content.hasActions {
+                    PillActionRow(buttons: content.buttons, perform: { model.perform($0) },
+                                  onFocus: { model.setFocus($0, element: $1) },
+                                  onAccessibilityFocus: { model.setFocus($0, element: $1, tracksPointer: false) },
+                                  spacing: footerSpacing)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilitySortPriority(PillReadingOrder.priority(.actions))
+                }
+                Text(content.helper)
+                    .font(Tokens.Typography.pillStatus.font())
+                    .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .bottomTrailing)
+                    .accessibilityIdentifier("pill.helper")
+                    .accessibilitySortPriority(PillReadingOrder.priority(.helper))
             }
+            .frame(height: PillLaneLayout.helperHeight, alignment: .bottom)
+            .place(lanes.helperRow)
         }
         .clipShape(UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached)))
         .animation(motion.policy.transition, value: content.designKey)   // S10: none under Reduce Motion
@@ -769,7 +989,7 @@ struct PillBody: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(content.status)
                 .font(Tokens.Typography.pillStatus.font())
-                .foregroundStyle(content.tone == .warn ? Tokens.Pill.Token.attention.color : Tokens.Pill.Token.secondaryInk.color)
+                .foregroundStyle(content.tone == .warn ? Color(nsColor: Tokens.Pill.statusAttention) : (content.designKey == "inserted" ? Color(nsColor: Tokens.Pill.statusVerified) : Tokens.Pill.Token.secondaryInk.color))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .accessibilityIdentifier("pill.status")
@@ -790,46 +1010,6 @@ struct PillBody: View {
         }
     }
 
-    private func helperRow(overflow: String?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(content.helper)
-                .font(Tokens.Typography.pillStatus.font())
-                .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityIdentifier("pill.helper")
-            Spacer(minLength: 4)
-            if content.escapeHint {
-                HStack(spacing: 4) {
-                    PillKeyCap(label: "Esc")
-                    Text("· cancel").font(Tokens.Typography.pillStatus.font())
-                }
-                .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)
-                .accessibilityLabel(PillDeck.escapeHint)
-            } else if let overflow {
-                Button(overflow) { model.perform(.reviewAll) }
-                    .buttonStyle(.plain)
-                    .font(Tokens.Typography.pillStatus.font())
-                    .foregroundStyle(Tokens.Pill.Token.ink.color)
-                    .accessibilityIdentifier("pill.action.reviewAll")
-            }
-        }
-    }
-
-    /// The text lane's lines, broken in the real font at the lane width.
-    private func wordLines(width: CGFloat, maxLines: Int) -> PillTextLane.Lines? {
-        guard let text = content.words.text, !text.isEmpty else { return nil }
-        let font = Tokens.Typography.pillTranscript.nsFont()
-        return PillTextLane.tail(text, width: width, maxLines: maxLines) { s in
-            ceil((s as NSString).size(withAttributes: [.font: font]).width)
-        }
-    }
-
-    /// "42 words · Review all" when the final payload does not fit its two lines.
-    private func overflowLabel(_ lines: PillTextLane.Lines?) -> String? {
-        guard case .final = content.words, let lines, lines.clippedLeading else { return nil }
-        return PillTextLane.reviewAllLabel(wordCount: lines.wordCount)
-    }
 }
 
 extension PillContent.Trailing {
@@ -842,83 +1022,6 @@ private extension View {
         frame(width: rect.width, height: rect.height, alignment: .topLeading)
             .padding(.leading, rect.minX)
             .padding(.top, rect.minY)
-    }
-}
-
-/// The text lane: natural-language words, the newest lines only, a leading fade when earlier lines
-/// scrolled away, and a 2 px dotted underline 3 px below the baseline on every wrapped fragment of an
-/// uncertain word or phrase. S5: the marks come from `MarkMapping` (spans aligned through formatting),
-/// placed on whole grapheme clusters (S10), and each opens word review on click or from VoiceOver.
-struct PillWordsLane: View {
-    let lines: PillTextLane.Lines?
-    let words: PillContent.Words
-    /// S5 — the final text's marks (`PillViewModel.marks(for:)`); empty for live or fixed words.
-    var marks: MarkMapping = .empty
-    var onReview: (Int, CGRect?) -> Void = { _, _ in }
-    /// S3 — keyboard / VoiceOver focus on a line or an uncertain word (`PillFocusReport`).
-    var onFocus: ((Bool, String) -> Void)? = nil
-
-    var body: some View {
-        let fragments = markFragments
-        VStack(alignment: .leading, spacing: 0) {
-            if let lines {
-                ForEach(Array(lines.lines.enumerated()), id: \.offset) { index, line in
-                    let onLine = fragments.filter { $0.line == index }
-                    ZStack(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline)) {
-                        Text(line)
-                            .font(Tokens.Typography.pillTranscript.font())
-                            .foregroundStyle(ink)
-                            .lineLimit(1)
-                            .truncationMode(.head)
-                            .pillFocusReport("words.line.\(index)", onFocus)
-                        if !onLine.isEmpty {
-                            PillMarkUnderlines(fragments: onLine)
-                                .alignmentGuide(.firstTextBaseline) { _ in -MarkStyle.baselineOffset }
-                        }
-                    }
-                    .frame(height: PillLaneLayout.lineHeight, alignment: .leading)
-                    .overlay(alignment: .topLeading) { targets(onLine) }
-                    .mask(fadeMask(first: index == 0 && lines.clippedLeading))
-                }
-            }
-        }
-        .accessibilityIdentifier("pill.words")
-    }
-
-    /// The marks' pieces on the drawn lines, measured in the lane's font.
-    private var markFragments: [MarkFragment] {
-        guard case .final(let text) = words, let lines, !marks.isEmpty else { return [] }
-        let font = Tokens.Typography.pillTranscript.nsFont()
-        return MarkFragments.layout(text: text, lines: lines.lines, marks: marks.marks) { s in
-            ceil((s as NSString).size(withAttributes: [.font: font]).width)
-        }
-    }
-
-    @ViewBuilder
-    private func targets(_ fragments: [MarkFragment]) -> some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(Array(fragments.enumerated()), id: \.offset) { _, fragment in
-                if let mark = marks.mark(id: fragment.markID) {
-                    PillMarkTarget(mark: mark, width: fragment.width, height: PillLaneLayout.lineHeight) { rect in
-                        onReview(mark.id, rect)
-                    }
-                    .pillFocusReport("words.mark.\(mark.id).\(fragment.line)", onFocus)
-                    .offset(x: fragment.x)
-                }
-            }
-        }
-    }
-
-    private var ink: Color {
-        if case .fixed = words { return Tokens.Pill.Token.secondaryInk.color }
-        return Tokens.Pill.Token.ink.color
-    }
-
-    private func fadeMask(first: Bool) -> some View {
-        LinearGradient(stops: first
-                        ? [.init(color: .clear, location: 0), .init(color: .black, location: 0.18)]
-                        : [.init(color: .black, location: 0), .init(color: .black, location: 1)],
-                       startPoint: .leading, endPoint: .trailing)
     }
 }
 
@@ -964,6 +1067,35 @@ struct PillChipRow: View {
     }
 }
 
+/// Tighten horizontal chrome only when the helper would otherwise exceed two lines.
+struct PillFooterSpacing {
+    var buttonPadding: CGFloat = 10
+    var buttonGap: CGFloat = 6
+    var helperGap: CGFloat = 12
+
+    init() {}
+    init(labels: [String], helper: String, width: CGFloat) {
+        guard !labels.isEmpty else { return }
+        let words = helper.split(whereSeparator: \.isWhitespace).map(String.init)
+        let helperWidth = (1..<max(1, words.count)).map { split in
+            max(Self.textWidth(words[..<split].joined(separator: " ")),
+                Self.textWidth(words[split...].joined(separator: " ")))
+        }.min() ?? Self.textWidth(helper)
+        if actionWidth(labels) + helperGap + helperWidth + 2 > width {
+            buttonPadding = 6
+            buttonGap = 4
+            helperGap = 8
+        }
+    }
+    func actionWidth(_ labels: [String]) -> CGFloat {
+        labels.reduce(0) { $0 + Self.textWidth($1) + 2 * buttonPadding }
+            + CGFloat(max(0, labels.count - 1)) * buttonGap
+    }
+    private static func textWidth(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: Tokens.Typography.pillStatus.nsFont()]).width)
+    }
+}
+
 /// The full-width action row (204 pt states): primary filled, the rest outlined; labelled, never
 /// icon-only (design §11).
 struct PillActionRow: View {
@@ -971,29 +1103,31 @@ struct PillActionRow: View {
     let perform: (PillActionKind) -> Void
     /// S3 — keyboard / VoiceOver focus on a button (`PillFocusReport`): it pauses the preview dwell.
     var onFocus: ((Bool, String) -> Void)? = nil
+    var onAccessibilityFocus: ((Bool, String) -> Void)? = nil
+    var spacing = PillFooterSpacing()
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: spacing.buttonGap) {
             ForEach(buttons) { button in
-                Button { perform(button.action) } label: {
-                    Text(button.label)
-                        .font(Tokens.Typography.pillStatus.font())
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: Tokens.ControlSize.compactMinimumHeight)
-                        .foregroundStyle(button.primary ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
-                        .background(RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                            .fill(button.primary ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color))
-                        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                            .strokeBorder(button.primary ? Color.clear : Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+                let quiet = button.action == .discard || button.action == .dismiss
+                Text(button.label)
+                    .font(Tokens.Typography.pillStatus.font())
+                    .padding(.horizontal, spacing.buttonPadding)
+                    .frame(minHeight: 30)
+                    .foregroundStyle(button.primary ? Tokens.Pill.Token.onPrimary.color : Tokens.Pill.Token.ink.color)
+                    .background(RoundedRectangle(cornerRadius: Tokens.Radius.control)
+                        .fill(quiet ? Color.clear : (button.primary ? Tokens.Pill.Token.primary.color : Tokens.Pill.Token.control.color)))
+                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.control)
+                        .strokeBorder(button.primary || quiet ? Color.clear : Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+                .accessibilityHidden(true)
+                .overlay {
+                    PillActionButton(button: button, perform: perform, onFocus: onFocus)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(button.identifier)
-                .pillFocusReport("action.\(button.identifier)", onFocus)
+                .modifier(PillActionAccessibilityFocus(element: "voiceOver.\(button.identifier)", report: onAccessibilityFocus))
                 // S10 — reading order: left to right, the primary recovery first as drawn.
                 .accessibilitySortPriority(PillReadingOrder.actionPriority(index: buttons.firstIndex(of: button) ?? 0,
                                                                            count: buttons.count))
             }
-            Spacer(minLength: 0)
         }
         .accessibilityElement(children: .contain)   // S10
     }
@@ -1049,7 +1183,7 @@ extension PillViewModel {
 extension PillContent {
     /// The transform's own status, words, helper and buttons (S12 `TransformPreviewRows`) in place of
     /// the reducer's one-line summary ("Preview · removed → added"). The words are drawn live-styled:
-    /// an edit carries no confidence marks and no "Review all". Nil rows change nothing.
+    /// an edit carries no confidence marks. Nil rows change nothing.
     public func drawingTransform(_ rows: TransformPreviewRows?) -> PillContent {
         guard let rows else { return self }
         var content = self

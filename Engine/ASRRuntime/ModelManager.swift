@@ -180,6 +180,9 @@ public actor ModelManager {
     static let coreMLLoader: ModelLoader = { id, descriptor, url in
         switch descriptor.kind {
         case .finalTDT:
+            if id == .parakeetTDTv3 {
+                return .tdt(try await LocalTDTModels.loadV3(from: url))
+            }
             let version: AsrModelVersion = (id == .parakeetTDTCTC110m) ? .tdtCtc110m : .v3
             return .tdt(try await AsrModels.load(from: url, version: version))
         case .streamingEOU:
@@ -197,12 +200,16 @@ public actor ModelManager {
         // FluidAudio's own `Repo.folderName` first in each list: that is the folder its loaders
         // resolve to, so borrowing *that* one costs no download either. The `-coreml` spellings stay
         // as a fallback for caches written by older upstream tools.
-        return [
+        var caches: [ModelID: [URL]] = [
             .parakeetTDTv3: [fa.appendingPathComponent("parakeet-tdt-0.6b-v3"), fa.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")],
             .parakeetTDTCTC110m: [fa.appendingPathComponent("parakeet-tdt-ctc-110m"), fa.appendingPathComponent("parakeet-tdt-ctc-110m-coreml")],
             .parakeetEOU160: [fa.appendingPathComponent("parakeet-eou-streaming/160ms"),
                               fa.appendingPathComponent("parakeet-realtime-eou-120m-coreml/160ms")],
         ]
+        for (id, folder) in BundledModelResources.candidates() {
+            caches[id, default: []].insert(folder, at: 0)
+        }
+        return caches
     }
 
     /// Where we store `id`. Not `<root>/<id.rawValue>`: the folder name has to be the one FluidAudio

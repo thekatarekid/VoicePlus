@@ -451,7 +451,7 @@ struct ProvidersSettingsPage: View {
 
     var body: some View {
         let state = ProvidersPage.state(hasKey: credentials.hasAnyKey, discovered: models.connectedProviders,
-                                        connectorsSignedIn: connectors.anySignedIn, exploring: exploring, hotkey: hotkey)
+                                        connectorsSignedIn: connectors.anySignedIn, exploring: exploring || credentials.hasStorageFailure, hotkey: hotkey)
         SectionPage(.settings(.providers), state: state, onStateAction: { exploring = true }, hotkey: hotkey) {
             VStack(alignment: .leading, spacing: MainWindowLayout.sectionGap) {
                 GroupBox(ProvidersCopy.routeTitle, layout: .rows) {
@@ -493,7 +493,10 @@ struct ProvidersSettingsPage: View {
         let status = credentials.status(service)
         RowView(service.name, detail: status.line) {
             HStack(spacing: Tokens.Spacing.s) {
-                if status.hasKey {
+                if status == .storageUnavailable {
+                    Button(ProvidersCopy.checkStorage) { credentials.reload() }
+                        .accessibilityIdentifier("settings.provider.\(service.id).retryStorage")
+                } else if status.hasKey {
                     if status == .reachable { StatusTag(ProvidersCopy.connected, kind: .good) }
                     Button(ProvidersCopy.test) { Task { await credentials.test(service) } }
                         .disabled(status == .testing)
@@ -615,17 +618,17 @@ enum SettingsCopy {
     static let previewTitle = "Final preview"
     static let previewDetail = "Shown before the first insertion attempt."
     /// The prototype's `<select>` order: 900 ms · default, 600 ms, 1500 ms, Manual review.
-    static let dwellOrder: [PreviewDwell] = [.standard, .short, .long, .manual]
+    static let dwellOrder: [PreviewDwell] = [.standard, .long, .manual]
     static func dwellTitle(_ dwell: PreviewDwell) -> String {
         switch dwell {
-        case .standard: return "900 ms · default"
+        case .standard: return "600 ms · default"
         case .short: return "600 ms"
-        case .long: return "1500 ms"
+        case .long: return "1200 ms"
         case .manual: return "Manual review"
         }
     }
     static let lowConfidenceTitle = "Low-confidence preview"
-    static let lowConfidenceDetail = "At least 1800 ms; hover pauses it."
+    static let lowConfidenceDetail = "Same preview delay for every transcript; hover pauses it."
     static let reviewable = "Reviewable"
     static let soundCuesTitle = "Sound cues"
     static let soundCuesDetail = "Subtle start and stop feedback. No success sound until an insertion is verified."
@@ -684,7 +687,7 @@ enum SettingsCopy {
         "Spool and the pill stop moving and still show every state. macOS Reduce Motion is \(system ? "on" : "off"), and always applies."
     }
     static let textSizeTitle = "Larger text"
-    static let textSizeDetail = "Window text only. The pill keeps its size and moves overflow to Review."
+    static let textSizeDetail = "Window text only. The pill keeps its size; scroll within its two-line transcript to read more."
     static let presenceTitle = "Presence"
     static let presenceIndicatorTitle = "Show indicator under the notch"
     static let presenceIndicatorDetail = "A small chin under the camera housing that says VoicePlus is alive — and shows when the mic is open or muted."

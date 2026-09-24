@@ -74,19 +74,30 @@ enum SpoolCanvas {
             fillShape(path, fill, in: ctx, gradients: gradients)
             strokeShape(path, stroke(extra), width: extra["stroke-width"]?.numberValue ?? 1, round: false, in: ctx)
         case let .text(x, y, content, size, fill, extra):
+            apply(opacity: extra, to: &ctx)
             guard case .hex(let hex) = fill, let colour = color(hex) else { return }
             let spacing = extra["letter-spacing"]?.numberValue ?? 0
             let resolved = ctx.resolve(Text(content).font(.system(size: size)).tracking(spacing).foregroundColor(colour))
             let measured = resolved.measure(in: CGSize(width: 1000, height: 1000))
             let baseline = resolved.firstBaseline(in: measured)
             ctx.draw(resolved, in: CGRect(x: x, y: y - baseline, width: measured.width, height: measured.height))
-        case let .group(_, transform, children):
+        case let .group(attributes, transform, children):
+            apply(opacity: attributes, to: &ctx)
             if let transform {
                 ctx.translateBy(x: transform.x, y: transform.y)
                 ctx.rotate(by: .degrees(transform.rotation))
                 ctx.scaleBy(x: transform.scale, y: transform.scale)
             }
-            for child in children { draw(child, in: ctx, gradients: gradients) }
+            if attributes["opacity"] != nil {
+                // SVG group opacity composites the complete ribbon once. Applying alpha to each
+                // quad separately would darken the overlap seams while a line wrap fades out.
+                ctx.drawLayer { layer in
+                    layer.opacity = 1
+                    for child in children { draw(child, in: layer, gradients: gradients) }
+                }
+            } else {
+                for child in children { draw(child, in: ctx, gradients: gradients) }
+            }
         case .gradient:
             return
         case let .clip(_, x, y, width, height, children):

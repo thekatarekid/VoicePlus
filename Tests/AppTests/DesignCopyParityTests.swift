@@ -4,7 +4,7 @@ import Testing
 @testable import VoicePlusApp
 
 /// S2 — every pill state's rendered status, helper and button labels equal the verified prototype's
-/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v1.html`), after the three
+/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v3.html`), after the three
 /// runtime substitutions: the sample transcript → the real text, "Mail" → the real destination,
 /// "Right Control" → the configured key. The timer is the real elapsed time.
 @Suite("S2 — design copy parity (pill)")
@@ -41,6 +41,21 @@ struct DesignCopyParityTests {
         }
     }
 
+    @Test func fixtureAndParitySourcesAreV3() throws {
+        let dir = try #require(AppPaths.fixturesDirectory())
+        let data = try Data(contentsOf: dir.appendingPathComponent("design/design_copy.json"))
+        let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(root["source"] as? String == "design/design_v3.html")
+        #expect((root["preview_runtime_source"] as? String)?.hasPrefix("design/design_v3.html:") == true)
+
+        let designRoot = dir.deletingLastPathComponent()
+        let html = try String(contentsOf: designRoot.appendingPathComponent("design/design_v3.html"), encoding: .utf8)
+        for phrase in ["Hands-free · listening", "Finish dictation", "Couldn’t confirm insertion",
+                       "Check destination", "Review inserted text"] {
+            #expect(html.contains(phrase), "V3 prototype is missing \(phrase)")
+        }
+    }
+
     static let t0 = Date(timeIntervalSince1970: 50_000)
     static let sample = "Can we meet with Mira on Friday?"
 
@@ -57,8 +72,8 @@ struct DesignCopyParityTests {
     /// State key → the rendered content in the prototype's context, and the fixture helper it must draw.
     static func rendered() -> [(key: String, content: PillContent, helper: String?)] {
         let c = prototypeContext()
-        let final = FinalPreviewInfo(text: sample, dwellRemaining: 0.9, manual: true, destination: "Mail")
-        let uncertain = FinalPreviewInfo(text: sample, uncertainCount: 1, dwellRemaining: 1.8, manual: true, destination: "Mail")
+        let final = FinalPreviewInfo(text: sample, dwellRemaining: 0.6, manual: true, destination: "Mail")
+        let uncertain = FinalPreviewInfo(text: sample, uncertainCount: 1, dwellRemaining: 0.6, manual: true, destination: "Mail")
         var inserted = c
         inserted.uncertainCount = 1
         var closed = c
@@ -71,8 +86,8 @@ struct DesignCopyParityTests {
             ("latched", PillContent.make(.latched(elapsed: 6), context: c), "Tap Right Control to finish"),
             ("finishing", PillContent.make(.finishing(elapsedWarning: false), context: closed),
              "Microphone closed · nothing inserted yet"),
-            ("preview", PillContent.make(.finalPreview(final), context: closed), "Final text · insert when ready"),
-            ("uncertain", PillContent.make(.finalPreview(uncertain), context: closed), "Review mode · insert when ready"),
+            ("preview", PillContent.make(.finalPreview(final), context: closed), "Manual review · insert when ready"),
+            ("uncertain", PillContent.make(.finalPreview(uncertain), context: closed), "Manual review · insert when ready"),
             ("inserting", PillContent.make(.inserting(text: sample), context: closed), "Same text · one insertion attempt"),
             ("inserted", PillContent.make(.landed(LandedPillInfo(text: sample, verified: true)), context: inserted),
              "1 word to review in the field"),
@@ -190,15 +205,15 @@ struct DesignCopyParityTests {
         #expect(fixture["idle"]?.status == nil)
     }
 
-    /// Strings the fixture does not carry come from the prototype's own sources: "Esc · cancel" from
-    /// `pillHtml`, the finishing timeouts from design §5.
+    /// Strings the fixture does not carry come from the prototype's own sources: "Esc · Cancel"
+    /// from the V3 transport, and the finishing timeouts from design §5.
     @Test func copyOutsideTheFixtureIsTheDesignsOwn() throws {
         let dir = try #require(AppPaths.fixturesDirectory())
         let root = dir.deletingLastPathComponent()
-        let html = try String(contentsOf: root.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
-        #expect(html.contains("'\(PillDeck.escapeHint)'"))
+        let html = try String(contentsOf: root.appendingPathComponent("design/design_v3.html"), encoding: .utf8)
+        #expect(html.contains(PillDeck.escapeHint))
         #expect(html.contains("'\(PillDeck.listeningPlaceholder)'"))
-        let md = try String(contentsOf: root.appendingPathComponent("design/design_v1.md"), encoding: .utf8)
+        let md = try String(contentsOf: root.appendingPathComponent("design/design_v3.md"), encoding: .utf8)
         for phrase in [PillDeck.finishingSlowStatus, PillDeck.useAvailableText, "“\(PillDeck.cancelLabel)”"] {
             #expect(md.contains(phrase), "\(phrase)")
         }

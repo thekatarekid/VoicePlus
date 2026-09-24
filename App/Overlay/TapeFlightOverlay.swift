@@ -97,8 +97,10 @@ enum TapeFieldCueDrawing {
         let opacity = cue.opacity(at: date)
         guard opacity > 0 else { return }
         ctx.opacity = opacity
-        ctx.fill(Path(cue.rect), with: .color(Tokens.SpoolMaterial.tapeFace.color))
-        let edge = CGRect(x: cue.rect.minX, y: cue.rect.minY, width: cue.rect.width, height: TapeFieldCue.edge)
-        ctx.fill(Path(edge), with: .color(Tokens.SpoolMaterial.tapeEdge.color))
+        for rect in cue.rects {
+            ctx.fill(Path(rect), with: .color(Tokens.SpoolMaterial.tapeFace.color))
+            let edge = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: TapeFieldCue.edge)
+            ctx.fill(Path(edge), with: .color(Tokens.SpoolMaterial.tapeEdge.color))
+        }
     }
 }

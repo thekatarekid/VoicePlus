@@ -1,0 +1,47 @@
+{
+  "tdt": {
+    "repository": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+    "noticeRevision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+    "files": [
+      "README.md"
+    ]
+  },
+  "eou": {
+    "repository": "FluidInference/parakeet-realtime-eou-120m-coreml",
+    "noticeRevision": "40a23f4c0b333aa17ad8c0f2ea47ec2347f2f355",
+    "files": [
+      "README.md"
+    ]
+  },
+  "speaker": {
+    "repository": "FluidInference/speaker-diarization-coreml",
+    "noticeRevision": "df2625ac79a7ac6b65ad868fee6d80f320da4232",
+    "files": [
+      "README.md",
+      "LICENSE",
+      "NOTICE.md"
+    ]
+  },
+  "legacy-segmentation": {
+    "repository": "pyannote/segmentation-3.0",
+    "noticeRevision": "e66f3d3b9eb0873085418a7b813d3b369bf160bb",
+    "files": [
+      "README.md",
+      "LICENSE"
+    ]
+  },
+  "legacy-embedding": {
+    "repository": "pyannote/wespeaker-voxceleb-resnet34-LM",
+    "noticeRevision": "837717ddb9ff5507820346191109dc79c958d614",
+    "files": [
+      "README.md"
+    ]
+  },
+  "legacy-conversion": {
+    "repository": "FluidInference/speaker-diarization-coreml",
+    "noticeRevision": "2a29e5400a",
+    "files": [
+      "speaker-legacy-README.md"
+    ]
+  }
+}

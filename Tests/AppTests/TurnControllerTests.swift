@@ -166,13 +166,13 @@ struct TurnControllerTests {
 
     // MARK: - Dwell
 
-    @Test("the final payload is previewed and nothing is written until 900 ms after its first rendered frame")
+    @Test("the final payload is previewed and nothing is written until 600 ms after its first rendered frame")
     func dwellFromRenderedFrame() async throws {
         let h = Harness()
         let id = try #require(await h.holdToPreview(Self.words("hello there")))
         #expect(h.controller.stage(of: id) == .finalPreview)
         let info = try #require(h.controller.previewInfo)
-        #expect(info.dwellRemaining == 0.9)
+        #expect(info.dwellRemaining == 0.6)
         #expect(info.destination == "TextEdit", "the key-down snapshot names the destination")
         #expect(!info.text.isEmpty)
         #expect(h.events.finalSpans.count == 1, "the pill gets the payload's spans with the preview")
@@ -181,7 +181,7 @@ struct TurnControllerTests {
         h.clock.advance(0.5)
         #expect(h.system.postCount == 0)
         h.controller.finalRendered(id)
-        h.clock.advance(0.899)
+        h.clock.advance(0.599)
         #expect(h.controller.stage(of: id) == .finalPreview)
         #expect(h.system.postCount == 0, "nothing is written during the dwell")
         #expect(h.field == Self.original)
@@ -224,20 +224,20 @@ struct TurnControllerTests {
         #expect(h.system.postCount == 0, "focus still holds it")
         h.controller.resumeDwell(.focus)
         #expect(h.controller.previewInfo?.paused == false)
-        h.clock.advance(0.399)
+        h.clock.advance(0.149)
         #expect(h.system.postCount == 0)
         h.clock.advance(0.002)
         #expect(await h.wait { h.events.landed.count == 1 })
         #expect(h.system.postCount == 1)
     }
 
-    @Test("a low-confidence word extends the dwell to 1800 ms and is flagged, never forced")
+    @Test("a low-confidence word keeps the fixed 600 ms dwell and is flagged, never forced")
     func lowConfidenceExtends() async throws {
         let h = Harness()
         let spans = Self.words("please sign the") + Self.words("contract", confidence: 0.3)
         let id = try #require(await h.holdToPreview(spans))
         let info = try #require(h.controller.previewInfo)
-        #expect(info.dwellRemaining == 1.8)
+        #expect(info.dwellRemaining == 0.6)
         #expect(info.uncertainCount == 1)
         #expect(info.needsReview)
         #expect(info.status == "Ready for TextEdit · 1 word to review")
@@ -246,14 +246,14 @@ struct TurnControllerTests {
         #expect((record.finalText as NSString).substring(with: NSRange(location: range.lowerBound, length: range.count)) == "contract")
 
         h.controller.finalRendered(id)
-        h.clock.advance(1.799)
+        h.clock.advance(0.599)
         #expect(h.system.postCount == 0)
         h.clock.advance(0.002)
         #expect(await h.wait { h.events.landed.count == 1 })
         #expect(h.field == Self.original + info.text)
     }
 
-    @Test("the dwell setting: 600 ms and 1.5 s", arguments: [(PreviewDwell.short, 0.6), (PreviewDwell.long, 1.5)])
+    @Test("the dwell setting: 600 ms and 1200 ms", arguments: [(PreviewDwell.short, 0.6), (PreviewDwell.long, 1.2)])
     func dwellSettings(_ setting: PreviewDwell, _ seconds: TimeInterval) async throws {
         let h = Harness(dwell: setting)
         let id = try #require(await h.holdToPreview(Self.words("hello there")))
@@ -655,6 +655,42 @@ struct TurnControllerTests {
         #expect(muted.store.entry(other)?.stage == .cancelled)
         #expect(muted.system.postCount == 0)
         #expect(muted.focusGuard.held.isEmpty)
+    }
+
+    @Test("display loss during preview holds the payload and never follows the moved destination")
+    func displayLossDuringPreview() async throws {
+        let h = Harness()
+        let id = try #require(await h.holdToPreview(Self.words("hello there")))
+        let previewedText = try #require(h.controller.previewInfo?.text)
+        h.controller.finalRendered(id)
+        h.controller.pinnedDisplayWasLost()
+        h.clock.advance(5)
+        #expect(await h.wait { h.events.landed.count == 1 })
+
+        #expect(h.system.postCount == 0)
+        #expect(h.store.entry(id)?.stage == .held)
+        #expect(h.store.entry(id)?.record.writeAttempted == false)
+        #expect(h.focusGuard.heldText(turn: id)?.text == previewedText)
+        #expect(h.events.landed.first?.delivery == .held(reason: DeliveryReason.destinationChanged))
+    }
+
+    @Test("display loss while capture is open defers safe recovery until final text exists")
+    func displayLossDuringCapture() async throws {
+        let h = Harness()
+        guard case .began(let id) = h.controller.keyDown() else {
+            Issue.record("turn did not begin")
+            return
+        }
+        h.controller.captureOpened(id)
+        h.controller.pinnedDisplayWasLost()
+        #expect(h.controller.keyUp(id))
+        await h.controller.finalize(id, spans: Self.words("preserve this"))
+        #expect(await h.wait { h.events.landed.count == 1 })
+
+        #expect(h.system.postCount == 0)
+        #expect(h.store.entry(id)?.stage == .held)
+        #expect(h.focusGuard.heldText(turn: id)?.text.contains("preserve this") == true)
+        #expect(h.events.landed.first?.delivery == .held(reason: DeliveryReason.destinationChanged))
     }
 
     // MARK: - The record

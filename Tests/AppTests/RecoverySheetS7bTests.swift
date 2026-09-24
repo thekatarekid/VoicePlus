@@ -156,7 +156,7 @@ struct RecoverySheetS7bTests {
         rig.queue.insertOutcome = .delivered(verified: false, method: "paste")
         await sheet.insertHere()
         #expect(sheet.outcomeNotice?.recoveryID == .D06)
-        #expect(sheet.outcomeNotice?.text == "Inserted · not confirmed")
+        #expect(sheet.outcomeNotice?.text == "Couldn’t confirm insertion")
         #expect(rig.queue.insertedText.count == 1)
     }
 

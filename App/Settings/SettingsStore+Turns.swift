@@ -6,7 +6,7 @@ import Foundation
 /// this extension. The Settings rows (Dictation › "Preview before inserting", Privacy › "Keep held
 /// text until resolved") are the S7 subpages' to draw; they read and write through these helpers.
 public extension SettingsKeys {
-    /// `"600"`, `"900"` (default), `"1500"` or `"manual"` — design §5 step 4.
+    /// Legacy stored identifiers are retained; V3 presents 600 ms, 1200 ms or Manual.
     static let previewDwell = "preview.dwell"
     /// Whether held and recoverable turns are written to disk. Default ON. Independent of history
     /// (design §8.1, §12): off means "Kept for this session only".
@@ -25,27 +25,26 @@ public enum PreviewDwell: String, CaseIterable, Equatable, Sendable {
     public var seconds: TimeInterval? {
         switch self {
         case .short: return 0.6
-        case .standard: return 0.9
-        case .long: return 1.5
+        case .standard: return 0.6
+        case .long: return 1.2
         case .manual: return nil
         }
     }
 
-    /// Design §5: any low-confidence word extends the dwell to 1800 ms ("1 word to review"); it
-    /// never forces correction and never shortens a longer choice.
-    public static let lowConfidenceSeconds: TimeInterval = 1.8
+    /// Kept for source compatibility; confidence no longer adds a preview penalty.
+    public static let lowConfidenceSeconds: TimeInterval = 0.6
 
     /// The dwell for a payload: `nil` = wait for Insert.
     public func seconds(lowConfidence: Bool) -> TimeInterval? {
         guard let base = seconds else { return nil }
-        return lowConfidence ? max(base, Self.lowConfidenceSeconds) : base
+        return base
     }
 
     public var label: String {
         switch self {
         case .short: return "600 ms"
-        case .standard: return "900 ms"
-        case .long: return "1.5 s"
+        case .standard: return "600 ms"
+        case .long: return "1200 ms"
         case .manual: return "Until I insert"
         }
     }

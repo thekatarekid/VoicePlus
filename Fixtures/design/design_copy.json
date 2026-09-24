@@ -1,5 +1,5 @@
 {
-  "source": "design/design_v1.html",
+  "source": "design/design_v3.html",
   "pill": {
     "idle": {
       "text": "<span class=\"dot\"></span>",
@@ -24,7 +24,6 @@
       "status": "Listening",
       "strings": [
         "Listening",
-        "um can we meet with Mira on friday",
         "Listening…",
         "Release Right Control to finish"
       ],
@@ -44,15 +43,14 @@
       "tone": null
     },
     "latched": {
-      "status": "Latched · hands-free",
+      "status": "Hands-free · listening",
       "strings": [
-        "Latched · hands-free",
-        "Can we meet with Mira on Friday",
+        "Hands-free · listening",
         "Tap Right Control to finish"
       ],
       "buttons": [
         {
-          "label": "Finish",
+          "label": "Finish dictation",
           "action": "finish",
           "primary": false
         }
@@ -78,14 +76,21 @@
         "#manualReview",
         "Final text · insert when ready",
         "Final text · inserts after the preview",
-        "#manualReview",
-        ""
+        "",
+        "Manual review · insert when ready",
+        "Final preview · hover to pause",
+        "Paused · move away to insert"
       ],
       "buttons": [
         {
-          "label": "Insert text",
+          "label": "Insert now",
           "action": "commit",
-          "primary": true
+          "primary": false
+        },
+        {
+          "label": "Edit draft",
+          "action": "editDraft",
+          "primary": false
         },
         {
           "label": "Cancel",
@@ -102,18 +107,24 @@
         "Ready for Mail · ",
         "reviewed",
         "1 word to review",
-        "Click the dotted word to review",
+        "Choose a suggestion or edit the draft",
         "#manualReview",
         "Review mode · insert when ready",
         "Final preview · hover to pause",
-        "#manualReview",
-        ""
+        "",
+        "Manual review · insert when ready",
+        "Paused · move away to insert"
       ],
       "buttons": [
         {
-          "label": "Insert text",
+          "label": "Insert now",
           "action": "commit",
-          "primary": true
+          "primary": false
+        },
+        {
+          "label": "Edit draft",
+          "action": "editDraft",
+          "primary": false
         },
         {
           "label": "Cancel",
@@ -173,14 +184,14 @@
       "tone": "warn"
     },
     "unconfirmed": {
-      "status": "⚠ Inserted · not confirmed",
+      "status": "⚠ Couldn’t confirm insertion",
       "strings": [
-        "⚠ Inserted · not confirmed",
+        "⚠ Couldn’t confirm insertion",
         "Check the field before trying again"
       ],
       "buttons": [
         {
-          "label": "Check text",
+          "label": "Check destination",
           "action": "check",
           "primary": true
         },
@@ -201,7 +212,7 @@
       ],
       "buttons": [
         {
-          "label": "Review result",
+          "label": "Review inserted text",
           "action": "check",
           "primary": true
         }
@@ -599,31 +610,31 @@
       "finishing",
       "F0",
       "Finishing",
-      "Microphone closed; damp ribbon twists, decelerate reels counterclockwise, purse mouth. No new live-wave oscillation."
+      "Microphone closed; damp ribbon twists, decelerate reels counterclockwise, purse mouth. Continue the current wave phase while its amplitude damps; no snap to a different waveform."
     ],
     [
       "preview",
       "F1",
       "Final preview",
-      "Final modified text above flat taut tape; stationary reels, relaxed shutters and pressure-pad smile."
+      "Final modified text above taut tape; stationary reels, attentive shutters and restrained mouth. Stronger satisfaction is reserved for verified delivery."
     ],
     [
       "uncertain",
       "F2",
       "Word review",
-      "Same final text and taut tape; asymmetric shutter/brow looks toward red dotted word; no reel spin."
+      "Same final text and taut tape; asymmetric shutter/brow looks toward the red dotted word and visible red [or did you mean …] annotation; no reel spin."
     ],
     [
       "inserting",
       "D0",
       "Inserting",
-      "Same immutable payload; pinch roller engages, reels turn clockwise, mouth feeds a continuous wavy/twisting tape ribbon to the verified destination caret. No success cue yet."
+      "Same immutable payload; pinch roller engages, reels turn clockwise, mouth feeds a continuous wavy/twisting tape ribbon along verified destination text lines, settling into exact-width underlines. No success cue yet."
     ],
     [
       "inserted",
       "D1",
       "Inserted",
-      "Small satisfied mouth; reels parked; verified text label and destination cue. Tape withdraws only after known outcome."
+      "Verified label appears on acknowledgement; clockwise feed completes, tape settles into text-width underlines, mouth relaxes into a small satisfied smile, then reels park."
     ],
     [
       "held",
@@ -659,7 +670,7 @@
       "muted",
       "I2",
       "Muted",
-      "Closed eye shutters, flat mouth, no tape motion; label “Muted”. No green ready."
+      "Resting closed shutters, flat mouth, no tape motion; voluntary “Muted” state is distinct from blocked setup. No green-ready claim."
     ],
     [
       "unavailable",
@@ -707,13 +718,13 @@
       "correcting",
       "R0",
       "Correcting",
-      "Stationary tape, asymmetric eye shutter; correction popover owns alternatives and focus."
+      "Stationary tape, asymmetric eye shutter; visible red alternatives and direct word editing keep the correction in context."
     ],
     [
       "blocked",
       "E1",
       "Blocking error",
-      "Closed shutters and setup latch; no recording or readiness claim."
+      "Alert open reel eyes, raised brow and setup latch; no recording or readiness claim. Visually distinct from voluntary mute."
     ]
   ],
   "errors": [
@@ -1081,7 +1092,7 @@
       "id": "D06",
       "family": "Delivery",
       "trigger": "Readback unavailable after insertion attempt",
-      "headline": "Inserted · not confirmed",
+      "headline": "Couldn’t confirm insertion",
       "consequence": "Check the field before trying again.",
       "action": "Check text",
       "data": "Keep record marked unconfirmed; never auto-retry",
@@ -1307,5 +1318,6 @@
       "data": "Preserve available data; technical details in diagnostics",
       "evidence": "EngineErrorMessage; proposed catch-all"
     }
-  ]
+  ],
+  "preview_runtime_source": "design/design_v3.html: pillHtml and updateDwellLabel (live automatic/manual preview)"
 }

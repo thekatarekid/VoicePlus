@@ -617,7 +617,7 @@ public enum RecoveryCatalog {
                       action: "Copy text", data: "Keep final text; retry only after safe target check"),
         RecoveryEntry(.D06, .delivery, .unconfirmedHold,
                       trigger: "Readback unavailable after insertion attempt",
-                      headline: "Inserted · not confirmed",
+                      headline: "Couldn’t confirm insertion",
                       consequence: "Check the field before trying again.",
                       action: "Check text", data: "Keep record marked unconfirmed; never auto-retry"),
         RecoveryEntry(.D07, .delivery, .unconfirmedHold,

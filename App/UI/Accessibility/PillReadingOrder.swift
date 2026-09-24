@@ -3,8 +3,8 @@ import SwiftUI
 // S10 — reading and keyboard order in the pill (design §11: "Tab reaches actions in reading order").
 // The pill's rows are pinned into a ZStack by rect, so their order in the view tree is not a promise
 // of the order assistive technology walks them in. These priorities make it one: status row, words,
-// chip row, level readout, helper row (with "N words · Review all"), then the action row left to
-// right — the primary recovery first, exactly as drawn. Held and error rows are where it matters.
+// chip row, level readout, helper row, then the action row left to right — the primary recovery first,
+// exactly as drawn. The native transcript and its scroll rail provide their own focus stops.
 
 public enum PillReadingOrder {
     public enum Region: Int, CaseIterable, Sendable {
@@ -29,22 +29,15 @@ public enum PillReadingOrder {
         public var primary: Bool
     }
 
-    /// The controls a keyboard or VoiceOver user reaches in `content`, in order: the helper row's
-    /// "N words · Review all" (when the final text overflows), then the action row's buttons left to
-    /// right. Nothing else in the pill takes focus.
-    public static func focusChain(_ content: PillContent, overflowLabel: String? = nil) -> [Stop] {
-        var stops: [Stop] = []
-        if let overflowLabel, !content.escapeHint {
-            stops.append(Stop(label: overflowLabel, identifier: "pill.action.reviewAll", action: .reviewAll, primary: false))
-        }
-        stops += content.buttons.map { Stop(label: $0.label, identifier: $0.identifier, action: $0.action, primary: $0.primary) }
-        return stops
+    /// The footer controls a keyboard or VoiceOver user reaches, left to right. The transcript and
+    /// its custom scrollbar precede these in the native key-view loop.
+    public static func focusChain(_ content: PillContent) -> [Stop] {
+        content.buttons.map { Stop(label: $0.label, identifier: $0.identifier, action: $0.action, primary: $0.primary) }
     }
 
     /// The priority each stop of `focusChain` gets, in the same order (strictly decreasing).
-    public static func chainPriorities(_ content: PillContent, overflowLabel: String? = nil) -> [Double] {
+    public static func chainPriorities(_ content: PillContent) -> [Double] {
         var out: [Double] = []
-        if overflowLabel != nil, !content.escapeHint { out.append(priority(.helper)) }
         let count = content.buttons.count
         out += (0..<count).map { priority(.actions) + actionPriority(index: $0, count: count) / Double(count + 1) }
         return out

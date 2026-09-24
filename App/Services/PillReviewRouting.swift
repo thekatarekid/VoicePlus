@@ -7,7 +7,7 @@ import SwiftUI
 // not the recovery sheet"), and the transform preview's own buttons (S12's manual-review "Replace
 // text" / "Cancel", drawn by PillView's W3H region).
 //
-//   Review result (partial) · Review text (error) · Check text (unconfirmed) · a held row's Review
+//   Review inserted text (partial) · Review text (error) · Check destination (unconfirmed) · a held row's Review
 //     → the words are a Today draft (held / partial)  → Today + the recovery sheet for that draft
 //     → the words are a recorded turn (unconfirmed)   → Today + that turn's detail (delivery evidence)
 //     → neither                                       → Today

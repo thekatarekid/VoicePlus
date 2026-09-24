@@ -3,6 +3,8 @@
 .DS_Store
 .swiftpm/
 Packaging/build/
+Packaging/build-v3-qa/
+Packaging/build-v3-full/
 Models/
 
 # Real-room recordings: audio stays local, transcripts and manifests are committed
@@ -10,3 +12,12 @@ Fixtures/real-room/**/*.wav
 
 # full Spool golden dump, regenerate with: node Scripts/spool_golden.mjs --full
 Fixtures/spool/*.local.json
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.0.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.1.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.2.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.3.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.4.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.5.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.6.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.7.dmg
+Packaging/releases/VoicePlus_V3-Spool-Full_1.12.9.dmg

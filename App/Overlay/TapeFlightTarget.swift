@@ -19,10 +19,16 @@ protocol TapeFlightCaretReading: AnyObject {
     /// The bounds of a range of the focused element's text (the destination tape cue's landed text), in
     /// AX coordinates; `nil` when the app will not measure it.
     func rangeRect(_ range: Range<Int>) -> CGRect?
+    func lineRects(_ range: Range<Int>) -> [CGRect]
+    func lineMeasurements(_ range: Range<Int>) -> [TapeFlightLineMeasurement]
 }
 
 extension TapeFlightCaretReading {
+    func lineMeasurements(_ range: Range<Int>) -> [TapeFlightLineMeasurement] {
+        lineRects(range).map { TapeFlightLineMeasurement(rect: $0) }
+    }
     func rangeRect(_ range: Range<Int>) -> CGRect? { nil }
+    func lineRects(_ range: Range<Int>) -> [CGRect] { rangeRect(range).map { [$0] } ?? [] }
 }
 
 /// The flight's reads, confined to one serial queue: the preview's pre-insertion sample, then the
@@ -57,6 +63,9 @@ final class TapeFlightReader: @unchecked Sendable {
             return .failure(reason)
         case .success(let target):
             guard let rect = caret.caretRect(at: target.insertionIndex) else { return .failure(.caretUnavailable) }
+            if case .failure(let reason) = TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
+                return .failure(reason)
+            }
             return .success(rect)
         }
     }
@@ -75,6 +84,25 @@ final class TapeFlightReader: @unchecked Sendable {
             return .success(rect)
         }
     }
+    /// Only measured after acknowledged delivery; never infer line widths from the transcript.
+    func landedLines(insertedLength: Int) -> Result<[CGRect], TapeFlightSuppression> {
+        landedMeasurements(insertedLength: insertedLength).map { $0.map(\.rect) }
+    }
+
+    func landedMeasurements(insertedLength: Int) -> Result<[TapeFlightLineMeasurement], TapeFlightSuppression> {
+        switch TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
+        case .failure(let reason): return .failure(reason)
+        case .success(let target):
+            guard insertedLength > 0 else { return .failure(.caretUnavailable) }
+            let rects = caret.lineMeasurements(target.insertionIndex ..< target.insertionIndex + insertedLength)
+            if case .failure(let reason) = TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
+                return .failure(reason)
+            }
+            guard !rects.isEmpty else { return .failure(.caretUnavailable) }
+            return .success(rects)
+        }
+    }
+
 }
 
 // MARK: - Live Accessibility reads
@@ -94,6 +122,9 @@ enum TapeFlightAX {
         // swiftlint:disable:next force_cast
         let element = focused as! AXUIElement
         AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        // Never perform synchronous AX requests back into our own main-thread TextKit editor.
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success, pid != ProcessInfo.processInfo.processIdentifier else { return nil }
         return element
     }
 
@@ -150,6 +181,52 @@ final class AXTapeFlightCaret: TapeFlightCaretReading {
         return Self.bounds(of: range, in: element)
     }
 
+    /// AX line/range APIs preserve real wrapping. Unsupported geometry simply omits the flourish.
+    /// Limit work to the visible prefix and a short read budget; never scroll another app for decoration.
+    func lineRects(_ range: Range<Int>) -> [CGRect] {
+        lineMeasurements(range).map(\.rect)
+    }
+
+    func lineMeasurements(_ range: Range<Int>) -> [TapeFlightLineMeasurement] {
+        guard range.lowerBound >= 0, !range.isEmpty, let element = TapeFlightAX.focusedElement() else { return [] }
+        let deadline = Date().addingTimeInterval(0.12)
+        var visible = range
+        var visibleValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXVisibleCharacterRangeAttribute as CFString, &visibleValue) == .success,
+           let value = visibleValue, CFGetTypeID(value) == AXValueGetTypeID() {
+            var r = CFRange()
+            if AXValueGetValue(value as! AXValue, .cfRange, &r), r.location >= 0, r.length >= 0 {
+                let lower = max(range.lowerBound, r.location), upper = min(range.upperBound, r.location + r.length)
+                guard upper > lower else { return [] }
+                visible = lower ..< upper
+            }
+        }
+        var index = visible.lowerBound, result: [TapeFlightLineMeasurement] = []
+        while index < visible.upperBound, result.count < 32, Date() < deadline {
+            var lineValue: CFTypeRef?
+            guard AXUIElementCopyParameterizedAttributeValue(element, kAXLineForIndexParameterizedAttribute as CFString,
+                    NSNumber(value: index), &lineValue) == .success, let line = lineValue as? NSNumber else { break }
+            var rangeValue: CFTypeRef?
+            guard AXUIElementCopyParameterizedAttributeValue(element, kAXRangeForLineParameterizedAttribute as CFString,
+                    line, &rangeValue) == .success, let value = rangeValue, CFGetTypeID(value) == AXValueGetTypeID() else { break }
+            var lineRange = CFRange()
+            guard AXValueGetValue(value as! AXValue, .cfRange, &lineRange), lineRange.location >= 0,
+                  lineRange.length > 0 else { break }
+            let end = min(visible.upperBound, lineRange.location + lineRange.length)
+            guard end > index else { break }
+            guard let rect = Self.bounds(of: index ..< end, in: element), rect.width > 0, rect.height > 0 else { return [] }
+            do {
+                let startCaret = Self.bounds(of: index ..< index, in: element)
+                let endCaret = Self.bounds(of: end ..< end, in: element)
+                result.append(TapeFlightLineMeasurement(rect: rect,
+                    rightToLeft: TapeFlightLineMeasurement.measuredRTL(rect: rect, start: startCaret, end: endCaret)))
+            }
+            index = end
+        }
+        // A timeout/unsupported later line must not masquerade as a complete measured paragraph.
+        return index == visible.upperBound ? result : []
+    }
+
     static func bounds(of range: Range<Int>, in element: AXUIElement) -> CGRect? {
         var cfRange = CFRange(location: range.lowerBound, length: range.count)
         guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return nil }
@@ -161,5 +238,21 @@ final class AXTapeFlightCaret: TapeFlightCaretReading {
         // swiftlint:disable:next force_cast
         guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect) else { return nil }
         return rect
+    }
+}
+
+/// Logical endpoint carets identify a pure RTL line only when they match its visual edges.
+/// Wrapped/newline or mixed-direction caret geometry is not used to guess a direction.
+struct TapeFlightLineMeasurement: Equatable, Sendable {
+    var rect: CGRect
+    var rightToLeft = false
+
+    static func measuredRTL(rect: CGRect, start: CGRect?, end: CGRect?) -> Bool {
+        guard let start, let end,
+              [rect.minX, rect.maxX, rect.midY, start.midX, start.midY, end.midX, end.midY].allSatisfy(\.isFinite),
+              start.width <= 2, end.width <= 2, start.height > 0, end.height > 0,
+              abs(start.midY - rect.midY) <= 2, abs(end.midY - rect.midY) <= 2,
+              abs(start.midX - rect.maxX) <= 2, abs(end.midX - rect.minX) <= 2 else { return false }
+        return rect.width > 2
     }
 }

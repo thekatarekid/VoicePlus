@@ -17,15 +17,16 @@ enum SpoolPose: String, CaseIterable, Sendable {
 enum SpoolOverlay: String, CaseIterable, Sendable {
     /// `warning`: two concerned brow strokes.
     case concernedBrows
-    /// `muted` / `blocked` / `unavailable`: shutter plate, closed-eye lines and the padlock latch.
+    /// `muted`: shutter plate, closed-eye lines and the padlock latch.
     case shutterLatch
+    case setupLatch
     /// `paused`: two pause bars.
     case pauseBars
     /// `quiet`: tape amplitude forced to 0.
     case flatTape
     /// `cancelled`: the pill tape retracts under a clip over 0.32 s.
     case retractTape
-    /// `editing` / `notes`: an 18 × 6 progress marker moving 40 pt/s along the tape lane.
+    /// `editing` / `notes`: an 14 × 4 progress marker moving 35 pt/s along the tape lane.
     case progressMarker
 }
 
@@ -58,7 +59,8 @@ enum SpoolPoseTable {
     static func overlays(for key: SpoolStateKey) -> [SpoolOverlay] {
         switch key {
         case .warning: return [.concernedBrows]
-        case .muted, .blocked, .unavailable: return [.shutterLatch]
+        case .muted: return [.shutterLatch]
+        case .blocked, .unavailable: return [.setupLatch]
         case .paused: return [.pauseBars]
         case .quiet: return [.flatTape]
         case .cancelled: return [.retractTape]
@@ -93,16 +95,17 @@ enum SpoolPoseTable {
     // MARK: Frame loop (`animate()`)
 
     /// Seconds after a state change during which the loop keeps running for every state.
-    static let settleWindow = 0.8
-    /// Inserting animates until 1.1 s (the feed is finite).
-    static let insertingWindow = 1.1
+    static let settleWindow = 1.1
+    /// Inserting animates until 1.3 s (the feed is finite).
+    static let insertingWindow = 1.3
 
-    /// The frame loop runs while live, editing or notes, inserting before 1.1 s, or within 0.8 s of a
+    /// The frame loop runs while live, editing or notes, inserting before 1.3 s, or within 1.1 s of a
     /// state change; never when hidden or under Reduce Motion (build doc S1.5).
     static func animates(_ key: SpoolStateKey, t: Double, hidden: Bool = false, reduceMotion: Bool = false) -> Bool {
         if hidden || reduceMotion { return false }
         if isLive(key) || key == .editing || key == .notes { return true }
         if key == .inserting && t < insertingWindow { return true }
+        if key == .inserted && t < 2 { return true }
         return t < settleWindow
     }
 
@@ -111,7 +114,7 @@ enum SpoolPoseTable {
     static func loopEnd(_ key: SpoolStateKey, start: Date, hidden: Bool = false, reduceMotion: Bool = false) -> Date? {
         if hidden || reduceMotion { return nil }
         if isLive(key) || key == .editing || key == .notes { return .distantFuture }
-        let window = key == .inserting ? Swift.max(insertingWindow, settleWindow) : settleWindow
+        let window = key == .inserted ? 2 : key == .inserting ? Swift.max(insertingWindow, settleWindow) : settleWindow
         return start.addingTimeInterval(window)
     }
 }

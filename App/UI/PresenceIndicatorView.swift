@@ -18,17 +18,19 @@ struct PresenceIndicatorView: View {
     let attached: Bool
     /// The I1 hint for the configured key; also the chin's accessible description (design §4).
     let readyHint: String
+    let backgroundCap: CGFloat
     /// S10 — Reduce Motion (system or Settings › Appearance).
     @ObservedObject private var motion = MotionPreference.shared
 
     init(state: PresenceState, hovered: Bool, cornerRadius: CGFloat, hint: String, rowText: String? = nil,
-         attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint()) {
+         attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint(), backgroundCap: CGFloat = 0) {
         self.state = state
         self.hovered = hovered
         self.cornerRadius = cornerRadius
         self.hint = hint
         self.attached = attached
         self.readyHint = readyHint
+        self.backgroundCap = backgroundCap
         self.rowText = rowText
             ?? (state == .ready ? readyHint : nil)
             ?? PresenceRow.candidates(detail: state.detail, hint: PresenceRow.hint(hint, for: state)).first
@@ -36,7 +38,10 @@ struct PresenceIndicatorView: View {
     }
 
     var body: some View {
-        content
+        VStack(spacing: 0) {
+            if backgroundCap > 0 { Color.clear.frame(height: backgroundCap) }
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(background)
             .clipShape(UnevenRoundedRectangle(cornerRadii: corners))
@@ -47,7 +52,7 @@ struct PresenceIndicatorView: View {
     }
 
     private var corners: RectangleCornerRadii {
-        attached
+        attached && (hovered || state != .ready)
             ? RectangleCornerRadii(bottomLeading: cornerRadius, bottomTrailing: cornerRadius)
             : RectangleCornerRadii(topLeading: cornerRadius, bottomLeading: cornerRadius,
                                    bottomTrailing: cornerRadius, topTrailing: cornerRadius)
@@ -57,7 +62,7 @@ struct PresenceIndicatorView: View {
         if hovered, state == .ready {
             // I1: text only — no dot, no brand prefix, no "Ready", no cassette.
             Text(rowText)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 12, weight: .regular))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("presence.hint")

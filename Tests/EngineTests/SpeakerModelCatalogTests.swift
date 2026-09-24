@@ -163,12 +163,16 @@ struct SpeakerModelCatalogTests {
         #expect(SpeakerEmbedderFactory.make(candidates: [refused]) { _ in nil } is MFCCEmbedder)
     }
 
-    @Test("the default candidates are our models root, then FluidAudio's cache")
+    @Test("speaker candidates prefer writable models, then bundled resources, then FluidAudio cache")
     func defaultCandidates() {
         let dirs = SpeakerEmbedderFactory.modelDirectories()
-        #expect(dirs.count == 2)
-        #expect(dirs[0] == ModelCatalog.folder(for: .speakerEmbedding, in: ModelCatalog.modelsRoot()))
-        #expect(dirs[1] == MLModelConfigurationUtils.defaultModelsDirectory(for: .diarizer))
+        let own = ModelCatalog.folder(for: .speakerEmbedding, in: ModelCatalog.modelsRoot())
+        let bundled = Bundle.main.resourceURL.map {
+            $0.appendingPathComponent("Models", isDirectory: true)
+                .appendingPathComponent("speaker-diarization", isDirectory: true)
+        }
+        let foreign = MLModelConfigurationUtils.defaultModelsDirectory(for: .diarizer)
+        #expect(dirs == [own] + [bundled].compactMap { $0 } + [foreign])
     }
 
     /// On a machine that has the real weights (this one has FluidAudio's copy), the production

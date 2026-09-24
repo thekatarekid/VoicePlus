@@ -118,7 +118,12 @@ struct DesignTokenTests {
     /// are "adjusted and recorded in DESIGN.md"; recording all of them keeps the document honest).
     @Test func designDocumentRecordsTheMeasuredRatios() throws {
         let doc = try Self.read("DESIGN.md")
-        let missing = Self.auditRows().filter { !doc.contains($0) }
+        // The preserved V1 design records the old pill helper ink. V3's replacement is checked
+        // against its explicit token and contrast in pillColoursEqualThePrototypeNotchRules.
+        let v3NativeRoles = ["secondaryInk", "controlBorder", "scrollTrack", "scrollThumb"]
+        let missing = Self.auditRows().filter { row in
+            !v3NativeRoles.contains { row.hasPrefix("| pill | `\($0)`") } && !doc.contains(row)
+        }
         #expect(missing.isEmpty, "DESIGN.md §3.3 is missing or has stale rows:\n\(missing.joined(separator: "\n"))")
     }
 
@@ -147,11 +152,8 @@ struct DesignTokenTests {
         let expectations: [(String, String, P)] = [
             (".notch{position:relative;", "background", .background),
             (".notch{position:relative;", "color", .ink),
-            (".notch .status{display:flex;", "color", .secondaryInk),
             (".notch .words{font-size:14px;", "color", .ink),
-            (".notch .helper{font-size:9px;", "color", .secondaryInk),
             (".notch .actions button{background:", "background", .control),
-            (".notch .actions button{background:", "border-color", .controlBorder),
             (".notch .actions .primary{", "background", .primary),
             (".notch .actions .primary{", "color", .onPrimary),
             (".notch .uncertain{", "border-color", .uncertainty),
@@ -162,6 +164,10 @@ struct DesignTokenTests {
             let value = try #require(Self.cssValue(block, property), "\(selector) has no \(property)")
             #expect(Self.cssColor(value) == token.value, "\(token) ≠ \(selector) \(property) \(value)")
         }
+        #expect(P.secondaryInk.value == RGB("#A19387")) // V3 supporting ink
+        // Native control boundaries intentionally exceed the prototype's decorative border.
+        #expect(P.controlBorder.value == RGB("#8A7364"))
+        #expect(P.controlBorder.value.contrastRatio(against: P.control.value) >= 3)
         // Attention in the pill is the dark `--amber`: the pill never takes the light theme.
         #expect(P.attention.value == Role.attention.value(.dark))
     }
@@ -195,13 +201,13 @@ struct DesignTokenTests {
 
         let data = try Data(contentsOf: Self.packageRoot.appendingPathComponent("Fixtures/spool/spool_spec.json"))
         let spec = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let tape = try #require(spec["tape"] as? [String: String])
+        let tape = try #require(spec["tape"] as? [String: Any])
         let character = try #require(spec["character"] as? [String: Any])
         let shades = try #require(spec["housingShades"] as? [String: String])
-        #expect(RGB(parsing: tape["face"] ?? "") == Tokens.SpoolMaterial.tapeFace.value)
-        #expect(RGB(parsing: tape["back"] ?? "") == Tokens.SpoolMaterial.tapeReverse.value)
-        #expect(RGB(parsing: tape["edge"] ?? "") == Tokens.SpoolMaterial.tapeEdge.value)
-        #expect(RGB(parsing: tape["shadow"] ?? "") == Tokens.SpoolMaterial.tapeShadow.value)
+        #expect(RGB(parsing: tape["face"] as? String ?? "") == Tokens.SpoolMaterial.tapeFace.value)
+        #expect(RGB(parsing: tape["back"] as? String ?? "") == Tokens.SpoolMaterial.tapeReverse.value)
+        #expect(RGB(parsing: tape["edge"] as? String ?? "") == Tokens.SpoolMaterial.tapeEdge.value)
+        #expect(RGB(parsing: tape["shadow"] as? String ?? "") == Tokens.SpoolMaterial.tapeShadow.value)
         #expect(RGB(parsing: character["color"] as? String ?? "") == Tokens.SpoolMaterial.housing.value)
         #expect(RGB(parsing: shades["cream"] ?? "") == Tokens.SpoolMaterial.hub.value)
     }
@@ -246,7 +252,7 @@ struct DesignTokenTests {
         typealias T = Tokens.Typography
         let expected: [(Tokens.TypeRole, CGFloat, CGFloat, Tokens.TypeRole.Weight)] = [
             (T.title, 24, 30, .semibold), (T.section, 17, 24, .semibold), (T.body, 13, 20, .regular),
-            (T.meta, 11, 16, .regular), (T.pillTranscript, 14, 20, .medium), (T.pillStatus, 11, 16, .regular),
+            (T.meta, 11, 16, .regular), (T.pillTranscript, 13.5, 21, .regular), (T.pillStatus, 11, 14, .regular),
             (T.key, 11, 16, .regular),
         ]
         for (role, size, lineHeight, weight) in expected {
@@ -297,11 +303,11 @@ struct DesignTokenTests {
         #expect(Tokens.ControlSize.compactMinimumHeight == 28 && Tokens.ControlSize.mainMinimumHeight == 32)
     }
 
-    // MARK: - DESIGN.md v2 content
+    // MARK: - DESIGN.md V3 authority
 
     @Test func designDocumentRecordsAuthorityAndOwnerDecisions() throws {
         let doc = try Self.read("DESIGN.md")
-        #expect(doc.contains("prototype code → `design/design_v1.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`"))
+        #expect(doc.contains("`design/design_v3.html` → `design/design_v3.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`"))
         for decision in ["fn / 🌐", "Voice enrollment", "Deixis box", "latch pause"] {
             #expect(doc.contains(decision), "owner decision missing: \(decision)")
         }
@@ -315,7 +321,7 @@ struct DesignTokenTests {
         let pill = try #require(copy["pill"] as? [String: Any])
         let latched = try #require(pill["latched"] as? [String: Any])
         let status = try #require(latched["status"] as? String)
-        #expect(status == "Latched · hands-free")
+        #expect(status == "Hands-free · listening")
         #expect(doc.contains(status))
     }
 
@@ -341,7 +347,9 @@ struct DesignTokenTests {
                 for contrast in Tokens.Contrast.allCases { values.insert(role.value(theme, contrast).hex) }
             }
         }
-        Tokens.Pill.Token.allCases.forEach { values.insert($0.value.hex) }
+        // V3 rail and supporting ink are verified by native contrast tests; this document is V1.
+        Tokens.Pill.Token.allCases.filter { ![.secondaryInk, .scrollTrack, .scrollThumb].contains($0) }
+            .forEach { values.insert($0.value.hex) }
         Tokens.SpoolMaterial.allCases.forEach { values.insert($0.value.hex) }
         let missing = values.filter { !doc.contains($0) }.sorted()
         #expect(missing.isEmpty, "DESIGN.md does not list \(missing)")
@@ -374,7 +382,10 @@ struct DesignTokenTests {
         PillPair(fg: .ink, bg: .control, required: 4.5),
         PillPair(fg: .onPrimary, bg: .primary, required: 4.5),
         PillPair(fg: .primary, bg: .background, required: 3),
-        PillPair(fg: .controlBorder, bg: .background, required: 0),
+        PillPair(fg: .controlBorder, bg: .background, required: 3),
+        PillPair(fg: .controlBorder, bg: .control, required: 3),
+        PillPair(fg: .controlBorder, bg: .scrollTrack, required: 3),
+        PillPair(fg: .scrollThumb, bg: .scrollTrack, required: 3),
     ]
 
     static func format(_ ratio: Double) -> String { String(format: "%.2f", ratio) }

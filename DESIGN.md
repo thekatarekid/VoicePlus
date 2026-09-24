@@ -1,4 +1,4 @@
-# VoicePlus — DESIGN.md (v2 · Spool)
+# VoicePlus — DESIGN.md (v3 · Spool)
 
 Design source of truth for **the pill and its presence, Spool, the one window, the menu, and
 onboarding**. Item R0.1, rewritten for V4 Wave 1 by G0.3 (release 1.11.0).
@@ -14,7 +14,9 @@ the right place.
 
 ## 0. Authority, sources and owner decisions
 
-**Order of authority for anything visible:** prototype code → `design/design_v1.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`.
+**2026-09-20 V3 update:** `design/design_v3.html` and `design/design_v3.md` supersede the V1 visual and interaction rules quoted below. Current implementation uses a fixed 560 × 160 pt active notch, 80% Spool, an attached black cap without moving content, rounded idle corners, a two-line scroll-only transcript, and footer boxes bottom-aligned 12 pt above the edge. Context chips share the header. Inline alternatives are annotations, never inserted words; Edit draft edits inside the notch. Completed corrections learn quietly. The earlier V1 narrative below remains implementation history wherever V3 replaces it.
+
+**Order of authority for anything visible:** `design/design_v3.html` → `design/design_v3.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`.
 
 - Where this file disagrees with the prototype or `design_v1.md`, this file is wrong and gets fixed.
 - Where the prototype *simulates* something that `design_v1.md` specifies for the real product (live
@@ -24,7 +26,7 @@ the right place.
   `VoicePlus_Improvements_V4.md`. `VoicePlus_Improvements_V3.md` §1 rules still apply.
 
 **Sources that are data, not prose.** Copy and art are never retyped by hand. `node
-Scripts/spool_golden.mjs` reads `design/design_v1.html` and writes:
+Scripts/spool_golden.mjs` reads `design/design_v3.html` and writes:
 
 | Fixture | Holds | Checked by |
 |---|---|---|
@@ -32,7 +34,7 @@ Scripts/spool_golden.mjs` reads `design/design_v1.html` and writes:
 | `Fixtures/spool/spool_golden.json` | Golden SVG frames of every pose and the tape flight | S1, S4 |
 | `Fixtures/design/design_copy.json` | Pill copy for 26 states, 12 screen titles/subtitles, 14 empty states, per-screen error mapping, the 26-row state inventory, the 59-entry recovery catalogue | S2, S7, S9, `DesignTokenTests` |
 
-Re-run the script whenever `design_v1.html` changes. Every colour, type size, spacing step and radius
+Re-run the script whenever `design_v3.html` changes. Every colour, type size, spacing step and radius
 in the app comes from `App/Core/DesignTokens.swift` (`enum Tokens`), which `DesignTokenTests` compares
 with the prototype's CSS, `design_v1.md` §3/§3.1 and `spool_spec.json` on every run.
 
@@ -46,7 +48,7 @@ with the prototype's CSS, `design_v1.md` §3/§3.1 and `spool_spec.json` on ever
 | V4 settings (latch pause, spacing, unknown-caret style, draw-without-key, recordings retention, screen text) | not in the design | required by V4 Wave 1 | Added as ordinary rows in the design's existing subpages with the design's row, toggle and select components; no new subpage (§9.6). |
 
 Everything else follows the design exactly. In particular: hold lands once on release; Escape cancels
-during a turn; readback that cannot confirm is always **⚠ Inserted · not confirmed** (V4.20 is
+during a turn; readback that cannot confirm is always **⚠ Couldn’t confirm insertion** (V4.20 is
 withdrawn); error and held notices stay until the user acts (no timed dismissal); the latch pill shows
 the design's timer only (the V4.38 countdown ring is withdrawn); the Settings subnav has exactly the
 design's seven subpages.
@@ -284,14 +286,14 @@ names.
 | User-facing | Meaning | Code name |
 |---|---|---|
 | **Hold** | Push-to-talk while the key is down; lands once on release | `hold` |
-| **Latched · hands-free** (pill status), "Tap <key> to finish" | Double-tap; listening continues across pauses, one landing per segment | `latched` |
+| **Hands-free · listening** (pill status), "Tap <key> to finish" | Double-tap; listening continues across pauses, one landing per segment | `latched` |
 | **Muted** ("⊘ VoicePlus is muted") | Persistent hard mute; survives relaunch, never auto-clears | `muted`, `MuteController` |
 | **Held** ("⚠ Destination changed · text held") | Committed text waiting for an explicit destination | `held` |
 | **Recent dictations** (Today) | Retained dictation turns, newest first | `TurnRecord` / `TurnStore` |
 | **Timeline** | Ambient transcript history (kept from v1; the verified design has no separate word for it) | `AmbientTimeline` |
 
 **"Hands-free" in UI copy.** v1 forbade the words "hands-free" anywhere in UI copy. That rule is
-replaced by the verified latched copy: the latched pill status is **Latched · hands-free**, its helper
+replaced by the verified latched copy: the latched pill status is **Hands-free · listening**, its helper
 is "Tap <key> to finish", and Settings › Shortcuts reads "Double-tap to latch — Tap twice, speak
 hands-free, then tap to finish." Those are the only places the phrase appears. Identifiers stay
 `latched`; never add a `handsFree` symbol.
@@ -301,7 +303,7 @@ Delivery outcomes read as the design's pill statuses:
 | Outcome | Pill status | Today tag |
 |---|---|---|
 | `delivered(verified: true)` | ✓ Inserted in <app> | Inserted |
-| `delivered(verified: false)` — readback showed nothing *or could not run* | ⚠ Inserted · not confirmed | Unconfirmed |
+| `delivered(verified: false)` — readback showed nothing *or could not run* | ⚠ Couldn’t confirm insertion | Unconfirmed |
 | `partial` | ⚠ Only part may have been inserted | Unconfirmed |
 | `held` | ⚠ Destination changed · text held | Held |
 | `failed` | ⚠ Couldn’t finish this dictation | — (recovery row) |
@@ -441,7 +443,7 @@ If a state is added later and does not appear in one of these three tables, it i
 - Never blame the user; never blame "the system". Say what the app observed.
 - One sentence for the headline, one for the detail. No paragraphs.
 - No exclamation marks. No "Oops". No apologies. No "please".
-- Never claim success that was not verified — this is why **⚠ Inserted · not confirmed** exists.
+- Never claim success that was not verified — this is why **⚠ Couldn’t confirm insertion** exists.
 - Never claim zero network bytes; say what left the Mac.
 - Sentence case. Serial commas. No trailing period on a headline; a period on the detail sentence.
   These rules govern copy written for this app; the verified design's own strings are used verbatim,
@@ -603,16 +605,16 @@ Spool treatment (design §6), and the status line and actions from `design_copy.
 | C0 | `starting` | Starting | Attentive still cassette; tape lies flat. | Starting microphone… | Capture actually open → C1; failure → E0/E1 |
 | C1 | `listening` | Listening | Live words above flat ribbon faces with audio-reactive waves/twists; reels counterclockwise; oval mouth, occasional blink. | Listening · helper "Release <key> to finish" | Key release → F0; Esc → C4 |
 | C2 | `quiet` | Listening, quiet | Last words; flat tape, parked reels, patient open eyes. Label confirms capture is still open. | Listening · quiet | Speech → C1; release → F0 |
-| C3 | `latched` | Latched | Same live tape and counterclockwise reels; persistent latched label plus timer. | Latched · hands-free · helper "Tap <key> to finish" · Finish | Tap stop; Esc cancel; lock stop |
+| C3 | `latched` | Latched | Same live tape and counterclockwise reels; persistent latched label plus timer. | Hands-free · listening · helper "Tap <key> to finish" · Finish dictation | Tap stop; Esc cancel; lock stop |
 | C4 | `cancelled` | Cancelled | Reels brake without reversing; exposed tape retracts into the guide; neutral mouth. | Cancelled · "Nothing inserted" | 800 ms → idle |
 | C5 | `warning` | Mic quality warning | Capture continues: moving tape, counterclockwise reels, concerned brow; never replaces live words. | ⚠ Microphone sounds unclear · Check microphone | Continue / Check microphone / Cancel |
 | F0 | `finishing` | Finishing | Microphone closed; twists damp, reels decelerate counterclockwise, mouth purses. No new live-wave motion. | Finishing… · "Microphone closed · nothing inserted yet" | Final payload → F1; 2 s "Still finishing your text"; 10 s "Use available text" / "Cancel" |
-| F1 | `preview` | Final preview | Final modified text above flat taut tape; stationary reels, relaxed shutters, pressure-pad smile. | Ready for <app> · manual review: **Insert text**, Cancel | 900 ms dwell; hover/focus pause; Review; Esc |
-| F2 | `uncertain` | Review uncertain words | Same text and taut tape; asymmetric shutter/brow looks toward the dotted word; no spin. | Ready for <app> · N words to review · manual review: **Insert text**, Cancel | 1800 ms dwell or manual review; correction resets dwell |
+| F1 | `preview` | Final preview | Final modified text above flat taut tape; stationary reels, relaxed shutters, pressure-pad smile. | Ready for <app> · manual review: **Insert now**, **Edit draft**, Cancel | 600 ms dwell; hover/focus pauses; completed edits resume on exit with at least 150 ms remaining; Esc cancels |
+| F2 | `uncertain` | Review uncertain words | Same text and taut tape; asymmetric shutter/brow looks toward the dotted word; no spin. | Ready for <app> · N words to review · manual review: **Insert now**, **Edit draft**, Cancel | Same 600 ms dwell; inline alternatives and in-notch editing; uncertainty adds no delay |
 | D0 | `inserting` | Inserting | Same immutable payload; reels clockwise; the mouth feeds a continuous twisting ribbon to the verified caret. No success cue yet. | Inserting in <app>… | Verification → D1/D2/D3; no automatic retry |
 | D1 | `inserted` | Verified | Small satisfied mouth; reels parked; destination cue. Tape withdraws only after the known outcome. | ✓ Inserted in <app> | 650 ms → idle; field uncertainty survives |
-| D2 | `unconfirmed` | Unconfirmed | Reels stop, brake holds tape; level concerned mouth. No smile, check or flourish. | ⚠ Inserted · not confirmed · **Check text**, Dismiss | Check field; dismiss; never auto-reinsert |
-| D3 | `partial` | Partial insertion | Tape held intact, eyes attend to destination, small concern. Never a snapped tape. | ⚠ Only part may have been inserted · **Review result** | Review; manual reconciliation |
+| D2 | `unconfirmed` | Unconfirmed | Reels stop, brake holds tape; level concerned mouth. No smile, check or flourish. | ⚠ Couldn’t confirm insertion · **Check destination**, Dismiss | Check field; dismiss; never auto-reinsert |
+| D3 | `partial` | Partial insertion | Tape held intact, eyes attend to destination, small concern. Never a snapped tape. | ⚠ Only part may have been inserted · **Review inserted text** | Review; manual reconciliation |
 | H0 | `held` | Held | Final words above taut tape; visible guide brake. | ⚠ Destination changed · text held · **Insert here**, Copy text, Discard… | Persists until the user acts |
 | R0 | `correcting` | Correcting | Stationary tape, asymmetric shutter; the correction popover owns alternatives and focus. | Review one word · **Review word** | Replace verified range / Keep / Dismiss |
 | R1 | `editing` | Editing selection | Stationary reels; small progress marker on the taut ribbon; thoughtful pursed mouth. | Editing N words… | Edited final preview before replacement |
@@ -631,10 +633,12 @@ replacing the words. Durable recovery is queued in Today when a higher-priority 
 
 Key down acknowledges within an 80 ms target and opens capture immediately; "Listening" appears only
 when capture is actually open. Key up closes the microphone immediately. One immutable final payload
-is shown above the flat, taut tape for the **dwell** — 900 ms default from the first rendered final
-frame; 1800 ms when any word is uncertain; 600 / 900 / 1500 ms or manual in Settings; hover, focus,
-selection or Review freezes it — then the target is revalidated and the payload is inserted **exactly
-once**, guarded by turn ID. Animation completion is never a write trigger. Escape before the write
+is shown above the flat, taut tape for the **dwell** — 600 ms default from the first rendered final
+frame, with no extra delay for uncertain words or long text. Hover, keyboard focus, selection and
+editing pause it. Leaving the notch applies nonempty completed edits and resumes with at least
+150 ms remaining; an active composition or empty editor stays paused. Manual review remains
+explicit. The final edited payload is frozen when insertion starts, the target is revalidated, and
+the payload is inserted **exactly once**, guarded by turn ID. Animation completion is never a write trigger. Escape before the write
 cancels with nothing inserted; Escape after the write resolves the outcome truthfully, then offers a
 range-safe Undo. Latch: every segment passes the same preview gate, serialized; hold never inserts
 intermediate segments. Nothing revises text after it lands.
@@ -649,8 +653,8 @@ delays or triggers the write.
 
 ### 8.9 What the pill never does
 
-- Never takes keyboard focus during capture; it is a non-activating panel that ignores the pointer
-  except the hover-pause area during dwell and its action row.
+- Never takes keyboard focus during capture; readable transcripts accept pointer scrolling and selection.
+  Explicit final-draft editing may take keyboard focus. Startup placeholders remain click-through.
 - Never shows diagnostics: no model names, latency, thermal state or raw errors (they live in Voice ›
   benchmarks and the Privacy diagnostics disclosure).
 - Never draws behind the camera housing, never shows a green success claim for an unverified write,
@@ -800,7 +804,7 @@ setting that exists today stays reachable.
 
 | Subpage | Rows (design §8.6) | V4 rows added here (owner decision §0.1) |
 |---|---|---|
-| General | Launch at login; sound cues (off by default; no success sound before verified insertion); final preview 900 ms default / 600 / 1500 / manual review; low-confidence preview ≥ 1800 ms | Spacing: automatic / always / never (D6); unknown-caret style (D3) |
+| General | Launch at login; sound cues (off by default; no success sound before verified insertion); final preview 600 ms default / 1200 ms / manual review; low confidence adds no extra wait | Spacing: automatic / always / never (D6); unknown-caret style (D3) |
 | Shortcuts | Key recorder with conflict result; hold explanation; "Double-tap to latch" (Tap twice, speak hands-free, then tap to finish); shortcut test | **Latch pause** 1–5 s (B2); fn system-action prompt + "Open Keyboard settings" (I1); draw-without-key while latched (G1) |
 | Appearance | Follow system / light / dark (windows only; the pill stays dark); Reduce Motion; presence visibility; Larger Text. No mascot picker | — |
 | Models | Compatible model, installed size, real byte progress → Verifying → Loading → Ready, retry / cancel, last working model. Never Ready before verification and loading | Speaker-embedding model row (H3) |

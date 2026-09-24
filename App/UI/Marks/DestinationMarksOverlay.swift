@@ -101,6 +101,8 @@ public final class AXElementMarkGeometry: MarkGeometrySource {
 /// only (the word itself stays clickable in the app), non-activating, on every Space.
 public final class DestinationMarksOverlay {
     private var panels: [NSPanel] = []
+    private var suggestionPanels: [NSPanel] = []
+    public var onSuggestion: ((Int, String) -> Void)?
     /// A mark was clicked: its id and the word's line box (AppKit screen coordinates).
     public var onClick: ((Int, CGRect) -> Void)?
 
@@ -132,8 +134,29 @@ public final class DestinationMarksOverlay {
         Self.strips[ObjectIdentifier(self)] = panels.prefix(fragments.count).map(\.frame)
     }
 
+    /// Brackets are decorations only, in proven blank space after the field's last word.
+    /// Mid-line words keep suggestions in VoicePlus: an overlay cannot reflow someone else's text.
+    public func showSuggestions(_ suggestions: [(markID: Int, text: String, frame: CGRect)]) {
+        while suggestionPanels.count < suggestions.count { suggestionPanels.append(Self.makePanel()) }
+        for (index, suggestion) in suggestions.enumerated() {
+            let panel = suggestionPanels[index]
+            panel.contentView = NSHostingView(rootView:
+                Button("[or did you mean \(suggestion.text)]") { [weak self] in
+                    self?.onSuggestion?(suggestion.markID, suggestion.text)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(Color(nsColor: Tokens.Colors.uncertainty))
+                .accessibilityLabel("Use \(suggestion.text)"))
+            panel.setFrame(suggestion.frame, display: true)
+            panel.orderFrontRegardless()
+        }
+        for panel in suggestionPanels.dropFirst(suggestions.count) { panel.orderOut(nil) }
+    }
+
     public func hide() {
         panels.forEach { $0.orderOut(nil) }
+        suggestionPanels.forEach { $0.orderOut(nil) }
         Self.strips[ObjectIdentifier(self)] = nil
     }
 
@@ -233,6 +256,23 @@ public final class DestinationMarksTracker {
         switch phase {
         case .shown(let fragments):
             overlay.show(fragments, labels: Dictionary(uniqueKeysWithValues: session.marks.map { ($0.id, $0.text) }))
+            var suggestions: [(markID: Int, text: String, frame: CGRect)] = []
+            if let value = geometry.currentValue(), let visible = geometry.visibleFrame() {
+                for mark in session.marks {
+                    let range = session.fieldRange(of: mark)
+                    guard let alternative = mark.alternatives.first,
+                          let suffix = MarkWords.slice(value, range.upperBound..<value.utf16.count),
+                          suffix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                          let fragment = fragments.first(where: { $0.markID == mark.id }),
+                          fragments.filter({ $0.markID == mark.id }).count == 1 else { continue }
+                    let label = "[or did you mean \(alternative)]" as NSString
+                    let width = ceil(label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width) + 8
+                    let frame = CGRect(x: fragment.box.maxX + 5, y: fragment.box.midY - 9, width: width, height: 18)
+                    guard visible.contains(frame) else { continue }
+                    suggestions.append((mark.id, alternative, frame))
+                }
+            }
+            overlay.showSuggestions(suggestions)
         case .hidden:
             overlay.hide()
         case .cleared(let reason):

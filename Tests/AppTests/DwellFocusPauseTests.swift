@@ -29,7 +29,7 @@ struct DwellFocusPauseTests {
         pill.setFocus(true, element: "action.pill.action.insertNow")
         #expect(h.controller.previewInfo?.paused == true)
         let left = try #require(h.controller.previewInfo?.dwellRemaining)
-        #expect(abs(left - 0.4) < 0.001)
+        #expect(abs(left - 0.1) < 0.001)
         h.clock.advance(30)
         #expect(h.system.postCount == 0, "focused: nothing is written however long it stays")
         #expect(h.controller.previewInfo?.dwellRemaining == left, "frozen, not counting down")
@@ -43,8 +43,8 @@ struct DwellFocusPauseTests {
 
         pill.setFocus(false, element: "words.line.0")
         #expect(h.controller.previewInfo?.paused == false)
-        h.clock.advance(0.399)
-        #expect(h.system.postCount == 0, "resumes with the time that was left, not a fresh dwell")
+        h.clock.advance(0.149)
+        #expect(h.system.postCount == 0, "resumes with the 150 ms minimum remainder, not a fresh dwell")
         h.clock.advance(0.002)
         #expect(await h.wait { h.events.landed.count == 1 })
         #expect(h.system.postCount == 1)
@@ -64,7 +64,7 @@ struct DwellFocusPauseTests {
         h.clock.advance(30)
         #expect(h.system.postCount == 0, "hover still holds it")
         h.controller.resumeDwell(.hover)
-        h.clock.advance(0.901)
+        h.clock.advance(0.601)
         #expect(await h.wait { h.events.landed.count == 1 })
     }
 
@@ -84,7 +84,7 @@ struct DwellFocusPauseTests {
         h.clock.advance(30)
         #expect(h.system.postCount == 0)
         pill.setFocus(false, element: "words.line.0")
-        h.clock.advance(0.901)
+        h.clock.advance(0.601)
         #expect(await h.wait { h.events.landed.count == 1 })
     }
 
@@ -111,17 +111,27 @@ struct DwellFocusPauseTests {
         #expect(calls.count == 4)
     }
 
-    @Test("the text lane lines, the uncertain words and the action buttons report focus")
-    func viewsReportFocus() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let view = try String(contentsOf: root.appendingPathComponent("App/UI/PillView.swift"), encoding: .utf8)
-        #expect(view.contains(".pillFocusReport(\"words.line."))
-        #expect(view.contains(".pillFocusReport(\"words.mark."))
-        #expect(view.contains(".pillFocusReport(\"action."))
-        #expect(view.components(separatedBy: "onFocus: { model.setFocus($0, element: $1) }").count == 3,
-                "the words lane and the action row both feed the model")
-        let modifier = try String(contentsOf: root.appendingPathComponent("App/UI/PillFocusReport.swift"), encoding: .utf8)
-        #expect(modifier.contains(".accessibilityFocused(") && modifier.contains(".focused("),
-                "VoiceOver focus and keyboard focus both count")
+    @Test("native transcript, scroll rail and actions retain the focus pause across handoff")
+    func viewsReportFocus() async throws {
+        let h = Harness()
+        let pill = PillViewModel()
+        let wiring = TurnWiring.wireFocusPause(pill: pill, controller: h.controller)
+        defer { wiring.cancel() }
+        let id = try #require(await h.holdToPreview(TurnControllerTests.words("read the full transcript")))
+        h.controller.finalRendered(id)
+        var previous: String?
+        for element in ["draft.editor", "transcript.scroll", "action.pill.action.commit"] {
+            pill.noteKeyboardInteraction(element: element)
+            if let previous { pill.setFocus(false, element: previous) }
+            h.clock.advance(30)
+            #expect(pill.focusInside && h.controller.previewInfo?.paused == true)
+            #expect(h.system.postCount == 0)
+            previous = element
+        }
+        pill.setFocus(false, element: try #require(previous))
+        #expect(!pill.focusInside && h.controller.previewInfo?.paused == false)
+        h.clock.advance(0.601)
+        #expect(await h.wait { h.events.landed.count == 1 })
+        #expect(h.system.postCount == 1)
     }
 }

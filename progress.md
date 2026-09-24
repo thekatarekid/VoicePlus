@@ -1648,3 +1648,104 @@ DMG per wave, version bumped each time, previous DMGs kept.
 - FX gate: build clean; `swift test --no-parallel` **3215 tests, all passing** (+54 over 1.11.1's 3161; first run 3214 / 3215 with the midnight-clock failure fixed at the gate). Gate fix: `AmbientTimelineTests` grouping test anchored at noon today (it failed between 00:00 and 01:00 because "an hour ago" was yesterday; clock-dependent, not an FX regression).
 - Open: AX callers outside `LiveSystemAccess` have no own-pid guard. The pill stays up about 27 s after a landing (not investigated). The M07 2 s wait and K03 quiet first tap are not checked as coded. The installed-app re-check of all 5 fixes is the owner's. The 1.11.2 DMG is built by the release step.
 - 1.11.2 DMG done · R3 `8e690f6` · `Packaging/releases/VoicePlus_V4-w1_1.11.2.dmg`, 20 MB, sha256 `86d8cdd5c4f2914e36dc7748ea274ebfe3a436c3e27bb95d52ae522713b37ae9`, from `5a02a51` in a clean worktree (`--no-github`); `verify_install.sh` OK; 27 DMGs retained, none overwritten; tag `release/phase-V4-w1/v1.11.2`.
+
+## V3 native Spool parity — 2026-09-20
+
+Initial checkpoint (superseded by the dated entries below):
+
+- In progress: exact `design/design_v3.html` / `.md` port; earlier design versions preserved.
+- Parallel isolated worktrees: cassette/tape rendering; notch geometry/layout; preview/edit/correction flow.
+- Integration gates: native visual QA, state/recovery tests, release build and self-contained DMG verification.
+- Pending: merge verified milestones, install candidate and compare all states, publish tested commits and local DMG.
+- Native implementation underway: cassette golden parity, fixed160pt layout, inline draft/correction flow; no completion claim before integration.
+- Full installer staging: all three installed default models pass SHA256 verification; bundle lookup stays read-only and outside maintenance/deletion roots.
+- Added explicit native visual-review and bundled-model self-test entry points for installed-build acceptance.
+
+- Integrated V3 layout and draft flow; cassette/tape port has 658 exact SVG comparisons. Native layout/editing audit passes 33 focused tests; review flow passes 146.
+- Full serial integration run exposed stale V1 copy, focus and pointer expectations; migrated to V3 contracts. Final full run and installed-app QA remain pending.
+- Packaging now verifies default model bytes and includes pinned upstream notice/license copies; 7 packaging tests pass. Full-installer gate refuses missing model source.
+
+- Native release candidate inspected: inline alternatives, in-notch edits, scroll-only transcript and retained corrections work; cassette/tape/state layouts checked.
+- Fixed native QA findings: retained-word actions, contextual-chip viewport shrink, crowded four-action footer.
+- Bundled TDT, EOU and speaker models pass real offline synthetic inference; final full suite and DMG checks running.
+
+- Built `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.0.dmg` (714,250,047 B; SHA256 `950cc8c967ebc9d3c8536f1277c66f5db14dd1d9c0f4ce0298651c758a21e4a1`). Mounted read-only model inference, clean-install launch, signature/dependency and installability checks all pass. All 27 earlier DMGs remain byte-identical.
+- Source milestones pushed to `codex/spool-v3-native`. Binary remains local; existing update feed/cask kept unchanged.
+- Real external-app insertion QA is awaiting explicit Accessibility approval for the installed app; no permission was changed. Native visual/review checks and mock/unit delivery checks are distinct from this pending hardware check.
+
+- Final integration gate: **3,256 tests passed** (`swift test --no-parallel`, 448 s); latest V3 fixes also pass 119 focused tests, and packaging passes 7 tests. Merged the concurrent documentation-only main update; no runtime change.
+- Remaining acceptance: external TextEdit insertion and visual destination tape travel after Accessibility approval. Installed app restored to normal recognition mode; no mock capture is left running.
+- Review branch is pushed and clean; draft PR: https://github.com/thekatarekid/VoicePlus/pull/1. Kept draft until the permission-gated external insertion check is completed.
+- Continuation audit: installed app Privacy confirms Typing access Off; Accessibility approval remains pending. GitHub CI run 35481771092 started no build steps because of an account billing/spending-limit restriction; local 3,256-test and DMG passes remain the available validation.
+
+- Accessibility approval received; refreshed the VoicePlus switch in macOS to On. App-side recognition and external insertion are still unverified. Relaunched app is blocked opening Settings in `SyncSettingsViewModel → SyncService.key → SecItemCopyMatching` (process sample); macOS security dialog requires user handling because computer use cannot access SecurityAgent.
+
+- App Privacy now confirms Typing access Allowed after restart. Removed eager sync Keychain access from Settings initialization; 56 integrated sync/settings/Phase6 regression tests pass. Native menu capture QA also exposed a missing in-notch Finish affordance; correction and replacement installer are in progress.
+- Menu-started dictation now exposes Finish during active/quiet capture and stops its actual session owner; 29 integrated menu/session/turn regression tests pass. Audit found verified success could retract before the 1.3 s tape flight; timing correction is being validated before the 1.12.1 installer.
+
+### 1.12.1 follow-up candidate
+
+- Added explicit Finish for menu capture, avoided eager sync Keychain reads on Settings startup, and retained verified Spool through the entire tape flight plus result hold.
+- `VoicePlus_V3-Spool-Full_1.12.1.dmg`, 714,962,965 bytes; SHA256 `a6533ab765a7a1317312554848e048eb86484d09e13c53c5c6ae19a591d17248`. Mounted offline model inference, signature/dependency and clean-install verification pass. All 28 earlier installers remain byte-identical.
+- Installed native Settings opens promptly without Keychain access. Finish is visible and functional in quiet/menu capture; final preview pauses on pointer hover.
+- Full run: 3,266 tests, one onboarding event-ownership race failure; remaining tests passed. Race correction and external TextEdit delivery acceptance are pending; this candidate is not the final verified release.
+
+- 2026-09-22: fixed guided/practice onboarding event ownership; queued guided events no longer erase a completed result. Added optional-credential unavailable status instead of presenting locked storage as missing keys. 270 integrated onboarding/settings/sync regression tests pass. Non-interactive secure-store queries are being validated before the replacement installer.
+
+- 2026-09-22: made native Spool visibly respond to whisper-level capture using display-only loudness compression; increased maximum displacement 15% without changing audio or recognition. All 48 Spool tests pass, including whisper/normal/loud motion, silence settling, Reduce Motion and historical SVG parity. Replacement installer pending.
+
+- 2026-09-22: integrated noninteractive Keychain policy across providers, connectors and sync; unavailable secrets remain errors and are never replaced or stored in plaintext. 54 isolated storage regressions pass. Combined suite and 1.12.2 release build running.
+
+- Built and installed 1.12.2 (714,180,189 bytes; SHA256 `6a2c1b5b96068b8760e210c7106f47ac7981d2750ef1dc148dd676fc4ad89690`). Mounted offline model and installability checks pass; 29 prior DMGs unchanged. Native Settings/Providers/Sync show no Keychain prompt; normal mode restored with microphone closed. **3,276 tests passed** in the combined serial run (484.832 s); external insertion still needs a manual TextEdit foreground click because macOS reports Brave.
+
+- Completion audit: clarified the current 1.12.2 status versus historical checkpoints. Latest CI35690322841 again executes no steps due to account billing/spending limits; local tests/installer remain green. Native external delivery awaits the outstanding manual TextEdit foreground response.
+
+- V3 artwork fixtures regenerated from the current HTML in temporary storage and matched byte-for-byte. Independent audit found no further confirmed runtime bug; native accessibility/display acceptance remains open alongside TextEdit delivery. Marked the 1.11.x pending-decision document as superseded for model bundling and notch direction.
+
+- Native gate revalidated with Manual review: TextEdit field selected by automation, but the held preview explicitly names ChatGPT. Cancelled before insertion; “Nothing inserted” confirmed. Normal recognition and 600 ms preview restored. Same foreground blocker has persisted across three goal turns; awaiting a manual TextEdit foreground confirmation. Native accessibility/display checks remain open.
+
+- TextEdit foreground confirmed by owner: one-sentence and five-line in-notch edited drafts inserted and read back correctly; user confirmed tape travel and settled underlines. Native two-line scrolling, Reduce Motion (flat tape + level readout), light/dark and larger text checks pass; original settings/normal recognition restored. Corrected stale Review helper copy; 46 Settings tests pass. 1.12.3 packaging underway; optional system accessibility/display checks await user input.
+
+- Built and installed 1.12.3 (714,314,380 bytes; SHA256 `e511742ee970026224a6f3a2009c03b79a90fffea976cca2bfc1b531803cac4f`). Mounted offline model inference, signature/dependency and clean-install checks pass; all 30 earlier DMGs unchanged. Native updated Appearance copy verified; 600 ms preview, default appearance/text, motion preferences and existing permissions preserved. Remaining optional system accessibility/external-display evidence is not claimed.
+
+- Continued native acceptance found reproducible in-notch Cmd+A/Escape failures and insufficient custom-control contrast. Added contrast-aware pill controls/scroll rail (27 integrated tests pass) and focused native editing commands, draft-owned undo, composition-safe editor-first Escape and physical-release gating (50 isolated tests pass). Full integrated suite and 1.12.4 packaging running. Test draft cancelled; normal recognition and 600 ms preview restored.
+
+- Installed 1.12.4 from its verified self-contained DMG (714,314,563 bytes; SHA256 `e534eebd7f30f294e20c9d0f056fad8d725afc38e3d371a1ce1f09a71da9bf67`). All 31 prior installers unchanged. Native Cmd+A/replacement, Undo/Redo, Escape-to-preview and Cmd+Return now pass; cancelled test without insertion and restored normal recognition/600 ms preview. Full suite still running; system accessibility/display and complete keyboard traversal remain unverified.
+
+- Final 1.12.4 integrated gate: **3,288 tests passed** (679.292 s). The longer run completed normally during recorded-audio inference; no restart needed. Release/native fixes and results committed for GitHub. Remaining native VoiceOver/system contrast/external-display and full keyboard traversal checks still require their recorded prerequisites.
+
+- Ordinary keyboard duplication reported in external apps after 1.12.4 QA; cause unconfirmed. Stopped automated UI testing and quit the sole VoicePlus process; fresh process check confirms no app/test process remains. Read-only keyboard tracing found no physical-key replay path. Awaiting same-app manual typing comparison with VoicePlus closed; native acceptance remains open and no speculative runtime fix or replacement installer was made.
+
+- Owner reports typing is now normal in 2–3 previously affected apps with VoicePlus closed, but no reliable pattern. Reopened the installed app once; native idle green dot and a single app process confirmed, no test processes or automated typing. Awaiting manual typing comparison with VoicePlus idle before attributing a cause; software remains unchanged.
+
+- Owner confirms typing also remains normal after reopening VoicePlus. Duplication is currently unreproduced, with no established cause or keyboard patch; automated typing stays paused. This resolves the pending idle comparison, not the remaining native design/accessibility acceptance checks.
+
+- Bounded acceptance audit found no new confirmed defect. Clarified that native keyboard/VoiceOver/Increase Contrast and display behavior are explicit design requirements, not optional completion criteria. Native RTL/uncertainty destination coverage and an enumerated transient-state visual pass also remain incomplete; unit/fixture evidence is not a substitute. No test or installer rerun for this documentation-only audit.
+
+- Owner clarified manual notch/icon menus appear correctly and do not reproduce doubling, then explicitly asked to ignore the typing issue and move on. Investigation deferred; no keyboard/menu patch integrated. Experimental anchor commit `698f487` remains local in its isolated worktree and must not ship because it changes valid manual placement. Resume V3 acceptance; installed 1.12.4 unchanged.
+
+- Native visual-only pass on installed 1.12.4 captured 22/26 state presentations with consistent notch/footer/Spool composition. Long transcript shows two full lines; the native scroll rail reaches the final words without expansion. Idle/ready and cancelled/editing diagnostic captures were inconclusive; normal-mode idle green dot verified separately. No microphone, external writes, saved corrections or settings changes; review process exited and normal app restored. These visual checks do not establish genuine recovery transitions or remaining accessibility/display integration.
+
+- Diagnostic inspection now selects its owned content panel after queued rendering and uses real idle presence. All 21 focused tests pass; installed 1.12.6 captures the previously missing idle, ready, cancelled and editing states (26/26 presentations across the native review). This is visual-only evidence, not recovery-transition coverage.
+- Packaging found explicit `CODESIGN_IDENTITY=-` incorrectly took the certificate branch. Fixed selection; four signing-policy tests pass and the explicit-ad-hoc case demonstrably fails before the fix. Uninstalled 1.12.5 is retained locally as a rejected package; use 1.12.6 instead.
+- Verified and installed self-contained 1.12.6, build 202609220840, 714,972,305 bytes, SHA256 `d73f649fb4391a5ea9949f96a2458a9e3992e25d3259315e2f658cb14d5debaa`. Offline bundled inference, stable signature, dependencies and clean-install checks pass; all 32 preexisting installers unchanged, public feed/cask restored. Prior installed app backed up at `/tmp/VoicePlus-before-1.12.6-QA.app`.
+- Native Tab now visibly enters the transcript and rail, but cycles between them and skips footer buttons. Isolated investigation underway; no ordinary-typing/menu changes. Full-suite baseline remains 3,288 passing on 1.12.4; newer diagnostic changes have 21 focused passes. System accessibility/display prerequisites remain unanswered.
+
+- Exited visual review and restored installed 1.12.6 to its normal green idle chip. Updated the acceptance checklist to mark only the 26-state presentation pass complete; real recovery behavior remains separate.
+
+- Fixed confirmed native Tab filtering under macOS text-only navigation: footer controls now retain their SwiftUI visuals with native keyboard/AX activation; visible scroll arrows participate. VoiceOver pause ownership survives pointer exit and native blur. Independent focused review found no remaining concern. **72 integrated focused tests pass** (59 focus/draft/presence/diagnostic + 13 viewport/footer); full-suite baseline remains 3,288 on 1.12.4.
+- Verified/installed **1.12.7**, build 202609220900, **714,196,677 bytes**, SHA256 `0ca278130208de06e9d413f9db7ba2c4db18e3980458dd59dae528cfbd1ec2c8`. Release build, actual mounted offline bundled inference, signature/dependency and clean-install checks pass. Public feed/cask unchanged; prior installed app retained at `/tmp/VoicePlus-before-1.12.7-QA.app`.
+- Installed native pass: full Tab/Shift-Tab loop reaches transcript, rail, applicable arrows and each footer exactly once; Down scrolls text; Space on Edit draft opens the inline editor; Escape restores preview. Labels/styles remain visible. Review mode performed no microphone capture, external writes or saved corrections; exited and restored normal green idle chip. Double typing remains deferred; no menu/global typing patch shipped.
+
+- 2026-09-23 recovery acceptance on installed 1.12.7: controlled listening reached a real final preview, Cancel returned to Ready without insertion, and the P04 setup-latch path retained its transcript. Edit draft → Cancel edits restored the exact retained original.
+- A temporary empty transcript fixture proved the real no-speech transition: Listening · quiet → “No speech detected” / “Nothing was typed.” → idle green chip. The fixture was removed afterward. Normal recognizer, 600 ms preview, closed microphone and Ready state restored.
+- Computer-generated Escape did not stop the live capture, so physical global Escape remains unverified rather than failed. The user was asked for one physical-key check. No source change, new package or full-suite rerun was needed for this evidence-only pass.
+
+- Destination-change acceptance exposed a foreground mismatch: although TextEdit's field was raised and focused through accessibility, macOS still reported an open Brave Google Docs tab as the target. The test produced one unconfirmed paste there; that single action was immediately undone, and Google Docs exposed Redo afterward, confirming the reversal. No further automated destination writes will be attempted without manual foreground confirmation.
+- Stopped the controlled fixture, restored the installed app's normal recognizer and 600 ms preview preference, and verified the green idle chip. Destination-change/partial-write recovery remains open; no source, test or installer claim changed.
+- Exact 1.12.7 branch gate: **3,295 tests passed** (`swift test --no-parallel`, 564.004 s) on `codex/spool-v3-native`. Recovery subcases verified above remain distinct from the open destination-change/partial-write paths. Current GitHub CI run 35791416139 executed no steps and failed at startup under the existing account restriction; local suite and installer evidence remain authoritative. Documentation update follows pushed commit `3d747eb`; worktree was clean before this record.
+
+- Final fidelity audit integrated V3 runtime/fixture copy, stable active-turn display pinning with display-loss recovery, complete transcript-scroll accessibility metadata and removal of the obsolete V1 Review All surface. The combined focused gate passed **323 tests**; the exact integrated branch then passed **3,299 tests** (`swift test --no-parallel`, 544.709 s).
+- The first 1.12.8 packaging attempt omitted the required full-installer model flags. It was rejected before installation and deleted; no appcast, cask or checksum entry was retained. Rebuilt as self-contained **1.12.9**, build **202609230530**: `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.9.dmg`, **714,279,554 bytes**, SHA256 `de94a917dcf1fd1f8e29a82a561f9439290ac39cb21dc9c0b4b733ad64b25a2d`.
+- The mounted 1.12.9 app passed actual offline TDT, EOU and speaker inference from its read-only resources with an empty model cache/no fetchers, followed by clean-copy launch, signature, stable designated requirement, portable dependency, nine TCC usage-description, quarantine and owner-writability checks. Installed version/build and its 688 MB model directory were verified before launch.
+- Installed 1.12.9 native review confirmed **Hands-free · listening**, **Finish dictation**, **Couldn’t confirm insertion**, **Check destination**, inline red alternatives, and bidirectional scrolling for the full long transcript. The rail moved from 100% to 83% and exposed both direction buttons. Exited review and restored normal green idle with preview preference raw value 900 (the app's 600 ms default). Public appcast/Homebrew metadata remain unchanged; the DMG is retained locally and ignored because it exceeds 100 MB.

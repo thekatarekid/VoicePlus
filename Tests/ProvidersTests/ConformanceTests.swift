@@ -149,15 +149,7 @@ func assertConformance(_ p: any Provider, stage: StageID = .style) async throws 
         #expect(ConfidenceContract.verify(input: sampleSpans, output: out) == [])
     }
 
-    @Test func keychainStoreRoundTripsWhenAvailable() throws {
-        // Real Keychain may be locked/unavailable in CI; skip silently rather than fail.
-        let store = KeychainSecretStore(service: "in.adityakatare.voiceplus.tests")
-        let key = "t.\(UUID().uuidString)"
-        do { try store.set("v1", for: key) } catch { return }
-        #expect(try store.get(key) == "v1")
-        try store.set("v2", for: key)
-        #expect(try store.get(key) == "v2")
-        try store.delete(key)
-        #expect(try store.get(key) == nil)
-    }
+    // Keychain requests and error propagation are exercised by
+    // ProvidersNoninteractiveKeychainTests using injected Security calls. No user Keychain access.
+
 }

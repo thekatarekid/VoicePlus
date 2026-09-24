@@ -136,7 +136,7 @@ public enum TurnKeyDown: Equatable, Sendable {
 
 /// What freezes the dwell (design §5 step 4, §6 F1).
 public enum DwellPause: String, CaseIterable, Sendable {
-    case hover, focus, selection, review
+    case hover, focus, selection, review, editing, composition, emptyDraft, hiddenApp
 }
 
 /// The 10 s finishing offer (design §5): "Use available text" when a partial exists, else "Cancel".
@@ -741,6 +741,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         busy(-1)
         let exit = await dwellExit(id)
         busy(+1)
+        // Freeze the latest reviewed revision only after the insertion decision.
+        let payload = lock.withLock { turns[id]?.payload ?? payload }
         switch exit {
         case .cancel:
             return payload
@@ -813,7 +815,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             guard let turn = turns[id] else { return }
             // S5 — the marks the pill draws, mapped through formatting by the lander: their count is
             // "N words to review" (T05 "Review this phrase"), their ranges the record's. A removed
-            // filler has no mark and is not counted; its low confidence still lengthens the dwell.
+            // filler has no mark and is not counted; confidence never changes the V3 delay.
             let uncertain = payload.pending?.uncertainCount ?? 0
             let lowConfidence = uncertain > 0 || (payload.pending?.spans.contains { $0.isLowConfidence } ?? false)
             turn.payload = payload
@@ -918,6 +920,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         var fx = Effects()
         lock.withLock {
             guard let turn = previewTurnLocked(), turn.pauses.remove(reason) != nil, turn.pauses.isEmpty else { return }
+            turn.dwellRemaining = max(0.15, turn.dwellRemaining)
             fx.present(.finalPreview(previewInfoLocked(turn)))
             startDwellLocked(turn)
         }
@@ -937,9 +940,63 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         fx.run(self)
     }
 
+    /// Retained drafts stay retained after editing; only an explicit delivery action can insert.
+    public func reviseRetainedDraft(shown: PillState, original: String, edited: String, mapping: MarkMapping) -> Bool {
+        guard !edited.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        switch shown {
+        case .held(let info):
+            guard let held = focusGuard.heldText(id: info.id),
+                  focusGuard.reviseHeld(info.id, expected: original, text: edited) else { return false }
+            if let id = held.turnID {
+                store.update(id) { $0.finalText = edited; $0.uncertainSpans = mapping.uncertainRanges }
+            }
+            return true
+        case .error:
+            guard let entry = store.recent(limit: 50).first(where: {
+                $0.record.finalText == original && ($0.stage == .failed || $0.stage == .held)
+            }) else { return false }
+            store.update(entry.id) { $0.finalText = edited; $0.uncertainSpans = mapping.uncertainRanges }
+            return true
+        default: return false
+        }
+    }
+
+    /// An accepted in-notch edit replaces the pending payload, before the single commit gate.
+    @discardableResult
+    public func revisePreview(text: String, mapping: MarkMapping, spans: [TranscriptSpan]) -> Bool {
+        var fx = Effects()
+        let accepted = lock.withLock { () -> Bool in
+            guard let turn = previewTurnLocked(), turn.pendingExit == nil,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  var payload = turn.payload else { return false }
+            stopDwellLocked(turn)
+            payload.text = text
+            payload.pending?.spans = spans
+            payload.pending?.uncertainRanges = mapping.uncertainRanges
+            payload.pending?.needsPhraseReview = mapping.needsPhraseReview
+            turn.payload = payload
+            turn.uncertainCount = mapping.count
+            turn.phraseReview = mapping.needsPhraseReview
+            turn.record.finalText = text
+            turn.record.uncertainSpans = mapping.uncertainRanges
+            turn.dwellRemaining = turn.dwellTotal ?? 0
+            fx.save(turn)
+            fx.present(.finalPreview(previewInfoLocked(turn)))
+            startDwellLocked(turn)
+            return true
+        }
+        fx.run(self)
+        return accepted
+    }
+
     /// "Insert text" — the manual-review action, or skipping the rest of the dwell.
     public func insertNow() {
-        guard let id = lock.withLock({ previewTurnLocked()?.id }) else { return }
+        guard let id = lock.withLock({ () -> TurnID? in
+            guard let turn = previewTurnLocked(), !turn.pauses.contains(.editing), !turn.pauses.contains(.composition),
+                  !turn.pauses.contains(.emptyDraft), !turn.pauses.contains(.hiddenApp),
+                  !(turn.payload?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { return nil }
+            return turn.id
+        }) else { return }
         exitDwell(id, .insert)
     }
 
@@ -970,6 +1027,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     private func exitDwell(_ id: TurnID, _ exit: DwellExit) {
         let continuation = lock.withLock { () -> CheckedContinuation<DwellExit, Never>? in
             guard let turn = turns[id], turn.pendingExit == nil else { return nil }
+            if case .insert = exit {
+                guard !turn.pauses.contains(.editing), !turn.pauses.contains(.composition), !turn.pauses.contains(.emptyDraft),
+                      !turn.pauses.contains(.hiddenApp),
+                      !(turn.payload?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { return nil }
+            }
             turn.pendingExit = exit
             turn.dwellTimer?.cancel()
             turn.dwellTimer = nil
@@ -1142,6 +1204,33 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             }
         }
         if kept { notice(.K02) }
+    }
+
+    /// The display hosting this turn disappeared. Capture may finish, but its text must not follow
+    /// a window macOS moved elsewhere: a preview is held immediately and an earlier stage is marked
+    /// to enter held recovery as soon as formatting completes. The recovery surface itself is moved
+    /// by `PillPanelController`; reinsertion requires the existing explicit “Insert here” retarget.
+    public func pinnedDisplayWasLost() {
+        let reason = DeliveryReason.destinationChanged
+        var previews: [TurnID] = []
+        var deferred: [TurnID] = []
+        lock.withLock {
+            for turn in turns.values where turn.stage.isBeforeWrite {
+                switch turn.stage {
+                case .finalPreview:
+                    previews.append(turn.id)
+                case .starting, .listening, .listeningQuiet, .finishing:
+                    turn.holdWhenReady = reason
+                    deferred.append(turn.id)
+                default:
+                    break
+                }
+            }
+        }
+        previews.forEach { exitDwell($0, .hold(reason: reason)) }
+        if !previews.isEmpty || !deferred.isEmpty {
+            Log.app.notice("display removed: \(previews.count) preview(s) held, \(deferred.count) active turn(s) require retarget")
+        }
     }
 
     // MARK: Undo (R2)
@@ -1429,7 +1518,7 @@ public final class TurnWiring {
             }
     }
 
-    /// `finishLatch`: the latched pill's "Finish" (the same as a tap while latched).
+    /// `finishLatch`: the latched pill's "Finish dictation" (the same as a tap while latched).
     @MainActor
     @discardableResult
     public static func attach(container: AppContainer, pill: PillViewModel, coordinator: DictationCoordinator,
@@ -1445,7 +1534,32 @@ public final class TurnWiring {
         current = wiring
 
         // What the turn shows, and taking it down only while the pill still shows the turn.
-        controller.onPresent = { [weak pill] state in pill?.present(state) }
+        controller.onPresent = { [weak pill, weak controller] state in
+            pill?.present(state)
+            if case .finalPreview = state {
+                if pill?.pointerInside == true { controller?.pauseDwell(.hover) }
+                if NSApp?.isHidden == true { controller?.pauseDwell(.hiddenApp) }
+            }
+        }
+        pill.onDraftPause = { [weak controller] reason, paused in
+            if paused { controller?.pauseDwell(reason) } else { controller?.resumeDwell(reason) }
+        }
+        pill.onApplyDraft = { [weak controller] text, mapping, spans in
+            controller?.revisePreview(text: text, mapping: mapping, spans: spans) ?? false
+        }
+        pill.onApplyRetainedDraft = { [weak controller] shown, original, edited, mapping in
+            controller?.reviseRetainedDraft(shown: shown, original: original, edited: edited, mapping: mapping) ?? false
+        }
+        let learner = DraftVocabularyLearner(database: container.database)
+        pill.onLearnDraft = { [weak pill] original, edited in
+            if !learner.learn(original: original, edited: edited) {
+                pill?.showLaneNote("Learned spelling is kept for this session only")
+            }
+        }
+        NotificationCenter.default.publisher(for: NSApplication.didHideNotification)
+            .sink { [weak controller] _ in controller?.pauseDwell(.hiddenApp) }.store(in: &wiring.subscriptions)
+        NotificationCenter.default.publisher(for: NSApplication.didUnhideNotification)
+            .sink { [weak controller] _ in controller?.resumeDwell(.hiddenApp) }.store(in: &wiring.subscriptions)
         controller.onRetract = { [weak pill] in
             guard let pill, Self.isTurnRow(pill.state, captureOpen: pill.turn.captureOpen) else { return }
             pill.hide()
@@ -1466,6 +1580,7 @@ public final class TurnWiring {
             }
             escape.update(phase: phase, turn: controller.currentTurn)
         }
+        escape.bindDraftEditor(to: pill)
         escape.onEscape = { [weak controller] _ in controller?.escape() }
         escape.observeMenuTracking()
         pill.$state
@@ -1490,6 +1605,7 @@ public final class TurnWiring {
             if let controller, Self.route(action, shown: shown, to: controller, finishLatch: finishLatch) { return }
             previousAction?(action, shown)
         }
+        MenuCapturePillWiring.attach(session, pill: pill)
         let previousHover = pill.onPointerInsideChange
         pill.onPointerInsideChange = { [weak controller] inside in
             previousHover?(inside)
@@ -1536,8 +1652,7 @@ public final class TurnWiring {
             controller.cancelFinishing()
         case (.useAvailable, _):
             controller.useAvailableText()
-        case (.review, .finalPreview), (.reviewAll, .finalPreview):
-            // The review surface (S5) resumes it with `resumeDwell(.review)` when it closes.
+        case (.review, .finalPreview):
             controller.pauseDwell(.review)
         case (.undo, .undoAvailable) where controller.isUndoAvailable:
             controller.performUndo()

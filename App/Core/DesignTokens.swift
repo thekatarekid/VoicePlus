@@ -11,7 +11,8 @@ import SwiftUI
 ///
 /// Window colours are `NSColor(name:dynamicProvider:)`, so they follow the window's appearance
 /// (light, dark, and Increase Contrast) without a second palette. The pill and Spool are always
-/// dark / fixed material and never follow the window theme (design §3 "Pill · always dark").
+/// dark and never follow the window theme. Pill controls respond to Increase Contrast;
+/// Spool artwork retains its fixed material.
 enum Tokens {
 
     // MARK: - Colour primitives
@@ -251,26 +252,48 @@ enum Tokens {
         enum Token: String, CaseIterable, Sendable {
             case background, ink, secondaryInk, ready, attention, uncertainty
             case control, controlBorder, primary, onPrimary
+            case scrollTrack, scrollThumb
 
             var value: RGB {
                 switch self {
                 case .background: return RGB("#080A09")      // .notch background
                 case .ink: return RGB("#FFF0E3")             // .notch color, .words
-                case .secondaryInk: return RGB("#C3AA97")    // .status, .helper
+                case .secondaryInk: return RGB("#A19387")    // .status, .helper
                 case .ready: return RGB("#69D58B")           // idle dot, verified mark
                 case .attention: return RGB("#F0C181")       // ⚠ notices
                 case .uncertainty: return RGB("#FF8F95")     // .uncertain dotted underline
                 case .control: return RGB("#382A21")         // .actions button fill
-                case .controlBorder: return RGB("#634B3A")   // .actions button border (decorative)
+                case .controlBorder: return RGB("#8A7364")   // ≥3:1 against control fill and pill
                 case .primary: return RGB("#E9AD83")         // .actions .primary fill
                 case .onPrimary: return RGB("#352014")       // .actions .primary label
+                case .scrollTrack: return RGB("#17110D")
+                case .scrollThumb: return RGB("#AB7859")
                 }
             }
 
-            var nsColor: NSColor { value.nsColor }
-            var color: Color { value.color }
+            func value(_ contrast: Contrast) -> RGB {
+                guard contrast == .increased else { return value }
+                switch self {
+                case .secondaryInk, .controlBorder: return RGB("#CDB6A4")
+                case .scrollThumb: return RGB("#E9AD83")
+                default: return value
+                }
+            }
+
+            var nsColor: NSColor { dynamicColor { Appearance.resolve($0).contrast } }
+
+            /// The resolver seam tests match-only accessibility names without changing macOS settings.
+            func dynamicColor(contrast: @escaping (NSAppearance) -> Contrast) -> NSColor {
+                let token = self
+                return NSColor(name: NSColor.Name("VoicePlus.Pill.\(rawValue)")) { appearance in
+                    token.value(contrast(appearance)).nsColor
+                }
+            }
+            var color: Color { Color(nsColor: nsColor) }
         }
 
+        static let statusAttention = RGB("#D3AE78").nsColor
+        static let statusVerified = RGB("#94AD94").nsColor
         static let background = Token.background.nsColor
         static let ink = Token.ink.nsColor
         static let secondaryInk = Token.secondaryInk.nsColor
@@ -281,6 +304,8 @@ enum Tokens {
         static let controlBorder = Token.controlBorder.nsColor
         static let primary = Token.primary.nsColor
         static let onPrimary = Token.onPrimary.nsColor
+        static let scrollTrack = Token.scrollTrack.nsColor
+        static let scrollThumb = Token.scrollThumb.nsColor
     }
 
     // MARK: - Spool material (design §3.1; spool_spec.json `tape`, `character`, `housingShades`)
@@ -415,9 +440,9 @@ enum Tokens {
         /// Compact metadata: helper sentences, timestamps, counts.
         static let meta = TypeRole("meta", size: 11, lineHeight: 16)
         /// Words in the pill — natural-language text, never monospaced (design §4 "Transcript layout").
-        static let pillTranscript = TypeRole("pillTranscript", size: 14, lineHeight: 20, weight: .medium)
+        static let pillTranscript = TypeRole("pillTranscript", size: 13.5, lineHeight: 21)
         /// The pill's status and helper lines.
-        static let pillStatus = TypeRole("pillStatus", size: 11, lineHeight: 16)
+        static let pillStatus = TypeRole("pillStatus", size: 11, lineHeight: 14)
         /// Key caps ("fn / 🌐", "Esc") — the prototype's `kbd` is 11 px `--mono`.
         static let key = TypeRole("key", size: 11, lineHeight: 16, design: .monospaced)
         /// Durations and timers ("12:04", latch elapsed) — tabular digits so they do not jitter.

@@ -199,6 +199,16 @@ public final class FocusGuard {
     /// S3 — the held item carrying `turn`'s payload, if it is still held.
     public func heldText(turn: TurnID) -> HeldText? { held.last { $0.turnID == turn } }
 
+    /// Revise retained words without delivering them. Insert here still runs the normal focus guard.
+    @discardableResult
+    public func reviseHeld(_ id: HeldText.ID, expected: String, text: String) -> Bool {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let index = held.firstIndex(where: { $0.id == id && $0.text == expected }) else { return false }
+        held[index].request.text = text
+        onHeldChanged?(held)
+        return true
+    }
+
     // MARK: Holding
 
     /// Keeps committed text that could not be delivered. Never posts anything.
