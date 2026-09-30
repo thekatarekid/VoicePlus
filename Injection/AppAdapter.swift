@@ -55,6 +55,22 @@ public enum Readback {
         if end.lowerBound == start.lowerBound + text.utf16.count { return .confirmed }
         return end.lowerBound > start.lowerBound ? .confirmed : .unconfirmed
     }
+
+    /// The verdict for any app whose editor owns its own text model — Chromium's web content,
+    /// Electron's ProseMirror/Monaco composers (Slack, VS Code, Claude), Figma's canvas.
+    ///
+    /// `AXValue` is consulted first, for the cases where it is honest, and the caret / `AXSelectedText`
+    /// second, because in these apps the value is routinely absent or stale while the selection is
+    /// live. Only a readback that *ran* and showed nothing is `unconfirmed`; when neither side could
+    /// answer, verification is skipped (`unavailable`), never reported as a failure.
+    public static func byValueOrCaret(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        let byValue = Readback.byValue(text: text, before: before, after: after)
+        if byValue == .confirmed { return .confirmed }
+        let bySelection = Readback.byCaretOrSelection(text: text, before: before, after: after)
+        if bySelection == .confirmed { return .confirmed }
+        if byValue == .unavailable && bySelection == .unavailable { return .unavailable }
+        return .unconfirmed
+    }
 }
 
 /// Per-app knowledge for the hostile set (P1.8 T2). An adapter can (a) reorder/forbid methods,
@@ -137,6 +153,15 @@ public final class ElectronAdapter: AppAdapter {
     public init() {}
     public func matches(bundleID: String) -> Bool { Self.bundleIDs.contains(bundleID) }
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
+
+    /// V4.41 — Electron composers are exactly the Chromium readback case and were never given it:
+    /// the default `Readback.byValue` judged a ProseMirror field whose `AXValue` is absent or stale,
+    /// so a keystroke write that had landed in the Claude desktop composer was reported as
+    /// `delivered(verified: false)` and surfaced as D06 "Couldn't confirm insertion" every time.
+    /// The caret and `AXSelectedText` are what these apps can actually answer.
+    public func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        Readback.byValueOrCaret(text: text, before: before, after: after)
+    }
 }
 
 /// Cursor is a VS Code fork with an AI composer; same rules as Electron, separate id for routing telemetry.
@@ -145,6 +170,10 @@ public final class CursorAdapter: AppAdapter {
     public init() {}
     public func matches(bundleID: String) -> Bool { bundleID == "com.todesktop.230313mzl4w4u92" || bundleID.lowercased().contains("cursor") }
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
+
+    public func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        Readback.byValueOrCaret(text: text, before: before, after: after)
+    }
 }
 
 /// Chromium-based browsers (Brave, Chrome, Edge, Arc) — R2.3.
@@ -176,15 +205,10 @@ public final class ChromiumAdapter: AppAdapter {
 
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
 
+    /// Neither the value nor the caret available: skip verification rather than claim a failure.
+    /// If one of them *was* available and showed nothing, say so — but still unverified.
     public func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
-        let byValue = Readback.byValue(text: text, before: before, after: after)
-        if byValue == .confirmed { return .confirmed }
-        let bySelection = Readback.byCaretOrSelection(text: text, before: before, after: after)
-        if bySelection == .confirmed { return .confirmed }
-        // Neither the value nor the caret was available: skip verification rather than claim a
-        // failure. If one of them *was* available and showed nothing, say so — but still unverified.
-        if byValue == .unavailable && bySelection == .unavailable { return .unavailable }
-        return .unconfirmed
+        Readback.byValueOrCaret(text: text, before: before, after: after)
     }
 }
 
@@ -224,6 +248,10 @@ public final class FigmaAdapter: AppAdapter {
     public init() {}
     public func matches(bundleID: String) -> Bool { bundleID == "com.figma.Desktop" }
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
+
+    public func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        Readback.byValueOrCaret(text: text, before: before, after: after)
+    }
 }
 
 /// FX1 — VoicePlus's own windows: the onboarding practice field, Settings' text fields.

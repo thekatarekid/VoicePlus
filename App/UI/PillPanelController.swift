@@ -17,6 +17,11 @@ public final class PillPanelController {
     private var lastSurface: NotchGeometry.Surface = .hidden
     /// The display chosen when the turn became visible; pinned for the turn (design §4).
     private var pinnedMetrics: ScreenMetrics?
+    /// Where the panel is animating to. The hit test below must accept the pointer against both the
+    /// live and the target frame: mid-animation `panel.frame` is an intermediate rectangle that may
+    /// not yet contain a pointer which is genuinely on the pill, and treating that as "not hovering"
+    /// would resume a dwell the user is deliberately holding open.
+    private var targetFrame: NSRect?
     /// A real removal is a delivery-safety event: the turn must retain its text and require an
     /// explicit retarget instead of following a window that macOS moved to another display.
     public var onPinnedDisplayLost: (() -> Void)?
@@ -160,7 +165,7 @@ public final class PillPanelController {
         let surface = Self.surface(for: content)
         let wasVisible = lastSurface != .hidden
         guard force || surface != lastSurface || state.isVisible != wasVisible else {
-            panel.ignoresMouseEvents = !Self.acceptsMouse(state, content: content)
+            syncPointerTracking(acceptsMouse: Self.acceptsMouse(state, content: content))
             return
         }
         defer { lastSurface = surface }
@@ -182,7 +187,7 @@ public final class PillPanelController {
         if let host = shadowPanel.contentView as? NSHostingView<PillShadowSurface> {
             host.rootView = PillShadowSurface(size: layout.shown.size, attached: layout.attached)
         }
-        panel.ignoresMouseEvents = !Self.acceptsMouse(state, content: content)
+        syncPointerTracking(acceptsMouse: Self.acceptsMouse(state, content: content))
         switch (wasVisible, surface != .hidden) {
         case (false, true):
             panel.setFrame(layout.retracted, display: false)
@@ -204,6 +209,27 @@ public final class PillPanelController {
         }
     }
 
+    /// V4.41 — mouse acceptance, and the truth about hover.
+    ///
+    /// A panel that stops accepting the mouse (`ignoresMouseEvents`), is ordered out, or moves out
+    /// from under the pointer never delivers SwiftUI's `onHover(false)`. The model's cached
+    /// `pointerInside` then stays true, and `TurnWiring` pauses every later final preview's dwell
+    /// for a hover that is not happening — the payload sits at "Ready for <app> · Insert now" and is
+    /// never inserted automatically. So: hover is re-derived from the real pointer on every render,
+    /// and the model is told the truth immediately.
+    private func syncPointerTracking(acceptsMouse: Bool) {
+        panel.ignoresMouseEvents = !acceptsMouse
+        model.pointerHitTest = { [weak self, weak panel] in
+            guard let panel, !panel.ignoresMouseEvents, panel.isVisible else { return false }
+            let mouse = NSEvent.mouseLocation
+            if panel.frame.contains(mouse) { return true }
+            // Mid-animation the live frame is an intermediate rectangle; a pointer on the surface the
+            // pill is growing into is still a genuine hover, and must not resume the dwell.
+            return self?.targetFrame?.contains(mouse) ?? false
+        }
+        if model.pointerInside, !model.isPointerReallyInside { model.setPointerInside(false) }
+    }
+
     /// Extra transparent room for the two neutral shadows; the silhouette/content anchor is unchanged.
     static func shadowFrame(_ frame: CGRect, attached: Bool) -> CGRect {
         CGRect(x: frame.minX - 40, y: frame.minY - 60, width: frame.width + 80,
@@ -211,6 +237,7 @@ public final class PillPanelController {
     }
 
     private func animate(to frame: NSRect, completion: (() -> Void)? = nil) {
+        targetFrame = frame
         NSAnimationContext.runAnimationGroup({ ctx in
             // design §11: 160–220 ms ease-out geometry transitions; Reduce Motion (macOS or Settings ›
             // Appearance, S10) expands instantly.

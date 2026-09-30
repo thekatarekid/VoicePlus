@@ -135,6 +135,19 @@ public final class PillViewModel: ObservableObject {
     @Published public private(set) var laneNote: String?
     /// The pointer is on the pill (hover pauses the final preview's dwell; S3 reads it).
     @Published public private(set) var pointerInside = false
+    /// V4.41 — is the pointer *really* on the pill right now? SwiftUI's `onHover` does not report an
+    /// exit when the hovered surface stops accepting the mouse or moves out from under the pointer,
+    /// so `pointerInside` can stay true for the rest of the session — and then every final preview
+    /// opens with a `.hover` pause that nothing ever resumes, which is the auto-insert that never
+    /// fires. Installed by `PillPanelController` (the panel's own frame and mouse-acceptance); with
+    /// no provider the cached flag is the answer, as before.
+    public var pointerHitTest: (() -> Bool)?
+    /// What S3 asks before pausing a dwell for hover.
+    public var isPointerReallyInside: Bool {
+        guard pointerInside else { return false }
+        guard let pointerHitTest else { return true }
+        return pointerHitTest()
+    }
     /// Keyboard or VoiceOver focus is on the pill's text lane or actions (focus pauses the final
     /// preview's dwell like hover; S3 reads it through `onKeyboardFocusChange`).
     @Published public private(set) var focusInside = false

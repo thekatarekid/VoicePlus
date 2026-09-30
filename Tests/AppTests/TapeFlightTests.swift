@@ -392,6 +392,46 @@ struct TapeFlightTests {
         #expect(h.surface.shown.count == 1)
     }
 
+    // MARK: V4.41 — the manual "Insert now" path animates like the automatic one
+
+    /// A preview held for review (manual review, a hover pause, or simply a few seconds before
+    /// "Insert now") used to insert against the sample taken when the preview opened. Electron and
+    /// Chromium move the caret and re-create the focused element freely, so `verify` answered
+    /// `.targetChanged` and the landing ribbon was suppressed — the one insertion the user asked for
+    /// explicitly was the one that never animated. The sample is kept fresh while the preview is up.
+    @Test func aHeldPreviewReArmsSoTheManualInsertStillFlies() throws {
+        let h = Harness()
+        h.preview()
+        #expect(h.controller.phase == .armed)
+        #expect(h.probe.reads == 1)
+        // The user reads the preview; meanwhile the destination's caret and element move on.
+        h.config.mouth = Self.mouth
+        h.probe.value = TapeFlightProbe(focus: FocusSnapshot(pid: 42, bundleID: "com.apple.TextEdit",
+                                                             appName: "TextEdit", elementToken: "888"),
+                                        selection: 11 ..< 11)
+        h.clock.advance(3)
+        #expect(h.probe.reads > 1, "the pre-insertion sample is taken again while the preview is up")
+        // "Insert now": the flight aims at the caret that is really there.
+        h.insert()
+        let run = try #require(h.surface.current)
+        #expect(h.controller.phase == .flying(run.path))
+        #expect(h.controller.suppressions.isEmpty)
+        #expect(h.caret.asked.last == 11)
+    }
+
+    /// Nothing re-arms once the write is on its way: the sample must be pre-insertion.
+    @Test func reArmingStopsWhenTheWriteBegins() {
+        let h = Harness()
+        h.preview()
+        h.insert()
+        // Past the ribbon's own course, so the flight's refresh reads have stopped too.
+        h.clock.advance(SpoolFlight.duration + 0.05)
+        #expect(h.controller.phase == .finished)
+        let readsWhenFinished = h.probe.reads
+        h.clock.advance(5)
+        #expect(h.probe.reads == readsWhenFinished, "no sample is taken after the write was dispatched")
+    }
+
     /// The suppression matrix: every condition draws no ribbon, reads nothing it must not, and leaves
     /// the pill alone (the controller has no way to reach the turn or the pill).
     @Test func suppressionMatrix() {

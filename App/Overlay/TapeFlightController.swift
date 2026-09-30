@@ -142,6 +142,8 @@ final class TapeFlightController {
     /// Refresh cadence while flying: the caret is re-measured so reflow and scroll move the endpoint,
     /// and a target that changes or loses its geometry takes the ribbon down.
     static let refreshInterval: TimeInterval = 0.15
+    /// How often the final preview's pre-insertion sample is taken again while the preview is up.
+    static let rearmInterval: TimeInterval = 0.25
 
     private(set) var phase: Phase = .idle
     /// Every suppression, in order (diagnostics; tests).
@@ -164,6 +166,8 @@ final class TapeFlightController {
     private var generation = 0
     private var insertedLength = 0
     private var endTimer: TurnTimer?
+    /// Keeps the preview's pre-insertion sample fresh (`scheduleRearm`).
+    private var armTimer: TurnTimer?
     private var refreshTimer: TurnTimer?
     private var cueTimer: TurnTimer?
     private var subscription: AnyCancellable?
@@ -209,8 +213,12 @@ final class TapeFlightController {
             stop()
             phase = .armed
             queues.read { [reader] in _ = reader.arm() }
+            scheduleRearm()
             if reduceMotion() { suppress(.reduceMotion) }
         case .inserting(let text):
+            // No re-arm may run once the write is on its way: the sample must be pre-insertion.
+            armTimer?.cancel()
+            armTimer = nil
             if phase == .suppressed(.reduceMotion), insertedLength > 0 { return }
             switch phase {
             case .locating, .flying, .finished: return   // the same insertion, re-published
@@ -489,7 +497,33 @@ final class TapeFlightController {
         queues.read { [reader] in reader.disarm() }
     }
 
+    /// V4.41 — keep the pre-insertion sample fresh while the final preview is up.
+    ///
+    /// `arm()` used to run exactly once, when the preview appeared. An auto preview inserts 600 ms
+    /// later, so the sample was still true; a preview held for review — manual review, a hover pause,
+    /// or "Insert now" pressed after a few seconds — insert against a sample whose caret and element
+    /// token had moved on (Electron and Chromium re-create the focused element freely), so
+    /// `TapeFlightPlanner.verify` answered `.targetChanged` and the landing ribbon was suppressed:
+    /// the same insertion that animates on the automatic path animated nothing on the manual one.
+    /// Re-arming is always pre-insertion (nothing has been written while the preview is up) and is
+    /// cancelled the moment `.inserting` arrives.
+    private func scheduleRearm() {
+        armTimer?.cancel()
+        let turn = generation
+        armTimer = clock.schedule(after: Self.rearmInterval) { [weak self] in
+            guard let self, turn == self.generation else { return }
+            switch self.phase {
+            case .armed, .suppressed(.reduceMotion): break
+            default: return
+            }
+            self.queues.read { [reader = self.reader] in _ = reader.arm() }
+            self.scheduleRearm()
+        }
+    }
+
     private func takeDown() {
+        armTimer?.cancel()
+        armTimer = nil
         endTimer?.cancel()
         refreshTimer?.cancel()
         endTimer = nil

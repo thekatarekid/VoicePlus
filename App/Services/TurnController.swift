@@ -1497,6 +1497,23 @@ public final class TurnWiring {
         self.escape = escape
     }
 
+    /// V4.41 — the pauses a final preview must be under *now*, and the ones it must be released
+    /// from, when a preview is (re)published.
+    ///
+    /// It is a pair, not a single "pause if": pausing without ever resuming is what parked the
+    /// payload at "Ready for <app> · Insert now" and inserted nothing. Two one-way pauses could each
+    /// strand a preview for the rest of its life — a hover flag SwiftUI never retracts (the pill
+    /// stops accepting the mouse, so no `onHover(false)` ever arrives) and an `NSApplication`
+    /// `didHide` with no matching `didUnhide`. design_v3 §4.1 is explicit that leftover
+    /// mouse-acquired hover/focus after the pointer has left is to be ignored.
+    static func previewPauses(pointerInside: Bool, appHidden: Bool) -> (pause: Set<DwellPause>, resume: Set<DwellPause>) {
+        var pause: Set<DwellPause> = []
+        var resume: Set<DwellPause> = []
+        if pointerInside { pause.insert(.hover) } else { resume.insert(.hover) }
+        if appHidden { pause.insert(.hiddenApp) } else { resume.insert(.hiddenApp) }
+        return (pause, resume)
+    }
+
     /// Keyboard / VoiceOver focus on the pill's final text or its actions freezes the dwell like
     /// hover (build doc §2, design §5 step 4, §11): `PillViewModel.onKeyboardFocusChange` →
     /// `pauseDwell(.focus)` / `resumeDwell(.focus)`. A preview that opens with focus already on the
@@ -1513,8 +1530,11 @@ public final class TurnWiring {
         return pill.$state
             .receive(on: scheduler)
             .sink { [weak controller, weak pill] state in
-                guard case .finalPreview = state, pill?.focusInside == true else { return }
-                controller?.pauseDwell(.focus)
+                guard case .finalPreview = state else { return }
+                // V4.41 — symmetric, for the same reason as the hover pause above: a `.focus` pause
+                // with no resume parks the payload at "Insert now" for the rest of the preview.
+                if pill?.focusInside == true { controller?.pauseDwell(.focus) }
+                else { controller?.resumeDwell(.focus) }
             }
     }
 
@@ -1536,9 +1556,11 @@ public final class TurnWiring {
         // What the turn shows, and taking it down only while the pill still shows the turn.
         controller.onPresent = { [weak pill, weak controller] state in
             pill?.present(state)
-            if case .finalPreview = state {
-                if pill?.pointerInside == true { controller?.pauseDwell(.hover) }
-                if NSApp?.isHidden == true { controller?.pauseDwell(.hiddenApp) }
+            if case .finalPreview = state, let controller {
+                let resolution = Self.previewPauses(pointerInside: pill?.isPointerReallyInside == true,
+                                                    appHidden: NSApp?.isHidden == true)
+                resolution.pause.forEach(controller.pauseDwell)
+                resolution.resume.forEach(controller.resumeDwell)
             }
         }
         pill.onDraftPause = { [weak controller] reason, paused in

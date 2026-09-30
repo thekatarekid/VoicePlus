@@ -164,6 +164,9 @@ public enum PermissionDiagnostics {
             "permission report: cdhash=\(codeHash() ?? "unavailable")",
             "permission report: designatedRequirement=\(identity.designatedRequirement ?? "unavailable")",
             "permission report: identityStable=\(identity.isStable) translocated=\(identity.isTranslocated)",
+            // V4.41 — a copy running from a mounted DMG is a *different app* to TCC than the copy in
+            // /Applications, so Accessibility can read false with the switch visibly on. Said outright.
+            "permission report: mountedVolume=\(identity.isRunningFromMountedVolume) installedCopy=\(identity.installedCopyPath ?? "none")",
             "permission report: AXIsProcessTrusted()=\(AXIsProcessTrusted())",
             "permission report: CGPreflightListenEventAccess()=\(CGPreflightListenEventAccess())",
             "permission report: AVCaptureDevice.authorizationStatus(.audio)=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)",
@@ -182,6 +185,17 @@ public enum PermissionDiagnostics {
         for line in lines {
             print(line)
             Log.app.info("\(line)")
+        }
+        // V4.41 — loud, because every downstream symptom (no AX trust, AX insertion unavailable,
+        // readback that can never confirm) looks like a bug in delivery instead of a launched copy
+        // that TCC has never heard of.
+        let identity = identity()
+        if identity.isRunningFromMountedVolume, let installed = identity.installedCopyPath {
+            Log.app.fault("""
+                running from a mounted volume (\(identity.bundlePath)) while \(installed) exists — \
+                Accessibility is granted per code identity, so this copy may have no grant at all. \
+                Quit, eject the volume and open the installed copy.
+                """)
         }
         return lines
     }

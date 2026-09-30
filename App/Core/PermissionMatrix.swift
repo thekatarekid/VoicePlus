@@ -209,6 +209,25 @@ public struct AppCodeIdentity: Equatable, Sendable {
     /// against that path evaporate, and relaunching only produces another translocated copy.
     public var isTranslocated: Bool { bundlePath.contains("/AppTranslocation/") }
 
+    /// V4.41 — the app is running from a mounted volume (a DMG left open after an install, the
+    /// commonest case on this project's own machine: nine stale `VoicePlus <version>` volumes and the
+    /// *DMG* copy running while `/Applications/VoicePlus.app` sat unopened).
+    ///
+    /// It matters because TCC rows are keyed by the designated requirement, which for an ad-hoc
+    /// signature degrades to this exact binary's `cdhash` (`pinsThisBuild`): a grant made for the
+    /// copy in `/Applications` does not authorise the copy on the volume, so Accessibility reads
+    /// false, AX insertion and readback both fail, and the surface degrades to unconfirmed delivery
+    /// with no visible explanation. Unlike translocation this is not a Gatekeeper artefact — the user
+    /// simply launched the wrong copy — so it does not change `relaunchOutcome`; it is reported.
+    public var isRunningFromMountedVolume: Bool { bundlePath.hasPrefix("/Volumes/") }
+
+    /// The installed copy this one should have been launched from, when it exists and is not this one.
+    public var installedCopyPath: String? {
+        let installed = "/Applications/VoicePlus.app"
+        guard bundlePath != installed, FileManager.default.fileExists(atPath: installed) else { return nil }
+        return installed
+    }
+
     /// What "Quit & Reopen" may actually do.
     public enum RelaunchOutcome: Equatable, Sendable {
         /// Open a fresh instance of this bundle, then terminate this one.
