@@ -51,6 +51,10 @@ struct PresenceIndicatorView: View {
             .accessibilityLabel(state == .ready ? readyHint : state.detail)
     }
 
+    /// FX6 — the seam the tests read: which body this view renders, and therefore whether a dot is
+    /// in the presentation at all.
+    var contentKind: PresenceContent { PresenceContent.kind(state: state, hovered: hovered) }
+
     private var corners: RectangleCornerRadii {
         attached && (hovered || state != .ready)
             ? RectangleCornerRadii(bottomLeading: cornerRadius, bottomTrailing: cornerRadius)
@@ -58,30 +62,44 @@ struct PresenceIndicatorView: View {
                                    bottomTrailing: cornerRadius, topTrailing: cornerRadius)
     }
 
+    /// FX6 — the body is chosen by `PresenceContent`, and the chosen kind is the view's *identity*
+    /// (`.id`). Without that, SwiftUI structurally matched the single content child across the
+    /// `hovered` flip, so the line-49 container animation interpolated the **geometry** of the 6 pt
+    /// dot leaf as the chin grew into the 360 × 38 hint box — the dot slid off to the box's top-left
+    /// corner and only then faded. A distinct identity per kind makes the change an insert + remove,
+    /// and `.transition(.opacity)` says the only thing that may animate is opacity: the dot
+    /// cross-fades out where it stands and is genuinely absent from the hint layout.
     @ViewBuilder private var content: some View {
-        if hovered, state == .ready {
-            // I1: text only — no dot, no brand prefix, no "Ready", no cassette.
-            Text(rowText)
-                .font(.system(size: 12, weight: .regular))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityIdentifier("presence.hint")
-        } else if hovered {
-            HStack(spacing: 6) {
-                Image(systemName: state.symbol).font(.system(size: 10, weight: .semibold))
-                // No `truncationMode`: the panel was sized to this exact string by `PresenceRow`.
-                Text(rowText).font(.system(size: 11, weight: .medium)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
-            }
-            .padding(.horizontal, 9)
-        } else {
-            switch state {
-            case .off: EmptyView()
-            case .ready: ReadyDot()
-            case .listening(let level): LevelBar(level: level)
-            case .processing: LevelBar(level: nil)
-            case .muted, .paused, .blocked: badgeBody
+        let kind = PresenceContent.kind(state: state, hovered: hovered)
+        ZStack {
+            switch kind {
+            case .empty:
+                EmptyView()
+            case .dot:
+                ReadyDot()
+            case .levelBar(let level):
+                LevelBar(level: level)
+            case .badge:
+                badgeBody
+            case .hint:
+                // I1: text only — no dot, no brand prefix, no "Ready", no cassette.
+                Text(rowText)
+                    .font(.system(size: 12, weight: .regular))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityIdentifier("presence.hint")
+            case .row:
+                HStack(spacing: 6) {
+                    Image(systemName: state.symbol).font(.system(size: 10, weight: .semibold))
+                    // No `truncationMode`: the panel was sized to this exact string by `PresenceRow`.
+                    Text(rowText).font(.system(size: 11, weight: .medium)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                }
+                .padding(.horizontal, 9)
             }
         }
+        .id(kind.identity)
+        // Opacity only, in both directions: never `.offset`, `.slide` or an implicit geometry match.
+        .transition(.opacity)
     }
 
     private var badgeBody: some View {
@@ -101,6 +119,48 @@ struct PresenceIndicatorView: View {
         case .ready, .listening, .processing, .paused: return AnyShapeStyle(Tokens.Pill.Token.background.color)
         case .muted: return AnyShapeStyle(Color.red.opacity(0.88))
         case .blocked: return AnyShapeStyle(Color.orange.opacity(0.9))
+        }
+    }
+}
+
+/// FX6 — what the chin draws, as a pure decision, so "the I1 hint carries no dot" (DESIGN.md §8.3,
+/// §8.4) is a unit test rather than a claim about a SwiftUI branch.
+///
+/// `identity` deliberately ignores the level payload: the level bar must keep one identity across
+/// level ticks (it is the same bar getting wider), while the dot, the bar, the badge, the hint and
+/// the state row are each a *different* view — so SwiftUI can never geometry-match one onto another
+/// during the expand/collapse.
+enum PresenceContent: Equatable {
+    case empty
+    case dot
+    case levelBar(Float?)
+    case badge
+    case hint
+    case row
+
+    static func kind(state: PresenceState, hovered: Bool) -> PresenceContent {
+        guard state != .off else { return .empty }
+        if hovered { return state == .ready ? .hint : .row }
+        switch state {
+        case .off: return .empty
+        case .ready: return .dot
+        case .listening(let level): return .levelBar(level)
+        case .processing: return .levelBar(nil)
+        case .muted, .paused, .blocked: return .badge
+        }
+    }
+
+    /// The only presentation that carries the green dot is the resting `ready` chin (I0).
+    var showsDot: Bool { self == .dot }
+
+    var identity: String {
+        switch self {
+        case .empty: return "empty"
+        case .dot: return "dot"
+        case .levelBar: return "levelBar"
+        case .badge: return "badge"
+        case .hint: return "hint"
+        case .row: return "row"
         }
     }
 }

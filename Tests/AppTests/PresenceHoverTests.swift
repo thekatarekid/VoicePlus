@@ -73,4 +73,45 @@ struct PresenceHoverTests {
         // The pointer stays "on it" across the whole expanded hint, so it cannot flicker shut.
         #expect(hovered.hoverRect.contains(CGPoint(x: hovered.frame.minX + 2, y: hovered.frame.midY)))
     }
+
+    /// FX6 — the green dot belongs to the resting chin and to nothing else. It used to slide to the
+    /// top-left corner of the growing hint box during the expand, because the chin's body and the
+    /// hint's body shared one SwiftUI identity; the dot is now absent from every hovered
+    /// presentation, and every kind has its own identity so it can only cross-fade.
+    @Test func theHintPresentationCarriesNoDot() {
+        // `presentation(...) == .hint` ⇒ no dot in the rendered body.
+        #expect(PresenceHover.presentation(state: .ready, pointerOn: true, readyHint: hint) == .hint(hint))
+        #expect(PresenceContent.kind(state: .ready, hovered: true) == .hint)
+        #expect(PresenceContent.kind(state: .ready, hovered: true).showsDot == false)
+        #expect(PresenceIndicatorView(state: .ready, hovered: true, cornerRadius: 10, hint: "",
+                                      readyHint: hint).contentKind.showsDot == false)
+        // Only the resting ready chin (I0) has it.
+        #expect(PresenceContent.kind(state: .ready, hovered: false) == .dot)
+        #expect(PresenceContent.kind(state: .ready, hovered: false).showsDot)
+        #expect(PresenceIndicatorView(state: .ready, hovered: false, cornerRadius: 6, hint: "",
+                                      readyHint: hint).contentKind.showsDot)
+        // No other state, hovered or not, draws a dot either.
+        for state in [PresenceState.off, .listening(level: 0.4), .processing, .muted, .paused,
+                      .blocked(.microphoneDenied)] {
+            #expect(!PresenceContent.kind(state: state, hovered: false).showsDot)
+            #expect(!PresenceContent.kind(state: state, hovered: true).showsDot)
+        }
+    }
+
+    /// The dot, the hint and the state row are three different views, so SwiftUI cannot
+    /// geometry-match them across the expand/collapse — while the level bar keeps one identity
+    /// across level ticks (it is the same bar getting wider, not a new one every frame).
+    @Test func eachPresentationHasItsOwnViewIdentity() {
+        let ids = [PresenceContent.kind(state: .ready, hovered: false).identity,
+                   PresenceContent.kind(state: .ready, hovered: true).identity,
+                   PresenceContent.kind(state: .muted, hovered: true).identity,
+                   PresenceContent.kind(state: .muted, hovered: false).identity,
+                   PresenceContent.kind(state: .listening(level: 0.2), hovered: false).identity,
+                   PresenceContent.kind(state: .off, hovered: false).identity]
+        #expect(Set(ids).count == ids.count)
+        #expect(PresenceContent.kind(state: .listening(level: 0.2), hovered: false).identity
+            == PresenceContent.kind(state: .listening(level: 0.9), hovered: false).identity)
+        #expect(PresenceContent.kind(state: .processing, hovered: false).identity
+            == PresenceContent.kind(state: .listening(level: 0.9), hovered: false).identity)
+    }
 }
