@@ -56,8 +56,10 @@ public enum PresenceGeometry {
 
     /// Horizontal margin kept from the edges of a narrow display (same value as the pill's).
     static let edgeMargin: CGFloat = 8
-    /// Slop around the resting chin that still counts as "pointing at it".
-    public static let hoverSlop: CGFloat = 8
+    /// Slop around the *drawn* surface that still counts as "pointing at it". Deliberately small: the
+    /// hover target is the thing you can see and nothing else, so the pointer can reach a window,
+    /// a tab or a context menu that happens to sit next to the chin (see `hoverRect`).
+    public static let hoverSlop: CGFloat = 2
 
     public static func size(for state: PresenceState, hovered: Bool = false) -> CGSize {
         if hovered, state != .off { return hoverSize }
@@ -81,16 +83,21 @@ public enum PresenceGeometry {
         return CGRect(x: x, y: top - size.height, width: size.width, height: size.height)
     }
 
-    /// Hover target: the resting chin unioned with the expanded row (so the pointer does not fall
-    /// out of the region the instant the panel grows and start a collapse/expand flicker), inflated
-    /// by `hoverSlop`, unioned with the camera housing itself — pointing at the notch reveals it.
+    /// Hover target: **only the surface that is currently drawn**, inflated by `hoverSlop`.
+    ///
+    /// It used to be the union of the chin, the widest hint row and the camera housing, which meant a
+    /// band ~380 × 55 pt wide expanded the hint whenever the pointer merely passed near the notch —
+    /// and, worse, took the mouse there, so a browser tab or a window control under that band could
+    /// not be clicked. Sizing the target to the drawn surface keeps the expand/collapse hysteresis
+    /// (the expanded row is passed back in via `rowWidth`, so the pointer stays inside once it grows)
+    /// without claiming any space the user cannot see.
+    public static func hoverRect(on metrics: ScreenMetrics, size: CGSize) -> CGRect {
+        frame(size: size, on: metrics).insetBy(dx: -hoverSlop, dy: -hoverSlop)
+    }
+
+    /// Convenience: the resting chin, or — once expanded — the measured hint row.
     public static func hoverRect(on metrics: ScreenMetrics, rowWidth: CGFloat? = nil) -> CGRect {
-        var rect = frame(size: restSize, on: metrics)
-            .union(frame(size: rowSize(width: 0, on: metrics), on: metrics))
-        if let rowWidth { rect = rect.union(frame(size: rowSize(width: rowWidth, on: metrics), on: metrics)) }
-        rect = rect.insetBy(dx: -hoverSlop, dy: -hoverSlop)
-        if let notch = metrics.notchRect { rect = rect.union(notch) }
-        return rect
+        hoverRect(on: metrics, size: rowWidth.map { rowSize(width: $0, on: metrics) } ?? restSize)
     }
 
     /// `hovered` = the pointer is on it. `rowWidth` — measured — sizes the expanded row to its text.
@@ -104,7 +111,7 @@ public enum PresenceGeometry {
         if hovered, let rowWidth { size = rowSize(width: rowWidth, on: metrics) }
         let radius = hovered ? 10 : min(6, size.height / 2)   // Tokens.Radius.presenceHint / presenceChin
         return Layout(frame: frame(size: size, on: metrics),
-                      hoverRect: hoverRect(on: metrics, rowWidth: hovered ? rowWidth : nil),
+                      hoverRect: hoverRect(on: metrics, size: size),
                       cornerRadius: radius, visible: true, attached: metrics.isAttached)
     }
 
@@ -176,6 +183,18 @@ public enum PresenceInteraction {
 
     public static func isHovering(mouse: CGPoint, on metrics: ScreenMetrics, rowWidth: CGFloat? = nil) -> Bool {
         PresenceGeometry.hoverRect(on: metrics, rowWidth: rowWidth).contains(mouse)
+    }
+
+    /// The form the question actually takes at runtime: is the pointer on the surface that is drawn
+    /// right now? `expanded` carries the measured hint row so the target grows with the row (and the
+    /// pointer does not fall out of it the instant the chin expands); otherwise it is the chin the
+    /// state draws — never a padded band around the notch.
+    public static func isHovering(mouse: CGPoint, on metrics: ScreenMetrics,
+                                  state: PresenceState, expandedRowWidth: CGFloat?) -> Bool {
+        let size = expandedRowWidth.map { PresenceGeometry.rowSize(width: $0, on: metrics) }
+            ?? PresenceGeometry.size(for: state)
+        guard size != .zero else { return false }
+        return PresenceGeometry.hoverRect(on: metrics, size: size).contains(mouse)
     }
 
     /// Full-screen detection with no private API: the menu bar's `visibleFrame` delta collapses to

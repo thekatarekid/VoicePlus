@@ -230,8 +230,12 @@ public final class PresenceIndicatorController {
 
         // S2 (design §4): the hint is only ever a hover — pointer entry expands it, pointer exit
         // collapses it, nothing expands unprompted, and keyboard focus never opens it.
+        // The target is the surface that is drawn right now — the chin at rest, the hint row once it
+        // has expanded — and nothing more. `hovered` (not `rowWidth`) decides which, so an expanded
+        // row keeps its own bigger target and a resting chin never inherits it.
         let pointerOn = next.isVisible
-            && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics, rowWidth: rowWidth)
+            && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics,
+                                              state: next, expandedRowWidth: hovered ? rowWidth : nil)
         let hint = readyHint()
         let presentation = PresenceHover.presentation(state: next, pointerOn: pointerOn, readyHint: hint)
         let expanded = presentation != .chin && presentation != .none

@@ -291,22 +291,34 @@ struct PresenceInteractionTests {
         #expect(!PresenceInteraction.ignoresMouse(hovering: true))
     }
 
-    @Test func hoverRectCoversTheChinTheHoverRowAndTheHousing() throws {
+    /// The hover target is the drawn surface and nothing else: it must not spill over the camera
+    /// housing or reserve the width of the (not yet shown) hint row, or the pointer cannot reach a
+    /// window, a tab or a context menu sitting beside the chin.
+    @Test func hoverRectIsTheDrawnSurfaceOnly() throws {
+        let rest = PresenceGeometry.frame(size: PresenceGeometry.restSize, on: notched)
         let rect = PresenceGeometry.hoverRect(on: notched)
         let housing = try #require(notched.notchRect)
-        #expect(rect.contains(PresenceGeometry.frame(size: PresenceGeometry.restSize, on: notched)))
-        // S2: the hint is text-sized (min 190), so at rest the target covers the narrowest hint row;
-        // once expanded, the measured row width is passed in and the target covers that row.
-        #expect(rect.contains(PresenceGeometry.frame(size: PresenceGeometry.rowSize(width: 0, on: notched), on: notched)))
+        #expect(rect.contains(rest))
+        #expect(rect.width <= rest.width + 2 * PresenceGeometry.hoverSlop)
+        // Neither the widest hint row nor the housing is part of the resting target.
+        #expect(!rect.contains(PresenceGeometry.frame(size: PresenceGeometry.rowSize(width: 300, on: notched), on: notched)))
+        #expect(!rect.contains(housing))
+
+        // Once expanded, the measured row is the target — so the pointer does not fall straight back
+        // out of it and start an expand/collapse flicker.
         let measured = PresenceGeometry.hoverRect(on: notched, rowWidth: 300)
         #expect(measured.contains(PresenceGeometry.frame(size: PresenceGeometry.rowSize(width: 300, on: notched), on: notched)))
-        #expect(rect.contains(housing))   // pointing at the camera housing itself reveals it
+        #expect(PresenceInteraction.isHovering(mouse: CGPoint(x: measured.minX + 1, y: measured.midY),
+                                               on: notched, state: .ready, expandedRowWidth: 300))
 
-        // Dead centre of the chin: hovering. Well clear of it: not.
+        // Dead centre of the chin: hovering. Well clear of it — including where the wide hint row
+        // *would* be — : not.
         #expect(PresenceInteraction.isHovering(mouse: CGPoint(x: 900, y: 1128), on: notched))
         #expect(!PresenceInteraction.isHovering(mouse: CGPoint(x: 900, y: 600), on: notched))
         #expect(!PresenceInteraction.isHovering(mouse: CGPoint(x: 400, y: 1128), on: notched))
-        // The 8 pt slop is real, and 2 pt past it is not hovering.
+        #expect(!PresenceInteraction.isHovering(mouse: CGPoint(x: rest.maxX + 40, y: rest.midY),
+                                                on: notched, state: .ready, expandedRowWidth: nil))
+        // The slop is real, and 2 pt past it is not hovering.
         #expect(PresenceInteraction.isHovering(mouse: CGPoint(x: 900, y: rect.minY + 1), on: notched))
         #expect(!PresenceInteraction.isHovering(mouse: CGPoint(x: 900, y: rect.minY - 2), on: notched))
     }

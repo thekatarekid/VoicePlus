@@ -35,3 +35,4 @@ e534eebd7f30f294e20c9d0f056fad8d725afc38e3d371a1ce1f09a71da9bf67  VoicePlus_V3-S
 d73f649fb4391a5ea9949f96a2458a9e3992e25d3259315e2f658cb14d5debaa  VoicePlus_V3-Spool-Full_1.12.6.dmg
 0ca278130208de06e9d413f9db7ba2c4db18e3980458dd59dae528cfbd1ec2c8  VoicePlus_V3-Spool-Full_1.12.7.dmg
 de94a917dcf1fd1f8e29a82a561f9439290ac39cb21dc9c0b4b733ad64b25a2d  VoicePlus_V3-Spool-Full_1.12.9.dmg
+1c61e8cd265c59b8e29fadfb1ae4a176364f95548259b5bce4a5faf49534966c  VoicePlus_V3-Spool-Full_1.12.10.dmg

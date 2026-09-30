@@ -571,6 +571,10 @@ placement math.
   ("Hold <key> to dictate" when latch is off). No dot, no Spool, no brand prefix, no "Ready". Pointer
   exit collapses it. Keyboard focus does not open the hover presentation; the chin's accessible
   description carries the same instruction. Capture, errors and held text take priority over hover.
+- **The hover target is the drawn surface only** — the 64 × 14 chin at rest (plus 2 pt slop), the
+  expanded row once it is open — never the camera housing and never the width the hint *would* need.
+  The chin takes the mouse only inside that target, so a window, tab or context menu beside it stays
+  clickable and nothing expands while the pointer is merely passing near the notch.
 - **Menu-bar glyph:** the black-and-white cassette-face outline (`spool_spec.json` › `menuGlyph`:
   32 × 24 viewBox, rounded rect, two eye circles, smiling mouth) at 18 × 16 pt, template image, system
   monochrome. Never tinted peach, never replaced by the detailed mascot. Clicking it opens the menu (§10).
