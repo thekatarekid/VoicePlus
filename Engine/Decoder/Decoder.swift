@@ -15,13 +15,39 @@ public struct DecodedToken: Equatable, Hashable, Sendable, Codable {
     /// Seconds from utterance start (80 ms quantised for Parakeet TDT).
     public var startTime: TimeInterval
     public var endTime: TimeInterval
+    /// V5 B3 — the joint's other top-K candidates at this emission step, best first, never the
+    /// chosen token or blank. Empty when the decoder did not expose them (preview, mocks).
+    public var alternatives: [TokenAlternative]
 
-    public init(tokenId: Int, text: String, logProb: Float, startTime: TimeInterval, endTime: TimeInterval) {
+    public init(tokenId: Int, text: String, logProb: Float, startTime: TimeInterval, endTime: TimeInterval,
+                alternatives: [TokenAlternative] = []) {
         self.tokenId = tokenId
         self.text = text
         self.logProb = logProb
         self.startTime = startTime
         self.endTime = min(max(endTime, startTime), .greatestFiniteMagnitude)
+        self.alternatives = alternatives
+    }
+
+    private enum CodingKeys: String, CodingKey { case tokenId, text, logProb, startTime, endTime, alternatives }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(tokenId: try c.decode(Int.self, forKey: .tokenId), text: try c.decode(String.self, forKey: .text),
+                  logProb: try c.decode(Float.self, forKey: .logProb),
+                  startTime: try c.decode(TimeInterval.self, forKey: .startTime),
+                  endTime: try c.decode(TimeInterval.self, forKey: .endTime),
+                  alternatives: try c.decodeIfPresent([TokenAlternative].self, forKey: .alternatives) ?? [])
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(tokenId, forKey: .tokenId)
+        try c.encode(text, forKey: .text)
+        try c.encode(logProb, forKey: .logProb)
+        try c.encode(startTime, forKey: .startTime)
+        try c.encode(endTime, forKey: .endTime)
+        if !alternatives.isEmpty { try c.encode(alternatives, forKey: .alternatives) }
     }
 
     /// Linear probability, clamped to 0…1.

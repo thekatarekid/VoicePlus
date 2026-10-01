@@ -78,3 +78,11 @@ remaining errors are number formatting ("three thirty" → "3 30") and one name 
 for correct words). EOU 160 ms preview: incremental partials, 7.7 % WER on clean_01. `RealEngine` end-to-end: 10 preview
 updates, final landed 142 ms after stop, WER 0 on clean_02. Run: `swift test --filter ASRGoldenTranscriptTests`
 (skips without models; `VOICEPLUS_LIVE_MODELS=1` downloads them).
+
+## V5 B3 — real N-best alternates
+`DecodedToken.alternatives` (additive, default empty, Codable-compatible) carries the joint's other
+top-K candidates (K = 4) with full-vocabulary log-probs. `FluidAudioTDTDecoder`'s final pass fills
+them via `JointTopKReplayer` (replays the chosen path through the shared preprocessor/encoder/
+decoder/joint CoreML models; only when some token's probability is < 0.9). `WordConfidence.spans`
+turns them into `TranscriptSpan.alternates` (`WordAlternates`, source `.beam`, `logProb` set);
+`AlternateEnricher` appends dictionary variants after them. Preview never carries alternates.

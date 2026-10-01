@@ -8,6 +8,8 @@ import Shared
 /// Candidate scoring (0…1): phonetic match on primary code 0.6, on secondary 0.5, plus
 /// up to 0.4 for orthographic similarity (`1 - lev/maxLen`). Candidates with no phonetic
 /// match still qualify when orthographic similarity ≥ `minSimilarity`.
+///
+/// V5 B3 — generated variants are added *after* the span's real alternates (`merge`).
 public struct AlternateEnricher: Sendable {
     public var biasVocabulary: [String]
     public var userDictionary: [String]
@@ -78,14 +80,20 @@ public struct AlternateEnricher: Sendable {
             .prefix(limit).map { $0 }
     }
 
-    private func merge(existing: [Alternate], generated: [Alternate]) -> [Alternate] {
+    /// V5 B3 — the recogniser's own candidates (joint top-K / beam, in their order) come first;
+    /// dictionary and bias-vocabulary variants are appended second, never ahead of them, best
+    /// first, deduplicated. When real candidates fill `limit`, the last slot still goes to the best
+    /// generated variant so a Dictionary term stays reachable.
+    func merge(existing: [Alternate], generated: [Alternate]) -> [Alternate] {
         var seen = Set<String>()
-        var out: [Alternate] = []
-        // Keep beam alternates that carry real mass first, then interleave by score.
-        for alt in (existing + generated).sorted(by: { $0.score > $1.score }) {
-            if seen.insert(WordConfusionNetwork.normalize(alt.text)).inserted { out.append(alt) }
-        }
-        return Array(out.prefix(limit))
+        var real: [Alternate] = []
+        for alt in existing where seen.insert(WordConfusionNetwork.normalize(alt.text)).inserted { real.append(alt) }
+        var extra: [Alternate] = []
+        for alt in generated.sorted(by: { $0.score > $1.score })
+        where seen.insert(WordConfusionNetwork.normalize(alt.text)).inserted { extra.append(alt) }
+        guard limit > 0 else { return [] }
+        if !extra.isEmpty, real.count >= limit { return Array(real.prefix(limit - 1)) + [extra[0]] }
+        return Array((real + extra).prefix(limit))
     }
 
     /// 1 - normalised Levenshtein distance.

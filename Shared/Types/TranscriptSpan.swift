@@ -14,11 +14,19 @@ public struct Alternate: Codable, Equatable, Hashable, Sendable {
     /// Relative score; higher is better. Not necessarily a probability.
     public var score: Float
     public var source: Source
+    /// V5 B3 — natural-log probability of this alternate under the recogniser (≤ 0), when it came
+    /// from real decoder candidates (joint top-K). nil for generated alternates (dictionary, repair).
+    public var logProb: Float?
 
     public init(text: String, score: Float, source: Source) {
+        self.init(text: text, score: score, source: source, logProb: nil)
+    }
+
+    public init(text: String, score: Float, source: Source, logProb: Float?) {
         self.text = text
         self.score = score
         self.source = source
+        self.logProb = logProb
     }
 }
 

@@ -51,13 +51,16 @@ public enum WordConfidence {
         return words
     }
 
-    /// Map tokens → `TranscriptSpan`s, one span per word, provenance `[.asr]`.
+    /// Map tokens → `TranscriptSpan`s, one span per word, provenance `[.asr]`, alternates from the
+    /// tokens' joint candidates (V5 B3).
     /// `timeOffset` shifts all timestamps (e.g. chunk start within an utterance).
     public static func spans(from tokens: [DecodedToken], timeOffset: TimeInterval = 0) -> [TranscriptSpan] {
         aggregate(tokens).map { w in
             let start = max(0, w.startTime + timeOffset)
             let end = max(start, w.endTime + timeOffset)
-            return TranscriptSpan(text: w.text, confidence: w.confidence, audioRange: start...end, provenance: [.asr])
+            // V5 B3 — real N-best: word alternates from the tokens' joint top-K (empty when none).
+            return TranscriptSpan(text: w.text, confidence: w.confidence, audioRange: start...end,
+                                  alternates: WordAlternates.alternates(for: w.tokens), provenance: [.asr])
         }
     }
 
