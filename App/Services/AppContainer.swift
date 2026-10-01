@@ -171,7 +171,7 @@ public final class AppContainer {
         // register-routed formatters (it runs one of them itself, chosen by the field role, so
         // keeping both would format the same spans twice). Everything else keeps its position.
         let builtIn = StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
-            stage.id == .style ? StyleStage(store: styleStore) : stage
+            stage.id == .style ? DictionaryWiring.styleStage(store: styleStore) : stage   // V5 P5 entity guard
         }
         let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore), guardStage]
             + FieldRolePipeline.replacingFormatters(in: builtIn)
@@ -216,6 +216,7 @@ public final class AppContainer {
         ])
         if let database { harvester.add(CorrectionSource(store: DatabaseCorrectionStore(database: database))) }
         if let adaptationService { harvester.add(LearnedLexiconSource(loop: adaptationService.loop)) }
+        DictionaryWiring.install(harvester: harvester, windowText: axWindowText)   // V5 P1/P2/P7 public dictionaries
         biasing = BiasingController(harvester: harvester, vocabulary: BiasVocabulary.discoverParakeet(), flags: flags)
         // V5 B2 (X2) — the ranked list now has a caller: one session over the same harvester.
         contextPrompt = ContextPromptSession(harvester: harvester, idleDiscardAfter: 120)

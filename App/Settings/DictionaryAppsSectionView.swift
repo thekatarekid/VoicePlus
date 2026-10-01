@@ -99,6 +99,7 @@ struct DictionaryPaneView: View {
             }
             importActions
             SnippetsSettingsTab(model: model.snippets, query: query)
+            DictionaryPublicListsView()   // V5 P1–P7
         }
     }
 
