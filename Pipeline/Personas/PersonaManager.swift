@@ -20,6 +20,9 @@ public struct PersonaManager: Sendable {
     public let store: any PersonaStoring
     public let styles: any StyleProfileStore
     public let participants: any ContextParticipants
+    /// V5 F2 — the user's Dictionary for prompts. nil → the persona store's own database when it
+    /// has one (`DatabasePersonaStore`), so the app's existing composition needs no extra wiring.
+    public var dictionary: (any PersonalDictionarySource)?
     /// `StageContext.extra` key read by `PromptBuilder` in Providers.
     public static let promptKey = "persona"
 
@@ -93,11 +96,26 @@ public struct PersonaManager: Sendable {
         return ResolvedPersona(base: base, recipient: nil, override: nil)
     }
 
-    /// Same context with `extra["persona"]` filled in, ready for `PromptBuilder`/providers.
-    /// A persona already present in `extra` (e.g. set by a test or the Lab) is kept.
+    /// Same context with `extra["persona"]` filled in, ready for `PromptBuilder`/providers, plus the
+    /// V5 F2 personalisation keys (`personal.dictionary`, `personal.style`, `personal.prompt`; see
+    /// `Personalisation`). Values already present in `extra` (e.g. set by a test or the Lab) are kept.
     public func decorate(_ context: StageContext) -> StageContext {
         var c = context
         if c.extra[Self.promptKey] == nil, let r = try? resolve(context: context) { c.extra[Self.promptKey] = r.promptText }
-        return c
+        return personalisation(for: c).apply(to: c)
+    }
+
+    /// V5 F2 — persona + Dictionary + learned style for this context, for D2 cleanup and CU8 planner
+    /// prompts. The persona is whatever `decorate` resolved (or a caller set) in `extra["persona"]`.
+    public func personalisation(for context: StageContext) -> Personalisation {
+        let persona = context.extra[Self.promptKey] ?? (try? resolve(context: context))?.promptText
+        let source = dictionary ?? (store as? any PersonalDictionarySource)
+        var terms: [String] = []
+        if let source, let t = try? source.personalTerms() { terms = t }
+        var style: [String] = []
+        if let bundle = context.appBundleID, !bundle.isEmpty, let profile = try? styles.profile(for: bundle) {
+            style = Personalisation.styleHints(from: profile)
+        }
+        return Personalisation(persona: persona, dictionary: terms, style: style)
     }
 }
