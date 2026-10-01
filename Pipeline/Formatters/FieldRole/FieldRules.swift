@@ -126,6 +126,8 @@ public struct FieldRules: Sendable, Equatable {
 
     /// Bundle ID first (the learned table), then the gatekeeper's register, then prose.
     static func appCategory(for field: FieldContext) -> AppCategory {
+        // V5 E5 — inside a browser, the sub-app (Gmail, Slack web, GitHub…) decides.
+        if let sub = field.subApp { return sub.category }
         if let bundleID = field.appBundleID, !bundleID.isEmpty,
            AppCategoryTable.exact[bundleID] != nil || AppCategoryTable.category(for: bundleID) != .prose {
             return AppCategoryTable.category(for: bundleID)

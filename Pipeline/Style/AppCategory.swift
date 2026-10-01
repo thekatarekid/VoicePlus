@@ -100,6 +100,8 @@ public enum AppCategoryTable {
 
     public static func category(for bundleID: String?) -> AppCategory {
         guard let bundleID, !bundleID.isEmpty else { return .prose }
+        // V5 E5 — a `bundle|host` persona key: the browser sub-app decides.
+        if bundleID.contains(BrowserSubApp.keySeparator) { return category(forKey: bundleID) }
         if let hit = exact[bundleID] { return hit }
         let lower = bundleID.lowercased()
         for (needle, cat) in substrings where lower.contains(needle) { return cat }

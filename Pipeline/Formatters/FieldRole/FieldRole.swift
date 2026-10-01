@@ -66,6 +66,25 @@ public struct FieldContext: Sendable, Equatable {
     /// Context for the cleanup prompt, never a classification hint (a column named "Terminal"
     /// must not turn a cell into a shell).
     public var columnHeader: String?
+    /// V5 E5 — the title of the web document around the field (`AXTitle` of its `AXWebArea`, or
+    /// the window title). Routes a browser sub-app when the URL is missing. Never a hint.
+    public var documentTitle: String?
+    /// V5 E6 — who the text is for: To/Cc of a mail compose, the chat or channel of a messenger.
+    /// Written to `StageContext.extra["thread.participants"]` (comma-separated).
+    public var participants: [String] = []
+
+    /// V5 E5 — the browser sub-app this field sits in (Gmail, Slack web, GitHub…), from
+    /// `documentURL` then `documentTitle`. `nil` for native apps and unknown sites.
+    public var subApp: BrowserSubApp? {
+        guard documentURL != nil || documentTitle != nil else { return nil }
+        return BrowserSubApp.resolve(url: documentURL, title: documentTitle)
+    }
+
+    /// V5 E5 — the persona key: `bundle|host` inside a known browser sub-app, else the bundle ID.
+    public var personaKey: String? {
+        guard let appBundleID, !appBundleID.isEmpty else { return nil }
+        return BrowserSubApp.personaKey(bundleID: appBundleID, host: subApp?.host)
+    }
 
     /// Text immediately before the caret, as read back. May be a bounded tail, not the whole
     /// field. `""` when the caret is `unknown` — check `caret` before reading "empty" into it.
@@ -81,7 +100,8 @@ public struct FieldContext: Sendable, Equatable {
                 textBeforeCursor: String = "", textAfterCursor: String = "",
                 register: Utterance.Register? = nil, caret: CaretState? = nil,
                 spacing: SpacingPreference = .automatic, unknownCaretStyle: UnknownCaretStyle = .sentence,
-                documentURL: String? = nil, columnHeader: String? = nil) {
+                documentURL: String? = nil, columnHeader: String? = nil, documentTitle: String? = nil,
+                participants: [String] = []) {
         self.appBundleID = appBundleID
         self.axRole = axRole
         self.axSubrole = axSubrole
@@ -94,6 +114,8 @@ public struct FieldContext: Sendable, Equatable {
         self.unknownCaretStyle = unknownCaretStyle
         self.documentURL = documentURL
         self.columnHeader = columnHeader
+        self.documentTitle = documentTitle
+        self.participants = participants
     }
 
     /// A caret the caller read: `endOfField` when nothing follows it.
@@ -134,6 +156,15 @@ public extension FieldContext {
         public static let documentURL = "field.documentURL"
         /// V5 E2 — `FieldContext.columnHeader` (context for the cleanup prompt).
         public static let columnHeader = "field.columnHeader"
+        /// V5 E5 — `FieldContext.documentTitle`.
+        public static let documentTitle = "field.documentTitle"
+        /// V5 E5 — the persona key (`bundle|host`) when the field is inside a browser sub-app.
+        public static let personaKey = "app.personaKey"
+        /// V5 E5 — the sub-app's `AppCategory.rawValue` (absent outside a known sub-app).
+        public static let subAppCategory = "app.subAppCategory"
+        /// V5 E6 — the thread's participants, comma-separated. Same key `Personas` reads
+        /// (`StageContextParticipants.key`).
+        public static let participants = "thread.participants"
     }
 
     /// ASCII unit separator: cannot occur in an AX label, so no escaping is needed.
@@ -162,7 +193,9 @@ public extension FieldContext {
             spacing: e[Keys.spacing].flatMap(SpacingPreference.init(rawValue:)) ?? .automatic,
             unknownCaretStyle: e[Keys.unknownCaretStyle].flatMap(UnknownCaretStyle.init(rawValue:)) ?? .sentence,
             documentURL: e[Keys.documentURL],
-            columnHeader: e[Keys.columnHeader]
+            columnHeader: e[Keys.columnHeader],
+            documentTitle: e[Keys.documentTitle],
+            participants: Self.participants(from: e[Keys.participants])
         )
     }
 
@@ -181,6 +214,25 @@ public extension FieldContext {
         if let submitsOnReturn { stageContext.flags[Keys.submitsOnReturn] = submitsOnReturn }
         if let documentURL, !documentURL.isEmpty { stageContext.extra[Keys.documentURL] = documentURL }
         if let columnHeader, !columnHeader.isEmpty { stageContext.extra[Keys.columnHeader] = columnHeader }
+        if let documentTitle, !documentTitle.isEmpty { stageContext.extra[Keys.documentTitle] = documentTitle }
+        if let sub = subApp, let key = personaKey {
+            stageContext.extra[Keys.personaKey] = key
+            stageContext.extra[Keys.subAppCategory] = sub.category.rawValue
+        }
+        if !participants.isEmpty { stageContext.extra[Keys.participants] = Self.participantsValue(participants) }
+    }
+
+    /// V5 E6 — participants as one `extra` value: names joined by ", " (commas inside a name are
+    /// replaced so the list splits back the same way `StageContextParticipants` splits it).
+    static func participantsValue(_ names: [String]) -> String {
+        names.map { $0.replacingOccurrences(of: ",", with: " ").replacingOccurrences(of: ";", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    static func participants(from value: String?) -> [String] {
+        (value ?? "").split(whereSeparator: { $0 == "," || $0 == ";" || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 }
 
@@ -250,7 +302,7 @@ public extension FieldRole {
         if AppCategoryTable.isSpreadsheet(bundleID: field.appBundleID) {
             return role.isEmpty || spreadsheetCellRoles.contains(role)
         }
-        if AppCategoryTable.isSpreadsheetDocument(field.documentURL) {
+        if AppCategoryTable.isSpreadsheetDocument(field.documentURL) || field.subApp?.isSpreadsheet == true {
             return role.isEmpty || spreadsheetCellRoles.contains(role) || role == "AXWebArea"
         }
         return false
