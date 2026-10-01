@@ -1850,3 +1850,30 @@ Initial checkpoint (superseded by the dated entries below):
 - New deps/downloads: none new (NeMo ships with FluidAudio; parakeet-ctc-110m ~103 MB on disk for B1 live test; GLiNER2/IndicXlit/CMUdict full/LibriSpeech-PC not fetched).
 - **Full suite** (`--no-parallel`, .build-v5a, working tree incl. uncommitted lanes): 3712/3713 passed, 478 s; sole failure B1 live gate. First run also showed AudioSourceOwnershipTests flake (passes alone and in rerun).
 - **Needs hardware (T1):** real Excel/Numbers/Sheets cells + column header, Chrome/Safari form labels, Electron context (Claude/Slack/VS Code), live Text Replacements, EventKit names, GLiNER2 typing, CoreML memory/pressure events, VP-IO/LocalVQE V1 gate, ITN pill vs landed, fresh-install "vad: using silero".
+
+## 2026-10-01 — V5 W3+W4 (completion)
+- C1 · partial · VP-IO source + Settings › Voice "Noise and echo reduction" (Off/Apple/LocalVQE), AGC log, 300 ms warm-up (1430e93) · CaptureEnhancement tests; default Off until V1 VOiCES+MUSAN (live VP → T1)
+- C1b · partial · LocalVQEStage + on-demand catalog, via ModelResidency .always (1430e93, 5c8cd74) · LocalVQEStage tests; weights not downloaded, no far-end reference
+- C3 · done · narrowband SCO chip + Settings link (a3382a7) · NarrowbandInputNotice/Chip tests
+- C4 · partial · SmartTurn consulted after ≥ 400 ms silence, inert without model (04bd22b) · synthetic endpoint tests; no CoreML export (upstream ONNX) → owner converts
+- C5 · partial · .parakeetEOU320 on demand, 160 kept as default (9c3b55c) · V1 preview-WER gate not run
+- K2 · done · NearFieldGate 12 dB turn-relative (870e2c2) · synthetic two-level tests
+- K4 · done · turn-anchored WeSpeaker voice, 500 ms anchor, bar → 0.6 (69a70a9) · fixture tests
+- K6 · done · mic-quality floor ignores first 100 ms, ≥ 200 ms pre-speech (0bf31a4)
+- F3 · done · all dictation audio + sidecar, retention 30 d / 2 GB LRU, never synced, secure-field turn discarded (1bb3b61, 9345576)
+- B1 · partial · two-manager CTC boosting, BoostGuard, biasers deleted, CTC via ModelResidency (2c33176, 10d12b7) · fixture gate passes: recall 0.46→0.85, FI 0.00 %, WER 10.96→4.17 %, +~400 ms/utt; Earnings-22/MUSAN gate → T1
+- B5 · partial · Parakeet Ultra/Redux on demand, provisional ranking, NOTICE (cf9c40e) · default v3; Redux 8.06 vs v3 12.67 WER on test-clean-noisy, Redux ANE compile fails here (p50 199 vs 117 ms)
+- B3 · done · real top-K=4 alternates with logProbs (b4efd70) · NBestAlternates + live v3 (14/32 spans); replay cost ~330 ms here (claimed 60) → T1
+- HW2 · done · MemoryClass/ResidencyPlan, Settings › Models tier override (d82c820) · 11 tests; gated features register later
+- D5 · done · prewarm on hotkey-down via ModelResidency, HW1 idle unload (e2e4ee3) · 7 tests; live now that D2 registers cleanup.llm; no timeout guard on a hung loader
+- D2 · partial · llama.cpp b11321 XCFramework + LlamaCppProvider + GGUF catalog + CleanupStage + Settings › AI cleanup (441405e, a5412e3) · 75 cleanup tests; evaluate-first and V1 cleanup gate not run, model pick provisional
+- D3 · done · CleanupGuard all rules, word-boundary anchors (01e1577, a5412e3)
+- D4 · done · delimited template + sanitizer, red-team corpus (082df2e); deviation: transcript normalised, not directive-stripped
+- I3 · done · "Why did it write that?" — 20-turn in-memory trace + sheet (7e39a70) · 12 tests; sheet UI manual
+- E5 / E6 / K10 · done · browser sub-app routing, thread participants, context ladder (eee53d8, b769d6f, 9bb741b) · 138 lane tests
+- Q14 · done · OCR caret band (9bb741b); gate fix 60c877a binds it to W1's "Confirm in apps that hide their text" row (was an orphan key)
+- P1–P7 · partial · gate committed lane 4c leftovers (e4f4033): ContextGate phoneme path (P4), GLiNER2 via ModelResidency (P7), TransliterationStage registered (P6), attendee cache, Text Replacements global-domain read · P6 rule-based only (IndicXlit not converted)
+- F2 · done · personal.* now read by D2 CleanupPrompt; CU8 later
+- **New deps/downloads:** llama.cpp b11321 XCFramework (MIT, SwiftPM binary target, NOTICE in Packaging/llama). On-demand models (not bundled, not downloaded here unless noted): LocalVQE ~50 MB (Apache-2.0), parakeet-ctc-110m ~103 MB (on disk), Parakeet Ultra 632 MB / Redux 220 MB (CC-BY-4.0), EOU 320 ms, cleanup GGUF ~500 MB (SpeakoFlow Mini Q4_K_M), Smart Turn (BSD-2, needs CoreML conversion).
+- **Full suite** (`--no-parallel`, .build-v5a): 3860 passed, 0 failed, 515 s (real-Qwen + real-GGUF suites skipped, hardware-gated).
+- **Needs hardware/data (T1):** VP-IO/LocalVQE V1 gate (VOiCES, MUSAN), live AGC; SCO headset; Smart Turn CoreML; EOU 320 preview-WER; B1 Earnings-22 + MUSAN; B5 LibriSpeech-other/FLEURS-en-IN; B3 replay latency; D2 model eval + p95 ≤ 500 ms on M2 Pro; 8/24 GB first launch; browsers' AXURL/AXTitle; Mail/Slack participants; Screen Recording caret band in Docs/Figma; real two-speaker room (K4).
