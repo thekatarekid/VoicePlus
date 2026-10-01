@@ -67,10 +67,12 @@ public final class MemoryPressureMonitor: @unchecked Sendable {
     /// The app-wide monitor feeding `ModelResidency.shared`.
     public static let shared = MemoryPressureMonitor()
 
-    /// Start the shared pressure monitor and the shared idle sweeper (D5). Idempotent; called by the
+    /// Record the HW2 first-launch plan, then start the shared pressure monitor and the shared idle
+    /// sweeper (D5). Idempotent; called by the
     /// first `ModelManager` that uses `ModelResidency.shared`, so the app needs no extra wiring.
     public static func startSharedServices() {
         guard !sharedStarted.exchange() else { return }
+        ResidencyPlanStore.shared.applyFirstLaunchDefaults()   // HW2: record the RAM class once
         shared.start()
         Task { await ModelResidency.shared.startIdleSweeper() }
     }

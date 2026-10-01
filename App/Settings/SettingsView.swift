@@ -379,6 +379,7 @@ struct ModelsSettingsPage: View {
                     RowView(SettingsCopy.speechSummaryTitle, detail: models.speechModelSummary)
                         .accessibilityIdentifier("settings.speechModel")
                 }
+                MemoryTierGroup()   // V5 HW2
                 GroupBox(ModelsPageCopy.refinementTitle, layout: .rows) {
                     RowView(SettingsCopy.refinementRowTitle, detail: refinement.modelsRowDetail) {
                         StatusTag(refinement.statusTag,
