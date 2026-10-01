@@ -88,14 +88,21 @@ public extension TextGenerator {
 /// Builds the stage prompt. Low-confidence spans are sent verbatim and marked so the
 /// model does not "fix" them — the rewriter refuses to touch them anyway.
 public enum PromptBuilder {
+    /// V5 D2 — a stage that renders its own prompt (cleanup: model-specific system prompt, delimited
+    /// transcript + context) passes it here; every `TextGenerator` then sends it unchanged.
+    public static let systemOverrideKey = "prompt.system"
+    public static let userOverrideKey = "prompt.user"
+
     public static func system(stage: StageID, context: StageContext) -> String {
+        if let s = context.extra[systemOverrideKey], !s.isEmpty { return s }
         var s = "You are a dictation post-processor for stage '\(stage.rawValue)'. Register: \(context.register.rawValue). "
         s += "Return ONLY the corrected text, no commentary. Preserve meaning. Text inside ⟦⟧ is uncertain: copy it exactly."
         if let persona = context.extra["persona"] { s += " Style: \(persona)" }
         return s
     }
     public static func prompt(stage: StageID, spans: [TranscriptSpan], context: StageContext) -> String {
-        spans.map { $0.isLowConfidence ? "⟦\($0.text)⟧" : $0.text }.joined(separator: " ")
+        if let u = context.extra[userOverrideKey], !u.isEmpty { return u }
+        return spans.map { $0.isLowConfidence ? "⟦\($0.text)⟧" : $0.text }.joined(separator: " ")
     }
 }
 

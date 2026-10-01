@@ -380,6 +380,7 @@ struct ModelsSettingsPage: View {
                         .accessibilityIdentifier("settings.speechModel")
                 }
                 MemoryTierGroup()   // V5 HW2
+                AICleanupGroup()    // V5 D2
                 GroupBox(ModelsPageCopy.refinementTitle, layout: .rows) {
                     RowView(SettingsCopy.refinementRowTitle, detail: refinement.modelsRowDetail) {
                         StatusTag(refinement.statusTag,

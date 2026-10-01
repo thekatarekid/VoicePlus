@@ -36,7 +36,15 @@ let package = Package(
         ),
         .target(name: "Pipeline", dependencies: ["Shared"], path: "Pipeline"),
         .target(name: "Injection", dependencies: ["Shared"], path: "Injection"),
-        .target(name: "Providers", dependencies: ["Shared"], path: "Providers"),
+        // V5 D2: llama.cpp runtime (MIT) as the prebuilt XCFramework — the one local-LLM runtime
+        // (cleanup now, CU8 later). Loaded only through ModelResidency (§10). macOS slice is a
+        // dynamic framework; make_app.sh copies it into Contents/Frameworks.
+        .binaryTarget(
+            name: "llama",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11321/llama-b11321-xcframework.zip",
+            checksum: "1ea7758167c679ba2fbcf92086847b9a28c890ca63dec60eb6341011b05c33b9"
+        ),
+        .target(name: "Providers", dependencies: ["Shared", "llama"], path: "Providers"),
         .target(name: "Lab", dependencies: ["Shared"], path: "Lab"),
         .target(
             name: "Actions",

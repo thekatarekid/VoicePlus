@@ -177,7 +177,8 @@ public final class AppContainer {
             stage.id == .style ? DictionaryWiring.styleStage(store: styleStore) : stage   // V5 P5 entity guard
         }
         let stages: [any PipelineStage] = [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore), guardStage]
-            + FieldRolePipeline.replacingFormatters(in: builtIn)
+            + FieldRolePipeline.replacingFormatters(in: CleanupWiring.inserting(   // V5 D2 cleanup LLM, before style
+                CleanupWiring.stage(routing: routing, settings: settings), into: builtIn))
         let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, latchController, wakeVerbPre, SnippetPreRoute(store: snippetStore)]))
         pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
 
