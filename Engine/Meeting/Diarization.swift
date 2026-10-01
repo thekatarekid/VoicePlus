@@ -79,17 +79,30 @@ public final class EmbeddingLabeler: SpeakerLabeler, @unchecked Sendable {
     public var threshold: Float
     public var clusterThreshold: Float = 0.7
     let backend: any SpeakerEmbeddingBackend
+    /// V5 M9 — the model the system leg is clustered with when it is not the voiceprint's (CAM++
+    /// chosen by `MeetingEmbeddingChoice`); nil → `backend`. The mic leg always uses `backend`, the
+    /// space the user's voiceprint was learned in.
+    let clusterBackend: (any SpeakerEmbeddingBackend)?
     private var centroids: [[Float]] = []
     private let lock = NSLock()
 
-    public init(backend: any SpeakerEmbeddingBackend, enrolled: [Float], threshold: Float = 0.6) {
-        self.backend = backend; self.enrolled = enrolled; self.threshold = threshold
+    public init(backend: any SpeakerEmbeddingBackend, enrolled: [Float], threshold: Float = 0.6,
+                clusterBackend: (any SpeakerEmbeddingBackend)? = nil) {
+        self.backend = backend; self.enrolled = enrolled; self.threshold = threshold; self.clusterBackend = clusterBackend
     }
 
     public func label(_ chunks: [MeetingChunk]) async throws -> [LabeledChunk] {
         var out: [LabeledChunk] = []
         try? await backend.prepare()   // a failed load degrades each chunk to its channel label below
+        var clusterReady = false
+        if let clusterBackend, chunks.contains(where: { $0.channel == .system }) {
+            clusterReady = (try? await clusterBackend.prepare()) != nil
+        }
         for c in chunks {
+            if c.channel == .system, clusterReady, let clusterBackend,
+               let emb = try? clusterBackend.embedding(for: c.chunk.samples), !emb.isEmpty {
+                out.append(LabeledChunk(chunk: c, speaker: .others(cluster(emb)), confidence: 0.8)); continue
+            }
             guard let emb = try? backend.embedding(for: c.chunk.samples), !emb.isEmpty else {
                 out.append(LabeledChunk(chunk: c, speaker: c.channel == .mic ? .you : .others(1), confidence: 0.5)); continue
             }
@@ -216,11 +229,14 @@ public enum DiarizationFactory {
                             sortformer: () -> URL? = { SortformerBackend.locate() },
                             legs: Set<MeetingChannel> = [.mic, .system],
                             modelManager: ModelManager? = nil,
-                            residency: ModelResidency = .shared) -> any SpeakerLabeler {
+                            residency: ModelResidency = .shared,
+                            embeddingChoice: MeetingEmbeddingChoice = .wespeaker) -> any SpeakerLabeler {
         let base: any SpeakerLabeler
         if let enrolled = enrolledUserEmbedding, !enrolled.isEmpty, let directory = locate() {
+            // V5 M9 — CAM++ clusters the call when it is the chosen model and installed.
+            let cluster = embeddingChoice == .campPlus ? embeddingChoice.backend(residency: residency) : nil
             base = EmbeddingLabeler(backend: ResidentSpeakerEmbedding(directory: directory, residency: residency),
-                                    enrolled: enrolled, threshold: micThreshold)
+                                    enrolled: enrolled, threshold: micThreshold, clusterBackend: cluster)
         } else {
             base = ChannelLabeler()
         }

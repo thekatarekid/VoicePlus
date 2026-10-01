@@ -359,7 +359,8 @@ public final class AppContainer {
                                   // V5 M12 — the user's voice (M6 voiceprint / WeSpeaker profile) reaches the labeler.
                                   // V5 M7 — Sortformer live labels when installed (fetched on demand otherwise).
                                   labeler: DiarizationFactory.make(enrolledUserEmbedding: self?.latchController.profiles.meetingEmbedding(),
-                                                                   modelManager: self?.modelManager),
+                                                                   modelManager: self?.modelManager,
+                                                                   embeddingChoice: .current()),   // V5 M9
                                   notesProvider: MeetingIntelligence.shared.notesProvider(store: meetingStore),   // V5 M17
                                   store: meetingStore)
         }

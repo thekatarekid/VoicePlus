@@ -69,7 +69,7 @@ struct MeetingSortformerTests {
         #expect(!ModelStack.models.contains(.sortformer))
         #expect(!ModelCatalog.userVisible(qwenRefinementEnabled: true).contains(.sortformer))
         #expect(ModelCatalog.fluidAudioFolderName(for: .sortformer) == nil)
-        #expect(ModelID.allCases.last == .sortformer, "appended")
+        #expect(ModelID.allCases.firstIndex(of: .sortformer)! > ModelID.allCases.firstIndex(of: .parakeetRedux)!, "appended (V5 M9 appended .campPlus after it)")
         // The documented cap: 4 speakers per stream (one stream per leg).
         #expect(SortformerBackend.config.numSpeakers == 4)
         #expect(SortformerBackend.config.modelVariant == .highContextV2_1)

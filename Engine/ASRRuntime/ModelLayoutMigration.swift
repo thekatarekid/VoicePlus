@@ -30,6 +30,8 @@ extension ModelCatalog {
         case .parakeetEOU160, .parakeetEOU320, .whisperSmall: return nil
         // V5 M7: one variant fetched file by file (`ManifestFetcher`), loaded from its bundle path.
         case .sortformer: return nil
+        // V5 M9: fetched through `ModelHub` (`Repo.campPlus`), loaded from our folder directly.
+        case .campPlus: return Repo.campPlus.folderName
         }
     }
 }

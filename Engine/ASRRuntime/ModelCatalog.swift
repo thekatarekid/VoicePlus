@@ -49,6 +49,10 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// for live meeting speaker labels and the M8 re-diarization. On demand: fetched only when
     /// meetings want it, never part of the stack. Appended so older `RealEngine.revision()` bits hold.
     case sortformer = "diar-streaming-sortformer-coreml"
+    /// V5 M9 — CAM++ speaker embedding (FunASR, 192-d, CoreML, ~17 MB): the alternative meeting
+    /// embedding backend to WeSpeaker. On demand; the V1 `--stage diar` DER run picks the default
+    /// (`MeetingEmbeddingChoice`). Appended so older `RealEngine.revision()` bits hold.
+    case campPlus = "campplus-coreml"
 }
 
 /// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
@@ -292,6 +296,20 @@ public enum ModelCatalog {
             remoteFiles: SortformerFiles.remote,
             approxBytes: SortformerFiles.remote.compactMap(\.size).reduce(0, +),
             displayName: "Sortformer live speaker labels", license: "CC-BY-4.0",
+            role: .onDemand),
+        // V5 M9 — CAM++ (FunASR `speech_campplus_sv_zh-cn_16k-common`, converted by FluidInference).
+        // `folderName` = `Repo.campPlus.folderName` ("campplus"), fetched by `FluidAudioFetcher`
+        // (`Repo.campPlus`, the whole repo: two bundles + README/config). Bytes: the HF tree
+        // (main @ 321b18e, 2026-10-02) — 16,618,757. Licence: upstream FunASR model licence ("other"
+        // on the card) — verify before shipping it as default. Loader: `ResidentCampPlusEmbedding`
+        // through `ModelResidency`, never `ModelManager.load` (the borrowed `.streamingEOU` kind
+        // fails cleanly there, no network).
+        .campPlus: ModelDescriptor(
+            id: .campPlus, kind: .streamingEOU,
+            folderName: "campplus",
+            hfRepo: "FluidInference/campplus-coreml",
+            requiredPaths: ["CamPlusPreprocessor.mlmodelc", "CamPlusPlus.mlmodelc"],
+            approxBytes: 16_618_757, displayName: "CAM++ speaker embedding", license: "FunASR model licence",
             role: .onDemand),
     ]
 
