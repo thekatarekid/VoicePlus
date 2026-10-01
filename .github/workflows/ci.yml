@@ -1,14 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  schedule:
-    # Nightly dmg, 03:00 UTC.
-    - cron: "0 3 * * *"
   workflow_dispatch:
-
 env:
   # Swift 6 toolchain (swift-testing needs Xcode 16+).
   DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
