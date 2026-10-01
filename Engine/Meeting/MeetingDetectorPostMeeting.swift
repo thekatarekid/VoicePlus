@@ -20,7 +20,9 @@ public enum MeetingAutoExporter {
     /// Writes the record into `config.folder` as `yyyy-MM-dd HHmm <title>.<ext>`; never overwrites
     /// (adds " 2", " 3"…). Returns the file written.
     @discardableResult
-    public static func export(_ record: MeetingRecord, to config: MeetingAutoExport,
+    /// `markdown`: the Markdown to write (V5 M18 — Export…'s rendering with speaker names);
+    /// nil writes the store's own `record.markdown`.
+    public static func export(_ record: MeetingRecord, to config: MeetingAutoExport, markdown: String? = nil,
                               fileManager: FileManager = .default) throws -> URL {
         try fileManager.createDirectory(at: config.folder, withIntermediateDirectories: true)
         let base = fileName(for: record)
@@ -31,7 +33,7 @@ public enum MeetingAutoExporter {
         }
         let data: Data
         switch config.format {
-        case .markdown: data = Data(record.markdown.utf8)
+        case .markdown: data = Data((markdown ?? record.markdown).utf8)
         case .json: data = try PostMeetingHookPayload.encoder.encode(record)
         }
         try data.write(to: url, options: .atomic)

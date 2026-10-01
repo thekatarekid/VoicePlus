@@ -16,6 +16,17 @@ import Testing
                                                  decisions: ["Ship Friday."], provider: "llm:test"))
     }()
 
+    /// Verify fix: auto-export (Settings › Meetings folder) wrote the store's label-only Markdown;
+    /// it now writes the named rendering Export… uses.
+    @Test func autoExportWritesTheNamedMarkdown() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("m18-auto-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let md = MeetingMarkdownExport.markdown(Self.record, names: MeetingSpeakerNames([.others(2): "Priya"]))
+        let url = try MeetingAutoExporter.export(Self.record, to: MeetingAutoExport(folder: dir, format: .markdown), markdown: md)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text == md && text.contains("**Priya** [12:04]"))
+    }
+
     @Test func exportUsesNamesTimestampsAndTicks() {
         let names = MeetingSpeakerNames([.you: "Aditya", .others(2): "Priya"])
         let md = MeetingMarkdownExport.markdown(Self.record, names: names, completed: ["Me: ship"],
