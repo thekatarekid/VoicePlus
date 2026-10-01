@@ -145,8 +145,8 @@ public enum AmbientWiring {
     /// V5 L2/L4 — the ambient decision pipeline: mode → arbiter (built asynchronously: registering
     /// the decision model with `ModelResidency` is async; until it is ready utterances are only
     /// recorded) → `AmbientGuarantees` → Notes. Since L3 each utterance carries its own speaker verdict
-    /// (`verdict` here is only the fallback). No capability delivery is attached yet (needs CU for
-    /// act); `delivery` stays nil.
+    /// (`verdict` here is only the fallback). Delivery: `AmbientActDelivery.shared` (V5 CU7 — `.act`
+    /// to the act session; other owners only once a lane attaches `next`).
     @MainActor
     public static func decisionPipeline(settings: (any SettingsStore)?, actParser: ActIntentParser?,
                                         mode: AmbientModeController,
@@ -156,6 +156,8 @@ public enum AmbientWiring {
         let box = ArbiterBox()
         Task { box.set(await ArbiterWiring.make(settings: settings, actParser: actParser)) }
         let pipeline = AmbientDecisionPipeline(mode: mode, arbiter: { box.get() }, verdict: verdict, context: context)
+        // V5 CU7 — `.act` deliveries reach the act session (attached by the app delegate).
+        pipeline.delivery = AmbientActDelivery.shared
         pipeline.note = { [weak mode] text, decision in
             // The guarantees already decided this is a note; Notes only needs the source tag.
             let band = AmbientBand.note

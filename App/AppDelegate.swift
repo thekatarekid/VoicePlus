@@ -428,6 +428,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.showActDispatch(dispatch, container: container) }
         }
         actSession = session
+        AmbientActDelivery.shared.attach(session, mode: { [weak container] in
+            AmbientModeWiring.controller?.mode ?? AmbientModeSettings.mode(container?.settings)
+        })   // V5 CU7: Listen & act → the act path
         container.actHook.onRoute = { [weak session] route in
             Task { await session?.route(route) }
         }

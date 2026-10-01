@@ -254,21 +254,50 @@ public final class ActSessionController: @unchecked Sendable {
         ComputerUseSettings.apply(settings, consent: router.consent, agent: router.agent)
     }
 
-    public func route(_ parsed: ActRoute) async {
+    /// V5 CU7 — an ambient utterance the intent arbiter gave to `act` (Listen & act only; the
+    /// guarantees already checked mode, voice and band). It takes the same path as the act key:
+    /// parse → CU4 refine → deixis → `ActRouter.dispatch` → consent, with the consent rules
+    /// unchanged. The one difference is the confirmation rule (L2 guarantee 4): an ambient
+    /// utterance never confirms a pending card — a confirm needs a turn the user started or a
+    /// click. The domain is opened for the dispatch exactly as a key press would, so a card it
+    /// raises keeps it open and the user's explicit "confirm" (either key) or a click reaches it.
+    @discardableResult
+    public func dispatchAmbient(_ text: String) async -> ActDispatch {
+        let parsed = router.parser.parse(text, appBundleID: appBundleID())
+        switch parsed {
+        case .empty:
+            return .ignored(reason: "empty")
+        case .confirm:
+            return .ignored(reason: Self.ambientCannotConfirm)
+        default:
+            break
+        }
+        state.activate()
+        return await route(parsed) ?? .ignored(reason: "act dispatch failed")
+    }
+
+    /// The reason an ambient "confirm" is dropped (never forwarded to the consent engine).
+    public static let ambientCannotConfirm = "ambient cannot confirm"
+
+    @discardableResult
+    public func route(_ parsed: ActRoute) async -> ActDispatch? {
         applySettings()
         // CU4: catalogue retrieval runs on the words as spoken, before deixis context is appended.
         var parsed = await router.refine(parsed, appBundleID: appBundleID())
         if case .agentic(let goal) = parsed, let lines = contextLines?(), !lines.isEmpty {
             parsed = .agentic(goal: "\(goal) [\(lines.joined(separator: "; "))]")
         }
+        var result: ActDispatch?
         do {
             let dispatch = try await router.dispatch(parsed)
             onDispatch?(dispatch)
+            result = dispatch
         } catch {
             onError?(error)
             Log.app.error("act dispatch failed: \(error)")
         }
         deactivateIfIdle()
+        return result
     }
 
     /// The act domain closes only when nothing is pending — a live card or a running agent
@@ -276,4 +305,64 @@ public final class ActSessionController: @unchecked Sendable {
     public func deactivateIfIdle() {
         if !router.hasPendingConfirmation && !router.agent.isRunning { state.deactivate() }
     }
+}
+
+/// V5 CU7 — ambient-driven computer use. The ambient decision pipeline's capability sink
+/// (`AmbientDelivering`): an utterance the guarantees delivered as `.act` goes to the act session's
+/// `dispatchAmbient`, the same path as the act key. Re-checked here, per utterance, as defence in
+/// depth: the mode is still Listen & act and Computer use is switched on (`ActKeySettings`). Owners
+/// other than `.act` (dictate / edit / ask) are forwarded to `next`, which their lanes attach.
+public final class AmbientActDelivery: AmbientDelivering, @unchecked Sendable {
+    /// The app's one instance: the pipeline holds its delivery weakly, so this keeps it alive.
+    public static let shared = AmbientActDelivery()
+
+    public enum Outcome: Equatable, Sendable {
+        case dispatched(ActDispatch)
+        case forwarded(UtteranceOwner)
+        case refused(String)
+    }
+
+    private let lock = NSLock()
+    private weak var _session: ActSessionController?
+    private var _next: (any AmbientDelivering)?
+    private var _mode: (() -> AmbientMode)?
+    /// Every delivery's outcome (diagnostics, tests).
+    public var onOutcome: ((Outcome) -> Void)?
+
+    public init() {}
+
+    /// The act session ambient `act` utterances go to (held weakly; the app delegate owns it).
+    public var session: ActSessionController? {
+        get { lock.withLock { _session } }
+        set { lock.withLock { _session = newValue } }
+    }
+    /// Where non-act owners go (dictate / edit / ask). Nil → they are dropped here.
+    public var next: (any AmbientDelivering)? {
+        get { lock.withLock { _next } }
+        set { lock.withLock { _next = newValue } }
+    }
+    /// The live ambient mode; nil → read from the session's settings store.
+    public var mode: (() -> AmbientMode)? {
+        get { lock.withLock { _mode } }
+        set { lock.withLock { _mode = newValue } }
+    }
+
+    public func attach(_ session: ActSessionController, mode: (() -> AmbientMode)? = nil) {
+        lock.withLock { _session = session; if let mode { _mode = mode } }
+    }
+
+    public func deliver(_ text: String, owner: UtteranceOwner, decision: UtteranceDecision) async {
+        guard owner == .act else {
+            if let next { await next.deliver(text, owner: owner, decision: decision); report(.forwarded(owner)) }
+            else { report(.refused("no delivery for \(owner.rawValue)")) }
+            return
+        }
+        guard let session else { return report(.refused("no act session")) }
+        let current = mode?() ?? AmbientModeSettings.mode(session.settings)
+        guard current.mayAct else { return report(.refused("not Listen & act")) }
+        guard ActKeySettings.isEnabled(session.settings) else { return report(.refused("computer use off")) }
+        report(.dispatched(await session.dispatchAmbient(text)))
+    }
+
+    private func report(_ o: Outcome) { onOutcome?(o) }
 }
