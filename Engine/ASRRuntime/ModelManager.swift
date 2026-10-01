@@ -193,7 +193,13 @@ public actor ModelManager {
             if id == .parakeetTDTv3 {
                 return .tdt(try await LocalTDTModels.loadV3(from: url))
             }
-            let version: AsrModelVersion = (id == .parakeetTDTCTC110m) ? .tdtCtc110m : .v3
+            let version: AsrModelVersion
+            switch id {
+            case .parakeetTDTCTC110m: version = .tdtCtc110m
+            case .parakeetUltra: version = .ultra     // V5 B5
+            case .parakeetRedux: version = .redux     // V5 B5 (macOS 15+; upstream throws otherwise)
+            default: version = .v3
+            }
             return .tdt(try await AsrModels.load(from: url, version: version))
         case .streamingEOU:
             let manager = StreamingEouAsrManager(chunkSize: PreviewEOUTier.chunkSize(for: id))   // V5 C5
@@ -213,6 +219,8 @@ public actor ModelManager {
         var caches: [ModelID: [URL]] = [
             .parakeetTDTv3: [fa.appendingPathComponent("parakeet-tdt-0.6b-v3"), fa.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")],
             .parakeetTDTCTC110m: [fa.appendingPathComponent("parakeet-tdt-ctc-110m"), fa.appendingPathComponent("parakeet-tdt-ctc-110m-coreml")],
+            .parakeetUltra: [fa.appendingPathComponent("parakeet-ultra")],     // V5 B5
+            .parakeetRedux: [fa.appendingPathComponent("parakeet-redux")],
             .parakeetEOU160: [fa.appendingPathComponent("parakeet-eou-streaming/160ms"),
                               fa.appendingPathComponent("parakeet-realtime-eou-120m-coreml/160ms")],
             .parakeetEOU320: [fa.appendingPathComponent("parakeet-eou-streaming/320ms"),          // V5 C5

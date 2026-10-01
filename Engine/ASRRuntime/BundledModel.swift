@@ -15,7 +15,26 @@ public enum BundledModel {
     /// Final-pass models, **best first**. This is the one ranking of transcription quality in the
     /// engine: `RecognizerFactory.chooseFinal` and `ModelManager.bestFinalModelOnDisk` both pick the
     /// first entry that is on disk, and `ModelManagerTiers.readiness` mirrors it in the UI.
-    public static let finalModelsByQuality: [ModelID] = [.parakeetTDTv3, .parakeetTDTCTC110m]
+    ///
+    /// V5 B5: Parakeet Ultra and Redux are drop-in v3 replacements fetched only on request
+    /// (`ModelRole.onDemand`), so they rank only for a user who has one on disk. The order between
+    /// them and v3 is the V1 result (`v1Ranking`); a model this OS cannot load (Redux before macOS 15)
+    /// is left out rather than failing at load time.
+    public static let finalModelsByQuality: [ModelID] = v1Ranking.filter(ModelCatalog.isSupportedOnThisOS)
+
+    /// The V1 ranking of every final model, best first, before the OS filter.
+    ///
+    /// **Provisional (V5 B5, T1):** the deciding V1 run (LibriSpeech-other + MUSAN 10 dB +
+    /// FLEURS-en-IN) has not been made — Ultra is 0.63 GB and those sets are not on this machine.
+    /// Until it is: Ultra first on the vendor's published WER (beats v3 on English 6.26→5.80, noise
+    /// 6.72→5.82, FLEURS 11.62→9.55; not measured here). Redux was measured against v3 on
+    /// `librispeech-test-clean-noisy` (450 items, `Lab/results/2026-10-01-…-parakeet-redux.json`):
+    /// WER 8.06 vs 12.67 overall — better under babble (13.3 vs 25.0) and at 0–10 dB, but worse
+    /// clean (2.12 vs 1.65) and under pink noise (4.33 vs 3.07), and its 2-bit encoder failed the
+    /// ANE compile on this Mac (CPU/GPU fallback, p50 199 vs 117 ms). Mixed on one set and slower, so
+    /// it stays below v3 until the full V1 run decides. Re-order here, and only here, when V1 says
+    /// otherwise; `ModelLayoutTests` pins the order.
+    public static let v1Ranking: [ModelID] = [.parakeetUltra, .parakeetTDTv3, .parakeetRedux, .parakeetTDTCTC110m]
 
     /// What to fetch at first launch, given the best final model already on disk — best first, and
     /// never the tiny model when something better is already there.
@@ -31,7 +50,10 @@ public enum BundledModel {
     /// than minutes.
     public static func firstLaunchOrder(bestFinalOnDisk: ModelID?) -> [ModelID] {
         switch bestFinalOnDisk {
-        case .parakeetTDTv3:                    // the best final model is here; only the preview is missing
+        case .parakeetTDTv3, .parakeetUltra, .parakeetRedux:
+            // A full-size final model is here (v3, or an optional one the user chose — B5); only the
+            // preview is missing. Redux is never "upgraded" behind the user's back: it was picked to
+            // save memory.
             return [.parakeetEOU160]
         case .some:                             // something usable is here: upgrade it, don't re-fetch tiny
             return [.parakeetTDTv3, .parakeetEOU160]
@@ -59,14 +81,16 @@ public enum BundledModel {
 
 /// Picks the best recognizers for what is on disk right now.
 public enum RecognizerFactory {
-    public enum Choice: Equatable, Sendable { case tdtV3, tiny, appleSpeech }
+    public enum Choice: Equatable, Sendable { case ultra, tdtV3, redux, tiny, appleSpeech }
 
     /// Best final model on disk, else Apple Speech. Walks `BundledModel.finalModelsByQuality` so this
     /// and the download order can never disagree about which model is better.
     public static func chooseFinal(manager: ModelManager, appleSpeechAvailable: Bool = AppleSpeechRecognizer.isAvailable()) async -> Choice? {
         for id in BundledModel.finalModelsByQuality where await manager.isPresent(id) {
             switch id {
+            case .parakeetUltra: return .ultra
             case .parakeetTDTv3: return .tdtV3
+            case .parakeetRedux: return .redux
             case .parakeetTDTCTC110m: return .tiny
             default: continue
             }
@@ -80,6 +104,12 @@ public enum RecognizerFactory {
         case .tdtV3?:
             guard let models = try await manager.load(.parakeetTDTv3).asrModels else { throw EngineError.modelUnavailable("tdt-v3") }
             return DecoderFinalRecognizer(decoder: try await FluidAudioTDTDecoder(models: models, name: "fluidaudio.tdt.v3"))
+        case .ultra?:
+            guard let models = try await manager.load(.parakeetUltra).asrModels else { throw EngineError.modelUnavailable("tdt-ultra") }
+            return DecoderFinalRecognizer(decoder: try await FluidAudioTDTDecoder(models: models, name: "fluidaudio.tdt.ultra"))
+        case .redux?:
+            guard let models = try await manager.load(.parakeetRedux).asrModels else { throw EngineError.modelUnavailable("tdt-redux") }
+            return DecoderFinalRecognizer(decoder: try await FluidAudioTDTDecoder(models: models, name: "fluidaudio.tdt.redux"))
         case .tiny?:
             guard let models = try await manager.load(.parakeetTDTCTC110m).asrModels else { throw EngineError.modelUnavailable("tdt-ctc-110m") }
             return DecoderFinalRecognizer(decoder: try await FluidAudioTDTDecoder(models: models, name: "fluidaudio.tdt.ctc110m"))

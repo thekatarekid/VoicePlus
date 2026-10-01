@@ -264,7 +264,8 @@ struct ModelLayoutTests {
     /// `chooseFinal`'s ordering contract: it, `bestFinalModelOnDisk` and the download order all read
     /// the same ranking, so they cannot drift apart.
     @Test func qualityRankingMatchesChooseFinal() async throws {
-        #expect(BundledModel.finalModelsByQuality == [.parakeetTDTv3, .parakeetTDTCTC110m])
+        #expect(BundledModel.v1Ranking == [.parakeetUltra, .parakeetTDTv3, .parakeetRedux, .parakeetTDTCTC110m])
+        #expect(BundledModel.finalModelsByQuality == BundledModel.v1Ranking.filter(ModelCatalog.isSupportedOnThisOS))
         let root = try Self.tempDir()
         let v3 = ModelCatalog.descriptor(.parakeetTDTv3)
         let tiny = ModelCatalog.descriptor(.parakeetTDTCTC110m)
@@ -279,5 +280,58 @@ struct ModelLayoutTests {
         #expect(await RecognizerFactory.chooseFinal(manager: both, appleSpeechAvailable: true) == .tdtV3)
         #expect(await both.bestFinalModelOnDisk() == .parakeetTDTv3)
         #expect(BundledModel.firstLaunchOrder(bestFinalOnDisk: await both.bestFinalModelOnDisk()) == [.parakeetEOU160])
+    }
+
+    // MARK: V5 B5 — Parakeet Ultra / Redux
+
+    /// Optional final models: on demand, CC-BY-4.0, stored where FluidAudio's loader resolves them,
+    /// v3's file contract, never part of the stack or listed as a choice.
+    @Test func ultraAndReduxAreOnDemandDropInFinalModels() {
+        for id in [ModelID.parakeetUltra, .parakeetRedux] {
+            let d = ModelCatalog.descriptor(id)
+            #expect(d.kind == .finalTDT && d.role == .onDemand && d.license == "CC-BY-4.0")
+            #expect(d.folderName == ModelCatalog.fluidAudioFolderName(for: id))
+            #expect(d.requiredPaths == ModelCatalog.descriptor(.parakeetTDTv3).requiredPaths)
+            #expect(!ModelStack.models.contains(id))
+            #expect(!ModelCatalog.userVisible(qwenRefinementEnabled: true).contains(id))
+        }
+        #expect(ModelCatalog.descriptor(.parakeetUltra).hfRepo == "FluidInference/parakeet-ultra-coreml")
+        #expect(ModelCatalog.descriptor(.parakeetRedux).hfRepo == "FluidInference/parakeet-redux-coreml")
+        #expect(ModelCatalog.descriptor(.parakeetRedux).approxBytes < ModelCatalog.descriptor(.parakeetTDTv3).approxBytes)
+        // Appended: the speech models' `RealEngine.revision()` bits do not move.
+        #expect(Array(ModelID.allCases.suffix(2)) == [.parakeetUltra, .parakeetRedux])
+    }
+
+    /// Present ⇒ ranked by `v1Ranking`: Ultra beats v3, v3 beats Redux; Redux only where it can load.
+    @Test func optionalFinalModelsRankByTheV1Order() async throws {
+        let root = try Self.tempDir()
+        try Self.makeModel(ModelCatalog.descriptor(.parakeetRedux), at: ModelCatalog.folder(for: .parakeetRedux, in: root))
+        let onlyRedux = ModelManager(root: root, fetchers: [:], externalCaches: [:])
+        if ModelCatalog.isSupportedOnThisOS(.parakeetRedux) {
+            #expect(await RecognizerFactory.chooseFinal(manager: onlyRedux, appleSpeechAvailable: true) == .redux)
+            #expect(BundledModel.firstLaunchOrder(bestFinalOnDisk: .parakeetRedux) == [.parakeetEOU160], "an opted-in Redux is not upgraded behind the user's back")
+        } else {
+            #expect(await RecognizerFactory.chooseFinal(manager: onlyRedux, appleSpeechAvailable: true) == .appleSpeech)
+        }
+        try Self.makeModel(ModelCatalog.descriptor(.parakeetTDTv3), at: ModelCatalog.folder(for: .parakeetTDTv3, in: root))
+        let withV3 = ModelManager(root: root, fetchers: [:], externalCaches: [:])
+        #expect(await RecognizerFactory.chooseFinal(manager: withV3, appleSpeechAvailable: true) == .tdtV3)
+        try Self.makeModel(ModelCatalog.descriptor(.parakeetUltra), at: ModelCatalog.folder(for: .parakeetUltra, in: root))
+        let withUltra = ModelManager(root: root, fetchers: [:], externalCaches: [:])
+        #expect(await RecognizerFactory.chooseFinal(manager: withUltra, appleSpeechAvailable: true) == .ultra)
+        #expect(await withUltra.bestFinalModelOnDisk() == .parakeetUltra)
+        #expect(BundledModel.firstLaunchOrder(bestFinalOnDisk: .parakeetUltra) == [.parakeetEOU160])
+    }
+
+    /// CC-BY-4.0 attribution ships in the app's Notices (bundle_models.py copies every SHA256SUMS entry).
+    @Test func ultraAndReduxAttributionIsInTheVerifiedNotices() throws {
+        let notices = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Packaging/model-notices")
+        let sums = try String(contentsOf: notices.appendingPathComponent("SHA256SUMS"), encoding: .utf8)
+        #expect(sums.contains("  parakeet-ultra-redux-NOTICE.txt"))
+        let text = try String(contentsOf: notices.appendingPathComponent("parakeet-ultra-redux-NOTICE.txt"), encoding: .utf8)
+        for needle in ["CC-BY-4.0", "FluidInference/parakeet-ultra-coreml", "FluidInference/parakeet-redux-coreml", "nvidia/parakeet-tdt-0.6b-v3"] {
+            #expect(text.contains(needle))
+        }
     }
 }

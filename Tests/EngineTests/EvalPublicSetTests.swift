@@ -10,7 +10,7 @@ import Shared
 ///
 /// Opt-in, never part of the normal gate: `VOICEPLUS_EVAL_SET=<set>` (optionally
 /// `VOICEPLUS_EVAL_LIMIT=N`, `VOICEPLUS_EVAL_CACHE=dir`,
-/// `VOICEPLUS_EVAL_MODELS=parakeet-tdt-v3,preview-eou,preview-polling,micquality`).
+/// `VOICEPLUS_EVAL_MODELS=parakeet-tdt-v3,parakeet-ultra,parakeet-redux,preview-eou,preview-polling,micquality`).
 /// Output: `<cache>/<set>/hyp-<model>.json`.
 ///
 /// - `parakeet-tdt-v3`: the final recognizer, whole utterance (latency = compute).
@@ -91,6 +91,18 @@ struct EvalPublicSetTests {
             eou = await PreviewReplayTests.eouPreview(manager)
             if eou == nil { print("NOTE: parakeet-realtime-eou-120m not on disk — preview-eou skipped, not estimated.") }
         }
+        // V5 B5 — the optional final models, replayed exactly like v3 when they are on disk.
+        var optionalFinals: [String: FinalRecognizer] = [:]
+        for (model, id, label) in [("parakeet-ultra", ModelID.parakeetUltra, "fluidaudio.tdt.ultra"),
+                                   ("parakeet-redux", ModelID.parakeetRedux, "fluidaudio.tdt.redux")] where models.contains(model) {
+            // `VOICEPLUS_LIVE_MODELS=1` fetches a missing one (Redux ~220 MB, Ultra ~632 MB).
+            if env["VOICEPLUS_LIVE_MODELS"] == "1", await !manager.isPresent(id) { _ = try? await manager.ensureAvailable(id) }
+            guard await manager.isPresent(id), ModelCatalog.isSupportedOnThisOS(id),
+                  let m = try await manager.load(id).asrModels else {
+                print("NOTE: \(id.rawValue) not on disk (or not loadable on this OS) — \(model) skipped."); continue
+            }
+            optionalFinals[model] = DecoderFinalRecognizer(decoder: try await FluidAudioTDTDecoder(models: m, name: label))
+        }
         var out: [String: [String: HypItem]] = [:]
         for (n, item) in items.enumerated() {
             guard let audio = item.audio else { continue }
@@ -102,6 +114,12 @@ struct EvalPublicSetTests {
                 case "parakeet-tdt-v3":
                     let t0 = DispatchTime.now().uptimeNanoseconds
                     let spans = try await final.recognize(samples)
+                    let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
+                    out[model, default: [:]][item.id] = HypItem(text: spans.joinedText, latencyMs: ms, audioSeconds: seconds)
+                case "parakeet-ultra", "parakeet-redux":
+                    guard let r = optionalFinals[model] else { continue }
+                    let t0 = DispatchTime.now().uptimeNanoseconds
+                    let spans = try await r.recognize(samples)
                     let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
                     out[model, default: [:]][item.id] = HypItem(text: spans.joinedText, latencyMs: ms, audioSeconds: seconds)
                 case "preview-eou":

@@ -36,6 +36,15 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// on test-clean). The preview prefers it when present (`PreviewEOUTier`); `.onDemand` until the
     /// V1 preview-WER gate moves the first-run stack to it.
     case parakeetEOU320 = "parakeet-realtime-eou-120m-coreml-320ms"
+    /// V5 B5 — Parakeet Ultra (moondream's full-precision post-training of TDT v3; same tokenizer,
+    /// window and joint contract; int8 encoder, ~0.63 GB). Optional final model, fetched only on
+    /// request; ranked in `BundledModel.finalModelsByQuality` by the V1 result. Appended so older
+    /// `RealEngine.revision()` bit positions hold.
+    case parakeetUltra = "parakeet-ultra-coreml"
+    /// V5 B5 — Parakeet Redux (moondream's ternary re-training of TDT v3; 2-bit palettised encoder,
+    /// ~0.22 GB). Optional, for small-memory Macs. Needs macOS 15 (iOS 18 Core ML ops) — see
+    /// `ModelCatalog.isSupportedOnThisOS`.
+    case parakeetRedux = "parakeet-redux-coreml"
 }
 
 /// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
@@ -240,7 +249,37 @@ public enum ModelCatalog {
             requiredPaths: ["localvqe-v1.3-4.8M-256ms.mlmodelc"],
             approxBytes: 50_290_308, displayName: "LocalVQE noise and echo reduction", license: "Apache-2.0",
             role: .onDemand),
+        // V5 B5 — drop-in final models with v3's contract (`AsrModelVersion.ultra` / `.redux`): same
+        // file set as v3 (`ModelNames.ASR.requiredModelsV3()` + vocab), fetched by `FluidAudioFetcher`
+        // (`Repo.parakeetUltra` / `.parakeetRedux`) into upstream's folder name ("-coreml" stripped),
+        // so `AsrModels.load(from:version:)` resolves to the same directory. CC-BY-4.0; attribution in
+        // `Packaging/model-notices/parakeet-ultra-redux-NOTICE.txt`. `.onDemand`: never part of the
+        // stack; whichever loses the V1 comparison stays optional. Bytes: the HF repo trees
+        // (2026-10-01).
+        .parakeetUltra: ModelDescriptor(
+            id: .parakeetUltra, kind: .finalTDT,
+            folderName: "parakeet-ultra",
+            hfRepo: "FluidInference/parakeet-ultra-coreml",
+            requiredPaths: ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc", "parakeet_vocab.json"],
+            approxBytes: 632_318_254, displayName: "Parakeet Ultra", license: "CC-BY-4.0",
+            role: .onDemand),
+        .parakeetRedux: ModelDescriptor(
+            id: .parakeetRedux, kind: .finalTDT,
+            folderName: "parakeet-redux",
+            hfRepo: "FluidInference/parakeet-redux-coreml",
+            requiredPaths: ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc", "parakeet_vocab.json"],
+            approxBytes: 220_462_264, displayName: "Parakeet Redux (compact)", license: "CC-BY-4.0",
+            role: .onDemand),
     ]
+
+    /// Whether `id` can load on the running OS. Parakeet Redux's 2-bit encoder uses iOS 18 / macOS 15
+    /// Core ML ops (FluidAudio `AsrModels.checkPlatformSupport`); everything else runs on our macOS 14
+    /// floor. Rankings skip a model that cannot load rather than fail at load time.
+    public static func isSupportedOnThisOS(_ id: ModelID) -> Bool {
+        guard id == .parakeetRedux else { return true }
+        if #available(macOS 15, *) { return true }
+        return false
+    }
 
     /// Models Settings › Models may list, in catalog order.
     ///

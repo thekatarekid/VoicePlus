@@ -22,6 +22,9 @@ extension ModelCatalog {
         case .sileroVAD: return Repo.vad.folderName
         // V5 C1b: likewise (`Repo.localVqe`).
         case .localVQE: return Repo.localVqe.folderName
+        // V5 B5: `AsrModels.load(from:version:)` resolves these through `ModelHub` like v3.
+        case .parakeetUltra: return Repo.parakeetUltra.folderName
+        case .parakeetRedux: return Repo.parakeetRedux.folderName
         // Loaded file-by-file out of the directory we pass (`StreamingEouAsrManager.loadModels(from:)`
         // / no FluidAudio runtime at all), so no name to agree with.
         case .parakeetEOU160, .parakeetEOU320, .whisperSmall: return nil

@@ -1,0 +1,18 @@
+Parakeet Ultra and Parakeet Redux — optional VoicePlus speech models (fetched on request, not bundled)
+
+Licensed under the Creative Commons Attribution 4.0 International License (CC-BY-4.0);
+a copy of the licence is in tdt-CC-BY-4.0.txt beside this file.
+https://creativecommons.org/licenses/by/4.0/
+
+Both are derived from NVIDIA Parakeet TDT 0.6B v3 (CC-BY-4.0):
+https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+
+Parakeet Ultra — full-precision post-training of Parakeet TDT 0.6B v3 by moondream,
+converted to Core ML (int8 encoder) by FluidInference.
+https://huggingface.co/FluidInference/parakeet-ultra-coreml
+
+Parakeet Redux — ternary re-training of Parakeet TDT 0.6B v3 by moondream,
+converted to Core ML (2-bit palettised encoder) by FluidInference.
+https://huggingface.co/FluidInference/parakeet-redux-coreml
+
+VoicePlus downloads and runs the converted weights unchanged.

@@ -126,7 +126,9 @@ public enum EngineFactory {
         let engine = RealEngine(audio: audio, provider: provider)
         let name: String
         switch choice {
+        case .ultra: name = "Parakeet Ultra"              // V5 B5
         case .tdtV3: name = "Parakeet TDT 0.6B v3"
+        case .redux: name = "Parakeet Redux"              // V5 B5
         case .tiny: name = "Parakeet TDT-CTC 110M"
         case .appleSpeech: name = "Apple Speech (on-device)"
         }
