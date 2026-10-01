@@ -54,6 +54,9 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
     private let audio: PipelineAudioSource
     private let subject = CurrentValueSubject<MicCheckSignal, Never>(.starting)
     private var reader: Task<Void, Never>?
+    /// V5 O1 — the meter's own `Broadcaster` subscription, ended at `stopMonitoring()` even while
+    /// the shared graph keeps running for someone else (a meeting, ambient).
+    private var subscription: AudioPipeline.Subscription?
     private var starter: Task<Void, Never>?
     private var blocks = 0
     private let stateLock = NSLock()
@@ -71,15 +74,13 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
     /// the user silent and no microphone open. After 329af01 that same install builds
     /// `UnavailableEngine`, which emits no levels at all, so the meter was dead instead of fake.
     ///
-    /// This is the same object graph `MicSelfTest` and `EngineFactory.make()` build —
-    /// `AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)` →
-    /// `AudioPipeline` → `PipelineAudioSource` — minus the recognizer. Nothing here can transcribe,
-    /// so nothing here can type.
+    /// V5 O1 (§10) — the graph is `AppCaptureGraph.shared()`: the app's one capture graph, which
+    /// without an engine is the single standalone fallback (the shipping capture chain minus the
+    /// recognizer). The meter joins it as `.meter` with its own `Broadcaster` subscription; it never
+    /// opens a second microphone. Nothing here can transcribe, so nothing here can type.
     public static func standalone() -> PipelineMicLevelPublisher {
-        let capture = AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)
-        let pipeline = AudioPipeline(source: capture, vad: EnergyVAD())
-        Log.app.info("onboarding mic meter: standalone capture graph (no ASR engine involved)")
-        return PipelineMicLevelPublisher(audio: PipelineAudioSource(pipeline: pipeline))
+        Log.app.info("onboarding mic meter: shared capture graph (no ASR engine involved)")
+        return PipelineMicLevelPublisher(audio: AppCaptureGraph.shared())
     }
 
     public var signalPublisher: AnyPublisher<MicCheckSignal, Never> { subject.eraseToAnyPublisher() }
@@ -90,7 +91,10 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
         subject.send(.starting)
         blocks = 0
         stateLock.withLock { stopped = false }
-        let events = audio.pipeline.events()
+        subscription?.cancel()
+        let subscription = audio.pipeline.subscribe()
+        self.subscription = subscription
+        let events = subscription.events
         reader = Task { [weak self] in
             for await event in events {
                 guard let self else { return }
@@ -142,6 +146,8 @@ public final class PipelineMicLevelPublisher: MicLevelPublishing {
         stateLock.withLock { stopped = true }
         reader?.cancel()
         reader = nil
+        subscription?.cancel()
+        subscription = nil
         starter = nil
         audio.stop(for: .meter)
         Log.app.debug("mic check: capture stopped after \(self.blocks) audio blocks")

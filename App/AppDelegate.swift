@@ -554,6 +554,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // S7c — manual meeting capture (Meetings › Start recording, the expanded panel, the pill's
         // Q0 / Q1 / Q2 rows) runs over the same coordinator; the pill's meeting buttons reach it first.
         MeetingCaptureWiring.install(coordinator: container.meeting, pill: pill.model)
+        // V5 O1 — both meeting paths hold the `.meeting` recorder claim while they capture, so lock,
+        // sleep and hard mute stand a running meeting down with every other subscriber.
+        MeetingSessionWiring.install(session: sessionCoordinator, meeting: container.meeting)
 
         let status = StatusItemController(flags: container.flags, database: container.database, coordinator: coordinator,
                                           hotkey: hotkey, updater: updater)

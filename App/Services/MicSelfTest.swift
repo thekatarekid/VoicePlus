@@ -9,7 +9,7 @@ import Shared
 /// Same precedent as `--request-permission` / `--onboarding-selftest`: run the *real* thing from the
 /// *real* signed bundle and read the answer out of the log, instead of inferring it from a unit test
 /// that cannot touch the HAL. It builds the identical object graph `EngineFactory.make()` builds —
-/// `AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)` → `AudioPipeline`
+/// `AppCaptureGraph.makeStandalone` (`AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)`) → `AudioPipeline`
 /// → `PipelineAudioSource` — so a green run here is evidence about the shipping path, not a mock.
 ///
 /// Every line goes to stdout *and* to `Log.app`, because `open -n -a VoicePlus.app --args
@@ -86,16 +86,20 @@ public enum MicSelfTest {
         let why = forced != nil ? "--mic-selftest-uid" : reason(for: chosen, policy: policy, systemDefault: systemDefault)
         emit("mic-selftest: chosen=\(chosen.name)#\(chosen.id) because=\(why)")
 
-        // 3. The shipping object graph (EngineFactory.make()), or the voice-processing twin.
-        let core = CoreAudioCaptureSource(device: forced, policy: policy)
-        let vp = voiceProcessing ? VoiceProcessingCaptureSource(device: forced, policy: policy) : nil
-        let inner: any AudioCaptureSource = vp ?? core
-        let profile = RobustnessProfile.default
-        let capture = AcousticCaptureSource(wrapping: inner, profile: profile)
+        // 3. The shipping object graph (EngineFactory.make()), or the voice-processing twin. V5 O1
+        //    (§10): built by `AppCaptureGraph.makeStandalone` — the same factory the app's fallback
+        //    graph uses — and read through a `Broadcaster` subscription, as every consumer is. This
+        //    mode runs in its own process before any app graph exists, so it is the only HAL client.
         var options = AudioPipeline.Options()
         options.noAudioTimeout = 2.0
-        let pipeline = AudioPipeline(source: capture, vad: EnergyVAD(), options: options)
-        let audio = PipelineAudioSource(pipeline: pipeline)
+        let graph = AppCaptureGraph.makeStandalone(device: forced, policy: policy,
+                                                   voiceProcessing: voiceProcessing, options: options)
+        let core = graph.core
+        let vp = graph.voiceProcessing
+        let profile = RobustnessProfile.default
+        let capture = graph.capture
+        let pipeline = graph.pipeline
+        let audio = graph.audio
         let stages = capture.chain.stages.map(\.name).joined(separator: ",")
         emit("mic-selftest: acoustic profile aec=\(profile.aec.rawValue) noiseSuppression=\(profile.noiseSuppression)"
              + " strength=\(profile.noiseSuppressionStrength) preroll=\(profile.prerollSeconds)s"
@@ -103,7 +107,8 @@ public enum MicSelfTest {
 
         // 4. Watch the pipeline the way the mic-check meter does.
         let tally = Tally()
-        let events = pipeline.events()
+        let subscription = pipeline.subscribe()
+        let events = subscription.events
         let reader = Task.detached(priority: .userInteractive) {
             for await event in events {
                 switch event {
@@ -132,7 +137,7 @@ public enum MicSelfTest {
         audio.startTimeout = 15
         let began = Date()
         var startError: Error?
-        do { try audio.start() } catch { startError = error }
+        do { try audio.start(for: .diagnostics) } catch { startError = error }
         let elapsed = Date().timeIntervalSince(began)
         emit("mic-selftest: capture graph — \(vp?.diagnostics.summary ?? core.diagnostics.summary)")
         emit("mic-selftest: start took \(String(format: "%.2f", elapsed))s (production budget: 3 s built-in, 5 s USB, 8 s Bluetooth/Continuity/virtual)"
@@ -144,7 +149,7 @@ public enum MicSelfTest {
         }
         if let startError {
             reader.cancel()
-            audio.stop()
+            audio.stop(for: .diagnostics)
             switch startError as? AudioCaptureError {
             case .formatMismatch: return finish(.formatMismatch, "\(startError)")
             case .noInputDevice: return finish(.noInputDevice, "\(startError)")
@@ -165,7 +170,7 @@ public enum MicSelfTest {
             }
         }
 
-        audio.stop()
+        audio.stop(for: .diagnostics)
         reader.cancel()
 
         // 7. Verdict.

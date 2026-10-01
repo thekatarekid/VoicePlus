@@ -382,6 +382,9 @@ public final class AppContainer {
             return DualCapture(mic: mic, system: SystemAudioRecorder.live(),
                                micVAD: EnergyVAD(), systemVAD: EnergyVAD())
         }
+        // V5 O1 (§10) — the voice test, the onboarding meter and diagnostics join this graph
+        // (`AppCaptureGraph.shared()`) instead of opening their own microphone.
+        AppCaptureGraph.provider = { [weak self] in self?.audio }
         Log.app.info("container up: engine=\(String(describing: built.kind)) db=\(database != nil) providers=\(routing.allProviders.count)")
         // V4.7 — the kept capture graph is fully released on hard mute and on quit; everything
         // else only pauses it between turns. Unmuting prepares it again (microphone still closed).
@@ -664,6 +667,7 @@ public final class AppContainer {
         // standalone one — metering a microphone needs no ASR model, and onboarding is precisely
         // the moment when no model is installed yet. There is deliberately no engine-derived
         // fallback: that was the path that let a silent user pass "Say something." on a fixture.
+        // V5 O1 — `standalone()` is `AppCaptureGraph.shared()`: the one fallback graph, never a second.
         let micLevel: MicLevelPublishing = audio.map { PipelineMicLevelPublisher(audio: $0) }
             ?? PipelineMicLevelPublisher.standalone()
         Log.app.info("onboarding mic meter: \(audio != nil ? "shared audio pipeline" : "standalone capture graph") (real capture)")
