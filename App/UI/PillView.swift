@@ -143,6 +143,15 @@ public final class PillViewModel: ObservableObject {
     /// no provider the cached flag is the answer, as before.
     public var pointerHitTest: (() -> Bool)?
     /// What S3 asks before pausing a dwell for hover.
+    /// V5 Q8 — is the pill window key with one of its own controls as first responder? Installed by
+    /// `PillPanelController`; with no probe the focus flag alone answers (tests, headless).
+    public var keyFocusProbe: (() -> Bool)?
+    /// V5 Q8 — keyboard focus that is *really* on the pill: the Tab/VoiceOver flag and a key pill
+    /// window whose first responder is a pill control.
+    public var isKeyboardFocusReallyInside: Bool {
+        guard focusInside else { return false }
+        return keyFocusProbe?() ?? true
+    }
     public var isPointerReallyInside: Bool {
         guard pointerInside else { return false }
         guard let pointerHitTest else { return true }
@@ -392,12 +401,9 @@ public final class PillViewModel: ObservableObject {
     // MARK: V3 in-notch editing
 
     @Published public private(set) var isEditingDraft = false
-    @Published public var draftText = "" {
-        didSet {
-            guard isEditingDraft else { return }
-            onDraftPause?(.emptyDraft, draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-    }
+    /// V5 Q8 — the `.emptyDraft` pause is gone: `.editing` already holds the dwell while the editor
+    /// is open, and an empty draft is never applied (`applyDraftEdits`).
+    @Published public var draftText = ""
     @Published public private(set) var editingMarkID: Int?
     @Published public private(set) var hasMarkedText = false
     public var onDraftPause: ((DwellPause, Bool) -> Void)?
@@ -407,7 +413,6 @@ public final class PillViewModel: ObservableObject {
     public var onHeldDraftApplied: ((UUID, String) -> Void)?
     private var originalDraft = ""
     private var originalMapping = MarkMapping.empty
-    private var mouseFocusedElements: Set<String> = []
     private var destinationEdit: ((String) -> Bool)?
 
     public func suggestion(for mark: UncertainMark) -> String? {
@@ -503,7 +508,6 @@ public final class PillViewModel: ObservableObject {
         editingMarkID = nil
         hasMarkedText = false
         onDraftPause?(.composition, false)
-        onDraftPause?(.emptyDraft, false)
         onDraftPause?(.review, false)
         onDraftPause?(.editing, false)
     }
@@ -542,10 +546,6 @@ public final class PillViewModel: ObservableObject {
         pointerInside = inside
         if !inside {
             _ = applyDraftEdits()
-            focusedElements.subtract(mouseFocusedElements)
-            mouseFocusedElements.removeAll()
-            let focused = !focusedElements.isEmpty
-            if focused != focusInside { focusInside = focused; onKeyboardFocusChange?(focused) }
         }
         onPointerInsideChange?(inside)
     }
@@ -553,22 +553,18 @@ public final class PillViewModel: ObservableObject {
     /// One piece of the pill (`element`) gained or lost keyboard / VoiceOver focus. The pill is
     /// focused while any piece is; `onKeyboardFocusChange` fires only when that changes.
     public func noteKeyboardInteraction(element: String = "draft.editor") {
-        mouseFocusedElements.removeAll()
         if !pointerInside { setFocus(true, element: element) }
     }
 
     public func setFocus(_ focused: Bool, element: String = "pill", tracksPointer: Bool = true) {
         if focused {
-            focusedElements.insert(element)
+            // V5 Q8 — focus is set only by Tab / VoiceOver. A click on the pill makes its control
+            // first responder too, but that is hover's business, never a keyboard-focus pause.
             let event = NSApp?.currentEvent?.type
-            if tracksPointer && pointerInside && event != .keyDown && event != .keyUp {
-                mouseFocusedElements.insert(element)
-            } else {
-                mouseFocusedElements.remove(element)
-            }
+            if tracksPointer && pointerInside && event != .keyDown && event != .keyUp { return }
+            focusedElements.insert(element)
         } else {
             focusedElements.remove(element)
-            mouseFocusedElements.remove(element)
         }
         let inside = !focusedElements.isEmpty
         guard inside != focusInside else { return }
@@ -765,6 +761,11 @@ public final class PillViewModel: ObservableObject {
             if focusInside { focusedElements.removeAll(); setFocus(false) }
             return
         case .idle, .starting:
+            // V5 Q8 — focus from turn N never pauses turn N+1.
+            if next == .starting, state != .starting, !focusedElements.isEmpty || focusInside {
+                focusedElements.removeAll()
+                setFocus(false)
+            }
             // Key-down: a new turn unless this is still the same turn's pre-capture.
             if turn.startedAt == nil || !(Self.isPreCapture(state) || turn.captureOpen) { beginTurn(at: t) }
             turn.captureOpen = false

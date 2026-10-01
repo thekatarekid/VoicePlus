@@ -16,35 +16,27 @@ import Testing
 @Suite("V4.41 — final preview dwell pauses")
 struct PreviewDwellPauseTests {
 
-    @Test("a preview with nothing pausing it releases both pauses instead of only not adding them")
+    @Test("a preview with nothing pausing it releases the hover pause instead of only not adding it")
     func nothingPausing() {
-        let r = TurnWiring.previewPauses(pointerInside: false, appHidden: false)
+        let r = TurnWiring.previewPauses(pointerInside: false)
         #expect(r.pause.isEmpty)
-        #expect(r.resume == [.hover, .hiddenApp])
+        #expect(r.resume == [.hover])
     }
 
-    @Test("each condition pauses exactly its own reason and releases the other")
-    func eachConditionIsIndependent() {
-        let hovered = TurnWiring.previewPauses(pointerInside: true, appHidden: false)
-        #expect(hovered.pause == [.hover])
-        #expect(hovered.resume == [.hiddenApp])
-        let hidden = TurnWiring.previewPauses(pointerInside: false, appHidden: true)
-        #expect(hidden.pause == [.hiddenApp])
-        #expect(hidden.resume == [.hover])
-        let both = TurnWiring.previewPauses(pointerInside: true, appHidden: true)
-        #expect(both.pause == [.hover, .hiddenApp])
-        #expect(both.resume.isEmpty)
+    /// V5 Q9 — `previewPauses` has no hidden-app input: the pill cannot be hidden, so no pause exists.
+    @Test func previewPausesHaveNoHiddenAppInput() {
+        #expect(TurnWiring.previewPauses(pointerInside: true) == (pause: [.hover], resume: []) as (pause: Set<DwellPause>, resume: Set<DwellPause>))
+        #expect(!DwellPause.allCases.map(\.rawValue).contains("hiddenApp"))
+        #expect(!DwellPause.allCases.map(\.rawValue).contains("emptyDraft"))
     }
 
     /// A pause and a release are never asked for together: `pauseDwell` / `resumeDwell` in any order
     /// would otherwise race on the same reason.
     @Test func aReasonIsNeverBothPausedAndResumed() {
         for pointer in [true, false] {
-            for hidden in [true, false] {
-                let r = TurnWiring.previewPauses(pointerInside: pointer, appHidden: hidden)
-                #expect(r.pause.intersection(r.resume).isEmpty)
-                #expect(r.pause.union(r.resume) == [.hover, .hiddenApp])
-            }
+            let r = TurnWiring.previewPauses(pointerInside: pointer)
+            #expect(r.pause.intersection(r.resume).isEmpty)
+            #expect(r.pause.union(r.resume) == [.hover])
         }
     }
 

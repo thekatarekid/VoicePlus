@@ -17,6 +17,8 @@ public final class PillPanelController {
     private var lastSurface: NotchGeometry.Surface = .hidden
     /// The display chosen when the turn became visible; pinned for the turn (design §4).
     private var pinnedMetrics: ScreenMetrics?
+    /// The state of the previous render, so a transition into `.starting` re-chooses the display (Q6).
+    private var lastRenderedState: PillState?
     /// Where the panel is animating to. The hit test below must accept the pointer against both the
     /// live and the target frame: mid-animation `panel.frame` is an intermediate rectangle that may
     /// not yet contain a pointer which is genuinely on the pill, and treating that as "not hovering"
@@ -33,10 +35,21 @@ public final class PillPanelController {
     /// path below that returns from `render` without ordering the panel in (no display to place it
     /// on, the pinned display gone) therefore produced the reported symptom: the chin suppressed by a
     /// pill that is not on screen, and so no surface at all. This is the truth the chin binds to.
-    public var surfaceOnScreen: AnyPublisher<Bool, Never> { onScreen.removeDuplicates().eraseToAnyPublisher() }
-    private let onScreen = CurrentValueSubject<Bool, Never>(false)
+    public var surfaceOnScreen: AnyPublisher<Bool, Never> { onScreen.map(\.onScreen).removeDuplicates().eraseToAnyPublisher() }
+    /// V5 Q7 — the same truth plus the display it is on, so the chin stands down only for a pill on
+    /// *its* display.
+    public var surfaceReport: AnyPublisher<PillSurfaceReport, Never> { onScreen.removeDuplicates().eraseToAnyPublisher() }
+    private let onScreen = CurrentValueSubject<PillSurfaceReport, Never>(.offScreen)
+    private var occlusionObserver: NSObjectProtocol?
     /// Reports what the window server has been told, from the one place that can know it.
-    private func noteSurfaceOnScreen() { onScreen.send(panel.isVisible) }
+    /// V5 Q7: ordered in ∧ occlusion-visible ∧ frame on the chosen display ∧ frame > 1 pt. The frame
+    /// is the one the panel is animating to, so a pill rolling up already counts as gone.
+    private func noteSurfaceOnScreen() {
+        let report = PillSurfaceReport.evaluate(orderedIn: panel.isVisible,
+                                                occlusionVisible: panel.occlusionState.contains(.visible),
+                                                frame: targetFrame ?? panel.frame, chosenScreen: pinnedMetrics)
+        onScreen.send(report)
+    }
 
     public init() {
         shadowPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -47,6 +60,8 @@ public final class PillPanelController {
         panel.hasShadow = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
+        // V5 Q9 — "Hide Others" (or ⌘H on VoicePlus) must not hide a pill whose dwell is running.
+        panel.canHide = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
@@ -66,6 +81,7 @@ public final class PillPanelController {
         shadowPanel.backgroundColor = .clear
         shadowPanel.hasShadow = false
         shadowPanel.hidesOnDeactivate = false
+        shadowPanel.canHide = false
         shadowPanel.ignoresMouseEvents = true
         shadowPanel.collectionBehavior = panel.collectionBehavior
         shadowPanel.isReleasedWhenClosed = false
@@ -87,7 +103,7 @@ public final class PillPanelController {
         ) { [weak self] _ in
             guard let self else { return }
             Self.logPlacementDiagnostics()
-            guard self.model.state.isVisible else { return }
+            guard self.model.state.isVisible else { self.noteSurfaceOnScreen(); return }
             let screens = NSScreen.screens.map(Self.metrics(for:))
             let main = NSScreen.main.map(Self.metrics(for:))
             let resolution = NotchGeometry.resolveDisplayPin(
@@ -111,11 +127,15 @@ public final class PillPanelController {
             }
             self.render(self.model.state, force: true)
         }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+        ) { [weak self] _ in self?.noteSurfaceOnScreen() }
         Self.logPlacementDiagnostics()
     }
 
     deinit {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
     }
 
     /// Screen metrics for the screen under the mouse (falls back to main).
@@ -123,6 +143,24 @@ public final class PillPanelController {
         let all = NSScreen.screens.map(metrics(for:))
         let main = NSScreen.main.map(metrics(for:))
         return NotchGeometry.hostScreen(screens: all, mouse: NSEvent.mouseLocation, main: main)
+    }
+
+    /// V5 Q6 — the display the work is on: caret → focused window → active screen → mouse.
+    static func workMetrics() -> ScreenMetrics? {
+        let all = NSScreen.screens.map(metrics(for:))
+        let main = NSScreen.main.map(metrics(for:))
+        let rects = PillWorkLocator.workRects()
+        return PillDisplayChooser.choose(caretRect: rects.caret, focusedWindowFrame: rects.window,
+                                         activeScreen: main, mouse: NSEvent.mouseLocation,
+                                         screens: all, main: main)
+    }
+
+    /// V5 Q6 — re-choose the display on every transition *into* `.starting` (a new turn), including
+    /// from unconfirmed / held / error surfaces that were still visible, and whenever the pill
+    /// becomes visible without a pin.
+    static func shouldRechooseDisplay(previous: PillState?, next: PillState, wasVisible: Bool, hasPin: Bool) -> Bool {
+        if !wasVisible || !hasPin { return true }
+        return next == .starting && previous != .starting
     }
 
     static func metrics(for screen: NSScreen) -> ScreenMetrics {
@@ -183,12 +221,21 @@ public final class PillPanelController {
         let content = model.content()
         let surface = Self.surface(for: content)
         let wasVisible = lastSurface != .hidden
-        guard force || surface != lastSurface || state.isVisible != wasVisible else {
+        let previousState = lastRenderedState
+        lastRenderedState = state
+        if panel.isKeyWindow, !Self.keepsKeyboardFocus(state) { panel.makeFirstResponder(nil) }
+        var displayChanged = false
+        if state.isVisible,
+           Self.shouldRechooseDisplay(previous: previousState, next: state, wasVisible: wasVisible, hasPin: pinnedMetrics != nil) {
+            let chosen = Self.workMetrics()
+            displayChanged = wasVisible && pinnedMetrics != nil && chosen != nil && chosen != pinnedMetrics
+            if chosen != nil || pinnedMetrics == nil { pinnedMetrics = chosen }
+        }
+        guard force || displayChanged || surface != lastSurface || state.isVisible != wasVisible else {
             syncPointerTracking(acceptsMouse: Self.acceptsMouse(state, content: content))
             noteSurfaceOnScreen()
             return
         }
-        if !wasVisible || pinnedMetrics == nil { pinnedMetrics = Self.currentMetrics() }
         guard let metrics = pinnedMetrics else {
             // BUG B — nothing was placed and nothing was ordered in, so `lastSurface` must not claim
             // a visible surface (it did, through a `defer` that ran on this very return): one render
@@ -233,6 +280,12 @@ public final class PillPanelController {
                 self.noteSurfaceOnScreen()
             }
         case (true, true):
+            if displayChanged {
+                // A new turn on another display: start from that display's retracted edge rather
+                // than sliding across the desktop from the previous one.
+                panel.setFrame(layout.retracted, display: false)
+                shadowPanel.setFrame(Self.shadowFrame(layout.retracted, attached: layout.attached), display: false)
+            }
             animate(to: layout.shown)
         case (false, false):
             break
@@ -259,6 +312,20 @@ public final class PillPanelController {
             return self?.targetFrame?.contains(mouse) ?? false
         }
         if model.pointerInside, !model.isPointerReallyInside { model.setPointerInside(false) }
+        model.keyFocusProbe = { [weak panel] in
+            guard let panel, panel.isKeyWindow, let responder = panel.firstResponder as? NSView,
+                  let content = panel.contentView else { return false }
+            return responder.isDescendant(of: content)
+        }
+    }
+
+    /// V5 Q8 — a pill that keeps keyboard focus after its turn left the preview would pause the next
+    /// turn's dwell. States that host an editor or actions keep it; everything else gives it up.
+    static func keepsKeyboardFocus(_ state: PillState) -> Bool {
+        switch state {
+        case .finalPreview, .held, .error, .correcting, .editing, .transform: return true
+        default: return false
+        }
     }
 
     /// Extra transparent room for the two neutral shadows; the silhouette/content anchor is unchanged.
@@ -277,7 +344,31 @@ public final class PillPanelController {
             ctx.allowsImplicitAnimation = true
             panel.animator().setFrame(frame, display: true)
             shadowPanel.animator().setFrame(Self.shadowFrame(frame, attached: attached), display: true)
-        }, completionHandler: completion)
+        }, completionHandler: { [weak self] in
+            completion?()
+            self?.noteSurfaceOnScreen()
+        })
+    }
+}
+
+/// V5 Q7 — whether the pill is genuinely on screen, and on which display.
+public struct PillSurfaceReport: Equatable, Sendable {
+    public var onScreen: Bool
+    /// The pill's chosen display while on screen; nil otherwise.
+    public var display: ScreenMetrics?
+    public static let offScreen = PillSurfaceReport(onScreen: false, display: nil)
+
+    public init(onScreen: Bool, display: ScreenMetrics?) {
+        self.onScreen = onScreen
+        self.display = onScreen ? display : nil
+    }
+
+    /// Pure rule: ordered in ∧ occlusion-visible ∧ frame on the chosen screen ∧ frame > 1 pt.
+    public static func evaluate(orderedIn: Bool, occlusionVisible: Bool, frame: CGRect,
+                                chosenScreen: ScreenMetrics?) -> PillSurfaceReport {
+        guard orderedIn, occlusionVisible, frame.width > 1, frame.height > 1,
+              let chosenScreen, chosenScreen.frame.intersects(frame) else { return .offScreen }
+        return PillSurfaceReport(onScreen: true, display: chosenScreen)
     }
 }
 

@@ -252,8 +252,16 @@ public enum NotchGeometry {
     }
 
     /// Pick the screen that should host the pill: the one containing the mouse, else the main screen.
+    /// V5 Q6: inclusive top/right edges — `CGRect.contains` excludes `maxY`, so a pointer pinned to
+    /// the top of the laptop (`y == maxY`) used to fall through to the main (external) screen.
+    /// A display that strictly contains the point still wins over one that only touches it.
     public static func hostScreen(screens: [ScreenMetrics], mouse: CGPoint, main: ScreenMetrics?) -> ScreenMetrics? {
-        screens.first { $0.frame.contains(mouse) } ?? main ?? screens.first
+        screens.first { $0.frame.contains(mouse) }
+            ?? screens.first { f in
+                let r = f.frame
+                return mouse.x >= r.minX && mouse.x <= r.maxX && mouse.y >= r.minY && mouse.y <= r.maxY
+            }
+            ?? main ?? screens.first
     }
 
     /// Preserve the display selected when the turn appeared. A display-parameter notification is

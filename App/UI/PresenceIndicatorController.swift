@@ -79,6 +79,8 @@ public final class PresenceIndicatorController {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
+        // V5 Q9 — "Hide Others" must not take the chin away.
+        panel.canHide = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
@@ -182,6 +184,17 @@ public final class PresenceIndicatorController {
     public func setPillOnScreen(_ onScreen: Bool) {
         onMain {
             self.pillPanelOnScreen = onScreen
+            self.pillDisplay = nil
+            self.update { $0.pillVisible = self.pillIsReallyShowing }
+        }
+    }
+
+    /// V5 Q7 — the pill panel's full report: on screen, and on which display. A pill visible on a
+    /// display other than the chin's does not suppress the chin.
+    public func setPillSurface(_ report: PillSurfaceReport) {
+        onMain {
+            self.pillPanelOnScreen = report.onScreen
+            self.pillDisplay = report.display
             self.update { $0.pillVisible = self.pillIsReallyShowing }
         }
     }
@@ -190,10 +203,24 @@ public final class PresenceIndicatorController {
     /// until someone reports a panel (headless runs and tests that never order one in), and then the
     /// pill's state alone decides, exactly as it did before.
     private var pillIsReallyShowing: Bool {
-        pillStateVisible && (pillPanelOnScreen ?? true)
+        Self.pillSuppressesChin(stateVisible: pillStateVisible, panelOnScreen: pillPanelOnScreen,
+                                pillDisplay: pillDisplay, chinDisplay: pillDisplay == nil ? nil : chinDisplay())
     }
     private var pillStateVisible = false
     private var pillPanelOnScreen: Bool?
+    private var pillDisplay: ScreenMetrics?
+    /// The chin's display; injectable for tests.
+    var chinDisplay: () -> ScreenMetrics? = { PresenceIndicatorController.hostMetrics() }
+
+    /// V5 Q7 — pure rule: the chin stands down only for a pill state that is visible, a panel that is
+    /// really on screen, and (when the panel says where) on the chin's own display.
+    static func pillSuppressesChin(stateVisible: Bool, panelOnScreen: Bool?, pillDisplay: ScreenMetrics?,
+                                   chinDisplay: ScreenMetrics?) -> Bool {
+        guard stateVisible, panelOnScreen ?? true else { return false }
+        guard let pillDisplay, let chinDisplay else { return true }
+        if let a = pillDisplay.displayID, let b = chinDisplay.displayID { return a == b }
+        return pillDisplay.frame == chinDisplay.frame
+    }
     public func setPaused(_ paused: Bool) { onMain { self.update { $0.paused = paused } } }
     public func setMuted(_ muted: Bool) { onMain { self.update { $0.muted = muted } } }
     public func setCapabilities(_ caps: PermissionPlanner.Capabilities) { onMain { self.update { $0.capabilities = caps } } }
@@ -213,12 +240,16 @@ public final class PresenceIndicatorController {
     /// the screen, which is how a press left the user with no surface at all.
     public func bind(pill: PillViewModel, engineStates: AnyPublisher<EngineState, Never>,
                      turnEnded: AnyPublisher<TurnStage, Never>? = nil, mute: MuteController?,
-                     pillOnScreen: AnyPublisher<Bool, Never>? = nil) {
+                     pillOnScreen: AnyPublisher<Bool, Never>? = nil,
+                     pillSurface: AnyPublisher<PillSurfaceReport, Never>? = nil) {
         pill.$state.receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.setPillVisible(state.isVisible) }
             .store(in: &cancellables)
         pillOnScreen?.receive(on: DispatchQueue.main)
             .sink { [weak self] onScreen in self?.setPillOnScreen(onScreen) }
+            .store(in: &cancellables)
+        pillSurface?.receive(on: DispatchQueue.main)
+            .sink { [weak self] report in self?.setPillSurface(report) }
             .store(in: &cancellables)
         engineStates.receive(on: DispatchQueue.main)
             .sink { [weak self] engine in self?.setEngine(engine) }

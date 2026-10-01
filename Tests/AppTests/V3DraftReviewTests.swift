@@ -34,7 +34,7 @@ struct V3DraftReviewTests {
         let h = TurnControllerTests.Harness()
         let id = try #require(await h.holdToPreview(TurnControllerTests.words("hello")))
         h.controller.finalRendered(id)
-        for reason in [DwellPause.editing, .composition, .emptyDraft, .hiddenApp] {
+        for reason in [DwellPause.editing, .composition] {
             h.controller.pauseDwell(reason)
             h.controller.insertNow()
             h.clock.advance(20)

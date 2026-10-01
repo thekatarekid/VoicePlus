@@ -135,8 +135,10 @@ public enum TurnKeyDown: Equatable, Sendable {
 }
 
 /// What freezes the dwell (design §5 step 4, §6 F1).
+/// V5 Q8: `.emptyDraft` (folded into `.editing`) and `.hiddenApp` (Q9: the pill cannot be hidden)
+/// are gone; every sensed reason is rebuilt from live state (`PauseSet`).
 public enum DwellPause: String, CaseIterable, Sendable {
-    case hover, focus, selection, review, editing, composition, emptyDraft, hiddenApp
+    case hover, focus, selection, review, editing, composition
 }
 
 /// The 10 s finishing offer (design §5): "Use available text" when a partial exists, else "Cancel".
@@ -197,6 +199,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     // Outputs.
     /// The pill state the turn wants shown now.
     public var onPresent: ((PillState) -> Void)?
+    /// V5 Q8 — the pill's live state for the self-healing pause rebuild; nil = no rebuild input.
+    public var liveState: (() -> PauseLiveState?)?
     /// The turn's own row is no longer true (a quiet end, the Cancelled or Undo row timing out):
     /// take the pill down *if it still shows a turn state*. A notice, an error or a transform that
     /// replaced it in the meantime is never taken down by this.
@@ -940,8 +944,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             guard let turn = previewTurnLocked() else { return }
             let wasPaused = !turn.pauses.isEmpty
             turn.pauses.insert(reason)
+            turn.pausesCauseless[reason] = nil
             stopDwellLocked(turn)
             if !wasPaused { fx.present(.finalPreview(previewInfoLocked(turn))) }
+            schedulePauseTickLocked(turn)
         }
         fx.run(self)
     }
@@ -949,12 +955,57 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public func resumeDwell(_ reason: DwellPause) {
         var fx = Effects()
         lock.withLock {
-            guard let turn = previewTurnLocked(), turn.pauses.remove(reason) != nil, turn.pauses.isEmpty else { return }
+            guard let turn = previewTurnLocked(), turn.pauses.remove(reason) != nil else { return }
+            turn.pausesCauseless[reason] = nil
+            guard turn.pauses.isEmpty else { return }
+            turn.pauseTick?.cancel()
+            turn.pauseTick = nil
             turn.dwellRemaining = max(0.15, turn.dwellRemaining)
             fx.present(.finalPreview(previewInfoLocked(turn)))
             startDwellLocked(turn)
         }
         fx.run(self)
+    }
+
+    /// V5 Q8 — rebuild the preview's pauses from live state: sensed reasons with a live cause are
+    /// (re)applied, and one without a live cause for more than `PauseSet.grace` is dropped and logged.
+    /// Called when a preview is presented and on a 100 ms tick while it is paused.
+    public func rebuildPauses() {
+        guard let live = liveState?() else { return }
+        var fx = Effects()
+        lock.withLock {
+            guard let turn = previewTurnLocked() else { return }
+            let wasPaused = !turn.pauses.isEmpty
+            var set = PauseSet(reasons: turn.pauses, causelessSince: turn.pausesCauseless)
+            let dropped = set.rebuild(from: live, now: clock.now)
+            turn.pauses = set.reasons
+            turn.pausesCauseless = set.causelessSince
+            for reason in dropped {
+                Log.app.fault("turn \(turn.id.description): dropped '\(reason.rawValue)' dwell pause — no live cause for > \(PauseSet.grace) s")
+            }
+            if wasPaused, turn.pauses.isEmpty {
+                turn.pauseTick?.cancel()
+                turn.pauseTick = nil
+                turn.dwellRemaining = max(0.15, turn.dwellRemaining)
+                fx.present(.finalPreview(previewInfoLocked(turn)))
+                startDwellLocked(turn)
+            } else if !wasPaused, !turn.pauses.isEmpty {
+                stopDwellLocked(turn)
+                fx.present(.finalPreview(previewInfoLocked(turn)))
+            }
+            schedulePauseTickLocked(turn)
+        }
+        fx.run(self)
+    }
+
+    private func schedulePauseTickLocked(_ turn: Turn) {
+        guard !turn.pauses.isEmpty, turn.pauseTick == nil, turn.stage == .finalPreview, liveState != nil else { return }
+        let id = turn.id
+        turn.pauseTick = clock.schedule(after: PauseSet.tick) { [weak self] in
+            guard let self else { return }
+            self.lock.withLock { self.turns[id]?.pauseTick = nil }
+            self.rebuildPauses()
+        }
     }
 
     /// A correction in the preview (F2) starts the dwell over.
@@ -1023,7 +1074,6 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public func insertNow() {
         guard let id = lock.withLock({ () -> TurnID? in
             guard let turn = previewTurnLocked(), !turn.pauses.contains(.editing), !turn.pauses.contains(.composition),
-                  !turn.pauses.contains(.emptyDraft), !turn.pauses.contains(.hiddenApp),
                   !(turn.payload?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { return nil }
             return turn.id
         }) else { return }
@@ -1058,13 +1108,14 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         let continuation = lock.withLock { () -> CheckedContinuation<DwellExit, Never>? in
             guard let turn = turns[id], turn.pendingExit == nil else { return nil }
             if case .insert = exit {
-                guard !turn.pauses.contains(.editing), !turn.pauses.contains(.composition), !turn.pauses.contains(.emptyDraft),
-                      !turn.pauses.contains(.hiddenApp),
+                guard !turn.pauses.contains(.editing), !turn.pauses.contains(.composition),
                       !(turn.payload?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { return nil }
             }
             turn.pendingExit = exit
             turn.dwellTimer?.cancel()
             turn.dwellTimer = nil
+            turn.pauseTick?.cancel()
+            turn.pauseTick = nil
             turn.renderTimer?.cancel()
             turn.renderTimer = nil
             let continuation = turn.exit
@@ -1460,6 +1511,10 @@ final class Turn {
     var dwellRemaining: TimeInterval = 0
     var dwellStartedAt: Date?
     var pauses: Set<DwellPause> = []
+    /// V5 Q8 — when each sensed pause first lost its live cause.
+    var pausesCauseless: [DwellPause: Date] = [:]
+    /// V5 Q8 — the 100 ms self-healing tick, running only while paused in the final preview.
+    var pauseTick: TurnTimer?
     var rendered = false
     var uncertainCount = 0
     /// S5 — the payload's marks include a phrase (T05 "Review this phrase").
@@ -1536,12 +1591,22 @@ public final class TurnWiring {
     /// stops accepting the mouse, so no `onHover(false)` ever arrives) and an `NSApplication`
     /// `didHide` with no matching `didUnhide`. design_v3 §4.1 is explicit that leftover
     /// mouse-acquired hover/focus after the pointer has left is to be ignored.
-    static func previewPauses(pointerInside: Bool, appHidden: Bool) -> (pause: Set<DwellPause>, resume: Set<DwellPause>) {
+    /// V5 Q9 — the hidden-app input is gone: the pill and chin panels cannot be hidden.
+    static func previewPauses(pointerInside: Bool) -> (pause: Set<DwellPause>, resume: Set<DwellPause>) {
         var pause: Set<DwellPause> = []
         var resume: Set<DwellPause> = []
         if pointerInside { pause.insert(.hover) } else { resume.insert(.hover) }
-        if appHidden { pause.insert(.hiddenApp) } else { resume.insert(.hiddenApp) }
         return (pause, resume)
+    }
+
+    /// V5 Q8 — what the pill really is right now: pointer hit-test, key window + first responder,
+    /// editor state. Main thread (AppKit).
+    @MainActor
+    static func liveState(of pill: PillViewModel) -> PauseLiveState {
+        PauseLiveState(pointerInside: pill.isPointerReallyInside,
+                       keyboardFocus: pill.isKeyboardFocusReallyInside,
+                       editing: pill.isEditingDraft,
+                       composing: pill.hasMarkedText)
     }
 
     /// Keyboard / VoiceOver focus on the pill's final text or its actions freezes the dwell like
@@ -1587,10 +1652,10 @@ public final class TurnWiring {
         controller.onPresent = { [weak pill, weak controller] state in
             pill?.present(state)
             if case .finalPreview = state, let controller {
-                let resolution = Self.previewPauses(pointerInside: pill?.isPointerReallyInside == true,
-                                                    appHidden: NSApp?.isHidden == true)
+                let resolution = Self.previewPauses(pointerInside: pill?.isPointerReallyInside == true)
                 resolution.pause.forEach(controller.pauseDwell)
                 resolution.resume.forEach(controller.resumeDwell)
+                controller.rebuildPauses()
             }
         }
         pill.onDraftPause = { [weak controller] reason, paused in
@@ -1608,10 +1673,11 @@ public final class TurnWiring {
                 pill?.showLaneNote("Learned spelling is kept for this session only")
             }
         }
-        NotificationCenter.default.publisher(for: NSApplication.didHideNotification)
-            .sink { [weak controller] _ in controller?.pauseDwell(.hiddenApp) }.store(in: &wiring.subscriptions)
-        NotificationCenter.default.publisher(for: NSApplication.didUnhideNotification)
-            .sink { [weak controller] _ in controller?.resumeDwell(.hiddenApp) }.store(in: &wiring.subscriptions)
+        // V5 Q8 — the self-healing tick reads the pill's real state (main queue clock).
+        controller.liveState = { [weak pill] in
+            guard let pill else { return nil }
+            return MainActor.assumeIsolated { Self.liveState(of: pill) }
+        }
         controller.onRetract = { [weak pill] in
             guard let pill, Self.isTurnRow(pill.state, captureOpen: pill.turn.captureOpen) else { return }
             pill.hide()
