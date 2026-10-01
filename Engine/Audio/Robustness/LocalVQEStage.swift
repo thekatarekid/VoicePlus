@@ -47,7 +47,14 @@ public final class LocalVQEStage: AcousticStage, @unchecked Sendable {
         startWorker()
     }
 
-    deinit { continuation?.finish(); worker?.cancel() }
+    /// Set by `loadIfAvailable` when the model is registered with `ModelResidency`; released on deinit.
+    fileprivate var residencyKey: String?
+    fileprivate var residency: ModelResidency?
+
+    deinit {
+        continuation?.finish(); worker?.cancel()
+        if let residency, let key = residencyKey { Task { await residency.unregister(key) } }
+    }
 
     /// `previous`/`resetBackend`: a reset waits for the old worker's in-flight call, then resets the
     /// model, before the new clip's first block — so nothing from the old clip leaks into the new one.
@@ -140,21 +147,51 @@ public final class LocalVQEStage: AcousticStage, @unchecked Sendable {
             .appendingPathComponent("coremldata.bin").path) }
     }
 
+    /// Resident size for the residency budget: 4.8M params plus the CoreML runtime, ~50 MB.
+    public static let approxBytes: Int64 = 50_000_000
+
     /// The real stage when the weights are on disk, else nil (the plan then falls back to the plain
-    /// tap). **HW1 integration point:** the load goes through `LocalVqeManager(modelDirectory:)`;
-    /// route it via `ModelResidency` once that lands for sample-level stages.
-    public static func loadIfAvailable(manager: ModelManager? = nil, folders: [URL] = candidateFolders()) async -> LocalVQEStage? {
+    /// tap). §10: the load goes through `ModelResidency` as `.always` — a capture stage holds the
+    /// model for the whole capture graph, so it is budgeted but never idle/pressure-evicted from under
+    /// the mic thread. `residency: nil` keeps a bare load (tests).
+    public static func loadIfAvailable(manager: ModelManager? = nil, folders: [URL] = candidateFolders(),
+                                       residency: ModelResidency? = .shared) async -> LocalVQEStage? {
         guard let folder = await locate(manager: manager, folders: folders) else {
             Log.engine.notice("localvqe: weights not installed (\(modelFileName)); capture stays a plain tap")
             return nil
         }
+        let box = BackendBox()
+        let load: @Sendable () async throws -> Void = {
+            if box.value == nil { box.value = try await FluidLocalVQEBackend(modelDirectory: folder) }
+        }
+        let key = "vqe.localvqe#\(UUID().uuidString.prefix(8))"
         do {
-            let backend = try await FluidLocalVQEBackend(modelDirectory: folder)
+            if let residency {
+                await residency.register(key, tier: .always, estimatedBytes: approxBytes, owner: "audio.localvqe",
+                                         load: load, unload: { box.value = nil })
+                try await residency.acquire(key)
+            } else {
+                try await load()
+            }
+            guard let backend = box.value else { throw CancellationError() }
             Log.engine.info("localvqe: loaded \(modelFileName) from \(folder.path)")
-            return LocalVQEStage(backend: backend)
+            let stage = LocalVQEStage(backend: backend)
+            stage.residencyKey = residency == nil ? nil : key
+            stage.residency = residency
+            return stage
         } catch {
+            if let residency { await residency.unregister(key) }
             Log.engine.error("localvqe: load failed, capture stays a plain tap: \(error)")
             return nil
+        }
+    }
+
+    private final class BackendBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _value: FluidLocalVQEBackend?
+        var value: FluidLocalVQEBackend? {
+            get { lock.withLock { _value } }
+            set { lock.withLock { _value = newValue } }
         }
     }
 }
