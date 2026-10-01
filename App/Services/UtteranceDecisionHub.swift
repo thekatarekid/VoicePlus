@@ -108,6 +108,8 @@ public final class UtteranceDecisionHub: @unchecked Sendable {
     /// Layer 0 (the user pressed the key): confidence 1.
     public static func decision(for landing: LandingResult) -> UtteranceDecision {
         if landing.transform != nil { return .explicit(.edit, reason: "transform") }
+        // V5 N2 — the lander stored it in Notes (no field, meeting aside, agent running).
+        if let source = landing.noted { return .explicit(.note, reason: "notes.\(source.rawValue)") }
         switch landing.route {
         case .dictate: return .explicit(.dictate, reason: "route.dictate")
         case .repairCommand: return .explicit(.edit, reason: "route.repairCommand")

@@ -184,6 +184,47 @@ public enum NotesWiring {
         }
     }
 
+    /// N2 live routes #2–#4 (landing time, hold and latch alike): no focused field, a latch during a
+    /// meeting, an agent (computer-use) action running. `latched`, `meetingActive` and
+    /// `agentRunning` are read per landing.
+    public static func wireLander(_ lander: UtteranceLander, latched: @escaping () -> Bool,
+                                  meetingActive: @escaping () -> Bool, agentRunning: @escaping () -> Bool) {
+        guard let router else { return }
+        lander.notesClaim = landingClaim(router, latched: latched, meetingActive: meetingActive, agentRunning: agentRunning)
+    }
+
+    /// N2 live routes #5–#6 (inside the latch runtime): an app switch mid-segment, and K4 — latched
+    /// speech the speaker guard judged to be another voice.
+    public static func wireLatch(_ latch: LatchRuntime, meetingActive: @escaping () -> Bool) {
+        guard let router else { return }
+        latch.notesRoute = latchRoute(router, meetingActive: meetingActive)
+    }
+
+    nonisolated static func landingClaim(_ router: NotesRouter, latched: @escaping () -> Bool,
+                                         meetingActive: @escaping () -> Bool,
+                                         agentRunning: @escaping () -> Bool) -> (String, Bool) -> NoteSource? {
+        { text, hasField in
+            let signals = NotesRouteSignals(hasFocusedField: hasField, latched: latched(),
+                                            meetingActive: meetingActive(), agentActionRunning: agentRunning())
+            return router.route(text, signals: signals).source
+        }
+    }
+
+    nonisolated static func latchRoute(_ router: NotesRouter,
+                                       meetingActive: @escaping () -> Bool) -> (String, LatchNotesRoute) -> Bool {
+        { text, route in
+            switch route {
+            case .appSwitch:
+                let signals = NotesRouteSignals(appSwitchedMidSegment: true, latched: true, meetingActive: meetingActive())
+                return router.route(text, signals: signals).source != nil
+            case .otherVoice:
+                guard let id = router.routeOtherVoice(text, meetingActive: meetingActive()) else { return false }
+                router.onNoted?(meetingActive() ? .meetingAside : .latch, id)
+                return true
+            }
+        }
+    }
+
     /// The sink the wake-verb pre-route calls: true when the payload was stored.
     nonisolated static func noteSink(_ router: NotesRouter) -> @Sendable (WakeVerbParse) -> Bool {
         { [router] parse in

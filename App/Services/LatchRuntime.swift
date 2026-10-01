@@ -201,6 +201,10 @@ public final class LatchRuntime: @unchecked Sendable {
     /// R3.3 — asked once per closed segment while speaker filtering is on. `nil` means "no filter
     /// configured", which is not the same as "filter says yes": see `SpeakerFilter`.
     public var speakerGuard: (() -> SpeakerFilter.Decision)?
+    /// V5 N2 — the routes into Notes only the runtime can see. Given the segment's text and why,
+    /// stores it and returns true (`NotesWiring.wireLatch`). Nil keeps the pre-N2 behaviour: an
+    /// app switch holds the segment for where it began (D01), another voice is only suppressed.
+    public var notesRoute: ((_ text: String, _ route: LatchNotesRoute) -> Bool)?
     /// Ambient transcript sink (V3 §8: into the Timeline, never typed). V5 L3: production ambient no
     /// longer comes through here — it is a recorder on the shared capture (`AmbientListener`), whose
     /// segments carry samples for the speaker verdict. Kept for `.ambient` runtimes in tests.
@@ -677,6 +681,10 @@ public final class LatchRuntime: @unchecked Sendable {
         }
         if let decision = speakerGuard?(), case .suppress(let reason) = decision {
             Log.app.notice("latch: insertion suppressed — \(reason.rawValue)")
+            // V5 N2 / K4 — latched speech in another voice is never typed, but it is kept in Notes.
+            if reason == .mismatch, notesRoute?(text, .otherVoice) == true {
+                Log.app.notice("latch: another voice's \(segment.description) stored in Notes")
+            }
             record(.suppressed(reason), for: segment)
             return
         }
@@ -694,6 +702,12 @@ public final class LatchRuntime: @unchecked Sendable {
         // B1 — focus moved while this segment was being spoken: the words were meant for where
         // they began, so they are held for that destination (D01) and never typed into the new one.
         if let began = job.began, !LatchFocus.sameDestination(began, job.closed) {
+            // V5 N2 — the app switched mid-segment: Notes keeps the words, typed into neither app.
+            if notesRoute?(text, .appSwitch) == true {
+                Log.app.notice("latch: focus changed during \(segment.description); stored in Notes")
+                record(.consumed, for: segment)
+                return
+            }
             let reason = DeliveryReason.destinationChanged
             Log.app.notice("latch: focus changed during \(segment.description); holding it for \(LatchFocus.name(began))")
             let result = await delivery.hold(spans, segment: segment, reason: reason, destination: began)
@@ -731,6 +745,14 @@ public final class LatchRuntime: @unchecked Sendable {
         lock.withLock { outcomes.append((segment, outcome)) }
         onOutcome?(outcome, segment)
     }
+}
+
+/// V5 N2 — why a latch segment went to Notes from inside the runtime.
+public enum LatchNotesRoute: String, Equatable, Sendable {
+    /// Focus moved between the segment's first word and its close.
+    case appSwitch
+    /// The speaker guard heard another voice (K4 / R3.3 `.mismatch`).
+    case otherVoice
 }
 
 /// Why the latch held text. Deliberately *not* `DeliveryReason.destinationChanged`: the pill

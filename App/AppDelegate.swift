@@ -635,6 +635,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 return container.injector.inject(.init(text: text)).succeeded
                             })
         NotesWiring.wireWakeVerb(container.wakeVerb, lander: container.lander)
+        // V5 N2 — the remaining live routes: no focused field, latch during a meeting and an agent
+        // action running (at landing time), an app switch mid-segment and another voice (in latch).
+        // A meeting is running when it holds the `.meeting` recorder claim (O1, both meeting paths).
+        let meetingRunning: () -> Bool = { [weak sessionCoordinator] in
+            sessionCoordinator?.activeRecorders.contains(.meeting) ?? false
+        }
+        NotesWiring.wireLander(container.lander,
+                               latched: { [weak sessionCoordinator] in sessionCoordinator?.isLatched ?? false },
+                               meetingActive: meetingRunning,
+                               agentRunning: { [weak container] in container?.actRouter.agent.isRunning ?? false })
+        if let latchRuntime { NotesWiring.wireLatch(latchRuntime, meetingActive: meetingRunning) }
         // R2.4 — "Recover text" carries the same three actions as the held pill row, off the same
         // queue, and Quit warns while anything is still held (V3 §6). Both are invisible until
         // something is actually held.

@@ -41,6 +41,9 @@ public struct LandingResult: Sendable {
     /// S3 — the commit guard refused this insert as a second one for the same turn and revision.
     /// Nothing was posted by this call.
     public var duplicateCommit = false
+    /// V5 N2 — the utterance was stored in Notes instead of typed (`UtteranceLander.notesClaim`),
+    /// with the route that sent it there. Nothing was offered to the injector.
+    public var noted: NoteSource?
 
     public var landed: Bool { injection?.succeeded ?? false }
 
@@ -141,6 +144,12 @@ public final class UtteranceLander: @unchecked Sendable {
     public var fieldContextProvider: ((String?) -> FieldContext?)?
     /// P4.2 — returns true (and consumes the claim) when the act pre-route hook took this utterance.
     public var actClaimConsumer: (() -> Bool)?
+    /// V5 N2 — the routes into Notes decided at landing time (no focused field, latch during a
+    /// meeting, an agent action running): given the formatted text and whether a field is focused,
+    /// stores it and returns the source, or nil to land as usual. Asked once per landing, after act /
+    /// transform / repair claims and after the secure-field refusal (a password is never a note).
+    /// Not copied to the holding sibling: text held for a named destination stays held.
+    public var notesClaim: ((_ text: String, _ hasFocusedField: Bool) -> NoteSource?)?
     /// P6.3 — script-aware text assembly (code-switch merger); nil result keeps the rendered text.
     public var textFinalizer: (([TranscriptSpan]) -> String?)?
     /// V4 gate "cold launch → first landing": told of every write that posted text; logs only the
@@ -328,6 +337,19 @@ public final class UtteranceLander: @unchecked Sendable {
                 return result
             }
             if !text.isEmpty { text = plan.continuation.leading + text + plan.continuation.trailing }
+        }
+        // V5 N2 — no field to land in, a latch inside a meeting, an agent at work: Notes keeps it.
+        // A wired reader that found no focused element is "no field"; no reader means "unknown",
+        // which is never routed (tests, headless runs).
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let notesClaim, !words.isEmpty,
+           let source = notesClaim(words, fieldContextProvider == nil || readField != nil) {
+            result.route = Utterance.Route.none
+            result.text = words
+            result.noted = source
+            result.totalMs = ms(since: t0)
+            Log.app.info("lander: stored in Notes (\(source.rawValue), \(words.count) chars)")
+            return result
         }
         result.text = text
         logTransform(raw: spans, landed: text, finalSpans: finalSpans)
