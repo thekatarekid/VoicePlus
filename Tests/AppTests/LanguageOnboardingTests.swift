@@ -175,4 +175,17 @@ import Testing
         #expect(runtime.currentConstraint == [.english])
         #expect(seen == .some([.english]))
     }
+
+    /// G3 — a Hindi-only answer must not turn every Latin word into "Hindi": Mixed keeps English Latin.
+    @Test func scriptWordTestKeepsEnglishLatinForAHindiOnlyAnswer() {
+        let hindiOnly = LanguagePreferences(languages: ["hi"]).detectorConstraint
+        #expect(hindiOnly == [.hindi])
+        #expect(!LanguageRuntime.isHindiWordForScript("meeting", constraint: hindiOnly))
+        #expect(!LanguageRuntime.isHindiWordForScript("office", constraint: hindiOnly))
+        #expect(LanguageRuntime.isHindiWordForScript("nahin", constraint: hindiOnly))
+        #expect(!LanguageRuntime.isHindiWordForScript("nahin", constraint: [.english]))
+        let out = ScriptOutputStage.apply(.mixed, to: "kal meeting hai", backend: RuleBasedDevanagari(),
+                                          isHindiWord: { LanguageRuntime.isHindiWordForScript($0, constraint: hindiOnly) })
+        #expect(out.contains("meeting"))
+    }
 }

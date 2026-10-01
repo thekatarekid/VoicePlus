@@ -47,11 +47,20 @@ public final class LanguageRuntime: @unchecked Sendable {
     /// Applies the stored answers now and on every later change.
     public func install() {
         ScriptOutputStage.hindiWordClassifier = { [weak self] word in
-            LanguageDetector.isHindiWord(word, allowed: self?.currentConstraint)
+            Self.isHindiWordForScript(word, constraint: self?.currentConstraint)
         }
         apply()
         observer = NotificationCenter.default.addObserver(forName: LanguagePreferences.didChangeNotification,
                                                           object: nil, queue: nil) { [weak self] _ in self?.apply() }
+    }
+
+    /// The script stage's word test. The constraint may only switch Hindi *off* (Hindi not chosen →
+    /// no Latin word is Hindi). It never makes every Latin word Hindi when English was not chosen:
+    /// a Hindi-only speaker still says English words, and Mixed must keep them Latin (G3) — the
+    /// word's own lexical test decides.
+    public static func isHindiWordForScript(_ word: String, constraint: Set<SpokenLanguage>?) -> Bool {
+        if let constraint, !constraint.contains(.hindi) { return false }
+        return LanguageDetector.isHindiWord(word, allowed: nil)
     }
 
     public var currentConstraint: Set<SpokenLanguage>? { lock.lock(); defer { lock.unlock() }; return constraint }
