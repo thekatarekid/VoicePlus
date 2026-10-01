@@ -100,7 +100,8 @@ public final class OnboardingViewModel: ObservableObject {
         // of onboarding any more.
         machine = OnboardingStateMachine(initialStatuses: initial, alreadyRequested: requested,
                                          permissionOrder: OnboardingPermission.order(hotkeyRequires: dependencies.hotkeyRequiresPermission),
-                                         voiceEnrolled: dependencies.isVoiceEnrolled())
+                                         voiceEnrolled: dependencies.isVoiceEnrolled(),
+                                         languagesConfirmed: LanguagePreferences.load(dependencies.settingsStore) != nil)
         contactsOffer = ContactsImportOffer(store: dependencies.contacts, database: dependencies.database,
                                             settings: dependencies.settingsStore)
         observeAppActivation()
@@ -403,6 +404,14 @@ public final class OnboardingViewModel: ObservableObject {
             startVoiceEnrollment()
         case .stopVoiceEnrollment:
             enrollment = nil
+        case .prefillLanguages:
+            // An earlier answer is shown as it was saved; otherwise what this Mac says.
+            let env = deps.languageEnvironment
+            send(.languagesPrefilled(LanguagePreferences.load(deps.settingsStore)
+                ?? LanguagePreferences.prefill(preferredLanguages: env.preferredLanguages,
+                                               inputSourceLanguages: env.inputSourceLanguages)))
+        case .saveLanguages(let prefs):
+            prefs.save(to: deps.settingsStore)
         }
     }
 

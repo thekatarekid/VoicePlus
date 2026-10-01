@@ -40,6 +40,7 @@ public struct OnboardingView: View {
                     case .accessibility: accessibility
                     case .model: modelStep
                     case .firstDictation: firstDictation
+                    case .languages: OnboardingLanguagesStep(model: model)
                     case .voice: voiceStep
                     case .done: done
                     }
@@ -949,6 +950,9 @@ public struct OnboardingView: View {
                     .keyboardShortcut(model.machine.modelPhase == .notStarted ? nil : .defaultAction)
             case .firstDictation:
                 Button(OnboardingCopy.continueTitle) { model.send(.next) }
+            case .languages:
+                Button("Skip") { model.send(.skip) }
+                Button(OnboardingCopy.continueTitle) { model.send(.next) }.keyboardShortcut(.defaultAction)
             case .voice:
                 if model.machine.voice.isEnrolled {
                     Button(OnboardingCopy.continueTitle) { model.send(.next) }.keyboardShortcut(.defaultAction)

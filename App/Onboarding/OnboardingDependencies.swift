@@ -430,6 +430,8 @@ public struct OnboardingDependencies {
     public var keyEvents: DictationKeyEvents
     /// System Settings › Keyboard.
     public var openKeyboardSettings: () -> Void
+    /// V5 LANG1 — where the Languages step's prefill comes from (preferred languages + input sources).
+    public var languageEnvironment: LanguageEnvironment = LiveLanguageEnvironment()
 
     public init(permissions: OnboardingPermissionChecking, micLevel: MicLevelPublishing, models: ModelManaging,
                 engine: EngineProtocol, database: AppDatabase?, flags: FeatureFlagService,
@@ -488,6 +490,7 @@ public struct OnboardingDependencies {
         deps.setDictationKey = { _ in }
         deps.fnConflict = { _ in nil }
         deps.openKeyboardSettings = {}
+        deps.languageEnvironment = FixedLanguageEnvironment()
         return deps
     }
 }

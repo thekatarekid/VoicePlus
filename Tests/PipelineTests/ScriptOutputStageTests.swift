@@ -1,0 +1,74 @@
+import Testing
+@testable import Pipeline
+import Shared
+
+/// V5 LANG2 / G3 — the output script at the end of the pipeline.
+@Suite struct ScriptOutputStageTests {
+    static let hindiWords: Set<String> = ["kal", "hai", "kaam", "namaste", "bahut"]
+    static func isHindi(_ w: String) -> Bool { hindiWords.contains(w.lowercased()) }
+    static let rules = RuleBasedDevanagari()
+
+    @Test func romanTransliteratesDevanagariAndDropsTheDanda() {
+        let out = ScriptOutputStage.apply(.roman, to: "काम है।", backend: Self.rules, isHindiWord: Self.isHindi)
+        #expect(!out.unicodeScalars.contains { (0x0900...0x097F).contains($0.value) })
+        #expect(out.hasSuffix("."))
+    }
+
+    @Test func mixedKeepsEnglishLatinAndUsesNoDanda() {
+        let out = ScriptOutputStage.apply(.mixed, to: "kal meeting hai.", backend: Self.rules, isHindiWord: Self.isHindi)
+        #expect(out.contains("meeting"))
+        #expect(!out.contains("kal") && !out.contains("hai"))
+        #expect(out.hasSuffix("."))
+        #expect(!out.contains("।"))
+    }
+
+    @Test func devanagariUsesTheDandaAndLeavesEnglishLatinWithoutAModel() {
+        let out = ScriptOutputStage.apply(.devanagari, to: "kaam hai.", backend: Self.rules, isHindiWord: Self.isHindi)
+        #expect(out == "काम है।")
+        let english = ScriptOutputStage.apply(.devanagari, to: "send the deck", backend: Self.rules, isHindiWord: Self.isHindi)
+        #expect(english == "send the deck")
+    }
+
+    @Test func aRealModelWritesEnglishInDevanagariToo() {
+        let xlit = IndicXlitTransliterator(model: { word, script in script == .devanagari ? "<\(word)>" : nil })
+        let out = ScriptOutputStage.apply(.devanagari, to: "meeting", backend: xlit, isHindiWord: { _ in false })
+        #expect(out == "<meeting>")
+    }
+
+    @Test func dandaOnlyAfterADevanagariWord() {
+        #expect(ScriptOutputStage.danda(".", after: "है", script: .devanagari) == "।")
+        #expect(ScriptOutputStage.danda(".", after: "deck", script: .devanagari) == ".")
+        #expect(ScriptOutputStage.danda("।", after: "hai", script: .mixed) == ".")
+    }
+
+    @Test func inertWithoutAScriptKey() async throws {
+        let spans = [TranscriptSpan(text: "काम है।", confidence: 0.9, audioRange: 0...1)]
+        let out = try await ScriptOutputStage().process(spans, context: StageContext())
+        #expect(out.map(\.text) == ["काम है।"])
+        #expect(out[0].provenance.last == ScriptOutputStage.stageID)
+    }
+
+    @Test func rewritesThroughTheContextAndHonoursLowConfidence() async throws {
+        var ctx = StageContext()
+        ctx.extra[ScriptOutputStage.Keys.script] = OutputScript.devanagari.rawValue
+        let stage = ScriptOutputStage(backends: [RuleBasedDevanagari()], isHindiWord: Self.isHindi)
+        let spans = [TranscriptSpan(text: "kaam", confidence: 0.9, audioRange: 0...0.5),
+                     TranscriptSpan(text: "hai.", confidence: 0.2, audioRange: 0.5...1)]
+        let out = try await stage.process(spans, context: ctx)
+        #expect(out[0].text == "काम")
+        #expect(out[1].text == "hai.")          // Bet 9: flagged, not rewritten
+        #expect(out[1].needsRepair)
+        #expect(ConfidenceContract.verify(input: spans, output: out).isEmpty)
+    }
+
+    @Test func registeredLastAfterStyle() {
+        #expect(StageRegistry.allStages().last?.id == ScriptOutputStage.stageID)
+    }
+
+    @Test func itnLocaleFromLanguages() {
+        #expect(ITNLocale.from(languages: ["en"], hindiScript: nil, spelling: "en-US") == .en)
+        #expect(ITNLocale.from(languages: ["en"], hindiScript: nil, spelling: "en-IN") == .enIN)
+        #expect(ITNLocale.from(languages: ["en", "hi"], hindiScript: .roman, spelling: "en-US") == .hiEn)
+        #expect(ITNLocale.from(languages: ["hi-IN"], hindiScript: .devanagari, spelling: nil) == .hi)
+    }
+}

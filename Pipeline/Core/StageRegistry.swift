@@ -12,6 +12,7 @@ public enum StageRegistry {
         TerminalFormatter(),
         TextReplacementStage(), CasingStage(), TransliterationStage(), // V5 P1/P3/P6 — after ITN (formatters), before cleanup/style; P6 is inert until LANG sets its target
         EntityProtectingStage(StyleStage()), // P1.7 T7 — runs after formatters (style is the last pass, Bet 8); V5 P5 never lowercases a likely entity
+        ScriptOutputStage(), // V5 LANG2/G3 — the output script, last of all (IndicXlit/P6 transliteration, danda only for Devanagari); inert until LANG sets it
     ]
 
     /// All registered stages, in registration order (used by `PipelineRunner.standard`).

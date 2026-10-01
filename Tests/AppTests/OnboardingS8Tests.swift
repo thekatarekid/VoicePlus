@@ -104,7 +104,7 @@ struct OnboardingCopyTests {
         #expect(html.contains("btn('\(OnboardingCopy.setUpLater)','setup-later')"))
         #expect(html.contains("Setup · ${setupStep+1} of 6"))
         #expect(OnboardingCopy.eyebrow(step: 1, of: 6) == "Setup · 1 of 6")
-        #expect(OnboardingCopy.eyebrow(step: 6, of: OnboardingStateMachine.stepCount) == "Setup · 6 of 7")
+        #expect(OnboardingCopy.eyebrow(step: 6, of: OnboardingStateMachine.stepCount) == "Setup · 6 of 8")   // + V5 LANG1
     }
 
     /// The Word review is the prototype's `#reviewDialog`, word for word.
@@ -145,7 +145,8 @@ struct OnboardingReadyTests {
         #expect(OnboardingReady.laterItems.map(\.title) == ["Meeting notes and system audio", "Calendar"])
         #expect(OnboardingReady.laterItems.allSatisfy { $0.section == .meetings })
         // Neither is a step: the walk has no Meetings or Calendar screen and no such permission.
-        #expect(OnboardingStateMachine.Step.allCases.count == 7)
+        #expect(OnboardingStateMachine.Step.allCases.count == 8)   // + V5 LANG1 Languages
+        #expect(!OnboardingStateMachine.Step.allCases.map(\.rawValue).contains { $0.contains("meeting") || $0.contains("calendar") })
         #expect(Set(OnboardingPermission.order(hotkeyRequires: nil)) == [.microphone, .accessibility])
     }
 }
@@ -575,7 +576,7 @@ struct OnboardingS8ViewModelTests {
         #expect(vm.enrollment != nil)
         vm.send(.back)
         #expect(vm.enrollment == nil)
-        #expect(vm.step == .firstDictation)
+        #expect(vm.step == .languages)   // V5 LANG1 sits between Try dictation and Voice
         vm.teardown()
     }
 }

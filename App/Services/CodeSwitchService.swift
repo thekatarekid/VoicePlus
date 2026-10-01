@@ -21,6 +21,12 @@ public final class CodeSwitchService: @unchecked Sendable {
 
     public init(router: CodeSwitchRouter? = nil) { self.router = router }
 
+    /// V5 LANG1 — the badge's detector guesses only the chosen languages (nil = unconstrained).
+    public func setAllowedLanguages(_ allowed: Set<SpokenLanguage>?) {
+        lock.lock(); defer { lock.unlock() }
+        detector = LanguageDetector(allowed: allowed)
+    }
+
     public func setRouter(_ router: CodeSwitchRouter?) {
         lock.lock(); defer { lock.unlock() }
         self.router = router

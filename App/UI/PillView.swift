@@ -126,6 +126,8 @@ public final class PillViewModel: ObservableObject {
     @Published public var transformRows: TransformPreviewRows?
     /// P6.3 — script indicator ("EN" / "हि" / "EN·हि"); empty = hidden. Drawn in the status row.
     @Published public var scriptBadge: String = ""
+    /// V5 LANG2 — the badge becomes the notch script menu (`PillScriptMenu.swift`) when wired.
+    public var scriptMenu: ScriptChoiceModel?
     /// S2 — everything about the turn the state does not carry (destination, timer, live words…).
     @Published public private(set) var turn = PillTurnContext()
     /// S2 — deixis boxes of this turn (owner addition: the chip in the text lane).
@@ -1080,7 +1082,9 @@ struct PillBody: View {
                 .truncationMode(.tail)
                 .accessibilityIdentifier("pill.status")
             Spacer(minLength: 4)
-            if !model.scriptBadge.isEmpty {
+            if let scriptMenu = model.scriptMenu {
+                PillScriptMenu(badge: model.scriptBadge, model: scriptMenu)   // V5 LANG2
+            } else if !model.scriptBadge.isEmpty {
                 Text(model.scriptBadge)
                     .font(Tokens.Typography.key.font())
                     .foregroundStyle(Tokens.Pill.Token.secondaryInk.color)

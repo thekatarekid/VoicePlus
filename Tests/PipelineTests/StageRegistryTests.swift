@@ -11,7 +11,7 @@ struct StageRegistryTests {
         for id in required { #expect(ids.contains(id), "missing \(id)") }
         #expect(Set(ids).count == ids.count, "duplicate stage ids in registry")
         #expect(ids.first == .gatekeeper)
-        #expect(ids.last == .style)
+        #expect(ids.suffix(2) == [.style, ScriptOutputStage.stageID])   // V5 LANG: script output follows style
     }
 
     @Test func standardRunnerExcludesGatekeeperFromStageList() {

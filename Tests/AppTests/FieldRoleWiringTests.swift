@@ -151,7 +151,7 @@ import Shared
             #expect(!ids.contains(replaced), "\(replaced) still in the list — spans would be formatted twice")
         }
         // Order is otherwise untouched: style remains the last pass (Bet 8).
-        #expect(ids.last == .style)
+        #expect(Array(ids.suffix(2)) == [.style, ScriptOutputStage.stageID])   // V5 LANG script output follows style
         // Idempotent — assembling twice cannot add a second copy.
         #expect(FieldRolePipeline.replacingFormatters(in: stages).map(\.id) == ids)
     }

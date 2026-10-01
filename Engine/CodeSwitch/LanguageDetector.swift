@@ -37,14 +37,32 @@ public struct LanguageDetector: Sendable {
     static let englishWords: Set<String> = ["the", "to", "do", "me", "main", "par", "the", "de", "ya"]
 
     private var tags: [WordTag] = []
-    public init() {}
+    /// V5 LANG1 — the languages the user chose, as the detector knows them. Nil = unconstrained
+    /// (every guess allowed). Without Hindi a Latin word is never guessed as romanised Hindi; with
+    /// Hindi alone a Latin word is never guessed as English. Devanagari stays Hindi either way:
+    /// that is the script, not a guess.
+    public let allowed: Set<SpokenLanguage>?
+
+    public init(allowed: Set<SpokenLanguage>? = nil) { self.allowed = allowed }
+
+    /// LANG1 codes (`"en"`, `"hi"`, `"fr"`, BCP-47 tags allowed) → the detector's constraint.
+    /// Hindi iff `hi` was chosen; "English" (= Latin, not Hindi) iff anything else was. Empty → nil.
+    public static func allowedLanguages(fromCodes codes: [String]) -> Set<SpokenLanguage>? {
+        let bases = Set(codes.map { $0.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? "" }
+            .filter { !$0.isEmpty })
+        guard !bases.isEmpty else { return nil }
+        var out: Set<SpokenLanguage> = []
+        if bases.contains("hi") { out.insert(.hindi) }
+        if !bases.subtracting(["hi"]).isEmpty { out.insert(.english) }
+        return out
+    }
 
     // MARK: Streaming
 
     /// Feed a word or phrase (final or partial). Returns the detection over everything fed so far.
     @discardableResult
     public mutating func feed(_ text: String) -> Detection {
-        tags.append(contentsOf: Self.tag(text))
+        tags.append(contentsOf: Self.tag(text, allowed: allowed))
         return Self.summarize(tags)
     }
 
@@ -54,25 +72,40 @@ public struct LanguageDetector: Sendable {
     /// One-shot detection over a complete string.
     public static func detect(_ text: String) -> Detection { summarize(tag(text)) }
 
+    /// One-shot detection constrained to the chosen languages (LANG1).
+    public static func detect(_ text: String, allowed: Set<SpokenLanguage>?) -> Detection { summarize(tag(text, allowed: allowed)) }
+
     // MARK: Word tagging
 
-    public static func tag(_ text: String) -> [WordTag] {
+    public static func tag(_ text: String, allowed: Set<SpokenLanguage>? = nil) -> [WordTag] {
         text.split(whereSeparator: { $0.isWhitespace }).map { raw in
             let word = String(raw)
             let script = Script.dominant(in: word)
-            return WordTag(word: word, script: script, language: language(of: word, script: script))
+            return WordTag(word: word, script: script, language: language(of: word, script: script, allowed: allowed))
         }
     }
 
-    static func language(of word: String, script: Script) -> SpokenLanguage {
+    static func language(of word: String, script: Script, allowed: Set<SpokenLanguage>? = nil) -> SpokenLanguage {
         switch script {
         case .devanagari: return .hindi
-        case .latin: return isRomanHindi(word) ? .hindi : .english
+        case .latin:
+            if let allowed {
+                if !allowed.contains(.hindi) { return .english }
+                if !allowed.contains(.english) { return .hindi }
+            }
+            return isRomanHindi(word) ? .hindi : .english
         case .other, .neutral: return .unknown
         }
     }
 
-    static func isRomanHindi(_ word: String) -> Bool {
+    /// Whether a Latin word is romanised Hindi under the chosen languages (LANG1). The App hands
+    /// this to `ScriptOutputStage` (Pipeline cannot import Engine) for Mixed / Devanagari output.
+    public static func isHindiWord(_ word: String, allowed: Set<SpokenLanguage>?) -> Bool {
+        let script = Script.dominant(in: word)
+        return script == .latin && language(of: word, script: script, allowed: allowed) == .hindi
+    }
+
+    public static func isRomanHindi(_ word: String) -> Bool {
         let w = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
         guard !w.isEmpty else { return false }
         if englishWords.contains(w) { return false }

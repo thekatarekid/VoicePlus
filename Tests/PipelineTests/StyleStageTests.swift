@@ -323,6 +323,7 @@ import Shared
 
     @Test func registeredInStageRegistry() {
         #expect(StageRegistry.stage(for: .style) != nil)
-        #expect(StageRegistry.allStages().last?.id == .style)
+        // Style is the last text pass (Bet 8); only V5 LANG's script output (inert unless set) follows it.
+        #expect(StageRegistry.allStages().suffix(2).map(\.id) == [.style, ScriptOutputStage.stageID])
     }
 }

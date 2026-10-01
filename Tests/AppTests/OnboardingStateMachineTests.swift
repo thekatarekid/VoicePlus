@@ -173,11 +173,13 @@ struct OnboardingStateMachineTests {
         #expect(m.modelPhase == .ready(name: "Parakeet TDT 0.6B v3"))
         m.handle(.dictationFinished(.landed(text: "hello", app: "Notes")))
         #expect(m.landedText == "hello")
-        #expect(m.handle(.next) == [], "step 6 of 7 — Voice")
+        #expect(m.handle(.next) == [.prefillLanguages], "step 6 of 8 — Languages (V5 LANG1)")
+        #expect(m.step == .languages)
+        #expect(m.handle(.next) == [.saveLanguages(LanguagePreferences())], "step 7 of 8 — Voice")
         #expect(m.step == .voice)
         #expect(m.handle(.beginVoiceEnrollment) == [.startVoiceEnrollment])
         m.handle(.voiceEnrolled(filtering: true))
-        #expect(m.handle(.next) == [.finish(skipped: false)], "step 7 of 7")
+        #expect(m.handle(.next) == [.finish(skipped: false)], "step 8 of 8")
         #expect(m.step == .done)
         #expect(m.readyVerdict == .ready)
         #expect(m.handle(.next) == [])
@@ -288,7 +290,7 @@ struct OnboardingStateMachineTests {
         #expect(m.micVerdict != .good, "nothing may pretend the refused microphone passed")
         #expect(m.statuses[.microphone] == .awaitingUserAction)
         #expect(m.currentPermission == nil)
-        m.handle(.skip); m.handle(.skip); m.handle(.skip)   // Model, Try dictation, Voice
+        m.handle(.skip); m.handle(.skip); m.handle(.skip); m.handle(.skip)   // Model, Try dictation, Languages, Voice
         #expect(m.step == .done)
         #expect(m.readyVerdict == .notReady([.P01, .M01]), "Ready never claims a setup that cannot dictate")
     }
@@ -348,6 +350,8 @@ struct OnboardingStateMachineTests {
         // can name it instead of presenting a test that may not be able to work.
         #expect(m.handle(.skip) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
+        #expect(m.handle(.skip) == [.prefillLanguages])
+        #expect(m.step == .languages)
         #expect(m.handle(.skip) == [])
         #expect(m.step == .voice)
         #expect(m.handle(.skip) == [.finish(skipped: true)])
@@ -491,7 +495,7 @@ struct OnboardingStateMachineTests {
         var m = M()
         var last = m.progress
         // Three skips now clear the three permissions one at a time, then the remaining steps.
-        for event in [M.Event.next, .skip, .skip, .skip, .skip, .skip] {
+        for event in [M.Event.next, .skip, .skip, .skip, .skip, .skip, .skip] {
             m.handle(event)
             #expect(m.progress >= last)
             last = m.progress
@@ -706,8 +710,11 @@ struct OnboardingViewModelTests {
         vm.finishGuidedDictation()
         try await waitUntil { vm.machine.dictation != nil }
         #expect(vm.machine.heardText?.contains("quick brown fox") == true)
-        vm.send(.next)   // Try dictation → Voice (already enrolled, so straight on) → Ready
+        vm.send(.next)   // Try dictation → Languages (V5 LANG1, prefilled from the Mac)
+        #expect(vm.step == .languages)
+        vm.send(.next)   // Languages → Voice (already enrolled, so straight on) → Ready
         #expect(vm.step == .done)
+        #expect(LanguagePreferences.load(deps.settingsStore) != nil)
         #expect(finished == false)
         #expect(deps.settingsStore.bool(SettingsKeys.onboardingCompleted) == true)
         #expect(vm.showContactsOffer)
@@ -927,6 +934,7 @@ struct OnboardingS8StateMachineTests {
         var m = M(initialStatuses: Self.granted, voiceEnrolled: voiceEnrolled)
         m.handle(.next); m.handle(.next)   // → Microphone (the meter) → Typing access, granted → Model
         m.handle(.next)                    // → Try dictation
+        m.handle(.next)                    // → Languages (V5 LANG1)
         m.handle(.next)                    // → Voice (or straight past it)
         precondition(m.step == (voiceEnrolled ? .done : .voice))
         return m
@@ -934,21 +942,28 @@ struct OnboardingS8StateMachineTests {
 
     // MARK: The steps
 
-    @Test func sevenStepsInTheDesignsOrderWithTheOwnersVoiceStep() {
-        #expect(M.Step.allCases == [.welcome, .microphone, .accessibility, .model, .firstDictation, .voice, .done])
-        #expect(M.stepCount == 7)
+    @Test func eightStepsInTheDesignsOrderWithTheOwnersVoiceAndLanguagesSteps() {
+        #expect(M.Step.allCases == [.welcome, .microphone, .accessibility, .model, .firstDictation, .languages, .voice, .done])
+        #expect(M.stepCount == 8)
         var m = M()
         #expect(m.stepNumber == 1)
-        #expect(abs(m.progress - 1.0 / 7) < 1e-9, "the prototype's bar already shows the first segment")
+        #expect(abs(m.progress - 1.0 / 8) < 1e-9, "the prototype's bar already shows the first segment")
         m.handle(.skip)
         #expect(m.stepNumber == 2)
-        #expect(OnboardingCopy.eyebrow(step: m.stepNumber, of: M.stepCount) == "Setup · 2 of 7")
+        #expect(OnboardingCopy.eyebrow(step: m.stepNumber, of: M.stepCount) == "Setup · 2 of 8")
     }
 
-    @Test func voiceComesAfterTryDictationAndBeforeReady() {
+    @Test func voiceComesAfterTryDictationAndLanguagesAndBeforeReady() {
         var m = atTry()
-        #expect(m.handle(.next) == [])
+        #expect(m.handle(.next) == [.prefillLanguages])
+        #expect(m.step == .languages)
+        #expect(m.handle(.back) == [.checkRecognizerReadiness, .beginGuidedDictation])
+        #expect(m.step == .firstDictation)
+        m.handle(.next)
+        #expect(m.handle(.next) == [.saveLanguages(LanguagePreferences())])
         #expect(m.step == .voice)
+        #expect(m.handle(.back) == [])
+        #expect(m.step == .languages)
         #expect(m.handle(.back) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(m.step == .firstDictation)
     }
@@ -1101,8 +1116,8 @@ struct OnboardingS8StateMachineTests {
             m.handle(.skip)
             seen.append(m.step)
         }
-        #expect(seen == [.welcome, .microphone, .accessibility, .model, .firstDictation, .voice, .done])
-        #expect(m.skippedSteps == [.welcome, .microphone, .accessibility, .model, .firstDictation, .voice])
+        #expect(seen == [.welcome, .microphone, .accessibility, .model, .firstDictation, .languages, .voice, .done])
+        #expect(m.skippedSteps == [.welcome, .microphone, .accessibility, .model, .firstDictation, .languages, .voice])
         #expect(m.handle(.skip) == [], "Ready is final")
         #expect(m.handle(.back) == [])
     }
@@ -1132,6 +1147,8 @@ struct OnboardingS8StateMachineTests {
         var voice = M()
         #expect(voice.resume(at: .voice) == [])
         #expect(voice.step == .voice)
+        #expect(voice.handle(.back) == [.prefillLanguages])
+        #expect(voice.step == .languages)
         #expect(voice.handle(.back) == [.checkRecognizerReadiness, .beginGuidedDictation])
         #expect(voice.step == .firstDictation)
     }

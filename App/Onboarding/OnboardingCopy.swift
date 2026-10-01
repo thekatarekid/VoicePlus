@@ -85,6 +85,7 @@ public enum OnboardingCopy {
         case .accessibility: row = prototypeTypingAccess
         case .model: row = prototypeModel
         case .firstDictation: row = prototypeTry
+        case .languages: row = StepCopy(heading: languagesHeading, body: languagesBody, action: continueTitle)
         case .voice: row = StepCopy(heading: voiceSubtitle, body: voiceEmptyBody, action: voiceEmptyAction)
         case .done: row = prototypeReady
         }

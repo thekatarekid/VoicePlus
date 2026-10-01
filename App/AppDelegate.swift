@@ -470,6 +470,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { self?.pill.model.scriptBadge = label }
         }
 
+        // V5 LANG1/LANG2 — language answers to their consumers; the badge becomes the script menu.
+        LanguageRuntime.wire(settings: container.settings, lander: container.lander, codeSwitch: container.codeSwitch, pill: pill.model)
+
         // P5 — latch: the wake-verb context flag rides the lander's augmenter chain; the
         // directed-speech gate opens the mic on addressed speech; hard mute pauses everything.
         let baseAugmenter = container.lander.contextAugmenter

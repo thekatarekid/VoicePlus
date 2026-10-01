@@ -5,7 +5,7 @@ import Foundation
 /// events; it never touches permissions, audio or models itself, so every branch is unit-testable.
 ///
 /// S8 (design_v1 §8.7, V4.48, I1) — the verified design's six steps plus the owner's Voice step:
-/// **Welcome → Microphone → Typing access → Model → Try dictation → Voice → Ready**.
+/// **Welcome → Microphone → Typing access → Model → Try dictation → Languages → Voice → Ready**.
 ///
 /// * The microphone **permission ask** and the **level meter** share `.microphone` (R6.2): the ask
 ///   shows while the grant is outstanding, the real meter once it isn't.
@@ -19,6 +19,9 @@ import Foundation
 ///   way `.accessibility` does once every permission is granted.
 /// * `.firstDictation` is "Try dictation": the fn system-action prompt and the key test come first
 ///   (I1), then a real hold into the practice field.
+/// * `.languages` (V5 LANG1): which languages the user speaks, the script for each (Roman by
+///   default; Devanagari / mixed for Hindi) and the English spelling variant. Prefilled from the Mac;
+///   Continue saves the prefill as shown, Skip saves nothing. Passed through once answered.
 /// * `.voice` is the owner's addition: prompted enrollment, skippable; skipping leaves the passive
 ///   enrollment (H2) to learn the voice from the first holds instead.
 /// * `.done` is "Ready": ready only with a working recognizer and capture path; copy-only is labelled.
@@ -27,7 +30,7 @@ import Foundation
 /// (`resume(at:)`).
 public struct OnboardingStateMachine: Equatable, Sendable {
     public enum Step: String, Equatable, Sendable, CaseIterable {
-        case welcome, microphone, accessibility, model, firstDictation, voice, done
+        case welcome, microphone, accessibility, model, firstDictation, languages, voice, done
     }
 
     /// Where loading the installed stack into memory has got to. "Ready" is only ever said on
@@ -256,6 +259,12 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         /// "Try fn / 🌐 again": forget the attempts.
         case retryFnKey
 
+        // MARK: Languages step (V5 LANG1)
+        /// The Mac's own answer (preferred languages + input sources), fed once on entry.
+        case languagesPrefilled(LanguagePreferences)
+        /// The user changed the selection, a script or the spelling variant.
+        case setLanguages(LanguagePreferences)
+
         // MARK: Voice step (V4.48)
         case beginVoiceEnrollment
         /// No recorder could be built for enrollment in this window.
@@ -295,6 +304,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case startVoiceEnrollment
         /// Drop a running enrollment (the step was left, or the user stopped it).
         case stopVoiceEnrollment
+        /// V5 LANG1 — read the Mac's languages and answer `.languagesPrefilled`.
+        case prefillLanguages
+        /// V5 LANG1 — persist the answer (`SettingsKeys.languages` / `.scriptByLanguage` / `.spellingVariant`).
+        case saveLanguages(LanguagePreferences)
     }
 
     public private(set) var step: Step = .welcome
@@ -346,6 +359,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// A prompted-press window is open.
     public private(set) var keyPrompting = false
     public private(set) var voice: VoiceEnrollmentState = .notEnrolled
+    /// V5 LANG1 — the selection on screen (nil until prefilled) and whether it has been saved.
+    public private(set) var languageChoice: LanguagePreferences?
+    public private(set) var languagesConfirmed = false
 
     // MARK: S8 — derived state
 
@@ -372,7 +388,7 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     public var needsModelLoad: Bool {
         guard stackInstalled, modelLoad == .notLoaded else { return false }
         switch step {
-        case .model, .firstDictation, .voice, .done: return true
+        case .model, .firstDictation, .languages, .voice, .done: return true
         case .welcome, .microphone, .accessibility: return false
         }
     }
@@ -472,12 +488,14 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     public init(initialStatuses: [OnboardingPermission: OnboardingPermissionStatus] = [:],
                 alreadyRequested: Set<OnboardingPermission> = [],
                 permissionOrder: [OnboardingPermission] = OnboardingPermission.baselineOrder,
-                voiceEnrolled: Bool = false) {
+                voiceEnrolled: Bool = false,
+                languagesConfirmed: Bool = false) {
         statuses = initialStatuses
         requestedPermissions = alreadyRequested
         self.permissionOrder = permissionOrder
         permissionIndex = Self.firstUndecidedIndex(in: initialStatuses, order: permissionOrder)
         if voiceEnrolled { voice = .enrolled(filtering: true) }
+        self.languagesConfirmed = languagesConfirmed
     }
 
     /// "Resume setup at unfinished step" (design §8.7). Opens `target` as if the user had walked to
@@ -494,14 +512,14 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             while permissionIndex < permissionOrder.count, statuses[permissionOrder[permissionIndex]] == .granted {
                 permissionIndex += 1
             }
-        case .model, .firstDictation, .voice:
+        case .model, .firstDictation, .languages, .voice:
             permissionIndex = permissionOrder.count
         case .welcome, .microphone, .done:
             break
         }
         // A voice enrolled since (in Voice) would fall straight through to Ready and finish setup
         // the instant the window opened; resuming lands on the step and lets Continue finish it.
-        return enter(target, fallThroughIfResolved: target != .voice)
+        return enter(target, fallThroughIfResolved: target != .voice && target != .languages)
     }
 
     /// The permission in focus, or nil once this step's own share of the walk is resolved (granted
@@ -718,7 +736,21 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             // Clear the last verdict so the screen cannot show a stale error beside a fresh attempt.
             dictation = nil; return [.checkRecognizerReadiness]
         case (.firstDictation, .next):
-            return enter(.voice)
+            return enter(.languages)
+
+        // Languages (V5 LANG1) — Continue saves what is shown (the prefill counts as an answer).
+        case (.languages, .languagesPrefilled(let prefs)):
+            if languageChoice == nil { languageChoice = prefs }
+            return []
+        case (.languages, .setLanguages(let prefs)):
+            guard !prefs.languages.isEmpty else { return [] }   // at least one language, always
+            languageChoice = prefs
+            return []
+        case (.languages, .next):
+            let prefs = languageChoice ?? LanguagePreferences()
+            languageChoice = prefs
+            languagesConfirmed = true
+            return [.saveLanguages(prefs)] + enter(.voice)
         // I1 — the fn system-action prompt, before the key test.
         case (.firstDictation, .fixFnConflict):
             return fnConflict == nil ? [] : [.openKeyboardSettings]
@@ -846,6 +878,9 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             // before it) is reported on Try dictation and Ready instead.
             if stackInstalled, fallThroughIfResolved { return effects + enter(.firstDictation) }
             effects.append(.checkRecognizerReadiness)
+        case .languages:
+            if languagesConfirmed, fallThroughIfResolved { return effects + enter(.voice) }
+            if languageChoice == nil { effects.append(.prefillLanguages) }
         case .voice:
             if voice.isEnrolled, fallThroughIfResolved { return effects + enter(.done) }
             if voice == .unavailable { voice = .notEnrolled }
@@ -939,7 +974,8 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             return enter(step == .microphone ? .accessibility : .model)
         case .welcome: skippedSteps.insert(step); return enter(.microphone)
         case .model: skippedSteps.insert(step); return enter(.firstDictation)
-        case .firstDictation: skippedSteps.insert(step); return enter(.voice)
+        case .firstDictation: skippedSteps.insert(step); return enter(.languages)
+        case .languages: skippedSteps.insert(step); return enter(.voice)
         case .voice, .done: skippedSteps.insert(step); return enter(.done)
         }
     }
@@ -953,7 +989,8 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .accessibility: return enter(.microphone)
         case .model: return enter(.accessibility, fallThroughIfResolved: false)
         case .firstDictation: return enter(.model, fallThroughIfResolved: false)
-        case .voice: return enter(.firstDictation, fallThroughIfResolved: false)
+        case .languages: return enter(.firstDictation, fallThroughIfResolved: false)
+        case .voice: return enter(.languages, fallThroughIfResolved: false)
         }
     }
 
