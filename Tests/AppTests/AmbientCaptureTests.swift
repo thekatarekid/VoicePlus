@@ -252,7 +252,7 @@ struct AmbientCaptureTests {
         #expect(record.transcript.utterances.map(\.speaker) == [.you, .others(1)])
 
         // …and not in the Meetings root, so the Meetings section cannot list it.
-        #expect(AmbientTranscriptStore.defaultRoot().lastPathComponent == "Ambient")
+        #expect(AmbientTranscriptStore.defaultRoot().lastPathComponent == "Notes")   // V5 N4: one store with Notes
         #expect(AmbientTranscriptStore.defaultRoot() != MeetingStore().root,
                 "ambient days would be listed by the Meetings section")
     }

@@ -38,8 +38,10 @@ public final class AmbientTranscriptStore: AmbientTimelineReading, AmbientTransc
     static let writePathSweepInterval: TimeInterval = 3600
 
     /// Where ambient transcript is kept. Separate from `Meetings/`; see the note above.
+    /// V5 N4: one store with Notes — `…/VoicePlus/Notes`. The legacy `…/Ambient` is folded in by
+    /// `NotesStore.preparedDefaultRoot()` at launch; asking for the path moves nothing.
     public static func defaultRoot() -> URL {
-        AppPaths.supportDirectory().appendingPathComponent("Ambient", isDirectory: true)
+        NotesStore.defaultRoot()
     }
 
     public init(meetings: MeetingStore = MeetingStore(root: AmbientTranscriptStore.defaultRoot()),

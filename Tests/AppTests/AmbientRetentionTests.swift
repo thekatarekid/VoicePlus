@@ -283,7 +283,7 @@ struct AmbientRetentionTests {
     func launchSweepsRetention() throws {
         // The production root, checked by name only: nothing in this suite reads or sweeps the real
         // Application Support directory, because a retention test must not delete a user's transcript.
-        #expect(AmbientTranscriptStore.defaultRoot().lastPathComponent == "Ambient")
+        #expect(AmbientTranscriptStore.defaultRoot().lastPathComponent == "Notes")   // V5 N4: one store with Notes
 
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("r82-launch-\(UUID().uuidString)", isDirectory: true)
