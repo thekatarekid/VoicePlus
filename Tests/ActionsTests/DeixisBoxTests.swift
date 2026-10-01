@@ -82,3 +82,57 @@ struct DeixisBoxTests {
         #expect(AXTextRange.boxed(visible: CFRange(location: 0, length: 0), topLeft: nil, bottomRight: nil) == nil)
     }
 }
+
+/// H4 — a box binds the word whose audioRange (± 300 ms) its drag overlaps, not the latest box.
+@Suite("H4 time-aligned gesture binding")
+struct DeixisTimeAlignedTests {
+    static func boundID(_ b: DeixisBinding?) -> UUID? {
+        if case .region(let r)? = b?.reference { return r.regionID }
+        return nil
+    }
+    static func resolve(_ word: ClosedRange<TimeInterval>, _ tl: InputTimeline) -> DeixisBinding? {
+        DeixisResolver(hitTester: MockAXHitTester(elements: DeixisBoxTests.elements))
+            .resolve(spans: [TranscriptSpan(text: "this", confidence: 0.9, audioRange: word)],
+                     alignment: CaptureAlignment(captureStart: 0), timeline: tl).first
+    }
+
+    @Test func boxDrawnDuringTheWordBeatsALaterBox() {
+        let tl = InputTimeline()
+        let during = UUID(), later = UUID()
+        DeixisBoxTests.box(CGRect(x: 95, y: 95, width: 90, height: 40), from: 1.0, to: 1.3, into: tl, id: during)
+        // A second box started right after the word, inside the ± 300 ms slack: latest, but not the word's.
+        DeixisBoxTests.box(CGRect(x: 110, y: 210, width: 380, height: 280), from: 1.45, to: 1.6, into: tl, id: later)
+        #expect(Self.boundID(Self.resolve(1.0...1.3, tl)) == during)
+    }
+
+    @Test func boxOutsideTheSlackDoesNotBind() {
+        let tl = InputTimeline()
+        tl.record(.pointerMove(GlobalPoint(x: 300, y: 300, displayID: 1)), at: 0.0)
+        // Word 0.4–0.5; box drawn 0.85–0.95 — within the old ±0.6 s midpoint window, but > 300 ms after the word.
+        DeixisBoxTests.box(CGRect(x: 95, y: 95, width: 90, height: 40), from: 0.85, to: 0.95, into: tl)
+        let b = Self.resolve(0.4...0.5, tl)
+        #expect(Self.boundID(b) == nil)
+        guard case .element(let e)? = b?.reference else { Issue.record("expected pointer fallback"); return }
+        #expect(e.id == "body")
+    }
+
+    @Test func boxFinishedJustBeforeTheWordBinds() {
+        let tl = InputTimeline()
+        let id = UUID()
+        // Drawn 0.5–0.8, word spoken 1.05–1.2: the drag ended 250 ms before the word.
+        DeixisBoxTests.box(CGRect(x: 95, y: 95, width: 90, height: 40), from: 0.5, to: 0.8, into: tl, id: id)
+        #expect(Self.boundID(Self.resolve(1.05...1.2, tl)) == id)
+        // 350 ms before: too early.
+        let tl2 = InputTimeline()
+        DeixisBoxTests.box(CGRect(x: 95, y: 95, width: 90, height: 40), from: 0.4, to: 0.7, into: tl2)
+        #expect(Self.boundID(Self.resolve(1.05...1.2, tl2)) == nil)
+    }
+
+    @Test func longWordPicksTheBoxWithMostOverlap() {
+        let tl = InputTimeline()
+        let small = UUID(), big = UUID()
+        DeixisBoxTests.box(CGRect(x: 95, y: 95, width: 90, height: 40), from: 1.9, to: 2.1, into: tl, id: small)
+        DeixisBoxTests.box(CGRect(x: 110, y: 210, width: 380, height: 280), from: 1.0, to: 1.8, into: tl, id: big)
+        #expect(Self.boundID(Self.resolve(1.0...2.0, tl)) == big)
+    }
+}

@@ -27,6 +27,9 @@ public struct DeixisConfig: Sendable {
     public var ambiguityDelta: CGFloat = 12
     /// Lead: speakers typically point slightly *before* the word; shift lookup earlier by this.
     public var gestureLead: TimeInterval = 0.08
+    /// H4 — a box binds a word only when its drag (first → closing sample) overlaps the word's own
+    /// `audioRange` widened by this much on each side.
+    public var regionOverlapSlack: TimeInterval = 0.3
     public init() {}
 }
 
@@ -54,10 +57,11 @@ public final class DeixisResolver {
         var b = DeixisBinding(word: word, kind: kind, spanIndex: index, audioRange: audioRange, instant: t,
                               anchor: nil, reference: nil, candidates: [], confidence: 0, isAmbiguous: false)
 
-        // 1. A box wins (G1): the one drawn nearest the word, inside ±strokeWindow. Several boxes
-        //    in one utterance each bind their own word.
-        let window = (t - config.strokeWindow)...(t + config.strokeWindow)
-        if let box = timeline.regions(in: window).min(by: { $0.distance(to: t) < $1.distance(to: t) }) {
+        // 1. A box wins (G1). H4: time-aligned — only a box whose drag overlaps the word's
+        //    audioRange ± regionOverlapSlack, and among those the one drawn most *during* the word
+        //    (never simply the latest). Several boxes in one utterance each bind their own word.
+        let wordSpan = alignment.instant(forAudioSeconds: audioRange.lowerBound)...alignment.instant(forAudioSeconds: audioRange.upperBound)
+        if let box = Self.timeAlignedRegion(timeline: timeline, word: wordSpan, slack: config.regionOverlapSlack) {
             let region = Self.region(from: box.sample, hitTester: hitTester)
             b.reference = .region(region); b.candidates = [.region(region)]; b.confidence = 0.9
             b.anchor = GlobalPoint(x: region.centroid.x, y: region.centroid.y, displayID: region.displayID)
@@ -65,6 +69,7 @@ public final class DeixisResolver {
         }
 
         // 1b. Legacy ink: a free-hand stroke bundle around the word (replayed timelines).
+        let window = (t - config.strokeWindow)...(t + config.strokeWindow)
         let strokes = timeline.strokes(in: window)
         if let region = Self.region(from: strokes, hitTester: hitTester) {
             b.reference = .region(region); b.candidates = [.region(region)]; b.confidence = 0.9
@@ -90,6 +95,28 @@ public final class DeixisResolver {
         b.reference = b.isAmbiguous ? nil : .element(best.0)
         b.confidence = b.isAmbiguous ? 0.4 : Float(max(0.2, 0.7 - Double(best.1 / r) * 0.3))
         return b
+    }
+
+    /// H4 — the box drawn for a word spoken over `word` (timeline instants): drags overlapping
+    /// `word ± slack`, ranked by overlap with the word itself, then by gap to it, then earliest.
+    public static func timeAlignedRegion(timeline: InputTimeline, word: ClosedRange<TimelineInstant>,
+                                         slack: TimeInterval) -> TimedRegion? {
+        let padded = (word.lowerBound - slack)...(word.upperBound + slack)
+        func overlap(_ r: TimedRegion) -> TimeInterval {
+            max(0, min(r.ended, word.upperBound) - max(r.began, word.lowerBound))
+        }
+        func gap(_ r: TimedRegion) -> TimeInterval {
+            if r.ended < word.lowerBound { return word.lowerBound - r.ended }
+            if r.began > word.upperBound { return r.began - word.upperBound }
+            return 0
+        }
+        return timeline.regions(in: padded).min { a, b in
+            let oa = overlap(a), ob = overlap(b)
+            if oa != ob { return oa > ob }
+            let ga = gap(a), gb = gap(b)
+            if ga != gb { return ga < gb }
+            return a.began < b.began
+        }
     }
 
     static func region(from strokes: [UUID: [TimelineEvent]], hitTester: AXHitTesting) -> RegionReference? {

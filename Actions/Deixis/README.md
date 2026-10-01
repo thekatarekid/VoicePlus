@@ -1,7 +1,7 @@
 # Actions/Deixis, Referents, Elicitation (P3.3 / P3.5 / P3.6)
 
 - `DeixisResolver` — for each deictic `TranscriptSpan` (this/that/these/those/here/there): audio midpoint
-  → `CaptureAlignment` → timeline instant (minus a small gesture lead) → the drawn box nearest in ±0.6 s wins
+  → `CaptureAlignment` → timeline instant (minus a small gesture lead) → the drawn box whose drag overlaps the word's audioRange ± 300 ms wins, most overlap first (H4, never just the latest box)
   (G1; `RegionReference`: bounds, centroid, covered elements, `regionID`), then a legacy ink bundle (replayed
   timelines only), else `InputTimeline.pointer(at:)` → `AXHitTesting`
   → `ElementReference`; near-miss ranks by distance and flags `isAmbiguous` when two are within `ambiguityDelta`.
