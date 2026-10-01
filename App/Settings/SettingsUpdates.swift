@@ -75,6 +75,8 @@ public enum UpdatesCopy {
     public static let noUpdater = "This build has no updater wired, so it will never update itself."
     public static let automaticTitle = "Check automatically"
     public static let automaticDetail = "Updates are downloaded only when you choose to."
+    public static let channelTitle = "Channel"
+    public static let channelDetail = "Beta also offers nightly builds."
     public static func lastChecked(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -90,6 +92,13 @@ public final class UpdatesPageModel: ObservableObject {
     @Published public private(set) var pendingRestart: UpdateRestartGuard.Decision?
     @Published public var automaticChecks: Bool {
         didSet { updater?.automaticallyChecksForUpdates = automaticChecks }
+    }
+    /// V5 J5 — the release channel, for an updater that has one (`UpdateChannelSelecting`).
+    @Published public var channel: UpdateChannel {
+        didSet {
+            guard let selecting = updater as? UpdateChannelSelecting, selecting.channel != channel else { return }
+            selecting.channel = channel
+        }
     }
 
     public let version: String
@@ -107,6 +116,7 @@ public final class UpdatesPageModel: ObservableObject {
         self.heldDrafts = heldDrafts
         self.draftsPersisted = draftsPersisted
         self.automaticChecks = updater?.automaticallyChecksForUpdates ?? false
+        self.channel = (updater as? UpdateChannelSelecting)?.channel ?? .release
         self.phase = (updater as? UpdateStatusReporting)?.updatePhase ?? .idle(lastChecked: nil)
         (updater as? UpdateStatusReporting)?.onUpdatePhaseChange = { [weak self] phase in
             MainActor.assumeIsolated { self?.phase = phase }
@@ -126,6 +136,9 @@ public final class UpdatesPageModel: ObservableObject {
     /// False for an updater that cannot update this build (`NoopUpdater`): the page says so and
     /// offers no check that would do nothing.
     public var canUpdate: Bool { updater?.canCheckForUpdates ?? false }
+
+    /// Settings › Updates shows the channel row only for an updater that has channels.
+    public var hasChannels: Bool { canUpdate && updater is UpdateChannelSelecting }
 
     public var statusLine: String {
         guard canUpdate else { return UpdatesCopy.noUpdater }

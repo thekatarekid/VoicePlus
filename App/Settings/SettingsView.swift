@@ -567,6 +567,15 @@ struct UpdatesSettingsPage: View {
                     if case .downloading(_, let fraction?) = updates.phase {
                         RowView(SettingsCopy.downloadTitle) { ProgressView(value: fraction).frame(width: 160) }
                     }
+                    if updates.hasChannels {
+                        RowView(UpdatesCopy.channelTitle, detail: UpdatesCopy.channelDetail) {
+                            Picker(UpdatesCopy.channelTitle, selection: $updates.channel) {
+                                ForEach(UpdateChannel.allCases, id: \.self) { Text($0.title).tag($0) }
+                            }
+                            .labelsHidden().fixedSize()
+                        }
+                        .accessibilityIdentifier("settings.updates.channel")
+                    }
                     if updates.canUpdate {
                         SettingsToggleRow(title: UpdatesCopy.automaticTitle, detail: UpdatesCopy.automaticDetail,
                                           isOn: $updates.automaticChecks, identifier: "settings.updates.automatic")

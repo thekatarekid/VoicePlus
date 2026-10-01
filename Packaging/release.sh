@@ -81,6 +81,9 @@ fi
 
 # --- 4. Appcast (Sparkle format; DEVIATION: no EdDSA signature) --------------------
 APPCAST="$PKG_DIR/appcast.xml"
+# V5 J5: the in-app updater (App/Core/AppcastUpdater.swift) checks length + sha256 and skips items
+# whose minimum OS is above the running one — so both come from the build, not a constant.
+MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist" 2>/dev/null || echo 15.0)"
 PUBDATE="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
 ITEM="$(cat <<XML
     <item>
@@ -88,10 +91,10 @@ ITEM="$(cat <<XML
       <pubDate>$PUBDATE</pubDate>
       <sparkle:version>$BUILD_NUMBER</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:minimumSystemVersion>$MIN_OS</sparkle:minimumSystemVersion>
       <sparkle:channel>$([ "$PHASE" = "nightly" ] && echo beta || echo release)</sparkle:channel>
       <sparkle:releaseNotesLink>$REPO_URL/releases/tag/$TAG</sparkle:releaseNotesLink>
-      <enclosure url="$DOWNLOAD_URL" length="$SIZE_BYTES" type="application/octet-stream" />
+      <enclosure url="$DOWNLOAD_URL" length="$SIZE_BYTES" sha256="$SHA" type="application/octet-stream" />
       <!-- unsigned: no sparkle:edSignature (no EdDSA key on this machine) -->
     </item>
 XML

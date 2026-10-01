@@ -1,7 +1,8 @@
 import Foundation
 
-/// Sparkle wiring stub (T1). Packaging (P1.13) swaps in a real `SPUStandardUpdaterController`-backed
-/// implementation; the app only ever talks to this protocol so there is no Sparkle dependency yet.
+/// What the app talks to for updates. V5 J5: `AppcastUpdater` (reads the Sparkle-format feed
+/// `Packaging/release.sh` publishes, no Sparkle dependency); `NoopUpdater` stays for tests and for
+/// builds without a feed URL.
 public protocol UpdaterProtocol: AnyObject {
     var canCheckForUpdates: Bool { get }
     var automaticallyChecksForUpdates: Bool { get set }
@@ -20,4 +21,9 @@ public final class NoopUpdater: UpdaterProtocol {
     }
 
     public func checkForUpdates() { checkCount += 1 }
+}
+
+/// V5 J5 — an updater whose release channel the user picks in Settings › Updates.
+public protocol UpdateChannelSelecting: AnyObject {
+    var channel: UpdateChannel { get set }
 }

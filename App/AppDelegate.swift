@@ -1,6 +1,7 @@
 import Actions
 import AppKit
 import Engine
+import Lab
 import Pipeline
 import Shared
 
@@ -41,7 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// P5 — the persistent presence indicator near the notch (the status item is the first thing
     /// macOS culls from a crowded menu bar; this one is always there).
     private let presence = PresenceIndicatorController()
-    private let updater: UpdaterProtocol = NoopUpdater()
+    /// V5 J5 — appcast updater (feed = Info.plist `SUFeedURL`); every request asks the egress gate.
+    private lazy var updater: UpdaterProtocol = AppcastUpdater.live(
+        egressAllowed: { EgressGate.shared.isAllowed(host: $0) },
+        onEgress: { host, bytes, purpose in
+            _ = try? EgressGate.shared.log(stage: "updates", provider: "appcast", host: host, bytesOut: 0,
+                                           bytesIn: bytes, purpose: purpose)
+        },
+        modelsRoot: ModelCatalog.modelsRoot(), terminate: { NSApp.terminate(nil) })
     private let flags = FeatureFlagService.local()
     private let permissionChecker: PermissionChecking = ProcessInfo.processInfo.environment["VOICEPLUS_MOCK_PERMISSIONS"] == "1"
         ? MockPermissionChecker(statuses: [.microphone: .granted, .inputMonitoring: .granted, .accessibility: .granted])
@@ -459,6 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dependencies and the same live pieces the menu has.
         MainWindowController.dependencies = container.onboardingDependencies(permissions: permissionChecker)
         MainWindowController.updater = updater
+        (updater as? AppcastUpdater)?.startAutomaticChecks()
         MainWindowController.environment.connectedProviders = container.connectedProviderNames
         MainWindowController.environment.labRegistry = container.labRegistry
         MainWindowController.environment.egressGate = container.egressGate
