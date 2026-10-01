@@ -69,6 +69,9 @@ public struct MeetingCaptureState: Equatable, Sendable {
     /// The words captured so far, merged like `MeetingSession` merges them.
     public var utterances: [MeetingUtterance] = []
     public var problem: MeetingCaptureProblem?
+    /// V5 M1–M4 — how the meeting is captured (auto-picked at start, the header's pill changes it).
+    /// Nil until capture opened (and for drivers that do not report one).
+    public var mode: MeetingMode?
 
     public init() {}
 
@@ -107,7 +110,7 @@ public struct MeetingCaptureState: Equatable, Sendable {
     /// Adds one utterance, merging it into the previous one when the same speaker continues within a
     /// second (the rule `MeetingSession.append` stores).
     public mutating func append(_ utterance: MeetingUtterance) {
-        if var last = utterances.last, last.speaker == utterance.speaker,
+        if var last = utterances.last, last.speaker == utterance.speaker, last.tag == utterance.tag,
            utterance.range.lowerBound - last.range.upperBound < 1 {
             last.text += " " + utterance.text
             last.range = last.range.lowerBound...max(last.range.upperBound, utterance.range.upperBound)
@@ -125,7 +128,8 @@ public struct MeetingCaptureState: Equatable, Sendable {
 public struct MeetingTrackIndicator: Equatable, Identifiable, Sendable {
     public enum Track: String, Sendable { case microphone, systemAudio }
     public enum Condition: String, Equatable, Sendable {
-        case recording, paused, stopped, missing
+        /// `off`: the mode does not use this track (system audio in an in-person meeting, V5 M2).
+        case recording, paused, stopped, missing, off
 
         public var word: String {
             switch self {
@@ -133,6 +137,7 @@ public struct MeetingTrackIndicator: Equatable, Identifiable, Sendable {
             case .paused: return "Paused"
             case .stopped: return "Stopped"
             case .missing: return "Not recording"
+            case .off: return "Off in person"
             }
         }
     }
@@ -147,7 +152,7 @@ public struct MeetingTrackIndicator: Equatable, Identifiable, Sendable {
         switch (track, condition) {
         case (.microphone, .missing): return "mic.slash"
         case (.microphone, _): return condition == .recording ? "mic.fill" : "mic"
-        case (.systemAudio, .missing): return "speaker.slash"
+        case (.systemAudio, .missing), (.systemAudio, .off): return "speaker.slash"
         case (.systemAudio, _): return condition == .recording ? "speaker.wave.2.fill" : "speaker"
         }
     }
@@ -203,11 +208,11 @@ struct MeetingPanelContent: Equatable, Sendable {
         case .paused: mic = .paused
         case .preparingNotes, .idle: mic = .stopped
         }
-        let system: MeetingTrackIndicator.Condition = state.systemAudio ? mic : .missing
+        let system: MeetingTrackIndicator.Condition = state.mode == .inPerson ? .off : (state.systemAudio ? mic : .missing)
         tracks = [MeetingTrackIndicator(track: .microphone, condition: mic),
                   MeetingTrackIndicator(track: .systemAudio, condition: system)]
         notice = state.problem.map(\.banner)
-            ?? (!state.systemAudio && state.isActive ? MeetingCaptureProblem.systemAudioMissing.banner : nil)
+            ?? (!state.systemAudio && state.isActive && state.mode != .inPerson ? MeetingCaptureProblem.systemAudioMissing.banner : nil)
         switch state.phase {
         case .recording: buttons = [.pause, .stop]
         case .paused: buttons = [.resume, .stop]
@@ -232,10 +237,40 @@ public struct MeetingCaptureStart: Equatable, Sendable {
     public var meetingID: String
     /// False when system audio was refused and capture is microphone-only.
     public var systemAudio: Bool
+    /// V5 M4 — the mode capture opened in (auto-picked); nil = the driver does not do modes.
+    public var mode: MeetingMode?
 
-    public init(meetingID: String, systemAudio: Bool) {
+    public init(meetingID: String, systemAudio: Bool, mode: MeetingMode? = nil) {
         self.meetingID = meetingID
         self.systemAudio = systemAudio
+        self.mode = mode
+    }
+}
+
+/// V5 M1–M4, M14 — a driver that captures in modes and reports transcript rewrites (late
+/// "dictated" / "command" / "note" tags, hybrid echo vetoes). Optional beside `MeetingCaptureDriving`.
+public protocol MeetingCaptureModeDriving: AnyObject, Sendable {
+    /// Switches the running (or paused) meeting's mode; returns false when system audio could not
+    /// be opened for the new mode.
+    func setMode(_ mode: MeetingMode) async -> Bool
+    /// Receives the whole transcript whenever it changes other than by an append. Set before `start`.
+    func observeTranscript(_ handler: @escaping @Sendable (MeetingTranscript) -> Void)
+    /// M14 — whether the meeting keeps the user's dictations ("Show my dictations…").
+    func setKeepsDictations(_ keep: Bool) async
+}
+
+/// V5 M14 — one panel transcript line with the capability tag it carries ("dictated", "command",
+/// "note"); dictated lines are left out when "Show my dictations in meeting transcripts" is off.
+public struct MeetingPanelLine: Equatable, Identifiable, Sendable {
+    public var line: MeetingTranscriptLine
+    public var tag: String?
+    public var id: Int { line.id }
+
+    public static func lines(_ transcript: MeetingTranscript, showsDictations: Bool) -> [MeetingPanelLine] {
+        let shown = transcript.utterances.filter { showsDictations || $0.tag != .dictate }
+        return MeetingTranscriptLine.lines(MeetingTranscript(utterances: shown)).enumerated().map { index, line in
+            MeetingPanelLine(line: line, tag: shown[index].tagLabel)
+        }
     }
 }
 
@@ -287,6 +322,18 @@ public final class MeetingCaptureController: ObservableObject {
     /// Receives Q0 / Q1 / Q2 for the pill on every change, and once a second while a meeting is on
     /// screen so the pill's timer advances. `nil` means "no meeting row".
     public var onPillInfo: ((MeetingPillInfo?) -> Void)?
+    /// V5 M14 — "Show my dictations in meeting transcripts" (Settings; default on).
+    @Published public var showsDictations = true {
+        didSet {
+            guard showsDictations != oldValue, let modes = driver as? any MeetingCaptureModeDriving else { return }
+            let keep = showsDictations
+            Task { await modes.setKeepsDictations(keep) }
+        }
+    }
+    /// The panel's transcript lines (tags rendered, dictations hidden when switched off).
+    public var panelLines: [MeetingPanelLine] {
+        MeetingPanelLine.lines(state.transcript, showsDictations: showsDictations)
+    }
 
     public var now: () -> Date = Date.init
     /// Seconds between timer pushes to the pill; 0 turns the ticker off (tests).
@@ -321,6 +368,12 @@ public final class MeetingCaptureController: ObservableObject {
         next.phase = .starting
         state = next
         publish()
+        if let modes = driver as? any MeetingCaptureModeDriving {
+            modes.observeTranscript { [weak self] transcript in
+                Task { @MainActor in self?.replaceTranscript(transcript) }
+            }
+            await modes.setKeepsDictations(showsDictations)
+        }
         do {
             let started = try await driver.start(
                 title: next.title,
@@ -333,6 +386,7 @@ public final class MeetingCaptureController: ObservableObject {
             let opened = now()
             state.meetingID = started.meetingID
             state.systemAudio = started.systemAudio
+            state.mode = started.mode
             state.phase = .recording
             state.startedAt = opened
             state.stretchStartedAt = opened
@@ -415,9 +469,27 @@ public final class MeetingCaptureController: ObservableObject {
     /// Clears a problem the user has read (the notice's own dismissal; never timed). The missing-track
     /// notice stays for as long as the meeting runs without system audio.
     public func dismissProblem() {
-        let keep: MeetingCaptureProblem? = (state.isActive && !state.systemAudio) ? .systemAudioMissing : nil
+        let keep: MeetingCaptureProblem? = (state.isActive && !state.systemAudio && state.mode != .inPerson) ? .systemAudioMissing : nil
         guard state.problem != keep else { return }
         state.problem = keep
+        publish()
+    }
+
+    /// V5 M4 — the header's mode pill: switch the running meeting to `mode`. Fails visibly (the
+    /// missing-track notice) when the new mode needs system audio and it cannot be opened.
+    public func setMode(_ mode: MeetingMode) async {
+        guard state.isActive, state.phase != .preparingNotes, state.mode != mode,
+              let modes = driver as? any MeetingCaptureModeDriving else { return }
+        state.mode = mode
+        publish()
+        if !mode.legs.capturesSystem, state.problem == .systemAudioMissing { state.problem = nil }
+        let opened = await modes.setMode(mode)
+        if mode.legs.capturesSystem && !opened {
+            state.systemAudio = false
+            state.problem = .systemAudioMissing
+        } else if mode.legs.capturesSystem, !state.systemAudio {
+            state.problem = .systemAudioMissing   // lost earlier: still microphone only
+        }
         publish()
     }
 
@@ -431,9 +503,15 @@ public final class MeetingCaptureController: ObservableObject {
         state.append(utterance)
     }
 
+    private func replaceTranscript(_ transcript: MeetingTranscript) {
+        guard state.isActive else { return }
+        state.utterances = transcript.utterances
+    }
+
     private func systemAudioLost() {
         guard state.isActive, state.systemAudio else { return }
         state.systemAudio = false
+        guard state.mode != .inPerson else { publish(); return }
         state.problem = .systemAudioMissing
         publish()
     }

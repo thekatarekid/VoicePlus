@@ -16,6 +16,8 @@ enum MeetingPanelCopy {
     static let draftNotes = "Draft — final notes are prepared when you stop."
     static let noDraftYet = "Notes build up from the transcript as the meeting goes on."
     static let openMeetings = "Open Meetings"
+    static let modeHelp = "How this meeting is recorded. Picked automatically; choose another to change it now."
+    static let modeAccessibility = "Meeting mode"
 }
 
 struct MeetingPanelView: View {
@@ -68,6 +70,7 @@ struct MeetingPanelView: View {
                 }
             }
             Spacer(minLength: Tokens.Spacing.s)
+            if let mode = capture.state.mode { modePill(mode) }
             Text(content.timer)
                 .windowFont(Tokens.Typography.pillTimer)
                 .accessibilityLabel("Elapsed \(content.timer)")
@@ -94,6 +97,33 @@ struct MeetingPanelView: View {
             .accessibilityLabel(MeetingPanelCopy.collapse)
             .accessibilityIdentifier("meetingPanel.collapse")
         }
+    }
+
+    /// V5 M4 — the mode pill: shows the auto-picked mode; tap to change it for this meeting.
+    private func modePill(_ mode: MeetingMode) -> some View {
+        Menu {
+            ForEach(MeetingMode.allCases, id: \.self) { choice in
+                Button {
+                    Task { await capture.setMode(choice) }
+                } label: {
+                    Label("\(choice.label) — \(choice.explanation)", systemImage: choice == mode ? "checkmark" : choice.systemImage)
+                }
+                .accessibilityIdentifier("meetingPanel.mode.\(choice.rawValue)")
+            }
+        } label: {
+            Label(mode.label, systemImage: mode.systemImage)
+                .windowFont(Tokens.Typography.pillStatus)
+                .padding(.horizontal, Tokens.Spacing.s)
+                .padding(.vertical, 2)
+                .overlay(Capsule().strokeBorder(Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(capture.state.phase == .preparingNotes)
+        .help(MeetingPanelCopy.modeHelp)
+        .accessibilityLabel("\(MeetingPanelCopy.modeAccessibility): \(mode.label)")
+        .accessibilityIdentifier("meetingPanel.mode")
     }
 
     private func perform(_ button: MeetingPanelButton) {
@@ -132,7 +162,7 @@ struct MeetingPanelView: View {
         switch condition {
         case .recording: return Tokens.Pill.Token.ready.color
         case .missing: return Tokens.Pill.Token.attention.color
-        case .paused, .stopped: return Tokens.Pill.Token.secondaryInk.color
+        case .paused, .stopped, .off: return Tokens.Pill.Token.secondaryInk.color
         }
     }
 
@@ -173,7 +203,7 @@ struct MeetingPanelView: View {
     }
 
     @ViewBuilder private var transcript: some View {
-        let lines = MeetingTranscriptLine.lines(capture.state.transcript)
+        let lines = capture.panelLines   // V5 M14 — tags; dictations hidden when switched off
         if lines.isEmpty {
             Text(emptyTranscriptLine)
                 .windowFont(Tokens.Typography.body)
@@ -182,7 +212,7 @@ struct MeetingPanelView: View {
             ScrollViewReader { proxy in
                 LazyVStack(alignment: .leading, spacing: Tokens.Spacing.s) {
                     ForEach(lines) { line in
-                        MeetingTranscriptLineView(line: line, dark: true).id(line.id)
+                        MeetingTranscriptLineView(line: line.line, dark: true, tag: line.tag).id(line.id)
                     }
                 }
                 .onChange(of: lines.count) { _, _ in
@@ -220,6 +250,12 @@ struct MeetingTranscriptLineView: View {
     var line: MeetingTranscriptLine
     var dark: Bool
     var onSeek: ((TimeInterval) -> Void)?
+    /// V5 M14 — "dictated" / "command" / "note": what the user's own span was for.
+    var tag: String? = nil
+
+    init(line: MeetingTranscriptLine, dark: Bool, onSeek: ((TimeInterval) -> Void)? = nil, tag: String? = nil) {
+        self.line = line; self.dark = dark; self.onSeek = onSeek; self.tag = tag
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
@@ -227,6 +263,14 @@ struct MeetingTranscriptLineView: View {
                 Text(line.eyebrow.uppercased())
                     .windowFont(Tokens.Typography.key)
                     .foregroundStyle(secondary)
+                if let tag {
+                    Text(tag)
+                        .windowFont(Tokens.Typography.key)
+                        .foregroundStyle(secondary)
+                        .padding(.horizontal, Tokens.Spacing.xs)
+                        .overlay(Capsule().strokeBorder(secondary, lineWidth: 1))
+                        .accessibilityIdentifier("meetingPanel.transcript.tag")
+                }
                 if let onSeek {
                     Button { onSeek(line.start) } label: { Image(systemName: "play.circle") }
                         .buttonStyle(.plain)
@@ -242,7 +286,12 @@ struct MeetingTranscriptLineView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(line.isUncertain ? "\(line.eyebrow). \(line.text), \(MeetingsCopy.uncertain)" : "\(line.eyebrow). \(line.text)")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        let eyebrow = tag.map { "\(line.eyebrow), \($0)" } ?? line.eyebrow
+        return line.isUncertain ? "\(eyebrow). \(line.text), \(MeetingsCopy.uncertain)" : "\(eyebrow). \(line.text)"
     }
 
     private var text: some View {

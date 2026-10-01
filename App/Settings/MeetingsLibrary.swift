@@ -102,9 +102,11 @@ public struct MeetingFilesStore: Sendable {
         try manager.moveItem(at: json, to: aside)
     }
 
-    /// Audio a recording may have kept, in the order they are looked for. Nothing writes these yet;
-    /// audio seeking appears only when one exists (design §8.2).
-    public static let audioFileNames = ["audio.m4a", "audio.caf", "audio.wav"]
+    /// Audio a recording may have kept, in the order they are looked for; audio seeking appears only
+    /// when one exists (design §8.2). V5 M5 writes one WAV per leg (`MeetingAudioRecorder`); the
+    /// microphone leg is the one played (it hears the room, and the call through speakers).
+    public static let audioFileNames = ["audio.m4a", "audio.caf", "audio.wav",
+                                        MeetingAudioRecorder.micFileName, MeetingAudioRecorder.systemFileName]
 
     public func facts(for id: String) -> MeetingCaptureFacts {
         let url = store.directory(for: id).appendingPathComponent(Self.factsFileName)

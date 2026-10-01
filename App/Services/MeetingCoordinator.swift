@@ -60,6 +60,15 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
     public var makeCapture: (() -> DualCapture?)?
     public private(set) var session: MeetingSession?
     private var captureTask: Task<Void, Never>?
+    /// V5 M1–M4 — the running meeting's capture (for a mode change) and mode.
+    private var capture: DualCapture?
+    public private(set) var mode: MeetingMode?
+    /// V5 M4 — signals for the auto-pick when a meeting starts. Injectable for tests.
+    public var modeSignals: (MeetingPrompt?) -> MeetingModeSignals = MeetingCaptureSetup.liveSignals(for:)
+    /// V5 M5 — the running meeting's saved audio (nil = "Never").
+    private var recorder: MeetingAudioRecorder?
+    /// Settings › Meetings, for the panel driver (M5 save mode, M14 switch).
+    public var settingsStore: (any SettingsStore)? { settings }
     private let camera = CameraInUseMonitor()
     /// V5 M-d — mic-in-use-elsewhere, call apps, browser meeting tab (`MeetingDetectionWiring`).
     /// Started and stopped with the camera monitor; nil = camera + calendar only.
@@ -138,8 +147,13 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
         let effects: [MeetingEffect]
         lock.lock()
         effects = detector.apply(signal, at: clock())
+        let running = session != nil
         lock.unlock()
         for effect in effects { perform(effect) }
+        // `.recordingStopped` tells the detector recording ended; the detector emits no effect for
+        // it, so the running session is closed here (hard mute, the user's Stop) — V5 M5: the last
+        // drain and the saved recording land before notes.
+        if signal == .recordingStopped, running, !effects.contains(.stopRecording) { perform(.stopRecording) }
     }
 
     /// The prompt panel's buttons come back through here.
@@ -151,25 +165,52 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
         case .dismissPrompt: onPrompt?(nil)
         case .startRecording(let prompt, let join):
             if let join { openURL(join) }
+            let made = makeSession?(prompt)
+            // V5 M4 — auto-pick: system audio playing and a call app frontmost → video call.
+            let picked = MeetingModePicker.pick(modeSignals(prompt))
             lock.lock()
-            session = makeSession?(prompt)
+            session = made
+            mode = made == nil ? nil : picked
             lock.unlock()
-            startCaptureLoop()
+            startCaptureLoop(session: made, mode: picked)
             onRecordingChanged?(true)
-            Log.app.info("meeting: recording '\(prompt.title)'")
+            Log.app.info("meeting: recording '\(prompt.title)' (\(picked.rawValue))")
         case .stopRecording:
             onRecordingChanged?(false)
+            let task = captureTask
             captureTask?.cancel()
             captureTask = nil
-            Task { await self.finishSession() }
+            // The loop's last drain (and the saved recording) lands before notes are prepared.
+            Task { await task?.value; await self.finishSession() }
         }
     }
 
+    /// V5 M4 — the user's override: the running meeting switches legs now (system audio opened or
+    /// closed on the same clock) and the record keeps the new mode.
+    public func setMode(_ next: MeetingMode) async {
+        let (running, cap) = lock.withLock { (session, capture) }
+        guard let running else { return }
+        lock.withLock { mode = next }
+        await running.setMode(next)
+        do { try cap?.setMode(next) } catch { Log.app.error("meeting: mode change could not open system audio: \(error)") }
+    }
+
     /// Live drain loop: mic+system chunks every ~3 s into the session until recording stops.
-    private func startCaptureLoop() {
-        guard let capture = makeCapture?() else { return }
+    private func startCaptureLoop(session made: MeetingSession?, mode picked: MeetingMode) {
+        guard let capture = makeCapture?() else {
+            // No live capture (tests, mock engine): the session still records its mode.
+            if let made { Task { await made.setMode(picked) } }
+            return
+        }
+        lock.withLock { self.capture = capture }
+        let store = self.store, settings = self.settings
         captureTask = Task { [weak self] in
             do {
+                if let made {
+                    let rec = await MeetingCaptureSetup.prepare(session: made, capture: capture, mode: picked,
+                                                                store: store, settings: settings)
+                    self?.lock.withLock { self?.recorder = rec }
+                }
                 try await capture.start()
                 while !Task.isCancelled {
                     try await Task.sleep(nanoseconds: 3_000_000_000)
@@ -181,6 +222,7 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
                 Log.app.error("meeting capture failed: \(error)")
             }
             if let rest = try? await capture.stop() { await self?.ingest(rest) }
+            self?.lock.withLock { self?.recorder?.close() }
         }
     }
 
@@ -200,7 +242,7 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
     private func currentSession(clearing: Bool = false) -> MeetingSession? {
         lock.lock(); defer { lock.unlock() }
         let running = session
-        if clearing { session = nil }
+        if clearing { session = nil; capture = nil; mode = nil; recorder = nil }
         return running
     }
 
@@ -209,6 +251,7 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
         guard let running = currentSession(clearing: true) else { return nil }
         do {
             let record = try await running.finish(at: clock())
+            MeetingCaptureSetup.sweep(store: store, settings: settings, keeping: record.id)   // V5 M5
             // "The first time they accept a meeting prompt" — a recording the user chose has now
             // produced notes, so asking to deliver them is the user's own action. Never at launch.
             if isMeetingCaptureEnabled { _ = await notifications.requestAuthorization() }

@@ -12,7 +12,7 @@ import Shared
 // up mid-meeting, capture continues from the microphone alone and the controller shows the
 // missing-track notice. Hardware paths (process tap, SCStream, TCC) are untested here.
 
-public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecked Sendable {
+public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, MeetingCaptureModeDriving, @unchecked Sendable {
     public enum Failure: Error, Equatable {
         /// No session factory: capture is not wired in this build.
         case noSession
@@ -35,6 +35,14 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
     private var offset: TimeInterval = 0
     private var systemAudio = true
     private var onSystemAudioLost: (@Sendable () -> Void)?
+    /// V5 M1–M4 — the meeting's mode (auto-picked at start, the panel's override after).
+    private var mode: MeetingMode = .videoCall
+    /// V5 M5 — the meeting's saved audio, shared by every stretch; nil = "Never".
+    private var recorder: MeetingAudioRecorder?
+    private var onTranscript: (@Sendable (MeetingTranscript) -> Void)?
+    private var keepsDictations = true
+    private let settings: SettingsStore?
+    private let modeSignals: () -> MeetingModeSignals
 
     /// Time between drains of captured audio into the session.
     public var drainInterval: TimeInterval = 3
@@ -45,13 +53,21 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
     public convenience init(coordinator: MeetingCoordinator) {
         self.init(makeSession: { [weak coordinator] prompt in coordinator?.makeSession?(prompt) },
                   makeCapture: { [weak coordinator] in coordinator?.makeCapture?() },
-                  store: coordinator.store)
+                  store: coordinator.store,
+                  settings: coordinator.settingsStore,
+                  modeSignals: { [weak coordinator] in
+                      coordinator?.modeSignals(nil) ?? MeetingModeSignals(systemAudioActive: false, callAppFrontmost: false)
+                  })
     }
 
+    /// - `settings`: Settings › Meetings (M5 save mode); nil = save "Always" (the default).
+    /// - `modeSignals`: M4 auto-pick input; nil = video call (the pre-V5 behaviour, both legs).
     public init(makeSession: @escaping (MeetingPrompt) -> MeetingSession?,
                 makeCapture: @escaping () -> DualCapture?,
                 makeMicrophoneOnly: ((any AudioCaptureSource) -> DualCapture)? = nil,
-                store: MeetingStore) {
+                store: MeetingStore,
+                settings: SettingsStore? = nil,
+                modeSignals: (() -> MeetingModeSignals)? = nil) {
         self.makeSession = makeSession
         self.makeCapture = makeCapture
         self.makeMicrophoneOnly = makeMicrophoneOnly ?? { microphone in
@@ -59,6 +75,8 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
             return DualCapture(mic: tee, system: tee.reference, micVAD: EnergyVAD(), systemVAD: EnergyVAD())
         }
         self.files = MeetingFilesStore(store: store)
+        self.settings = settings
+        self.modeSignals = modeSignals ?? { MeetingModeSignals(systemAudioActive: true, callAppFrontmost: true) }
     }
 
     // MARK: MeetingCaptureDriving
@@ -69,7 +87,14 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
         let prompt = MeetingPrompt(id: "manual:\(UUID().uuidString)", title: title, reason: .camera, event: nil)
         guard let session = makeSession(prompt) else { throw Failure.noSession }
         guard let capture = makeCapture() else { throw Failure.noCapture }
-        await session.setHandlers(onUtterance: onUtterance)
+        let (onTranscript, keep) = lock.withLock { (self.onTranscript, self.keepsDictations) }
+        await session.setHandlers(onUtterance: onUtterance, onTranscript: onTranscript)
+        // V5 M4 — auto-pick, then M5's recorder and M14's switch, before the first sample.
+        let picked = MeetingModePicker.pick(modeSignals())
+        let recorder = await MeetingCaptureSetup.prepare(session: session, capture: capture, mode: picked,
+                                                         store: files.store, settings: settings)
+        await session.setKeepsDictations(keep)
+        lock.withLock { self.mode = picked; self.recorder = recorder }
         let (running, withSystemAudio) = try await open(capture)
         let id = await session.record.id
         lock.withLock {
@@ -81,8 +106,38 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
         }
         watchSystemAudio(of: running)
         startLoop(running)
-        Log.app.info("meeting: manual recording started (system audio \(withSystemAudio ? "on" : "missing"))")
-        return MeetingCaptureStart(meetingID: id, systemAudio: withSystemAudio)
+        Log.app.info("meeting: manual recording started (\(picked.rawValue), system audio \(withSystemAudio ? "on" : "missing"))")
+        return MeetingCaptureStart(meetingID: id, systemAudio: withSystemAudio, mode: picked)
+    }
+
+    // MARK: MeetingCaptureModeDriving (V5 M1–M4, M14)
+
+    public func setMode(_ next: MeetingMode) async -> Bool {
+        let (session, capture, wasLost) = lock.withLock { (self.session, self.capture, !self.systemAudio) }
+        guard let session else { return false }
+        lock.withLock { mode = next }
+        await session.setMode(next)
+        // Paused: the next stretch opens in the new mode. A microphone-only fallback (system audio
+        // already lost) stays microphone-only.
+        guard let capture, !(capture.mic is MicrophoneOnlySource) else { return !next.legs.capturesSystem || !wasLost }
+        do {
+            try capture.setMode(next)
+            return true
+        } catch {
+            Log.app.error("meeting: system audio could not be opened for \(next.rawValue): \(error)")
+            try? capture.setMode(.inPerson)   // keep the microphone running on its own
+            markSystemAudioLost()
+            return false
+        }
+    }
+
+    public func observeTranscript(_ handler: @escaping @Sendable (MeetingTranscript) -> Void) {
+        lock.withLock { onTranscript = handler }
+    }
+
+    public func setKeepsDictations(_ keep: Bool) async {
+        let session = lock.withLock { () -> MeetingSession? in keepsDictations = keep; return self.session }
+        await session?.setKeepsDictations(keep)
     }
 
     public func pause() async {
@@ -92,14 +147,16 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
 
     public func resume() async throws {
         guard lock.withLock({ session != nil && capture == nil }) else { throw Failure.notRunning }
-        let wantsSystemAudio = lock.withLock { systemAudio }
+        let (wantsSystemAudio, mode, recorder) = lock.withLock { (systemAudio, self.mode, self.recorder) }
         let running: DualCapture
         if wantsSystemAudio, let fresh = makeCapture() {
+            try? fresh.setMode(mode)
+            fresh.recording = recorder
             let (opened, withSystemAudio) = try await open(fresh)
             running = opened
             if !withSystemAudio { markSystemAudioLost() }
         } else if let fresh = makeCapture() {
-            running = makeMicrophoneOnly(fresh.mic)
+            running = microphoneOnly(fresh)
             try await running.start()
         } else {
             throw Failure.noCapture
@@ -117,6 +174,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
             self.session = nil
             return running
         }) else { throw Failure.notRunning }
+        lock.withLock { () -> MeetingAudioRecorder? in defer { recorder = nil }; return recorder }?.close()
         var facts = MeetingCaptureFacts(systemAudioCaptured: lock.withLock { systemAudio },
                                         pauseCount: summary.pauseCount, pausedSeconds: summary.pausedSeconds)
         let record: MeetingRecord
@@ -133,6 +191,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
             record = kept
         }
         try? files.save(facts, for: record.id)
+        MeetingCaptureSetup.sweep(store: files.store, settings: settings, keeping: record.id)   // V5 M5
         return record
     }
 
@@ -144,7 +203,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
             try await capture.start()
             if let system = capture.system as? SystemAudioRecorder, system.stage == .failed {
                 _ = try? await capture.stop()
-                let fallback = makeMicrophoneOnly(capture.mic)
+                let fallback = microphoneOnly(capture)
                 try await fallback.start()
                 return (fallback, false)
             }
@@ -153,7 +212,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
             Log.app.error("meeting: system audio unavailable, recording the microphone only: \(error)")
             capture.mic.stop()
             capture.system.stop()
-            let fallback = makeMicrophoneOnly(capture.mic)
+            let fallback = microphoneOnly(capture)
             try await fallback.start()
             return (fallback, false)
         }
@@ -171,7 +230,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
     private func switchToMicrophoneOnly(from failed: DualCapture) async {
         guard lock.withLock({ capture === failed }) else { return }
         await closeStretch()
-        let fallback = makeMicrophoneOnly(failed.mic)
+        let fallback = microphoneOnly(failed)
         do {
             try await fallback.start()
             lock.withLock { capture = fallback }
@@ -180,6 +239,15 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, @unchecke
             Log.app.error("meeting: microphone-only restart failed: \(error)")
         }
         markSystemAudioLost()
+    }
+
+    /// Microphone-only capture over `capture`'s microphone, still writing the meeting's recording
+    /// (microphone leg only: the silent reference is not saved).
+    private func microphoneOnly(_ capture: DualCapture) -> DualCapture {
+        let fallback = makeMicrophoneOnly(capture.mic)
+        try? fallback.setMode(.inPerson)
+        fallback.recording = capture.recording ?? lock.withLock { recorder }
+        return fallback
     }
 
     private func markSystemAudioLost() {
