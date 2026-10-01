@@ -67,6 +67,8 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
     public var modeSignals: (MeetingPrompt?) -> MeetingModeSignals = MeetingCaptureSetup.liveSignals(for:)
     /// V5 M5 — the running meeting's saved audio (nil = "Never").
     private var recorder: MeetingAudioRecorder?
+    /// V5 M14 — the panel's manual meeting (tags reach it too); nil when none is recording.
+    private var manualSession: MeetingSession?
     /// Settings › Meetings, for the panel driver (M5 save mode, M14 switch).
     public var settingsStore: (any SettingsStore)? { settings }
     private let camera = CameraInUseMonitor()
@@ -235,8 +237,14 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
     /// V5 O2 — the meeting is a recorder: a capability's claim on an utterance (dictation during the
     /// meeting, a note, a command) labels the span the meeting already transcribed. No session → no-op.
     public func record(_ tag: UtteranceTag) {
-        guard let running = currentSession() else { return }
-        Task { await running.tag(tag) }
+        let targets = lock.withLock { [session, manualSession].compactMap { $0 } }
+        for running in targets { Task { await running.tag(tag) } }
+    }
+
+    /// V5 M14 — the manual (panel) meeting's session, which `MeetingSessionCaptureDriver` builds itself:
+    /// registered here so a capability's claim also labels its span there and the panel shows the tag.
+    public func setManualSession(_ manual: MeetingSession?) {
+        lock.withLock { manualSession = manual }
     }
 
     private func currentSession(clearing: Bool = false) -> MeetingSession? {

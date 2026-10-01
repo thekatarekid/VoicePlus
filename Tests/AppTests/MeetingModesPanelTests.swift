@@ -100,6 +100,32 @@ struct MeetingModesPanelTests {
         }
     }
 
+    @Test("driver: an O2 tag sent to the coordinator labels the manual (panel) meeting's span and is kept")
+    func manualMeetingReceivesTags() async throws {
+        let store = Self.temp()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        let coordinator = MeetingCoordinator(store: store)
+        coordinator.makeSession = { prompt in
+            MeetingSession(title: prompt.title, transcriber: MeetingEchoTranscriber(), labeler: ChannelLabeler(), store: store)
+        }
+        let mic = MeetingFakeSource(), system = MeetingFakeSource()
+        coordinator.makeCapture = {
+            DualCapture(mic: mic, system: system, micVAD: MeetingAlwaysSpeechVAD(), systemVAD: MeetingNeverSpeechVAD(),
+                        aec: PassthroughEchoCanceller())
+        }
+        coordinator.modeSignals = { _ in MeetingModeSignals(systemAudioActive: false, callAppFrontmost: false) }
+        let driver = MeetingSessionCaptureDriver(coordinator: coordinator)
+        driver.drainInterval = 60
+        _ = try await driver.start(title: "Manual", onUtterance: { _ in }, onSystemAudioLost: {})
+        // The claim settles while the meeting records; its words reach the meeting at the next drain.
+        let origin = Date().addingTimeInterval(-60)
+        coordinator.record(UtteranceTag(utteranceID: "u1", owner: .dictate, range: origin...Date().addingTimeInterval(60)))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        mic.push(seconds: 0.5)
+        let record = try await driver.stop(MeetingCaptureSummary(pauseCount: 0, pausedSeconds: 0))
+        #expect(record.transcript.utterances.contains { $0.tag == .dictate })
+    }
+
     // MARK: Panel state
 
     @Test("panel: mode pill state, in-person tracks say system audio is off (no missing notice), override goes to the driver")

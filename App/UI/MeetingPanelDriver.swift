@@ -43,6 +43,8 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, MeetingCa
     private var keepsDictations = true
     private let settings: SettingsStore?
     private let modeSignals: () -> MeetingModeSignals
+    /// V5 M14 — told the running session (nil at stop), so O2 tags reach it (`MeetingCoordinator`).
+    private let onSessionChanged: (MeetingSession?) -> Void
 
     /// Time between drains of captured audio into the session.
     public var drainInterval: TimeInterval = 3
@@ -57,7 +59,8 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, MeetingCa
                   settings: coordinator.settingsStore,
                   modeSignals: { [weak coordinator] in
                       coordinator?.modeSignals(nil) ?? MeetingModeSignals(systemAudioActive: false, callAppFrontmost: false)
-                  })
+                  },
+                  onSessionChanged: { [weak coordinator] in coordinator?.setManualSession($0) })
     }
 
     /// - `settings`: Settings › Meetings (M5 save mode); nil = save "Always" (the default).
@@ -67,7 +70,8 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, MeetingCa
                 makeMicrophoneOnly: ((any AudioCaptureSource) -> DualCapture)? = nil,
                 store: MeetingStore,
                 settings: SettingsStore? = nil,
-                modeSignals: (() -> MeetingModeSignals)? = nil) {
+                modeSignals: (() -> MeetingModeSignals)? = nil,
+                onSessionChanged: ((MeetingSession?) -> Void)? = nil) {
         self.makeSession = makeSession
         self.makeCapture = makeCapture
         self.makeMicrophoneOnly = makeMicrophoneOnly ?? { microphone in
@@ -77,6 +81,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, MeetingCa
         self.files = MeetingFilesStore(store: store)
         self.settings = settings
         self.modeSignals = modeSignals ?? { MeetingModeSignals(systemAudioActive: true, callAppFrontmost: true) }
+        self.onSessionChanged = onSessionChanged ?? { _ in }
     }
 
     // MARK: MeetingCaptureDriving
@@ -104,6 +109,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, MeetingCa
             self.systemAudio = withSystemAudio
             self.onSystemAudioLost = onSystemAudioLost
         }
+        onSessionChanged(session)
         watchSystemAudio(of: running)
         startLoop(running)
         Log.app.info("meeting: manual recording started (\(picked.rawValue), system audio \(withSystemAudio ? "on" : "missing"))")
@@ -174,6 +180,7 @@ public final class MeetingSessionCaptureDriver: MeetingCaptureDriving, MeetingCa
             self.session = nil
             return running
         }) else { throw Failure.notRunning }
+        onSessionChanged(nil)
         lock.withLock { () -> MeetingAudioRecorder? in defer { recorder = nil }; return recorder }?.close()
         var facts = MeetingCaptureFacts(systemAudioCaptured: lock.withLock { systemAudio },
                                         pauseCount: summary.pauseCount, pausedSeconds: summary.pausedSeconds)
