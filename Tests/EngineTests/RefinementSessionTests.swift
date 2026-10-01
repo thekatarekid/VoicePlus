@@ -75,7 +75,9 @@ struct RefinementSessionTests {
     // MARK: Deadline
 
     @Test func deadlineIsHardAndReturnsPromptly() async throws {
-        let work: Duration = .seconds(30)
+        let work: Duration = .seconds(600)
+        // Cancellable sleep, so 600 s costs nothing; a parallel full-package run once starved the
+        // timer for 17 s, so the bound must sit far above any scheduler stall.
         let session = MockRefinementSession(work: work)
         let start = ContinuousClock.now
         await #expect(throws: RefinementError.deadlineExceeded(.milliseconds(80))) {
@@ -186,7 +188,7 @@ struct RefinementSessionTests {
     // MARK: Cancellation
 
     @Test func cancellingTheCallerCancelsThePass() async throws {
-        let work: Duration = .seconds(60)
+        let work: Duration = .seconds(600)
         let session = MockRefinementSession(work: work)
         let audio = Self.samples(seconds: 1)
         let task = Task {

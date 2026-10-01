@@ -258,12 +258,12 @@ final class Latch: @unchecked Sendable {
     }
 
     @Test func stageWatchdogFiresEvenIfTheSessionIgnoresItsDeadline() async throws {
-        // The double is handed a 25 ms deadline and sleeps 60 s regardless. The stage's own
+        // The double is handed a 25 ms deadline and sleeps 600 s regardless. The stage's own
         // watchdog is what has to return — in well under half the double's work (V5 J1: relative
         // to the simulated work, not an absolute wall-clock budget a loaded machine can miss).
         let input = Self.spans("one two three")
         let reports = ReportBox()
-        let work: Duration = .seconds(60)
+        let work: Duration = .seconds(600)
         let started = ContinuousClock.now
         let out = try await Self.stage(ControllableRefiner(text: "x", work: work),
                                       deadline: .milliseconds(25), reports: reports)
@@ -322,7 +322,7 @@ final class Latch: @unchecked Sendable {
 
         let input = Self.spans("third segment in a row")
         let reports = ReportBox()
-        let work: Duration = .seconds(30)
+        let work: Duration = .seconds(600)
         let refiner = ControllableRefiner(text: "would have been refined", work: work)
         let started = ContinuousClock.now
         let out = try await Self.stage(refiner, backlog: backlog, reports: reports)
