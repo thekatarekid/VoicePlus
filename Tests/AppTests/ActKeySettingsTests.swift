@@ -20,8 +20,9 @@ struct ActKeySettingsTests {
         let stage = RoutableStage.all.first { $0.id == ProviderPlanner.stage }
         #expect(stage != nil, "the pill tells users to set a model for Actions in Settings; there must be a row")
         #expect(stage?.id.rawValue == "act.planner")
-        #expect(stage?.acceptsProviders == true, "the planner is provider-only — a pin is what enables it")
-        #expect(stage?.acceptsLocal == false, "there is no local planner; offering one would be a second dead instruction")
+        #expect(stage?.acceptsProviders == true, "a pinned provider is still offered")
+        // V5 CU8 flipped this: the shipped local planner (Qwen3.5 on llama.cpp) serves the stage.
+        #expect(stage?.acceptsLocal == true)
     }
 
     @Test("the routing tests' index-addressed stages did not move")
@@ -38,7 +39,7 @@ struct ActKeySettingsTests {
                                          connectedProviders: ["openrouter"])
         #expect(vm.choice(for: ProviderPlanner.stage) == .auto)
         let planner = RoutableStage.all.first { $0.id == ProviderPlanner.stage }!
-        #expect(vm.options(for: planner) == [.auto, .provider("openrouter")])
+        #expect(vm.options(for: planner) == [.auto, .local, .provider("openrouter")])   // V5 CU8
 
         vm.set(.provider("openrouter"), for: ProviderPlanner.stage)
         // The exact key the 1.7.9 workaround told users to `defaults write`, and the one

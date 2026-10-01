@@ -149,12 +149,12 @@ public final class GeneralSettingsViewModel: ObservableObject {
     /// What the current act-key choice actually means, said where the choice is made.
     public var actKeyNote: String {
         guard let choice = actKey.hotkeyChoice else {
-            return "Off. Nothing is listening on a second key. Actions needs a provider pinned for “Actions (voice commands)” under Models before it can do anything, so it ships off."
+            return "Off. Nothing is listening on a second key. Turn it on here or in Settings › Computer use."
         }
         if actKeyCollidesWithDictation {
             return "\(choice.binding.displayName) is already your dictation key. Dictation wins — the Actions key stays inert until you pick a different one."
         }
-        return "Hold \(choice.binding.displayName) and say a command. Needs a provider pinned for “Actions (voice commands)” under Models."
+        return "Hold \(choice.binding.displayName) and say a command. Plans on this Mac once its model is downloaded (Settings › Computer use), or on a provider you pin."
     }
 
     /// P5 — the persistent indicator near the notch. Default ON.
@@ -327,9 +327,8 @@ public struct RoutableStage: Identifiable, Hashable, Sendable {
     public let id: StageID
     public let title: String
     public let acceptsProviders: Bool
-    /// Whether a local model can serve this stage. False for the act planner, which has no local
-    /// implementation at all: offering "Local (on this Mac)" there would be a second way to be told
-    /// to do something that cannot work.
+    /// Whether a local model can serve this stage. V5 CU8: true for every routable generative stage,
+    /// the act planner included — it plans on the shipped Qwen3.5 model (`SharedLocalLLM`).
     public let acceptsLocal: Bool
 
     public init(id: StageID, title: String, acceptsProviders: Bool, acceptsLocal: Bool = true) {
@@ -355,9 +354,9 @@ public struct RoutableStage: Identifiable, Hashable, Sendable {
         // the only way to configure it was a `defaults write` of this exact key. It reads
         // `routing.act.planner` through the same `SettingsKeys.routingPrefix` as every stage above,
         // so listing it here is all that was ever missing. Appended, not inserted: the routing
-        // tests address this array by index.
+        // tests address this array by index. V5 CU8: `acceptsLocal` — the shipped local planner.
         .init(id: ProviderPlanner.stage, title: "Actions (voice commands)",
-              acceptsProviders: true, acceptsLocal: false),
+              acceptsProviders: true, acceptsLocal: true),
     ]
 }
 

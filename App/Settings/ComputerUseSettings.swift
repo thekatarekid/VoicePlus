@@ -98,6 +98,8 @@ public enum ComputerUseCopy {
     public static let providerTitle = "Planner runs on"
     public static let providerDetail = "Auto uses the model on this Mac. Pin Ollama, LM Studio, a CLI, ChatGPT or a key to use it instead."
     public static let modelTitle = "Planner model"
+    public static let modelStatusTitle = "On this Mac"
+    public static let download = "Download"
     public static let timeoutTitle = "Give up after"
     public static let timeoutDetail = "How long one request may run before it stops and rolls back what it can."
     public static let consentTitle = "Before acting"

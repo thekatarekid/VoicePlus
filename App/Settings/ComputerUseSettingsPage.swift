@@ -33,11 +33,15 @@ public final class ComputerUseSettingsModel: ObservableObject {
         didSet { ComputerUseSettings.setShowsPlanChips(showPlanChips, store: store) }
     }
 
-    /// Hook for CU8's install status (re-read when the planner model changes).
-    var plannerModelChanged: () -> Void = {}
+    /// V5 CU8 — the planner model's install status and its one action (download on click).
+    public let installer: PlannerModelInstaller
 
-    public init(store: SettingsStore, general: GeneralSettingsViewModel, models: ModelsSettingsViewModel) {
+    private func plannerModelChanged() { installer.refresh() }
+
+    public init(store: SettingsStore, general: GeneralSettingsViewModel, models: ModelsSettingsViewModel,
+                installer: PlannerModelInstaller? = nil) {
         self.store = store
+        self.installer = installer ?? PlannerModelInstaller(store: store)
         self.general = general
         self.models = models
         plannerModel = ComputerUseSettings.plannerModel(store)
@@ -118,6 +122,7 @@ struct ComputerUseSettingsPage: View {
                                       selection: $model.plannerModel,
                                       options: ComputerUseSettings.PlannerModel.allCases, label: { $0.title },
                                       identifier: "computerUse.plannerModel")
+                    PlannerModelRow(installer: model.installer)
                     RowView(ComputerUseCopy.timeoutTitle, detail: ComputerUseCopy.timeoutDetail) {
                         HStack(spacing: Tokens.Spacing.s) {
                             Slider(value: $model.timeout, in: ComputerUseSettings.timeoutRange,
@@ -154,5 +159,23 @@ struct ComputerUseSettingsPage: View {
                 SettingsFootnote(ComputerUseCopy.footnote)
             }
         }
+    }
+}
+
+/// "Qwen3.5-2B — 1.3 GB to download" + Download, or "on this Mac".
+private struct PlannerModelRow: View {
+    @ObservedObject var installer: PlannerModelInstaller
+
+    var body: some View {
+        RowView(ComputerUseCopy.modelStatusTitle, detail: installer.status.line) {
+            if installer.status.canDownload {
+                Button(ComputerUseCopy.download) { installer.download() }
+                    .accessibilityIdentifier("computerUse.plannerModel.download")
+            } else if case .downloading = installer.status {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .accessibilityIdentifier("computerUse.plannerModel.status")
+        .onAppear { installer.refresh() }
     }
 }

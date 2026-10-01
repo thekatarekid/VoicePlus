@@ -35,7 +35,8 @@ public enum PlannerPrompt {
     public static func system(tools: [AgentTool]) -> String {
         "You control a macOS desktop through the accessibility tree. Tools:\n" +
         tools.map { "- \($0.kind.rawValue)(\($0.params.joined(separator: ", "))): \($0.description)" }.joined(separator: "\n") +
-        "\nReply with a short ordered plan of tool calls, DONE <summary>, or GIVEUP <reason>. Prefer reversible steps; never guess coordinates."
+        "\nPlan a short ordered list of tool calls for the goal, or say it is done, or give up. Prefer reversible steps; never guess coordinates.\n" +
+        PlannerJSON.contract   // V5 CU8: strict JSON, parsed with repair
     }
     public static func user(goal: String, observation: AXSummary, history: [StepRecord]) -> String {
         let h = history.map { "\($0.step.title): \($0.outcome)" }.joined(separator: "\n")

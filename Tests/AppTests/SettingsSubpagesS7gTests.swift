@@ -783,7 +783,8 @@ struct SettingsSubpagesS7gTests {
         let row = pinned.first { $0.id == email.rawValue }
         #expect(row?.isLocal == false && row?.detail == "Sent to openrouter when used.")
         let planner = pinned.first { $0.id == ProviderPlanner.stage.rawValue }
-        #expect(planner?.isLocal == false && planner?.detail == "No provider pinned, so this stays off.")
+        // V5 CU8: the act planner runs on the shipped local model when nothing is pinned.
+        #expect(planner?.isLocal == true && planner?.detail == ProvidersCopy.staysLocal)
         #expect(!pinned.contains { $0.id == StageID.asr.rawValue }, "transcription cannot be routed")
     }
 

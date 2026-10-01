@@ -61,11 +61,39 @@ public enum LocalLLMCatalog {
         sha256: "3b41ebe2502cbd03e811d5d16b022f5ab551eda58d62597d152f89535003c634",
         bytes: 484_219_808, residentBytes: 620_000_000, license: "Apache-2.0 + naming clause", promptStyle: "delimited")
 
+    // V5 CU8 — the one shared local instruct model (act planner, meeting notes/Ask, Hinglish/style
+    // cleanup, N5, I3). Qwen3.5 ships unified instruct weights; the GGUFs are Unsloth's Q4_K_M
+    // (Apache-2.0). Which one a Mac gets follows the HW2 plan: 16 GB → 2B, ≥ 24 GB → 4B. The cleanup
+    // specialist (SpeakoFlow) stays separate. Sizes and hashes from the HF tree API (LFS oid).
+    public static let qwen35_2B = LocalLLMModel(
+        id: "qwen3.5-2b-q4km", displayName: "Qwen3.5-2B (Q4_K_M)",
+        hfRepo: "unsloth/Qwen3.5-2B-GGUF", fileName: "Qwen3.5-2B-Q4_K_M.gguf",
+        sha256: "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+        bytes: 1_280_835_840, residentBytes: 1_600_000_000, license: "Apache-2.0", promptStyle: "delimited")
+
+    public static let qwen35_4B = LocalLLMModel(
+        id: "qwen3.5-4b-q4km", displayName: "Qwen3.5-4B (Q4_K_M)",
+        hfRepo: "unsloth/Qwen3.5-4B-GGUF", fileName: "Qwen3.5-4B-Q4_K_M.gguf",
+        sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+        bytes: 2_740_937_888, residentBytes: 3_200_000_000, license: "Apache-2.0", promptStyle: "delimited")
+
     public static let all: [LocalLLMModel] = [speakoFlowMini, s1Mini]
+    /// CU8's shared instruct models (not cleanup candidates).
+    public static let shared: [LocalLLMModel] = [qwen35_2B, qwen35_4B]
     /// D2's shipping pick (provisional until the V1 cleanup gate runs on hardware).
     public static let cleanupDefault = speakoFlowMini
 
-    public static func model(id: String) -> LocalLLMModel? { all.first { $0.id == id } }
+    public static func model(id: String) -> LocalLLMModel? { (all + shared).first { $0.id == id } }
+
+    /// The shared model for an HW2 plan's `localLLMKey` (`Engine.ResidencyKey.localLLM2B` = "llm.qwen3.5-2b",
+    /// `.localLLM4B` = "llm.qwen3.5-4b"); nil when the plan offers no on-device shared LLM (8 GB).
+    public static func sharedDefault(localLLMKey: String?) -> LocalLLMModel? {
+        switch localLLMKey {
+        case "llm.qwen3.5-4b"?: return qwen35_4B
+        case "llm.qwen3.5-2b"?: return qwen35_2B
+        default: return nil
+        }
+    }
 }
 
 /// What the Settings model row shows.

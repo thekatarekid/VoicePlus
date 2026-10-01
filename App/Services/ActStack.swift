@@ -2,6 +2,7 @@ import Actions
 import AppKit
 import Foundation
 import Pipeline
+import Providers
 import Shared
 
 /// P4.2 — the "3-line adapter" from `Actions/ActRouting`: bridge `ActPreRouting` into the
@@ -72,31 +73,51 @@ public enum ActKeyBinding {
 /// P4.5 — Providers-backed `PlannerLLM` over the same `RoutingTable` the pipeline uses (every
 /// call goes through the Data Panel logging in `RoutingTableProviderRouting`). Screenshot-free
 /// by construction: the prompt is `PlannerPrompt` over the AX summary.
+///
+/// V5 CU8: a provider pinned for `act.planner` (Ollama, LM Studio, CLI, ChatGPT, a key) is tried
+/// first; otherwise the shipped local model (`SharedLocalLLM`, Qwen3.5-2B/4B on llama.cpp) plans.
+/// Neither present → `PlannerError.unavailable`, a state the pill reports, never a failure.
 public final class ProviderPlanner: PlannerLLM, @unchecked Sendable {
     public static let stage: StageID = "act.planner"
     private let providers: any PipelineProviderRouting
+    private let local: (any LocalPlannerRouting)?
 
-    public init(providers: any PipelineProviderRouting) { self.providers = providers }
+    /// `local` nil → the launch-installed `SharedLocalLLM.shared` route, read per call.
+    public init(providers: any PipelineProviderRouting, local: (any LocalPlannerRouting)? = nil) {
+        self.providers = providers
+        self.local = local
+    }
 
     public func plan(goal: String, observation: AXSummary, history: [StepRecord],
                      tools: [AgentTool]) async throws -> PlannerTurn {
-        let context = StageContext()
-        // Ask before calling. `complete` throws `ProviderRoutingError.disabled` when nothing is
-        // pinned for `act.planner`, and that used to surface as
-        // `failed(reason: "planner: disabled(stage: act.planner)")` — a debug description in the
-        // pill. "No provider chosen" is a setting, so it becomes `PlannerError.unavailable`, which
-        // the backend reports as a state rather than a failure.
-        guard providers.isProviderEnabled(for: Self.stage, context: context) else {
-            throw PlannerError.unavailable(reason: "no provider chosen for \(Self.stage.rawValue)")
-        }
+        var context = StageContext()
+        let system = PlannerPrompt.system(tools: tools)
+        let user = PlannerPrompt.user(goal: goal, observation: observation, history: history)
+        // The stage renders its own prompt; every TextGenerator sends it unchanged (D2 contract).
+        context.extra[PromptBuilder.systemOverrideKey] = system
+        context.extra[PromptBuilder.userOverrideKey] = user
         let reply: String
-        do {
-            reply = try await providers.complete(stage: Self.stage,
-                                                 prompt: PlannerPrompt.system(tools: tools),
-                                                 input: PlannerPrompt.user(goal: goal, observation: observation, history: history),
-                                                 context: context)
-        } catch let error as ProviderRoutingError {
-            throw PlannerError.unavailable(reason: Self.describe(error))
+        if providers.isProviderEnabled(for: Self.stage, context: context) {
+            do {
+                reply = try await providers.complete(stage: Self.stage, prompt: system, input: user, context: context)
+            } catch let error as ProviderRoutingError {
+                throw PlannerError.unavailable(reason: Self.describe(error))
+            }
+        } else if let local = local ?? SharedLocalLLM.shared.plannerRoute {
+            // Ask before calling. "Model not downloaded" is a setting, not a failure.
+            guard await local.isAvailable() else {
+                throw PlannerError.unavailable(reason: "local planner model not installed for \(Self.stage.rawValue)")
+            }
+            do {
+                reply = try await local.complete(stage: Self.stage, system: system, user: user)
+            } catch {
+                throw PlannerError.unavailable(reason: "local planner did not answer for \(Self.stage.rawValue)")
+            }
+        } else {
+            // `complete` throws `ProviderRoutingError.disabled` when nothing is pinned, and that used
+            // to surface as a debug description in the pill. No provider and no local model is a
+            // setting, so it becomes `PlannerError.unavailable`.
+            throw PlannerError.unavailable(reason: "no provider chosen for \(Self.stage.rawValue)")
         }
         return Self.parse(reply, goal: goal)
     }
@@ -109,10 +130,17 @@ public final class ProviderPlanner: PlannerLLM, @unchecked Sendable {
         }
     }
 
-    /// The contract from `PlannerPrompt.system`: an ordered list of `tool(param=value, …)` lines,
-    /// `DONE <summary>`, or `GIVEUP <reason>`. Tolerant of numbering/dashes; anything that
+    /// V5 CU8: the strict-JSON `StepPlan` from `PlannerPrompt.system`, parsed with repair
+    /// (`PlannerJSON`). A reply with no JSON at all falls back to the legacy contract: an ordered
+    /// list of `tool(param=value, …)` lines, `DONE <summary>`, or `GIVEUP <reason>`. Anything that
     /// doesn't parse to at least one step is a give-up, never a guessed action.
     public static func parse(_ reply: String, goal: String) -> PlannerTurn {
+        let cleaned = LlamaCppProvider.stripReasoning(reply)
+        if let turn = PlannerJSON.parse(cleaned, goal: goal) { return turn }
+        return parseLines(cleaned, goal: goal)
+    }
+
+    static func parseLines(_ reply: String, goal: String) -> PlannerTurn {
         let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         let upper = trimmed.uppercased()
         if upper.hasPrefix("DONE") {

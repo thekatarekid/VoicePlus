@@ -77,8 +77,14 @@ public final class RoutingMeetingGenerator: MeetingTextGenerating, @unchecked Se
         return ProviderID(rawValue: id)
     }
 
+    /// V5 CU8 — the shared local instruct model (Qwen3.5) takes the local slot once its GGUF is on
+    /// this Mac; until then the cleanup model keeps serving notes and Ask.
+    var effectiveLocalID: ProviderID {
+        SharedLocalLLM.shared.isModelOnDisk ? SharedLocalLLMProvider.providerID : localID
+    }
+
     /// The provider a question/notes request goes to first.
-    public var routeProvider: (any Provider)? { table.provider(pinned ?? localID) }
+    public var routeProvider: (any Provider)? { table.provider(pinned ?? effectiveLocalID) }
 
     public var routeName: String { routeProvider?.displayName ?? pinned?.rawValue ?? "Local model" }
 
@@ -86,7 +92,7 @@ public final class RoutingMeetingGenerator: MeetingTextGenerating, @unchecked Se
         var ctx = StageContext()
         ctx.extra[PromptBuilder.systemOverrideKey] = system
         ctx.extra[PromptBuilder.userOverrideKey] = user
-        table.setChoice(.provider(pinned ?? localID), for: stage)
+        table.setChoice(.provider(pinned ?? effectiveLocalID), for: stage)
         let span = TranscriptSpan(text: user, confidence: 1, audioRange: 0...0, provenance: [.asr])
         let outcome: RouteOutcome
         do {
@@ -179,6 +185,9 @@ public final class MeetingIntelligence: @unchecked Sendable {
             guard let p = routing.provider(pinned) else { return nil }
             return MeetingAskRoute(name: p.displayName, isLocal: p.privacyClass != .cloud)
         }
+        if SharedLocalLLM.shared.isModelOnDisk, let shared = SharedLocalLLM.shared.installedProvider {   // V5 CU8
+            return MeetingAskRoute(name: shared.displayName, isLocal: true)
+        }
         guard let local, local.isInstalled else { return nil }
         return MeetingAskRoute(name: local.displayName, isLocal: true)
     }
@@ -234,6 +243,9 @@ struct SettingsBox: @unchecked Sendable {
 public enum MeetingIntelligenceWiring {
     @MainActor
     public static func install(routing: RoutingTable, settings: SettingsStore) {
+        // V5 CU8 — the shared local model (act planner, meetings, style, N5, I3) registers first,
+        // so the meeting stages below can route to it.
+        SharedLocalLLM.shared.install(table: routing, provider: .live(settings: settings))
         MeetingIntelligence.shared.install(routing: routing, settings: settings)
     }
 }

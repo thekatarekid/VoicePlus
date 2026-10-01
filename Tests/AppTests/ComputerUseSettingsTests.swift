@@ -14,7 +14,8 @@ struct ComputerUseSettingsTests {
                       providers: [String] = []) -> ComputerUseSettingsModel {
         ComputerUseSettingsModel(store: store, general: GeneralSettingsViewModel(store: store),
                                  models: ModelsSettingsViewModel(store: store, models: OnboardingMockModelManager(),
-                                                                 connectedProviders: providers))
+                                                                 connectedProviders: providers),
+                                 installer: PlannerModelInstaller(store: store, plan: { .for(.standard) }))
     }
 
     @Test("indexed: a Settings subpage of its own, reachable by route")
