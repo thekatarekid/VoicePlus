@@ -138,14 +138,16 @@ public enum Refinement {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
                 race.install(continuation)
                 let timer = Task {
-                    try? await Task.sleep(for: deadline)
+                    // A cancelled timer means the work already finished: never report a deadline
+                    // then (it raced the body's own `finish` and could win, failing a fast body).
+                    do { try await Task.sleep(for: deadline) } catch { return }
                     if race.finish(.failure(RefinementError.deadlineExceeded(deadline))) { work.cancel() }
                 }
                 Task {
                     let outcome: Result<T, Error>
                     do { outcome = .success(try await work.value) } catch { outcome = .failure(error) }
-                    timer.cancel()
                     race.finish(outcome)
+                    timer.cancel()
                 }
             }
         } onCancel: {

@@ -172,9 +172,11 @@ public final class ResidentSpeakerEmbedding: SpeakerEmbeddingBackend, @unchecked
     private let residency: ModelResidency
     /// One box per residency key, not per instance: each meeting makes a new backend, but the key
     /// (and so the resident weights) outlives it — a per-instance box stayed empty while the key
-    /// was still `.resident`, and every later meeting fell back to channel labels.
-    private static let sharedBox = Box()
-    private var box: Box { Self.sharedBox }
+    /// was still `.resident`, and every later meeting fell back to channel labels. A key is scoped
+    /// to its `ModelResidency`, so the box is too: a process-wide box let another residency's load
+    /// report success with no weights of its own.
+    private static let boxes = PerResidencyBoxes<Box>(Box.init)
+    private var box: Box { Self.boxes.box(for: residency) }
     private let lock = NSLock()
     private var registered = false
 
@@ -210,6 +212,23 @@ public final class ResidentSpeakerEmbedding: SpeakerEmbeddingBackend, @unchecked
     public func embedding(for samples: [Float]) throws -> [Float] {
         guard let backend = box.backend else { throw SpeakerError.backendUnavailable }
         return try backend.embed(samples).vector   // the same space the voiceprint was built in
+    }
+}
+
+/// Boxes for model weights, one per `ModelResidency` instance (a residency key is scoped to the
+/// residency that registered it). Holds the residency so its identity is never reused.
+final class PerResidencyBoxes<Box: AnyObject>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [(residency: ModelResidency, box: Box)] = []
+    private let make: () -> Box
+    init(_ make: @escaping () -> Box) { self.make = make }
+    func box(for residency: ModelResidency) -> Box {
+        lock.withLock {
+            if let hit = entries.first(where: { $0.residency === residency }) { return hit.box }
+            let box = make()
+            entries.append((residency, box))
+            return box
+        }
     }
 }
 

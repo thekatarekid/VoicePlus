@@ -131,9 +131,9 @@ public final class ResidentCampPlusEmbedding: SpeakerEmbeddingBackend, @unchecke
     private static let waveformScale: Float = 32_768   // kaldi int16 range, as FluidAudio's embedder
     private let directory: URL
     private let residency: ModelResidency
-    /// Per residency key, not per instance (see `ResidentSpeakerEmbedding.sharedBox`).
-    private static let sharedBox = Box()
-    private var box: Box { Self.sharedBox }
+    /// Per residency key, not per instance (see `ResidentSpeakerEmbedding.boxes`).
+    private static let boxes = PerResidencyBoxes<Box>(Box.init)
+    private var box: Box { Self.boxes.box(for: residency) }
     private let lock = NSLock()
     private var registered = false
 

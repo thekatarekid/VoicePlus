@@ -65,7 +65,7 @@ public struct AXActiveSpeakerSource: ActiveSpeakerSource {
     }
 
     func scan(pid: pid_t, windowTitle: String?) -> String? {
-        let root = AXUIElementCreateApplication(pid)
+        guard let root = AXGuard.application(pid: pid) else { return nil }
         var windows: CFTypeRef?
         guard AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windows) == .success,
               let list = windows as? [AXUIElement] else { return nil }

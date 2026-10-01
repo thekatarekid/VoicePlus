@@ -345,10 +345,11 @@ public final class AudioPipeline: @unchecked Sendable {
         // Queue a sentinel and wait for the worker to reach it.
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             drainWaiters.append(c)
-            frameContinuation?.yield([])
+            pumpLock.withLock { _ = frameContinuation?.yield([]) }
         }
     }
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
+    private let pumpLock = NSLock()
 
     /// Returns false if already in the requested state.
     private func setRunning(_ value: Bool) -> Bool {
@@ -363,8 +364,12 @@ public final class AudioPipeline: @unchecked Sendable {
     private func pumpLoop() {
         while true {
             semaphore.wait()
+            // Read + yield under one lock so `drain()`'s sentinel can never overtake samples the
+            // pump has already taken out of the ring but not yet handed to the worker.
+            pumpLock.lock()
             let samples = ring.read()
             if !samples.isEmpty { frameContinuation?.yield(samples) }
+            pumpLock.unlock()
             let over = ring.overruns
             if over != lastOverruns { broadcaster.send(.overrun(dropped: over - lastOverruns)); lastOverruns = over }
             stateLock.lock(); let r = running; stateLock.unlock()
