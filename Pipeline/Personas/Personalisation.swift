@@ -67,7 +67,6 @@ public struct Personalisation: Equatable, Sendable {
         return c
     }
 
-    /// What a consumer sees in a decorated context.
     /// What a consumer sees in a decorated context. Learned style is withheld when the run's style
     /// pass is off (Verbatim app rule).
     public static func read(from context: StageContext) -> Personalisation {

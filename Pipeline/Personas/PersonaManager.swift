@@ -97,7 +97,7 @@ public struct PersonaManager: Sendable {
     }
 
     /// Same context with `extra["persona"]` filled in, ready for `PromptBuilder`/providers, plus the
-    /// V5 F2 personalisation keys (`personal.dictionary`, `personal.style`, `personal.prompt`; see
+    /// V5 F2 personalisation keys (`personal.dictionary`, `personal.style`; see
     /// `Personalisation`). Values already present in `extra` (e.g. set by a test or the Lab) are kept.
     public func decorate(_ context: StageContext) -> StageContext {
         var c = context
