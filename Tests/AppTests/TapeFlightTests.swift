@@ -322,7 +322,9 @@ struct TapeFlightTests {
         #expect(TapeFlightPlanner.arm(Self.caret) == .armed(target))
         #expect(target.insertionIndex == 5)
         #expect(TapeFlightPlanner.arm(TapeFlightProbe(focus: Self.textEdit, selection: nil, isSecure: true)) == .refused(.secureField))
-        #expect(TapeFlightPlanner.arm(TapeFlightProbe(focus: Self.textEdit, selection: nil)) == .refused(.caretUnavailable))
+        // Q5 — no readable selection still arms (the caret ladder aims it); no focused element does not.
+        #expect(TapeFlightPlanner.arm(TapeFlightProbe(focus: Self.textEdit, selection: nil))
+                == .armed(TapeFlightTarget(pid: 42, bundleID: "com.apple.TextEdit", elementToken: "777", selection: nil)))
         #expect(TapeFlightPlanner.arm(TapeFlightProbe(focus: nil, selection: 0 ..< 0)) == .refused(.caretUnavailable))
         let replacing = TapeFlightPlanner.arm(TapeFlightProbe(focus: Self.textEdit, selection: 3 ..< 8))
         #expect(replacing == .armed(TapeFlightTarget(pid: 42, bundleID: "com.apple.TextEdit", elementToken: "777", selection: 3 ..< 8)))
@@ -349,7 +351,7 @@ struct TapeFlightTests {
         #expect(verify(TapeFlightProbe(focus: mail, selection: 5 ..< 5)) == .targetChanged)
         #expect(verify(TapeFlightProbe(focus: nil, selection: 5 ..< 5)) == .targetChanged)
         #expect(verify(TapeFlightProbe(focus: Self.textEdit, selection: nil, isSecure: true)) == .secureField)
-        #expect(verify(TapeFlightProbe(focus: Self.textEdit, selection: nil)) == .caretUnavailable)
+        #expect(verify(TapeFlightProbe(focus: Self.textEdit, selection: nil)) == nil)   // Q5: unreadable ≠ contradicted
         #expect(verify(Self.caret, .refused(.secureField)) == .secureField)
         #expect(TapeFlightPlanner.verify(nil, now: Self.caret, insertedLength: length) == .failure(.caretUnavailable))
         // A replaced selection: untouched, or the caret after the new text.
@@ -516,14 +518,15 @@ struct TapeFlightTests {
             h.clock.advance(2)
             #expect(h.surface.clears == 1 && h.surface.shown.count == 1, "\(state.caseName)")
         }
-        // An unconfirmed outcome stops decoration immediately, before the next state arrives.
+        // Q5 — an unconfirmed outcome no longer takes the ribbon down: it is independent of verification.
         let h = Harness()
         h.preview()
         h.insert()
         h.clock.advance(0.1)
         h.controller.stateChanged(.landed(LandedPillInfo(text: Self.text, verified: false)))
-        #expect(h.surface.current == nil && h.controller.phase == .suppressed(.unconfirmed))
-        h.clock.advance(0.5)
+        #expect(h.surface.current != nil)
+        if case .flying = h.controller.phase {} else { Issue.record("still flying after an unconfirmed landing") }
+        h.clock.advance(0.1)
         h.controller.stateChanged(.idle)
         #expect(h.surface.current == nil && h.controller.phase == .idle)
     }

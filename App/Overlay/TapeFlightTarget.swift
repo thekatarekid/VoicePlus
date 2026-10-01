@@ -21,14 +21,68 @@ protocol TapeFlightCaretReading: AnyObject {
     func rangeRect(_ range: Range<Int>) -> CGRect?
     func lineRects(_ range: Range<Int>) -> [CGRect]
     func lineMeasurements(_ range: Range<Int>) -> [TapeFlightLineMeasurement]
+    /// Q5 rung 2 — Chromium / WebKit: `AXSelectedTextMarkerRange` measured by
+    /// `AXBoundsForTextMarkerRange`. AX coordinates; `nil` when the element has no text markers.
+    func textMarkerCaretRect() -> CGRect?
+    /// Q5 rung 3 — the focused element's frame (`AXPosition` + `AXSize`). AX coordinates.
+    func focusedElementFrame() -> CGRect?
+    /// Q5 rung 4 — the focused element's window frame. AX coordinates.
+    func focusedWindowFrame() -> CGRect?
 }
 
 extension TapeFlightCaretReading {
+    func textMarkerCaretRect() -> CGRect? { nil }
+    func focusedElementFrame() -> CGRect? { nil }
+    func focusedWindowFrame() -> CGRect? { nil }
     func lineMeasurements(_ range: Range<Int>) -> [TapeFlightLineMeasurement] {
         lineRects(range).map { TapeFlightLineMeasurement(rect: $0) }
     }
     func rangeRect(_ range: Range<Int>) -> CGRect? { nil }
     func lineRects(_ range: Range<Int>) -> [CGRect] { rangeRect(range).map { [$0] } ?? [] }
+}
+
+/// Q5 — which rung of the caret ladder a flight is aimed by. Only `.boundsForRange` is precise enough to
+/// measure the landed lines and draw the destination tape cue; the others aim the ribbon and nothing more.
+enum TapeFlightRung: Int, CaseIterable, Comparable, Sendable {
+    /// `AXBoundsForRange` at the insertion index (`TapeFlightCaretLocator`).
+    case boundsForRange
+    /// Chromium / WebKit text-marker caret.
+    case textMarker
+    /// The focused element's frame.
+    case elementFrame
+    /// The focused window's frame.
+    case windowFrame
+
+    static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+    var isPrecise: Bool { self == .boundsForRange }
+}
+
+/// One aim: where, and how it was found.
+struct TapeFlightFix: Equatable, Sendable {
+    var rect: CGRect
+    var rung: TapeFlightRung
+}
+
+/// Q5 — the ribbon is independent of verification: it aims at the best geometry the destination will
+/// give, rung by rung, and only a missing destination (no rung at all) or a contradicted one
+/// (`.targetChanged`, decided by the planner) suppresses it.
+enum TapeFlightTargetLadder {
+    static func resolve(insertionIndex: Int?, caret: TapeFlightCaretReading) -> TapeFlightFix? {
+        if let index = insertionIndex, let rect = usable(caret.caretRect(at: index)) {
+            return TapeFlightFix(rect: rect, rung: .boundsForRange)
+        }
+        if let rect = usable(caret.textMarkerCaretRect()) { return TapeFlightFix(rect: rect, rung: .textMarker) }
+        if let rect = usable(caret.focusedElementFrame()) { return TapeFlightFix(rect: rect, rung: .elementFrame) }
+        if let rect = usable(caret.focusedWindowFrame()) { return TapeFlightFix(rect: rect, rung: .windowFrame) }
+        return nil
+    }
+
+    /// Finite, non-negative width, positive height: anything else is not geometry.
+    static func usable(_ rect: CGRect?) -> CGRect? {
+        guard let rect, rect.height > 0, rect.width >= 0,
+              [rect.minX, rect.minY, rect.width, rect.height].allSatisfy(\.isFinite) else { return nil }
+        return rect
+    }
 }
 
 /// The flight's reads, confined to one serial queue: the preview's pre-insertion sample, then the
@@ -58,15 +112,22 @@ final class TapeFlightReader: @unchecked Sendable {
 
     /// Verify the destination against the sample, then measure the pre-insertion caret. AX coordinates.
     func locate(insertedLength: Int) -> Result<CGRect, TapeFlightSuppression> {
+        locateFix(insertedLength: insertedLength).map(\.rect)
+    }
+
+    /// Q5 — verify, then aim by the caret ladder (`TapeFlightTargetLadder`).
+    func locateFix(insertedLength: Int) -> Result<TapeFlightFix, TapeFlightSuppression> {
         switch TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
         case .failure(let reason):
             return .failure(reason)
         case .success(let target):
-            guard let rect = caret.caretRect(at: target.insertionIndex) else { return .failure(.caretUnavailable) }
+            guard let fix = TapeFlightTargetLadder.resolve(insertionIndex: target.insertionIndex, caret: caret) else {
+                return .failure(.caretUnavailable)
+            }
             if case .failure(let reason) = TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
                 return .failure(reason)
             }
-            return .success(rect)
+            return .success(fix)
         }
     }
 
@@ -77,7 +138,7 @@ final class TapeFlightReader: @unchecked Sendable {
         case .failure(let reason):
             return .failure(reason)
         case .success(let target):
-            let start = target.insertionIndex
+            guard let start = target.insertionIndex else { return .failure(.caretUnavailable) }
             guard insertedLength > 0, let rect = caret.rangeRect(start ..< start + insertedLength) else {
                 return .failure(.caretUnavailable)
             }
@@ -93,8 +154,8 @@ final class TapeFlightReader: @unchecked Sendable {
         switch TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
         case .failure(let reason): return .failure(reason)
         case .success(let target):
-            guard insertedLength > 0 else { return .failure(.caretUnavailable) }
-            let rects = caret.lineMeasurements(target.insertionIndex ..< target.insertionIndex + insertedLength)
+            guard insertedLength > 0, let start = target.insertionIndex else { return .failure(.caretUnavailable) }
+            let rects = caret.lineMeasurements(start ..< start + insertedLength)
             if case .failure(let reason) = TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
                 return .failure(reason)
             }
@@ -179,6 +240,55 @@ final class AXTapeFlightCaret: TapeFlightCaretReading {
     func rangeRect(_ range: Range<Int>) -> CGRect? {
         guard range.lowerBound >= 0, !range.isEmpty, let element = TapeFlightAX.focusedElement() else { return nil }
         return Self.bounds(of: range, in: element)
+    }
+
+    // MARK: Q5 — the coarser rungs
+
+    func textMarkerCaretRect() -> CGRect? {
+        guard let element = TapeFlightAX.focusedElement() else { return nil }
+        var marker: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &marker) == .success,
+              let marker else { return nil }
+        var bounds: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, "AXBoundsForTextMarkerRange" as CFString,
+                                                         marker, &bounds) == .success else { return nil }
+        return Self.rect(bounds)
+    }
+
+    func focusedElementFrame() -> CGRect? {
+        guard let element = TapeFlightAX.focusedElement() else { return nil }
+        return Self.frame(of: element)
+    }
+
+    func focusedWindowFrame() -> CGRect? {
+        guard let element = TapeFlightAX.focusedElement() else { return nil }
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &window) == .success,
+              let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast
+        return Self.frame(of: window as! AXUIElement)
+    }
+
+    static func frame(of element: AXUIElement) -> CGRect? {
+        var position: CFTypeRef?, size: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &position) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &size) == .success,
+              let position, let size, CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID()
+        else { return nil }
+        var origin = CGPoint.zero, extent = CGSize.zero
+        // swiftlint:disable force_cast
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
+              AXValueGetValue(size as! AXValue, .cgSize, &extent) else { return nil }
+        // swiftlint:enable force_cast
+        return CGRect(origin: origin, size: extent)
+    }
+
+    static func rect(_ value: CFTypeRef?) -> CGRect? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        // swiftlint:disable:next force_cast
+        guard AXValueGetValue(value as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
     }
 
     /// AX line/range APIs preserve real wrapping. Unsupported geometry simply omits the flourish.

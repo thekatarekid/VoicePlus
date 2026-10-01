@@ -51,9 +51,11 @@ struct TapeFlightTarget: Equatable, Sendable {
     var bundleID: String
     var elementToken: String?
     /// The selection when sampled; the text goes in at its lower bound (a selection is replaced).
-    var selection: Range<Int>
+    /// Q5 — `nil` when the field exposes no selection (an Electron canvas, a web view without AX
+    /// ranges): the flight still aims, at the caret ladder's coarser rungs.
+    var selection: Range<Int>?
 
-    var insertionIndex: Int { selection.lowerBound }
+    var insertionIndex: Int? { selection?.lowerBound }
 }
 
 /// What the preview sample found.
@@ -63,13 +65,13 @@ enum TapeFlightArming: Equatable, Sendable {
 }
 
 enum TapeFlightPlanner {
-    /// The final preview's sample. A password field or an element with no readable caret refuses the
-    /// flight up front; nothing is aimed at a guessed point later.
+    /// The final preview's sample. A password field, or no focused element at all, refuses the flight
+    /// up front. Q5 — an element with no readable selection still arms: the ladder
+    /// (`TapeFlightTargetLadder`) finds its text-marker caret, its frame or its window.
     static func arm(_ probe: TapeFlightProbe) -> TapeFlightArming {
         if probe.isSecure { return .refused(.secureField) }
-        guard let focus = probe.focus, let selection = probe.selection, selection.lowerBound >= 0 else {
-            return .refused(.caretUnavailable)
-        }
+        guard let focus = probe.focus else { return .refused(.caretUnavailable) }
+        let selection = probe.selection.flatMap { $0.lowerBound >= 0 ? $0 : nil }
         return .armed(TapeFlightTarget(pid: focus.pid, bundleID: focus.bundleID, elementToken: focus.elementToken,
                                        selection: selection))
     }
@@ -77,6 +79,8 @@ enum TapeFlightPlanner {
     /// Is `now` still the destination the preview armed? Same app, process and element; not secure; and
     /// the caret either untouched (the write has not landed yet) or inside the text this very write put
     /// there (it has). Anything else is a changed target: the flight is suppressed, never re-aimed.
+    /// Q5 — a selection that cannot be read (before or now) contradicts nothing: only a different
+    /// element, or a caret seen outside this write, is `.targetChanged`.
     static func verify(_ arming: TapeFlightArming?, now: TapeFlightProbe, insertedLength: Int)
         -> Result<TapeFlightTarget, TapeFlightSuppression> {
         let target: TapeFlightTarget
@@ -88,9 +92,9 @@ enum TapeFlightPlanner {
         if now.isSecure { return .failure(.secureField) }
         guard let focus = now.focus, focus.pid == target.pid, focus.bundleID == target.bundleID,
               focus.elementToken == target.elementToken else { return .failure(.targetChanged) }
-        guard let selection = now.selection else { return .failure(.caretUnavailable) }
-        if selection == target.selection { return .success(target) }
-        let written = target.insertionIndex ... target.insertionIndex + Swift.max(0, insertedLength)
+        guard let selection = now.selection, let armedSelection = target.selection else { return .success(target) }
+        if selection == armedSelection { return .success(target) }
+        let written = armedSelection.lowerBound ... armedSelection.lowerBound + Swift.max(0, insertedLength)
         if selection.isEmpty, written.contains(selection.lowerBound) { return .success(target) }
         return .failure(.targetChanged)
     }

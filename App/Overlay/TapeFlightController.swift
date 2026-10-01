@@ -116,7 +116,10 @@ struct TapeFlightQueues {
 ///   clock starts with the state, like the reels'.
 /// * `.landed` (the outcome of that same write): the flight runs on — the acknowledgement never waits
 ///   for the flourish (design §5 step 6), and the flourish is not what the acknowledgement cuts short.
-///   After a *verified* landing the same write's tail — its Undo row, the pill retracting (`.hidden`,
+///   Q5 — the ribbon is independent of verification: an unconfirmed or unreadable landing flies on
+///   too, aimed by the caret ladder (`TapeFlightTargetLadder`); only a contradicted landing
+///   (`.targetChanged`) takes it down. The cue still needs a verified landing and a precise caret.
+///   After any landing the same write's tail — its Undo row, the pill retracting (`.hidden`,
 ///   `.ready`) — does not cut it short either.
 /// * A flight that finishes on a verified `.landed` leaves the destination tape cue (the prototype's
 ///   `.field-line`, `TapeFieldCue`): a flat tape-coloured line under the landed text that fades in 1 s
@@ -173,6 +176,12 @@ final class TapeFlightController {
     private var subscription: AnyCancellable?
     /// This insertion's write landed verified (`.landed(verified: true)`).
     private var landedVerified = false
+    /// Q5 — this insertion's write landed at all (verified, unconfirmed or unreadable).
+    private var landedAcknowledged = false
+    /// Q5 — the rung that aimed this flight. Only the precise one (`AXBoundsForRange`) measures the
+    /// landed lines and draws the destination tape cue.
+    private(set) var aimRung: TapeFlightRung?
+    private var preciseAim: Bool { aimRung?.isPrecise ?? false }
     /// The display this insertion's flight ran on.
     private var flightDisplay: DisplayFrame?
     /// A cue was asked for this insertion (at most one).
@@ -227,6 +236,8 @@ final class TapeFlightController {
             let armed = phase == .armed || phase == .suppressed(.reduceMotion)
             generation += 1
             landedVerified = false
+            landedAcknowledged = false
+            aimRung = nil
             cueRequested = false
             landing = nil
             lineReadPending = false
@@ -237,9 +248,10 @@ final class TapeFlightController {
                 suppress(.reduceMotion)
                 let turn = generation, length = insertedLength
                 queues.read { [reader, queues] in
-                    let fix = reader.locate(insertedLength: length)
+                    let aim = reader.locateFix(insertedLength: length)
                     queues.deliver { [weak self] in
                         guard let self, turn == self.generation else { return }
+                        let fix = self.aimed(aim)
                         if case .success(let path) = self.plan(fix) {
                             self.flightDisplay = path.display
                             if self.landedVerified { self.phase = .finished; self.requestCue(turn) }
@@ -254,11 +266,24 @@ final class TapeFlightController {
             insertedLength = text.utf16.count
             let turn = generation, start = clock.now, length = insertedLength
             queues.read { [reader, queues] in
-                let fix = reader.locate(insertedLength: length)
-                queues.deliver { [weak self] in self?.located(fix, generation: turn, start: start, text: text) }
+                let aim = reader.locateFix(insertedLength: length)
+                queues.deliver { [weak self] in
+                    guard let self else { return }
+                    self.located(self.aimed(aim), generation: turn, start: start, text: text)
+                }
             }
         case .landed(let info):
-            guard info.verified else { return invalidate(.unconfirmed) }
+            guard info.verified else {
+                // Q5 — not verified (unconfirmed, or unreadable): the ribbon still plays. Only geometry
+                // already trusted as a verified landing is withdrawn by a contradicting verdict.
+                if landedVerified { return invalidate(.unconfirmed) }
+                switch phase {
+                case .locating, .flying, .finished, .suppressed(.reduceMotion): landedAcknowledged = true
+                default: stop()
+                }
+                return
+            }
+            landedAcknowledged = true
             switch phase {
             case .suppressed(.reduceMotion):
                 landedVerified = true
@@ -272,7 +297,7 @@ final class TapeFlightController {
         case .undoAvailable, .hidden, .ready:
             // The tail of a verified landing: its Undo row, the pill retracting. The ribbon finishes and
             // the cue fades on their own time; before a verified landing these are interruptions.
-            if landedVerified, isFollowingThisWrite { return }
+            if landedAcknowledged, isFollowingThisWrite { return }
             stop()
         default:
             stop()
@@ -313,6 +338,12 @@ final class TapeFlightController {
         }
     }
 
+    /// Q5 — remember which rung aimed this flight, and hand on its rect.
+    private func aimed(_ aim: Result<TapeFlightFix, TapeFlightSuppression>) -> Result<CGRect, TapeFlightSuppression> {
+        if case .success(let fix) = aim { aimRung = fix.rung }
+        return aim.map(\.rect)
+    }
+
     private func plan(_ fix: Result<CGRect, TapeFlightSuppression>) -> Result<TapeFlightPath, TapeFlightSuppression> {
         fix.flatMap { TapeFlightGeometry.path(mouth: mouth(), caretAX: $0, displays: displays()) }
     }
@@ -322,8 +353,11 @@ final class TapeFlightController {
             guard let self, turn == self.generation, case .flying = self.phase else { return }
             let length = self.insertedLength
             self.queues.read { [reader = self.reader, queues = self.queues] in
-                let fix = reader.locate(insertedLength: length)
-                queues.deliver { [weak self] in self?.refreshed(fix, generation: turn) }
+                let aim = reader.locateFix(insertedLength: length)
+                queues.deliver { [weak self] in
+                    guard let self else { return }
+                    self.refreshed(self.aimed(aim), generation: turn)
+                }
             }
         }
     }
@@ -346,7 +380,7 @@ final class TapeFlightController {
 
     /// Use measured line geometry throughout flight and settlement, with at most one AX read pending.
     private func requestLines(_ turn: Int) {
-        guard landedVerified, let run, turn == generation, !lineReadPending else { return }
+        guard landedVerified, preciseAim, let run, turn == generation, !lineReadPending else { return }
         lineReadPending = true
         let length = insertedLength, display = run.path.display
         queues.read { [reader, queues] in
@@ -406,7 +440,7 @@ final class TapeFlightController {
     /// Validate the cached flight geometry before settling; never replace it with a newly measured
     /// endpoint in the same frame. Late acknowledgements / Reduce Motion have no prior line geometry.
     private func requestCue(_ turn: Int) {
-        guard turn == generation, phase == .finished, !cueRequested, let display = flightDisplay else { return }
+        guard turn == generation, phase == .finished, !cueRequested, preciseAim, let display = flightDisplay else { return }
         cueRequested = true
         let length = insertedLength
         queues.read { [reader, queues] in
@@ -467,6 +501,7 @@ final class TapeFlightController {
         landing = nil
         lineReadPending = false
         landedVerified = false
+        landedAcknowledged = false
         suppress(reason)
     }
 
@@ -490,6 +525,7 @@ final class TapeFlightController {
         takeDown()
         takeDownCue()
         landedVerified = false
+        landedAcknowledged = false
         landing = nil
         lineReadPending = false
         insertedLength = 0
