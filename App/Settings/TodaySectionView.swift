@@ -41,6 +41,7 @@ struct TodaySectionView: View {
                                    copy: { model.copy(draft) })
                 }
                 recentGroup
+                ZeroEditTodayCard(database: model.deps.database)   // I2 — hidden until there is a week to count
                 if model.ambientVisible { TodayAmbientTimelineView(model: model, open: open) }
                 KeyHint(TodayCopy.holdHintBefore, key: hotkey, TodayCopy.holdHintAfter)
                     .accessibilityIdentifier("today.holdHint")

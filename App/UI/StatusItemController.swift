@@ -209,6 +209,23 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         for entry in menuEntries() {
             menu.addItem(entry.isSeparator ? .separator() : menuItem(for: entry))
+            // I2 — the 7-day zero-edit rate under the microphone line, only once there is a week to count.
+            if entry.id == StatusMenuSpec.ID.microphone { addZeroEditItem() }
+        }
+    }
+
+    /// I2 — on for the live status item, off headless (tests opt in), so the spec's rows stay the
+    /// rows a headless menu renders.
+    public lazy var showsZeroEditCounter: Bool = statusItem != nil
+    private var zeroEditModel: ZeroEditSurfaceModel?
+
+    /// Menus are built on the main thread (AppKit's `menuNeedsUpdate`, the shell's tests).
+    private func addZeroEditItem() {
+        guard showsZeroEditCounter, let database else { return }
+        MainActor.assumeIsolated {
+            let model = zeroEditModel ?? ZeroEditSurfaceModel(database: database)
+            zeroEditModel = model
+            if let item = ZeroEditMenuItem.make(model: model) { menu.addItem(item) }
         }
     }
 
