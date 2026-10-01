@@ -80,29 +80,46 @@
 - `.hiddenApp` pauses the dwell on `NSApplication.didHideNotification` (⌘H while VoicePlus is active, or **⌥⌘H "Hide Others" from any other app**). The pill panel never sets `canHide = false`, so hiding VoicePlus hides the pill too — **the message could never be seen**, and the dictation silently never lands until VoicePlus is unhidden.
 - Replace with: pill and chin `canHide = false` (an always-on overlay should survive "Hide Others"), and remove the `.hiddenApp` pause.
 
+## lipflow assessment (github.com/amywork777/lipflow) — not useful
+- MIT-licensed (copyable), but a two-day-old Python/PyObjC hobby app that types what you *mouth* (webcam lip-reading). Inserts only by clipboard + ⌘V, never verifies, has no caret logic and no animation (its HUD sits at a fixed spot and fades). None of `AXManualAccessibility`, `AXEnhancedUserInterface`, AXObserver, OCR or InputMethodKit. VoicePlus is already ahead on both problems.
+- Useful idea surfaced while assessing (not from lipflow): Chromium/WebKit **text-marker** attributes (`AXSelectedTextMarkerRange` + `AXBoundsForTextMarkerRange`) often return a caret rectangle where `AXBoundsForRange` fails → added to item 5.
+- InputMethodKit (an input method) is the only route to a true caret rect + native insertion in apps that hide everything, but needs a separate bundle the user adds in Keyboard › Input Sources, input-source switching on every dictation (glitchy, conflicts with CJK users), refuses password fields, and still can't confirm. Not now.
+
+## Permissions — what VoicePlus already holds and why it isn't enough
+- **Accessibility: granted.** It lets VoicePlus *read* other apps' accessibility trees. Electron apps (Claude, Slack, VS Code) don't *build* a tree until a reader asks with `AXManualAccessibility` — permission is "allowed to read", the flag is "something to read". No new permission needed.
+- **Screen Recording: optional, asked only for the draw-a-box feature** (`OptionalPermission.screenRecording`). Not used for confirmation because: macOS shows its quit-and-reopen sheet on grant and re-asks periodically; each check is a screenshot around your caret (privacy, ~100–300 ms); and Apple does not promise a live grant reaches a running app. Item 14 makes it an opt-in.
+
+## Pause states — simplified (owner feedback)
+- **Hover** — keep: "Paused · move away to insert".
+- **Editing** — keep: "Editing · leave the pill to apply".
+- **Keyboard focus** — exists so a VoiceOver or Tab-key user can move into the pill and pick a button without the countdown inserting under them. Bug: today a mouse click on the transcript or a ⌘C also sets it, and it never clears. Fix: set it only by real keyboard navigation (Tab/VoiceOver); copy "Paused · Insert now when ready".
+- **Empty draft** — removed as a state. It only arises if you erase all the text while editing; leaving the editor with nothing left now cancels with the existing "Nothing was typed." instead of pausing.
+- **Hidden** — removed (see above).
+- **Selection, review** — internal only, no copy; `review` gets a release path, `selection` stays unused.
+
 ## Final implementation list
 **P0 — safety and correctness**
-1. **Newlines never send messages.** Electron/Cursor type `\n` as ⇧↩; Google Sheets routed to the spreadsheet adapter.
-2. **Expose text fields to Accessibility:** `AXManualAccessibility` on Electron apps at key-down (detect by `Electron Framework.framework`, cached per pid); `AXEnhancedUserInterface` on Chromium browsers (default on, Settings switch off — some window managers react to it).
-3. **Settle before judging:** event-driven `AXObserver` value/selection-changed with a polling fallback (~30 ms up to ~400 ms).
-4. **Neutral landing for unreadable fields:** plain "Inserted in <app>" (no ✓), auto-clears; sticky "⚠ Couldn't confirm" only when a settled readback ran and the text is absent. Update DESIGN.md (revives V4.20).
-5. **Ribbon independent of verification:** fly to the best known location — caret bounds → focused element frame → focused window — and play on every landing except a contradicted one.
+1. **Newlines never send messages.** Electron/Cursor type `\n` as ⇧↩; Google Sheets via the spreadsheet adapter.
+2. **Expose text fields:** `AXManualAccessibility` on Electron apps at key-down (detected by `Electron Framework.framework`, cached per pid); `AXEnhancedUserInterface` on Chromium browsers (on by default, Settings switch to turn off).
+3. **Settle before judging:** `AXObserver` value/selection-changed with a polling fallback (~30 ms, up to ~400 ms).
+4. **Neutral landing for unreadable fields:** plain "Inserted in <app>" (no ✓), auto-clears; sticky "⚠ Couldn't confirm" only when a settled readback ran and the text is absent. DESIGN.md updated (revives V4.20).
+5. **Ribbon independent of verification:** target ladder — caret via `AXBoundsForRange` → Chromium/WebKit text-marker caret → focused element frame → focused window; plays on every landing except a contradicted one.
 6. **Pill follows the work:** screen of the focused caret/input → focused window → active screen → mouse; re-chosen every turn.
-7. **"On screen" means on the pill's chosen display:** ordered in + occlusion-visible + frame on that screen; chin suppression and re-show use it; republish on occlusion/screen changes.
-8. **Self-healing pauses:** rebuild pauses from real state (pointer hit-test, key window + first responder, editor state) at present and every ~100 ms while paused; drop a pause with no live cause after 2 s and log a fault. Clear focus at each new turn; resign key on leaving the preview; key presses no longer convert mouse focus into keyboard focus.
-9. **Pill survives "Hide Others":** `canHide = false` on pill and chin; remove `.hiddenApp`.
+7. **"On screen" means on the pill's chosen display** (ordered in + occlusion-visible + frame on that screen); chin suppression uses it; republished on occlusion/screen changes.
+8. **Self-healing pauses:** rebuilt from real state at present and every ~100 ms while paused; a pause with no live cause for 2 s is dropped and logged as a fault; focus set only by keyboard navigation and cleared at each new turn.
+9. **Pill survives "Hide Others":** `canHide = false` on pill and chin; `.hiddenApp` removed.
 
 **P1 — permissions without relaunch**
-10. **Live microphone status:** re-read uncached on app activation, before every capture refusal, and on TCC change; gate capture on the fresh reading; `RelaunchAdvisor` offers a relaunch only if fresh=granted and capture is still silent.
-11. **Input Monitoring (legacy tap backend):** on a fresh grant, re-create the tap and confirm with `TapLiveness`.
+10. **Live microphone status** re-read on activation, before any refusal and on TCC change (the Later test proved audio flows after a live grant).
+11. **Input Monitoring (legacy tap backend):** re-create the tap on a fresh grant, confirm with `TapLiveness`.
 
-**P1 — copy (owner approval pending)**
-12. Pause helper line per reason: hover "Paused · move away to insert"; focus "Paused while the pill has keyboard focus · Insert now or Esc"; editing/composition "Editing · leave the pill to apply"; empty draft "Draft is empty".
+**P1 — copy**
+12. Pause lines as in "Pause states — simplified"; empty draft → "Nothing was typed."
 
 **P2 — diagnostics**
-13. Notice-level, persisted: pill placement every turn (display, reason, mouse), every orderFront/Out with reason, every pause/resume with reason, every landing verdict (`confirmed`/`unconfirmed`/`unavailable`) with app and method.
+13. Notice-level, persisted: pill placement per turn (display, reason, mouse), orderFront/Out with reason, every pause/resume with reason, every landing verdict with app and method.
 
-**Deferred / housekeeping**
-14. OCR confirmation for canvas editors (Google Docs, Figma, AX-less terminals) via the existing `ScreenTextService` — needs Screen Recording; optional, later.
-15. `Refinement.withDeadline` cancels only per token → intermittent CoreML crash under load; harden separately.
-16. Unregister the stale `/Volumes/VoicePlus 1.12.10` LaunchServices record tccd keeps resolving.
+**P2 — previously deferred, now included**
+14. **OCR confirmation for canvas editors** (Google Docs, Figma, AX-less terminals) via the existing `ScreenTextService`: opt-in Settings switch "Confirm in apps that hide their text (uses Screen Recording)", off by default, used only when items 2–3 return nothing; also yields a caret band for the ribbon there. Without the opt-in those apps get item 4's neutral landing.
+15. **CoreML crash hardening:** when `Refinement.withDeadline` fires, stop waiting but let the in-flight prediction finish before the model is released or re-specialised.
+16. **Stale LaunchServices record:** unregister `/Volumes/VoicePlus 1.12.10/VoicePlus.app` (`lsregister -u`, then `-gc`) so tccd stops resolving it — a one-time machine command, no code.
