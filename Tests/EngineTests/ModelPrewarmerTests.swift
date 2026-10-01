@@ -114,4 +114,40 @@ struct ModelPrewarmerTests {
         #expect(await p.hotkeyDown().value == [.loaded(ResidencyKey.cleanup)])
         #expect(loads.value == 2)
     }
+
+    // MARK: D5 follow-up — a loader that never returns cannot wedge the prewarmer
+
+    @Test func hungLoaderTimesOutAndTheNextPressTriesAgain() async {
+        let r = ModelResidency(budgetBytes: 4 * ResidencyBudget.gib)
+        let calls = Count()
+        await r.register(ResidencyKey.cleanup, tier: .onDemand, estimatedBytes: Self.mb,
+                         load: {
+                             calls.bump()
+                             // Effectively never returns (an hour; nothing cancels the residency's load).
+                             try? await Task.sleep(nanoseconds: 3_600_000_000_000)
+                         },
+                         unload: {})
+        let p = ModelPrewarmer(residency: r, keys: { [ResidencyKey.cleanup] },
+                               policy: .init(attemptTimeout: 0.05, maxAttempts: 2, retryDelay: 0))
+        let start = Date()
+        #expect(await p.hotkeyDown().value == [.timedOut(ResidencyKey.cleanup)])
+        #expect(Date().timeIntervalSince(start) < 5, "bounded by the attempt timeouts, not the loader")
+        // The slot cleared: a new press is a new pass (it times out again rather than hanging).
+        #expect(await p.hotkeyDown().value == [.timedOut(ResidencyKey.cleanup)])
+        #expect(calls.value >= 1)
+    }
+
+    @Test func transientFailureIsRetried() async {
+        let r = ModelResidency(budgetBytes: 4 * ResidencyBudget.gib)
+        struct Boom: Error {}
+        let calls = Count()
+        await r.register(ResidencyKey.cleanup, tier: .onDemand, estimatedBytes: Self.mb,
+                         load: { calls.bump(); if calls.value == 1 { throw Boom() } },
+                         unload: {})
+        let p = ModelPrewarmer(residency: r, keys: { [ResidencyKey.cleanup] },
+                               policy: .init(attemptTimeout: 5, maxAttempts: 2, retryDelay: 0))
+        #expect(await p.hotkeyDown().value == [.loaded(ResidencyKey.cleanup)])
+        #expect(calls.value == 2)
+        #expect(await r.isResident(ResidencyKey.cleanup))
+    }
 }
