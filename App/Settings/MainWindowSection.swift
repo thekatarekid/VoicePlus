@@ -418,6 +418,9 @@ public enum SettingsReachability {
         .init(.benchmark, "Personal WER trend (was the Lab window's second tab)", "PersonalWERView(", .voice),
         .init(.general, "Voice enrollment (was its own window)", "voice.enrollment", .voice),
         .init(.general, "Meeting capture", "meetings.captureEnabled", .meetings),
+        .init(.general, "Expose text in Chromium browsers (V5 Q2)", "settings.insertion.exposeChromiumText", .settings, .general),
+        .init(.general, "Confirm in apps that hide their text — Screen Recording, off (V5 Q14)",
+              "settings.insertion.confirmHiddenText", .settings, .general),
     ]
 
     /// Source files that make up each section's detail pane: the section's `SectionScreen` entry

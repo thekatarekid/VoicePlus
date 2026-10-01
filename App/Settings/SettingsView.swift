@@ -132,6 +132,10 @@ struct GeneralSettingsPage: View {
                                       label: SettingsCopy.caretOption, identifier: "settings.unknownCaretStyle")
                 }
 
+                // V5 W1 — Q2 / Q14 switches (`InsertionSettings`).
+                InsertionSettingsRows(chromiumIdentifier: "settings.insertion.exposeChromiumText",
+                                      confirmIdentifier: "settings.insertion.confirmHiddenText")
+
                 GroupBox(SettingsCopy.behaviourTitle, layout: .rows) {
                     RowView(SettingsCopy.onboardingTitle, detail: SettingsCopy.onboardingDetail) {
                         Button(SettingsCopy.onboardingAction, action: runOnboarding)
