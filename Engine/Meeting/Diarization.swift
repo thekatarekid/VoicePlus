@@ -170,7 +170,11 @@ public final class ResidentSpeakerEmbedding: SpeakerEmbeddingBackend, @unchecked
     public static let residencyKey = "meeting.speaker-embedding"
     private let directory: URL
     private let residency: ModelResidency
-    private let box = Box()
+    /// One box per residency key, not per instance: each meeting makes a new backend, but the key
+    /// (and so the resident weights) outlives it — a per-instance box stayed empty while the key
+    /// was still `.resident`, and every later meeting fell back to channel labels.
+    private static let sharedBox = Box()
+    private var box: Box { Self.sharedBox }
     private let lock = NSLock()
     private var registered = false
 

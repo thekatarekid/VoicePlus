@@ -205,7 +205,9 @@ public final class SortformerBackend: StreamingSpeakerDiarizing, @unchecked Send
 
     private let bundle: URL
     private let residency: ModelResidency
-    private let box = ModelBox()
+    /// Per residency key, not per instance (see `ResidentSpeakerEmbedding.sharedBox`); streams stay per meeting.
+    private static let sharedBox = ModelBox()
+    private var box: ModelBox { Self.sharedBox }
     private let lock = NSLock()
     private var registered = false
     private var streams: [MeetingChannel: SortformerDiarizer] = [:]
