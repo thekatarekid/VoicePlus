@@ -212,6 +212,19 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             // I2 — the 7-day zero-edit rate under the microphone line, only once there is a week to count.
             if entry.id == StatusMenuSpec.ID.microphone { addZeroEditItem() }
         }
+        addWhyItWroteThatItem()
+    }
+
+    /// V5 I3 — "Why did it write that?" (live status item only, once a turn was traced).
+    public lazy var showsWhyItWroteThat: Bool = statusItem != nil
+
+    private func addWhyItWroteThatItem() {
+        guard showsWhyItWroteThat else { return }
+        MainActor.assumeIsolated {
+            guard let item = WhyItWroteThatMenu.item() else { return }
+            let at = menu.items.lastIndex { $0.isSeparatorItem } ?? menu.items.count
+            menu.insertItem(item, at: at)
+        }
     }
 
     /// I2 — on for the live status item, off headless (tests opt in), so the spec's rows stay the
