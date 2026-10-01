@@ -566,6 +566,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                           section: .today,
                                           connectedProviders: container.connectedProviderNames)
         }
+        // V5 M17/M16/M21 — meeting notes + Ask over the `meeting.*` routes.
+        MeetingIntelligenceWiring.install(routing: container.routing, settings: container.settings)
         // V5 N1–N4 — Notes: one store with the ambient Timeline, the pill's "📝 notes · N" chip, the
         // menu's "N new notes" row, and "Insert here" into the app behind the window (hide, then type).
         NotesWiring.install(database: container.database, settings: container.settings,

@@ -62,6 +62,10 @@ public final class MeetingsSectionViewModel: ObservableObject {
     private let setCaptureEnabled: (Bool) -> Void
     private let notesProvider: any MeetingNotesProvider
     private let askRouteProvider: () -> MeetingAskRoute?
+    /// V5 M16/M21 — answers a question about a meeting (live: the capture is still running).
+    private let askHandler: (String, MeetingRecord, Bool) async throws -> MeetingAnswer
+    /// V5 M18 — speaker names (M13) for the transcript, search and export.
+    private let speakerNames: any MeetingSpeakerNameSource
     private let now: () -> Date
     /// Injected so a test can make the list slow, empty or broken without a filesystem.
     private let list: (MeetingStore) async throws -> (records: [MeetingRecord], unreadable: [String])
@@ -75,6 +79,8 @@ public final class MeetingsSectionViewModel: ObservableObject {
                 capture: MeetingCaptureController? = nil,
                 notesProvider: any MeetingNotesProvider = ExtractiveNotesProvider(),
                 askRoute: @escaping () -> MeetingAskRoute? = { nil },
+                ask: ((String, MeetingRecord, Bool) async throws -> MeetingAnswer)? = nil,
+                speakerNames: (any MeetingSpeakerNameSource)? = nil,
                 now: @escaping () -> Date = Date.init) {
         self.store = store
         self.files = MeetingFilesStore(store: store)
@@ -88,6 +94,10 @@ public final class MeetingsSectionViewModel: ObservableObject {
         self.capture = capture ?? .shared
         self.notesProvider = notesProvider
         self.askRouteProvider = askRoute
+        self.askHandler = ask ?? { question, record, live in
+            try await MeetingIntelligence.shared.ask(question, about: record, live: live)
+        }
+        self.speakerNames = speakerNames ?? FileMeetingSpeakerNames(store: store)
         self.now = now
         observeCapture()
     }
@@ -387,7 +397,7 @@ public final class MeetingsSectionViewModel: ObservableObject {
     }
 
     public var lines: [MeetingTranscriptLine] {
-        selected.map { MeetingTranscriptLine.lines($0.transcript) } ?? []
+        selected.map { MeetingTranscriptLine.lines($0.transcript, names: speakerNames.names(for: $0.id)) } ?? []
     }
 
     /// The Transcript tab's search results.
@@ -436,6 +446,26 @@ public final class MeetingsSectionViewModel: ObservableObject {
     }
 
     public var askRoute: MeetingAskRoute? { askRouteProvider() }
+
+    /// V5 M16/M21 — Ask about the open meeting; a live meeting is asked over its current words.
+    public func ask(_ question: String) async throws -> MeetingAnswer {
+        guard let record = selected else { throw MeetingAskError.nothingToSearch }
+        return try await askHandler(question, record, live?.meetingID == record.id)
+    }
+
+    /// True while the open meeting is still being captured (Ask re-indexes every 30 s).
+    public var isSelectedLive: Bool { selected.map { live?.meetingID == $0.id } ?? false }
+
+    /// V5 M17 — the notes template (`meeting.notes.template`); changing it prepares the notes again.
+    public var noteTemplate: MeetingNoteTemplate {
+        settings?.string(MeetingNoteTemplate.settingsKey).flatMap(MeetingNoteTemplate.init(rawValue:)) ?? .auto
+    }
+
+    public func regenerateNotes(template: MeetingNoteTemplate) async {
+        settings?.set(template.rawValue, for: MeetingNoteTemplate.settingsKey)
+        objectWillChange.send()
+        await retryNotes()
+    }
 
     private func refreshDetail() {
         guard let record = selected else {
@@ -507,5 +537,9 @@ public final class MeetingsSectionViewModel: ObservableObject {
         }
     }
 
-    public func markdown(for record: MeetingRecord) -> String { record.markdown }
+    /// V5 M18/M20 — Export…: names from M13, action items ticked as the user ticked them.
+    public func markdown(for record: MeetingRecord) -> String {
+        MeetingMarkdownExport.markdown(record, names: speakerNames.names(for: record.id),
+                                       completed: Set(facts(record.id).completedActionItems))
+    }
 }
