@@ -140,6 +140,8 @@ public enum MeetingCaptureWiring {
             MeetingPillMirror.apply(info, to: pill)
         }
         panel.capture = capture
+        // V5 M14 — "Show my dictations in meeting transcripts" (only with a real settings store).
+        if let settings = coordinator.settingsStore { MeetingDictationsWiring.install(capture: capture, settings: settings) }
         return capture
     }
 
