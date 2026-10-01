@@ -1877,3 +1877,34 @@ Initial checkpoint (superseded by the dated entries below):
 - **New deps/downloads:** llama.cpp b11321 XCFramework (MIT, SwiftPM binary target, NOTICE in Packaging/llama). On-demand models (not bundled, not downloaded here unless noted): LocalVQE ~50 MB (Apache-2.0), parakeet-ctc-110m ~103 MB (on disk), Parakeet Ultra 632 MB / Redux 220 MB (CC-BY-4.0), EOU 320 ms, cleanup GGUF ~500 MB (SpeakoFlow Mini Q4_K_M), Smart Turn (BSD-2, needs CoreML conversion).
 - **Full suite** (`--no-parallel`, .build-v5a): 3860 passed, 0 failed, 515 s (real-Qwen + real-GGUF suites skipped, hardware-gated).
 - **Needs hardware/data (T1):** VP-IO/LocalVQE V1 gate (VOiCES, MUSAN), live AGC; SCO headset; Smart Turn CoreML; EOU 320 preview-WER; B1 Earnings-22 + MUSAN; B5 LibriSpeech-other/FLEURS-en-IN; B3 replay latency; D2 model eval + p95 ≤ 500 ms on M2 Pro; 8/24 GB first launch; browsers' AXURL/AXTitle; Mail/Slack participants; Screen Recording caret band in Docs/Figma; real two-speaker room (K4).
+
+## 2026-10-02 — V5 W5+W6+W7
+- O1 · done · one capture graph: Broadcaster subscriptions, meeting/ambient recorders, SharedMicrophoneSource into DualCapture (b466986) · SharedCaptureGraph 9 tests; open: AppDelegate never calls start/stop(.meeting) so lock/sleep don't stand a meeting down; VoiceTestCapture/LiveOnboarding/MicSelfTest still build their own CoreAudioCaptureSource (§10)
+- O2 · done · UtteranceOwner/UtteranceTag recorders (d55bd02, b6a6ff1), late-tag-after-merge fix (02ff36e) · UtteranceTagRecorder 6 tests
+- O3 · done · UtteranceDecision + UtteranceDecisionHub, Q13 .decision rows, recorder fan-out (30179c2) · 7 tests; arbiter now settles .arbiter (11dc129)
+- O4+O5+L4 · done · IntentArbiter L0/L1/bands/L2, Kev/Intern/Laya via ModelResidency (11dc129); O5 context + band nudges (deea5b5) · mock-model tests; ≥ 90 % owner (Kev) + AMI ignore ≥ 95 % → T1
+- L1 / L2 / L3 · done · AmbientMode off/note/act (e95621b, code in 485a7b5); V3 §8 + DESIGN amended, AmbientGuaranteesTests replace the never-inject audits (efdbfa2); ambient listener is a recorder on O1, per-segment ASR + SpeakerGate, X13 removed (2f25757)
+- L5 · done · AmbientPowerPolicy + Lab CPUProbe (1928d00); offline M2 Pro: 0.11 % idle / 1.99 % speech; live in-app → T1
+- L6 · partial · 150 scripted command lines + decide-set builder + arbiter eval backends (a1ee730); AMI/NOTSOFAR (~100 GB) not fetched
+- K3 · done · 'Only react to my voice' (bb041a5)
+- N1 / N3 / N4 · done · Notes section, pill chip + menu row, NotesStore with legacy Ambient fold + retention (9bc301b, 4dd0c42) · NotesStore/NotesSection tests
+- N2 · partial · wake verb 'note …' stored via NotesRouter (be02b49) + ambient band / Listen & note wired; no-field, app switch, latch-in-meeting, agent-running and K4 routeToNotes decided but not called from live speech
+- M1–M4 + M5 · done · meeting modes, hybrid echo veto, auto-pick, per-leg WAV recorder, Always/7 days/Never, shared F3 cap (7f8a95d)
+- M14 · done · panel tag chips + 'Show my dictations' (e45cb63, fix beec3b9)
+- M12 / M6 / M7 / M8 / M10 / M13 · done · embedding labeler wired (485a7b5, fix 2bfb70d), passive voiceprint (0ea0634), Sortformer live labels, 4 speakers/stream (a4ccccc), final re-diarization (9c333ea), VoiceprintStore (c42735b), descriptive labels (7dbcaef)
+- M9 · partial · CAM++ backend + choice logic (4f1174c); DER not measured, default WeSpeaker; FunASR licence to verify
+- M11 · partial · calendar / AX active speaker / transcript names → suggestions (cb094c2); OCR fallback and LR1 lips source not wired
+- M-d · done · mic-elsewhere / call-app / browser-tab signals, Settings › Meetings, post-meeting hook (028fb08, 4888c63); fixes 88c603c · 76 tests; open: MeetingAutoExporter overlaps MeetingMarkdownExport; don't-notify list offers 6 of 11 browsers
+- M17 / M16+M21 / M18+M20 / M19 / M22 / M23 · done · LLM notes + templates, Ask live/after (NLEmbedding deviation), named transcript + export, ask across meetings, provider picker, MCP server off by default (028fb08, d24a8b7, abf4a7d, 333344c, fd92f9a, 9e652b3)
+- CU1 / CU8 / CU4 / CU9 / CU6 / CU7 / H4 · done · Computer use page (6e9905f); Qwen3.5-2B/4B GGUF shared local model for act.planner + meeting/style/N5/I3, JSON StepPlan with repair (4b4765c); catalogue retrieval (2214ab0); one 4B at a time (1748c9e); CU6 exact 99.78 % / paraphrased 92.42 %; ambient act (f6f941f); time-aligned deixis (221131f)
+- CU2 · partial · CuaS1Chooser + forms chooser (4fc1c74); FluidUse pin lacks CuaS1FourBManager → UnavailableCuaS1Backend; real-model 80 % fixture → T1
+- LANG1 · partial · Languages onboarding step + consumers (27670ec); cleanup-model switch, per-language P-series, per-app language memory, Settings › Languages page missing
+- LANG2 / G2 / G3 · done · PillScriptMenu + ScriptOutputStage; Nemotron multilingual recognizer + preview via ModelResidency (82afb9e); script policy (71d64f8, fix cbfdc30)
+- G1 · partial · Hinglish catalog/recognizer/routing/recipes (82afb9e); Srota CoreML conversion + MUCS/HiACC comparison not run → owner; 'shipped = .srota' placeholder
+- LR1 / LR3 / LR5 · done · FaceSignals + camera row (21c1404, yaw fix 3cdd85d), lips-only engine (977f008), camera privacy (239bec9)
+- LR2 · partial · AVSRRecognizer + recipe tools/avsr + NOTICE (7019f93); Auto-AVSR not converted, LR6 eval needs owner data
+- K5 · done · 'Mic Modes…' row (40c8d33)
+- K8 · partial · ProsodyPunctuationStage phases 1+2, flag off (a364f10); LibriSpeech-PC gate + engine audio → ProsodyCues wiring pending
+- **New deps/downloads:** none new SwiftPM deps. New on-demand catalog entries (not downloaded here): Nemotron-3.5 multilingual 664 MB (OpenMDW-1.1), Qwen3-ASR Hinglish ~1.29 GB int8 (Apache-2.0, unpublished), Sortformer 255 MB, CAM++ 16.6 MB (licence to verify), Qwen3.5-2B/4B Q4_K_M GGUF (Apache-2.0), CUA-S1 4B ~4.0 GB + forms, Auto-AVSR (non-commercial, NOTICE). Disk ~7 GB free during lanes blocked conversions.
+- **Full suite:** `--no-parallel`, .build-v5a: first run 4344 tests, 7 issues in 4 tests (719 s); gate fixes a4fca5a (AXGuard root in ActiveSpeakerAX; meeting weight boxes per ModelResidency; withDeadline cancelled-timer race; AudioPipeline.drain ordering); rerun 4344 passed, 0 failed, 636 s (hardware/dataset suites skipped).
+- **Needs hardware/owner (T1):** live meeting + dictation on one graph; arbiter accuracy with Kev; ambient CPU in-app; Notes UI + Insert here; CoreAudio/AX/EventKit detection; Sortformer/CAM++/voiceprints on real meetings; real planner + CUA-S1 runs; Hinglish/Nemotron/AVSR models; IndicXlit; camera signals; AirPods mic modes.

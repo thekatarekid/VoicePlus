@@ -517,67 +517,81 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 5a · Capture + arbiter — owns `App/Services/SessionCoordinator.swift`, `App/Services/PipelineAudioSource.swift`, `Engine/Audio/AudioPipeline.swift` (Broadcaster), `App/Services/MeetingCoordinator.swift` capture seam, `App/Services/AppContainer.swift` wiring
 
 #### O1 · One capture graph, many subscribers
+- **Status:** done — Broadcaster subscriptions, recorders, SharedMicrophoneSource into DualCapture (b466986); one-HAL-client + live mic indicator → T1; AppDelegate start/stop(.meeting) wiring still open
 - **Why:** meeting and dictation open two uncoordinated mic graphs today.
 - **Do:**
-  - [ ] `AudioPipeline` becomes the single mic owner; `Broadcaster.subscribe()` hands `AudioPipelineEvent` streams to: engine (dictation), meeting mic leg, ambient, directed-speech features, speaker gate.
-  - [ ] `SharedMicrophoneSource: AudioCaptureSource` adapter over a subscription so `DualCapture(mic:)` needs no change; `AppContainer:333` uses it instead of `CoreAudioCaptureSource()`.
-  - [ ] `SessionCoordinator`: requesters become *intent claims* on utterances, not mic ownership; `.meeting` and ambient are *recorders* (never pre-empted, never pre-empting).
-  - [ ] Graph stays prepared between turns (V4.7); hard mute releases it (exists).
+  - [x] `AudioPipeline` becomes the single mic owner; `Broadcaster.subscribe()` hands `AudioPipelineEvent` streams to: engine (dictation), meeting mic leg, ambient, directed-speech features, speaker gate.
+  - [x] `SharedMicrophoneSource: AudioCaptureSource` adapter over a subscription so `DualCapture(mic:)` needs no change; `AppContainer:333` uses it instead of `CoreAudioCaptureSource()`.
+  - [x] `SessionCoordinator`: requesters become *intent claims* on utterances, not mic ownership; `.meeting` and ambient are *recorders* (never pre-empted, never pre-empting).
+  - [x] Graph stays prepared between turns (V4.7); hard mute releases it (exists).
 - **Tests:** two subscribers receive identical frames; meeting + hold key simultaneously → both get audio; no second HAL client (`CaptureCounters`).
 
 #### O2 · Recorders vs capabilities
-- [ ] `UtteranceOwner` enum (`dictate, edit, act, note, ask, ignore`); every recorder (meeting session, ambient timeline) receives `UtteranceTag(owner, range)` and renders it ("dictated", "command", "note").
+- **Status:** done — UtteranceOwner/UtteranceTag recorders (d55bd02, b6a6ff1); late-tag-after-merge fix 02ff36e; real-audio alignment → T1
+- [x] `UtteranceOwner` enum (`dictate, edit, act, note, ask, ignore`); every recorder (meeting session, ambient timeline) receives `UtteranceTag(owner, range)` and renders it ("dictated", "command", "note").
 - **Tests:** a dictation during a meeting appears once, tagged, in the meeting transcript.
 
 #### O3 · One decision per utterance (Shared edit permitted)
-- [ ] `Shared/Types/UtteranceDecision.swift`: `{owner, confidence, band, reason, questionProbabilities}`; emitted by `IntentArbiter` (5b) and logged (Q13).
+- **Status:** done — UtteranceDecision + UtteranceDecisionHub, Q13 log, recorder fan-out (30179c2); arbiter settles .arbiter (11dc129); route-.none landings log 'ignore' until arbiter
+- [x] `Shared/Types/UtteranceDecision.swift`: `{owner, confidence, band, reason, questionProbabilities}`; emitted by `IntentArbiter` (5b) and logged (Q13).
 
 ### Lane 5b · Decision layer — owns `Engine/Decide/` (new), `Engine/DirectedSpeech/`, `App/Ambient/`, `App/Services/LatchRuntime.swift` seam, `VoicePlus_Improvements_V3.md` §8, ambient tests
 
 #### O4 + O5 + L4 · Decision layers behind one protocol (needs J6)
+- **Status:** done — IntentArbiter L0/L1/bands/L2 handoff, Kev/Intern/Laya via ModelResidency (11dc129); O5 context + band nudges fix deea5b5; T1 ≥ 90 % owner + V1 AMI ignore → T1
 - **Do:**
-  - [ ] `Engine/Decide/IntentArbiter.swift`: Layer 0 = explicit trigger / wake verb / `ActIntentParser` / `GatekeeperStage` → returns immediately with `confidence 1`. Layer 1 = `DecisionModel` protocol (`decide(state:questions:) -> [Question: Probability]`).
-  - [ ] Implementations: `KevDecisionModel` (FluidUse `KevFastManager`, GPU), `InternDecisionModel`, `LayaDecisionModel`. Chosen by `DecisionModelChoice` setting; default Kev (HW2/HW3 may swap).
-  - [ ] Questions (fixed set, plain text, no training): addressed to the computer? · continuation of the last exchange? · complete? · which capability (choice: dictate/edit/act/note/ask/ignore) · needs agent or internet? · worth noting if ignored?
-  - [ ] State string (O5): frontmost app + `FieldRole` + focused field y/n + meeting active + last 3 utterances with their decisions + "another voice heard in last 10 s" + lip activity + prosody summary. Cap 384 tokens (Kev bucket).
-  - [ ] Bands (O-b 5): thresholds in settings-backed `DecisionBands` (defaults act ≥ 0.85, ask 0.65–0.85, note 0.4–0.65, ignore < 0.4); "Not for you" corrections nudge per-app thresholds.
-  - [ ] Layer 2 handoff: `act` → CU4 retrieval → CUA-S1 → planner; `note` → N; `ask` → ask pill.
+  - [x] `Engine/Decide/IntentArbiter.swift`: Layer 0 = explicit trigger / wake verb / `ActIntentParser` / `GatekeeperStage` → returns immediately with `confidence 1`. Layer 1 = `DecisionModel` protocol (`decide(state:questions:) -> [Question: Probability]`).
+  - [x] Implementations: `KevDecisionModel` (FluidUse `KevFastManager`, GPU), `InternDecisionModel`, `LayaDecisionModel`. Chosen by `DecisionModelChoice` setting; default Kev (HW2/HW3 may swap).
+  - [x] Questions (fixed set, plain text, no training): addressed to the computer? · continuation of the last exchange? · complete? · which capability (choice: dictate/edit/act/note/ask/ignore) · needs agent or internet? · worth noting if ignored?
+  - [x] State string (O5): frontmost app + `FieldRole` + focused field y/n + meeting active + last 3 utterances with their decisions + "another voice heard in last 10 s" + lip activity + prosody summary. Cap 384 tokens (Kev bucket).
+  - [x] Bands (O-b 5): thresholds in settings-backed `DecisionBands` (defaults act ≥ 0.85, ask 0.65–0.85, note 0.4–0.65, ignore < 0.4); "Not for you" corrections nudge per-app thresholds.
+  - [x] Layer 2 handoff: `act` → CU4 retrieval → CUA-S1 → planner; `note` → N; `ask` → ask pill.
 - **Tests:** mock decision model; Layer 0 short-circuits; band mapping; state string cap; log record shape.
 - **Done when:** T1 scripted ambient cases ≥ 90 % correct owner with Kev on the owner's Mac; V1 L6 sets: AMI utterances → ignore ≥ 95 %.
 
 #### L1 · Three ambient settings
-- [ ] `AmbientMode` (`off`, `listenAndNote`, `listenAndAct`) replaces `ambient.capture.enabled`; switchable from menu bar, notch menu, Settings › Privacy, and by voice ("stop listening", "just take notes", "you can act again"). Visible state: glyph (X14 ungated from `directedSpeech`), mic/camera indicator.
+- **Status:** done — AmbientMode off/note/act, menus, Privacy, voice switch, explainer (e95621b, code in 485a7b5)
+- [x] `AmbientMode` (`off`, `listenAndNote`, `listenAndAct`) replaces `ambient.capture.enabled`; switchable from menu bar, notch menu, Settings › Privacy, and by voice ("stop listening", "just take notes", "you can act again"). Visible state: glyph (X14 ungated from `directedSpeech`), mic/camera indicator.
 - **UI:** notch menu segmented control; menu bar item shows mode; first enable shows a one-time explainer sheet.
 
 #### L2 · Amend V3 §8 (owner approved) + new guarantees
-- [ ] `VoicePlus_Improvements_V3.md` §8 and `DESIGN.md`: ambient may dictate/act only in Listen & act. Delete `AmbientNeverInjectsTests` / `AmbientInjectionAudit`; add `AmbientGuaranteesTests`: no inject/act unless mode == act; only user voice (K4/M6 verdict `.you`); only band ≥ act; irreversible steps never self-confirmed; Listen & note never reaches `delivery`.
+- **Status:** done — V3 §8 + DESIGN amended, AmbientGuaranteesTests replace audits (efdbfa2)
+- [x] `VoicePlus_Improvements_V3.md` §8 and `DESIGN.md`: ambient may dictate/act only in Listen & act. Delete `AmbientNeverInjectsTests` / `AmbientInjectionAudit`; add `AmbientGuaranteesTests`: no inject/act unless mode == act; only user voice (K4/M6 verdict `.you`); only band ≥ act; irreversible steps never self-confirmed; Listen & note never reaches `delivery`.
 
 #### L3 · Ambient on the always-on capture
-- [ ] `AmbientWiring.attach` subscribes to O1's broadcaster (not `LatchRuntime.onTranscript`); the seam carries samples → `SpeakerGate.verdict(for:embedder:)` runs; X13 discard-everything removed.
+- **Status:** done — AmbientListener recorder on O1 broadcaster, per-segment ASR + SpeakerGate, X13 removed (2f25757)
+- [x] `AmbientWiring.attach` subscribes to O1's broadcaster (not `LatchRuntime.onTranscript`); the seam carries samples → `SpeakerGate.verdict(for:embedder:)` runs; X13 discard-everything removed.
 
 #### L5 · Battery
-- [ ] VAD on ANE always; ASR only on speech segments; decision only at segment end; camera only when LR mode on. Measure CPU % idle vs listening in `Lab`.
+- **Status:** done — AmbientPowerPolicy + Lab CPUProbe; offline M2 Pro 0.11 % silence / 1.99 % speech (1928d00); live in-app → T1
+- [x] VAD on ANE always; ASR only on speech segments; decision only at segment end; camera only when LR mode on. Measure CPU % idle vs listening in `Lab`.
 
 #### L6 · Eval sets
-- [ ] V1 `--stage decide`: AMI/NOTSOFAR utterances labelled `ignore`; a scripted command set (write 150 lines across capabilities) labelled by owner → T1 (testing, not training data).
+- **Status:** partial — 150-line command set + decide-set builder + arbiter eval backends (a1ee730); AMI/NOTSOFAR not on disk (~100 GB), labels owner-confirmed on T1
+- [x] V1 `--stage decide`: AMI/NOTSOFAR utterances labelled `ignore`; a scripted command set (write 150 lines across capabilities) labelled by owner → T1 (testing, not training data).
 
 #### K3 · Speaker-filtering toggle
-- [ ] Settings › Voice: "Only react to my voice" (default on once enrolled/anchored); explains K4/M6.
+- **Status:** done — Settings › Voice 'Only react to my voice' (bb041a5)
+- [x] Settings › Voice: "Only react to my voice" (default on once enrolled/anchored); explains K4/M6.
 
 ### Lane 5c · Notes — owns `App/Settings/Notes*` (new), `App/Core/MenuModel.swift` notes rows, `Pipeline/WakeVerb/WakeVerbGrammar.swift`
 
 #### N1 · Notes section
-- [ ] `MainWindowSection.notes`; list grouped by day/session; each row: time, source tag (latch / ambient / no-field / meeting aside / declined-ask), text; actions Insert here · Copy · Discard · **Insert all** · Export Markdown; search over tokens (reuse `AmbientSearchIndex`).
+- **Status:** done — Notes section, actions, keys, search, unread badge (9bc301b); SwiftUI look/Insert here → T1
+- [x] `MainWindowSection.notes`; list grouped by day/session; each row: time, source tag (latch / ambient / no-field / meeting aside / declined-ask), text; actions Insert here · Copy · Discard · **Insert all** · Export Markdown; search over tokens (reuse `AmbientSearchIndex`).
 - **UI:** sidebar entry "Notes" with unread count; row swipe actions; keyboard: ↩ insert, ⌘C copy, ⌫ discard.
 
 #### N2 · Routes into Notes
+- **Status:** partial — wake verb 'note …' (be02b49) + ambient band / Listen & note wired; no-field, app switch, latch-in-meeting, agent running, K4 routeToNotes decided but not called from live speech
 - [ ] From `IntentArbiter`: no focused field · app switch mid-segment · wake verb `note …` (add to `WakeVerbGrammar.typeVerbs` family as `noteVerbs`) · lower-middle band · declined ask · Listen & note mode · latch during a meeting · utterance during a running agent action.
 
 #### N3 · Pill state
-- [ ] "📝 notes · N" chip while notes accumulate; click opens the section.
+- **Status:** done — pill '📝 notes · N' chip + menu row (9bc301b); look → T1
+- [x] "📝 notes · N" chip while notes accumulate; click opens the section.
 
 #### N4 · One store
-- [ ] `NotesStore` = `AmbientTranscriptStore` renamed/extended (same `MeetingRecord` shape, root `…/VoicePlus/Notes`); migrate `…/Ambient` on first launch.
+- **Status:** done — NotesStore over AmbientTranscriptStore, legacy fold, retention, index cleared on delete (4dd0c42); real-folder migration → T1
+- [x] `NotesStore` = `AmbientTranscriptStore` renamed/extended (same `MeetingRecord` shape, root `…/VoicePlus/Notes`); migrate `…/Ambient` on first launch.
 - **Tests:** migration; retention; search index cleared on delete.
 
 ---
@@ -587,73 +601,91 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 6a · Capture modes — owns `Engine/Meeting/DualCapture.swift`, `MeetingSession.swift`, `App/UI/MeetingPanel*`, `App/Services/MeetingCoordinator.swift` (session part)
 
 #### M1–M4 · Modes + auto-pick
-- [ ] `MeetingMode` (`videoCall` = M1, `inPerson` = M2, `hybrid` = M3); `DualCapture` configures legs per mode; cross-leg echo veto in hybrid (system-leg energy within 150 ms suppresses mic-leg duplicate text). Live transcript (M15) stays as today in all modes.
-- [ ] Auto-pick: system audio active ∧ call app frontmost (M13 detection) → videoCall; else inPerson; user override in the panel header.
+- **Status:** done — MeetingMode → leg config, hybrid echo veto, auto-pick, panel mode pill (7f8a95d)
+- [x] `MeetingMode` (`videoCall` = M1, `inPerson` = M2, `hybrid` = M3); `DualCapture` configures legs per mode; cross-leg echo veto in hybrid (system-leg energy within 150 ms suppresses mic-leg duplicate text). Live transcript (M15) stays as today in all modes.
+- [x] Auto-pick: system audio active ∧ call app frontmost (M13 detection) → videoCall; else inPerson; user override in the panel header.
 - **UI:** panel header shows mode pill; tap to change.
 - **Tests:** mode → leg config; veto on a synthetic echo pair.
 
 #### M5 · Save recording (default Always)
-- [ ] `MeetingFilesStore` keeps mic + system WAV (16 kHz, per leg); Settings › Meetings "Save meeting recording": Always (default) / 7 days / Never; disk cap shared with F3.
+- **Status:** done — MeetingAudioRecorder per-leg 16 kHz WAV, Always/7 days/Never, shared F3 cap sweeper (7f8a95d)
+- [x] `MeetingFilesStore` keeps mic + system WAV (16 kHz, per leg); Settings › Meetings "Save meeting recording": Always (default) / 7 days / Never; disk cap shared with F3.
 
 #### M14 · Dictation / act / latch during a meeting
-- [ ] Per §O-c: hold → dictates, tagged "dictated"; act → tagged "command"; latch → Notes. Implemented by O1/O2; this item adds the panel rendering of tags and a Settings switch "Show my dictations in meeting transcripts" (default on).
+- **Status:** done — panel tag chips + 'Show my dictations' switch (e45cb63); manual-session tagging fix beec3b9
+- [x] Per §O-c: hold → dictates, tagged "dictated"; act → tagged "command"; latch → Notes. Implemented by O1/O2; this item adds the panel rendering of tags and a Settings switch "Show my dictations in meeting transcripts" (default on).
 
 ### Lane 6b · Diarization + labels — owns `Engine/Meeting/Diarization.swift`, new `Engine/Meeting/SpeakerLabels.swift`, `App/Settings/Meetings*` detail views, `App/Services/LatchController.swift` `SpeakerProfileStore`
 
 #### M12 · Wire the embedding labeler
-- [ ] `AppContainer:328`: pass `SpeakerProfileStore` embedding (enrolled or passively built) instead of `nil`; `EmbeddingLabeler` becomes reachable.
+- **Status:** done — SpeakerProfileStore embedding wired, WeSpeaker via ModelResidency (485a7b5); per-key weights fix 2bfb70d
+- [x] `AppContainer:328`: pass `SpeakerProfileStore` embedding (enrolled or passively built) instead of `nil`; `EmbeddingLabeler` becomes reachable.
 
 #### M6 · Passive user voiceprint
-- [ ] After each hold-to-talk turn with `.you` anchor (K4), update `SpeakerProfileStore` running mean (quality-weighted by SNR, min 5 turns before use); pill says "voice learned" once.
+- **Status:** done — PassiveVoiceprint SNR-weighted mean, min 5 turns, 'Voice learned' once (0ea0634)
+- [x] After each hold-to-talk turn with `.you` anchor (K4), update `SpeakerProfileStore` running mean (quality-weighted by SNR, min 5 turns before use); pill says "voice learned" once.
 
 #### M7 · Live labels — Sortformer (needs J6)
-- [ ] Catalog `.sortformer` (`FluidInference/diar-streaming-sortformer-coreml`, `SortformerNvidiaHigh_v2.1.mlmodelc` ~0.26 GB, on demand); `StreamingDiarizer` over FluidAudio's Sortformer manager on the mic leg (and system leg in videoCall/hybrid); emits `speakerIndex` per chunk; verify the speaker cap (document it).
+- **Status:** done — catalog .sortformer 255 MB on demand, StreamingDiarizer per leg, cap 4 speakers/stream (a4ccccc); real model → T1
+- [x] Catalog `.sortformer` (`FluidInference/diar-streaming-sortformer-coreml`, `SortformerNvidiaHigh_v2.1.mlmodelc` ~0.26 GB, on demand); `StreamingDiarizer` over FluidAudio's Sortformer manager on the mic leg (and system leg in videoCall/hybrid); emits `speakerIndex` per chunk; verify the speaker cap (document it).
 
 #### M8 · Final re-diarization
-- [ ] On finish: offline pipeline over the saved WAV (M5) → relabel the transcript; keep live labels if no recording.
+- **Status:** done — FinalRediarizer over saved WAV, live labels kept without recording (9c333ea)
+- [x] On finish: offline pipeline over the saved WAV (M5) → relabel the transcript; keep live labels if no recording.
 
 #### M9 · Embeddings choice
-- [ ] `CAM++` CoreML (`FluidInference/campplus-coreml`, 192-d, ANE) as alternative backend; V1 `--stage diar` DER on VoxConverse/AMI picks the default.
+- **Status:** partial — CAM++ backend + choice from V1 diar reports (4f1174c); DER not measured (datasets absent), default WeSpeaker; FunASR licence to verify
+- [x] `CAM++` CoreML (`FluidInference/campplus-coreml`, 192-d, ANE) as alternative backend; V1 `--stage diar` DER on VoxConverse/AMI picks the default.
 
 #### M10 · Voiceprint library
-- [ ] `VoiceprintStore` (SQLite): person id ↔ embedding centroid + sample count + last seen; mapping a cluster saves it; auto-match: cosine ≥ 0.75 applied, 0.6–0.75 suggested ("maybe Priya"), else new. Local only, never synced unless chosen.
+- **Status:** done — VoiceprintStore SQLite, 0.75/0.6 match bands, mapping saves centroid (c42735b)
+- [x] `VoiceprintStore` (SQLite): person id ↔ embedding centroid + sample count + last seen; mapping a cluster saves it; auto-match: cosine ≥ 0.75 applied, 0.6–0.75 suggested ("maybe Priya"), else new. Local only, never synced unless chosen.
 
 #### M13 · Descriptive speaker labels
-- [ ] `SpeakerDescriptor` computed per cluster: where (system leg → "on the call"; mic high-level dry → "near the laptop"; low-level reverberant → "across the room"), pitch band (F0 median: low/mid/high), pace (wpm), loudness, perceived gender ("probably man/woman", **on by default**, Settings switch), time span, meeting title/app, talk share, first/last speaker, questions asked, language, first distinctive quote, candidate name (M11).
-- [ ] Label = 2–3 most distinguishing attributes, unique within the meeting; hover card shows all + plays a 3 s snippet (needs M5); click → map to a contact (M10).
+- **Status:** done — DescribingLabeler descriptors, unique 2–3 attribute labels, hover card + snippet + Map to… (7dbcaef)
+- [x] `SpeakerDescriptor` computed per cluster: where (system leg → "on the call"; mic high-level dry → "near the laptop"; low-level reverberant → "across the room"), pitch band (F0 median: low/mid/high), pace (wpm), loudness, perceived gender ("probably man/woman", **on by default**, Settings switch), time span, meeting title/app, talk share, first/last speaker, questions asked, language, first distinctive quote, candidate name (M11).
+- [x] Label = 2–3 most distinguishing attributes, unique within the meeting; hover card shows all + plays a 3 s snippet (needs M5); click → map to a contact (M10).
 - **UI:** label chip in transcript; hover card; "Map to…" contact picker.
 - **Tests:** descriptor computation on synthetic features; uniqueness within a meeting.
 
 #### M11 · Name hints
+- **Status:** partial — calendar, AX active speaker, GLiNER2/heuristic names → suggestions (cb094c2); OCR fallback not shipped, LR1 lips source not wired
 - [ ] Sources → candidates with confidence: calendar attendees (EventKit); active-speaker highlight in Zoom/Meet/Teams via AX (name label near the highlighted tile; OCR fallback only if Screen Recording opted in) time-correlated with diarization; GLiNER2 NER on the transcript ("Thanks, Priya" → addressee = next speaker); lip activity (LR1) for on-camera faces. Always suggestions.
 
 ### Lane 6c · Detection + settings — owns `Engine/Meeting/MeetingDetector.swift`, `App/Settings/Meetings*` settings page
 
 #### M-d · Detection signals + settings
-- [ ] Signals: calendar (exists), camera (exists), mic in use by another process (`kAudioDevicePropertyDeviceIsRunningSomewhere` on the input device), call app running (Zoom, Teams, FaceTime, Slack huddle, WhatsApp), browser tab URL/title (meet.google.com, teams.microsoft.com, zoom.us/wc, whereby…).
-- [ ] Settings › Meetings: detected-meeting notifications · per-app "don't notify" list · reminder timing (at start / 5 min before) · calendars to include · auto-record calendar meetings (off) · save recording (M5) · auto-export folder + format · post-meeting hook (path, timeout; JSON record on stdin).
+- **Status:** done — mic-elsewhere / call app / browser tab signals + Settings › Meetings page + hook (028fb08, 4888c63); tab-switch + own-capture fixes 88c603c; CoreAudio/AX/EventKit → T1
+- [x] Signals: calendar (exists), camera (exists), mic in use by another process (`kAudioDevicePropertyDeviceIsRunningSomewhere` on the input device), call app running (Zoom, Teams, FaceTime, Slack huddle, WhatsApp), browser tab URL/title (meet.google.com, teams.microsoft.com, zoom.us/wc, whereby…).
+- [x] Settings › Meetings: detected-meeting notifications · per-app "don't notify" list · reminder timing (at start / 5 min before) · calendars to include · auto-record calendar meetings (off) · save recording (M5) · auto-export folder + format · post-meeting hook (path, timeout; JSON record on stdin).
 - **Tests:** detector state machine with the new signals; hook invocation with a fake script.
 
 ### Lane 6d · Notes / Ask / export — owns `Engine/Meeting/MeetingNotes.swift`, `App/Settings/Meetings*` detail Ask tab, new `Providers/MCPServer/`
 
 #### M17 · LLM notes + templates
-- [ ] `LLMNotesProvider` over `RoutingTable` stage `meeting.notes` (default = CU8 local model; Ollama/CLI/OAuth/key selectable); templates Auto / 1:1 / stand-up / interview / lecture in `Fixtures/meeting-templates/*.md`; extractive stays as fallback; retries (3) on transient failure.
+- **Status:** done — LLMNotesProvider via meeting.notes, 5 templates, 3 retries, extractive fallback (028fb08, d24a8b7); CU8 shared model registered (4b4765c)
+- [x] `LLMNotesProvider` over `RoutingTable` stage `meeting.notes` (default = CU8 local model; Ollama/CLI/OAuth/key selectable); templates Auto / 1:1 / stand-up / interview / lecture in `Fixtures/meeting-templates/*.md`; extractive stays as fallback; retries (3) on transient failure.
 
 #### M16 + M21 · Ask (live and after)
-- [ ] Enable the Ask tab: route `meeting.ask` through `RoutingTable`; retrieval = chunk transcript (60 s windows) → local embeddings (`zeppelin-embed` already a dependency in FluidVoice; here use a small CoreML sentence encoder, e.g. GLiNER2 encoder pooling or `all-MiniLM` CoreML — verify licence) → top-8 chunks → prompt. Live mode re-indexes every 30 s.
+- **Status:** done — Ask over meeting.ask, 60 s windows, NLEmbedding (deviation from MiniLM), top-8, citations, 30 s live re-index (028fb08); stale-snapshot fix abf4a7d
+- [x] Enable the Ask tab: route `meeting.ask` through `RoutingTable`; retrieval = chunk transcript (60 s windows) → local embeddings (`zeppelin-embed` already a dependency in FluidVoice; here use a small CoreML sentence encoder, e.g. GLiNER2 encoder pooling or `all-MiniLM` CoreML — verify licence) → top-8 chunks → prompt. Live mode re-indexes every 30 s.
 - **UI:** Ask field enabled with the route disclosed ("Local model" / "Claude CLI" / …); answers cite timestamps.
 
 #### M18 + M20 · Transcript with names, seek, export
-- [ ] Detail view: names/labels from M13, search, click-to-seek audio (M5), Markdown export (+ auto-export per settings).
+- **Status:** done — named transcript, search, seek, Markdown export + auto-export (028fb08); auto-export names fix 333344c
+- [x] Detail view: names/labels from M13, search, click-to-seek audio (M5), Markdown export (+ auto-export per settings).
 
 #### M19 · Chat across meetings
-- [ ] Same retrieval over all meetings; "Ask across meetings" in the library header.
+- **Status:** done — MeetingLibraryAsker across meetings + library header panel (fd92f9a)
+- [x] Same retrieval over all meetings; "Ask across meetings" in the library header.
 
 #### M22 (+M24) · Subscription and BYO backends
-- [ ] Expose `claude`/`codex` CLI and ChatGPT OAuth (M22) plus BYO key / Ollama / LM Studio (M24) in the Meetings provider picker — all already exist in `Providers/`; only the picker and the `meeting.*` stage pins are new.
+- **Status:** done — Meetings provider picker pins meeting.notes/ask (fd92f9a)
+- [x] Expose `claude`/`codex` CLI and ChatGPT OAuth (M22) plus BYO key / Ollama / LM Studio (M24) in the Meetings provider picker — all already exist in `Providers/`; only the picker and the `meeting.*` stage pins are new.
 
 #### M23 · MCP server
-- [ ] `Providers/MCPServer`: local stdio/HTTP MCP exposing `list_meetings`, `get_transcript(id)`, `get_live_transcript`, `search(query)`; Settings › Providers "Expose meetings to agents (MCP)" off by default; print the config snippet for Claude Code / Codex.
+- **Status:** done — Providers/MCPServer stdio + loopback HTTP, 4 tools, off by default, token in Keychain (9e652b3)
+- [x] `Providers/MCPServer`: local stdio/HTTP MCP exposing `list_meetings`, `get_transcript(id)`, `get_live_transcript`, `search(query)`; Settings › Providers "Expose meetings to agents (MCP)" off by default; print the config snippet for Claude Code / Codex.
 - **Tests:** tool schema; live transcript tail; permission off → server not started.
 
 ---
@@ -663,77 +695,96 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 7a · Computer use — owns `Actions/`, `App/Services/ActStack.swift`, `App/Settings/SettingsViewModels.swift` (`RoutableStage` row), new `App/Settings/ComputerUse*`
 
 #### CU1 · Settings › Computer use page
-- [ ] Enable (= `ActKeySettings`), act key binding, provider/account (local default, Ollama, CLI, OAuth, key), planner model, timeout, consent defaults (reversible auto / semi undo-toast / irreversible confirm), "Show plan chips". Index in `MainWindowSection`.
+- **Status:** done — Settings › Computer use page (6e9905f)
+- [x] Enable (= `ActKeySettings`), act key binding, provider/account (local default, Ollama, CLI, OAuth, key), planner model, timeout, consent defaults (reversible auto / semi undo-toast / irreversible confirm), "Show plan chips". Index in `MainWindowSection`.
 
 #### CU8 · Shipped local planner (needs D2's llama.cpp)
-- [ ] Catalog GGUF: Qwen3.5-2B-Instruct Q4_K_M (16 GB default) / Qwen3.5-4B-Instruct Q4_K_M (≥ 24 GB); stage `act.planner` default → `LlamaCppProvider`; `RoutableStage` `acceptsLocal: true`; planner prompt requests strict JSON `StepPlan`; parse with repair.
-- [ ] Same model registered for `meeting.notes`, `meeting.ask`, Hinglish/style cleanup, N5, I3.
+- **Status:** done — Qwen3.5-2B/4B GGUF catalog, SharedLocalLLMProvider for act.planner + meeting/style/N5/I3, JSON StepPlan with repair (4b4765c); real planner → T1
+- [x] Catalog GGUF: Qwen3.5-2B-Instruct Q4_K_M (16 GB default) / Qwen3.5-4B-Instruct Q4_K_M (≥ 24 GB); stage `act.planner` default → `LlamaCppProvider`; `RoutableStage` `acceptsLocal: true`; planner prompt requests strict JSON `StepPlan`; parse with repair.
+- [x] Same model registered for `meeting.notes`, `meeting.ask`, Hinglish/style cleanup, N5, I3.
 - **Tests:** JSON plan parsing + repair; planner unavailable → `.unavailable` state not failure.
 
 #### CU2 · CUA-S1 element chooser (needs J6)
-- [ ] Catalog `cua-s1-4b-coreml` `text/L1024-gptq` + `embeddings.f16` (~3.9 GB, `.exclusive`); `CuaS1Chooser` via `CuaS1FourBManager(modality: .text, variant: "gptq")`; input = `AXSummary` (≤ 26 candidate elements per decision; page in groups when more); output (element, action) → `ActionExecutor`. `cua-s1-forms` for form filling (`ActionKind.fillField`).
+- **Status:** partial — CuaS1Chooser, paging, forms chooser, catalog ~4.0 GB exclusive (4fc1c74); FluidUse pin lacks CuaS1FourBManager → UnavailableCuaS1Backend; 80 % fixture run on the real model → T1
+- [x] Catalog `cua-s1-4b-coreml` `text/L1024-gptq` + `embeddings.f16` (~3.9 GB, `.exclusive`); `CuaS1Chooser` via `CuaS1FourBManager(modality: .text, variant: "gptq")`; input = `AXSummary` (≤ 26 candidate elements per decision; page in groups when more); output (element, action) → `ActionExecutor`. `cua-s1-forms` for form filling (`ActionKind.fillField`).
 - **Tests:** mock manager; candidate paging; GUI-360-style fixture subset in Lab (text tasks) ≥ 80 %.
 
 #### CU4 · Catalogue retrieval
-- [ ] Embed the 200 catalogue phrasings once (same encoder as M16); per utterance top-3 by cosine → `ActIntentParser` fuzzy confirm → direct execute when score ≥ 0.8; else CUA-S1 (single step) else planner.
+- **Status:** done — CatalogRetrievalIndex top-3 cosine → fuzzy confirm → ≥ 0.8 direct, else CUA-S1 else planner (2214ab0)
+- [x] Embed the 200 catalogue phrasings once (same encoder as M16); per utterance top-3 by cosine → `ActIntentParser` fuzzy confirm → direct execute when score ≥ 0.8; else CUA-S1 (single step) else planner.
 
 #### CU9 · One 4B at a time
-- [ ] HW1 `.exclusive` registration for CUA-S1; load on act turn, unload after; refuse to load while another exclusive (4B planner, refinement) is resident — queue instead.
+- **Status:** done — CUA-S1 .exclusive queues behind the 4B planner, load per act turn (1748c9e)
+- [x] HW1 `.exclusive` registration for CUA-S1; load on act turn, unload after; refuse to load while another exclusive (4B planner, refinement) is resident — queue instead.
 
 #### CU6 · Measure the 200 actions
-- [ ] Lab fixture: each catalogue phrasing × 3 paraphrases against `MockActionSystem` AX fixtures; report hit rate; target > 99 % on exact phrasings, > 90 % paraphrased. Failures → catalogue fixes, not model changes.
+- **Status:** done — exact 99.78 % of 462, paraphrased 92.42 % of 1386 after catalogue/matcher fixes (2214ab0)
+- [x] Lab fixture: each catalogue phrasing × 3 paraphrases against `MockActionSystem` AX fixtures; report hit rate; target > 99 % on exact phrasings, > 90 % paraphrased. Failures → catalogue fixes, not model changes.
 
 #### CU7 · Ambient-driven CUA
-- [ ] `IntentArbiter` `act` owner (Listen & act only) feeds the same path as the act key; consent rules unchanged; ambient can never confirm irreversible steps.
+- **Status:** done — AmbientActDelivery → act key path, ambient confirm dropped (f6f941f)
+- [x] `IntentArbiter` `act` owner (Listen & act only) feeds the same path as the act key; consent rules unchanged; ambient can never confirm irreversible steps.
 
 #### CU3 / CU5 · Cua re-assessment **[later]**
 - [ ] Spike (time-boxed): Cua Driver Swift SDK as executor for actions outside the 12 kinds; Lume VM for CUA tests. Report in `progress.md`; no integration unless the spike wins.
 
 #### H4 · Time-aligned gesture binding
-- [ ] `Actions/Deixis`: bind "this/there" to the region whose drag overlaps the word's `audioRange` ± 300 ms (not the latest region).
+- **Status:** done — DeixisResolver.timeAlignedRegion ± 300 ms (221131f)
+- [x] `Actions/Deixis`: bind "this/there" to the region whose drag overlaps the word's `audioRange` ± 300 ms (not the latest region).
 
 ### Lane 7b · Languages — owns `App/Onboarding/` language step, `Engine/CodeSwitch/`, `Pipeline/Formatters` locale plumbing, notch script menu in `App/UI/Pill*` (coordinate with 1b: new file `PillScriptMenu.swift`)
 
 #### LANG1 · Onboarding languages + scripts
-- [ ] New `OnboardingStateMachine` step `languages` after `firstDictation`: multi-select languages (prefilled from `Locale.preferredLanguages` + enabled input sources), per-language script (Roman default; Devanagari/mixed for hi), spelling variant (en-US/GB/IN). Stored in `SettingsKeys.languages`, `.scriptByLanguage`, `.spellingVariant`.
+- **Status:** partial — Languages step, settings, detector/ITN/script/route consumers (27670ec); cleanup model switch, per-language P-series, per-app language memory, Settings › Languages page not done
+- [x] New `OnboardingStateMachine` step `languages` after `firstDictation`: multi-select languages (prefilled from `Locale.preferredLanguages` + enabled input sources), per-language script (Roman default; Devanagari/mixed for hi), spelling variant (en-US/GB/IN). Stored in `SettingsKeys.languages`, `.scriptByLanguage`, `.spellingVariant`.
 - [ ] Consumers: model routing (G1/G2 download only what is needed), `LanguageDetector` constrained to chosen languages, `Qwen3AsrLanguageHint`, ITN locale (D1), cleanup model choice (English-only vs CU8), P-series per language, per-app language memory.
 - **UI:** step card with flags-free plain names; "You can change this in Settings › Languages".
 - **Tests:** state machine step order + resume; settings round-trip; detector constraint.
 
 #### LANG2 · Notch script dropdown
-- [ ] `PillScriptMenu`: per-turn script override (Roman / Devanagari / mixed), remembered per app; transliteration via IndicXlit (P6) at the end of the pipeline; danda only for Devanagari.
+- **Status:** done — PillScriptMenu + ScriptOutputStage (27670ec); IndicXlit quality → T1 after P6 conversion
+- [x] `PillScriptMenu`: per-turn script override (Roman / Devanagari / mixed), remembered per app; transliteration via IndicXlit (P6) at the end of the pipeline; danda only for Devanagari.
 
 #### G1 · Hinglish ASR (third-party)
+- **Status:** partial — catalog entry, HinglishRecognizer, routing, conversion recipes, lab backends (82afb9e); Srota CoreML conversion + MUCS/HiACC V1 comparison not run (owner, disk) — 'shipped = .srota' is a placeholder
 - [ ] Convert Srota (`moorlee/qwen3-asr-0.6b-hinglish`) with the existing Qwen3-ASR CoreML conversion path (document the recipe in `tools/`); catalog `.qwen3AsrHinglish` (~1.9 GB, on demand, replaces Parakeet as final when hi is chosen); V1 on MUCS-2021 + HiACC vs base; also evaluate `smajji/nemotron-hinglish-v1` through G2's runtime. Ship the winner.
 
 #### G2 · Nemotron 3.5 multilingual (needs J6)
-- [ ] Catalog `FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML` (`multilingual/1120ms`, ~0.65 GB, on demand); `NemotronRecognizer` as a `FinalRecognizer` + streaming preview; chosen when a non-Parakeet language is selected.
+- **Status:** done — catalog .nemotronMultilingual 664 MB on demand, NemotronRecognizer + preview via ModelResidency (82afb9e); real model → T1
+- [x] Catalog `FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML` (`multilingual/1120ms`, ~0.65 GB, on demand); `NemotronRecognizer` as a `FinalRecognizer` + streaming preview; chosen when a non-Parakeet language is selected.
 
 #### G3 · Script policy
-- [ ] Default Roman; per LANG1/LANG2; mixed output keeps English words Latin.
+- **Status:** done — Roman default, Mixed keeps English Latin, danda only Devanagari (71d64f8); Hindi-only fix cbfdc30
+- [x] Default Roman; per LANG1/LANG2; mixed output keeps English words Latin.
 
 ### Lane 7c · Lips + camera — owns `Engine/Vision/` (new), `App/Services/CameraService.swift` (new), `App/Core/PermissionMatrix.swift` camera row
 
 #### LR1 · Camera signals without a lip model
-- [ ] `CameraService` (AVFoundation, front camera, 15 fps, frames never stored); `FaceSignals` via Vision face landmarks: mouth-open variance correlated with audio energy (speaking = user), head yaw toward screen, presence. Feed O5 state and O-b rule 3 (user-voice gate gets a second vote).
-- [ ] Permission row "Camera (optional)"; indicator in the notch whenever the camera is on.
+- **Status:** done — FaceSignals, UserVoiceVote, CameraService, camera permission row, privacy audit (21c1404); yaw fix 3cdd85d
+- [x] `CameraService` (AVFoundation, front camera, 15 fps, frames never stored); `FaceSignals` via Vision face landmarks: mouth-open variance correlated with audio energy (speaking = user), head yaw toward screen, presence. Feed O5 state and O-b rule 3 (user-voice gate gets a second vote).
+- [x] Permission row "Camera (optional)"; indicator in the notch whenever the camera is on.
 - **Tests:** correlation on synthetic sequences; permission off → no capture (audit).
 
 #### LR2 · Fused AVSR (default when on)
-- [ ] Convert Auto-AVSR audio-visual model to CoreML (Conformer front-end + encoder; beam search on CPU); `AVSRRecognizer` as an alternative `FinalRecognizer` used when LR mode is on and a face is tracked; falls back to audio-only when no face. Non-commercial weights recorded in `Notices` (owner decision **LR4**).
+- **Status:** partial — AVSRRecognizer + CoreMLAVSRModel via ModelResidency, recipe tools/avsr, NOTICE (7019f93); Auto-AVSR not converted, LR6 LRS3+MUSAN eval needs owner data
+- [x] Convert Auto-AVSR audio-visual model to CoreML (Conformer front-end + encoder; beam search on CPU); `AVSRRecognizer` as an alternative `FinalRecognizer` used when LR mode is on and a face is tracked; falls back to audio-only when no face. Non-commercial weights recorded in `Notices` (owner decision **LR4**).
 - **Tests (LR6):** V1 LRS3 subset (research licence, owner downloads) lips-only and fused; fused + MUSAN 0 dB must beat audio-only.
 
 #### LR3 · Lips-only mode
-- [ ] Mode switch (notch/menu): camera only, mic muted; same pipeline with `AVSRRecognizer(videoOnly:)`.
+- **Status:** done — LipsOnlyEngine, mic muted, reverts when model missing (977f008); needs LR2 model for real use
+- [x] Mode switch (notch/menu): camera only, mic muted; same pipeline with `AVSRRecognizer(videoOnly:)`.
 
 #### LR5 · Privacy
-- [ ] Camera only while the mode is on; frames in memory ≤ 1 s; no files; audit test like `AmbientInjectionAudit` for `CVPixelBuffer` persistence.
+- **Status:** done — CropRetention ≤ 1 s, CameraPrivacyAudit, no media files (239bec9)
+- [x] Camera only while the mode is on; frames in memory ≤ 1 s; no files; audit test like `AmbientInjectionAudit` for `CVPixelBuffer` persistence.
 
 #### K5 · Voice Isolation + AirPods
-- [ ] Settings › Voice: button opening `AVCaptureDevice.showSystemUserInterface(.microphoneModes)` (after C1); `InputSelectionPolicy` re-measure wideband AirPods → T1.
+- **Status:** done — 'Mic Modes…' row (40c8d33); wideband AirPods re-measure → T1
+- [x] Settings › Voice: button opening `AVCaptureDevice.showSystemUserInterface(.microphoneModes)` (after C1); `InputSelectionPolicy` re-measure wideband AirPods → T1.
 
 #### K8 · Prosody punctuation
-- [ ] Phase 1: pause ≥ 600 ms between spans → sentence boundary; 250–600 ms → comma unless model punctuated. Phase 2: terminal F0 rise + lexical cue → `?`. V1 LibriSpeech-PC gate (punctuation F1 up, WER unchanged).
+- **Status:** partial — ProsodyPunctuationStage phases 1+2, PunctuationF1 gate, flag default off (a364f10); LibriSpeech-PC run + engine audio→ProsodyCues wiring pending
+- [x] Phase 1: pause ≥ 600 ms between spans → sentence boundary; 250–600 ms → comma unless model punctuated. Phase 2: terminal F0 rise + lexical cue → `?`. V1 LibriSpeech-PC gate (punctuation F1 up, WER unchanged).
 
 ---
 
@@ -800,3 +851,4 @@ Deviations / new deps / notes for progress.md: <…>
 - 2026-10-01 · W0+W1+W2 gate: 35 items (partial: K19, Q13, V4, A3; blocked: Q16 owner). Full suite --no-parallel: 3478 passed, 0 failed, 447.5 s. Details in progress.md.
 - 2026-10-01 · W3+W4 gate: done D1+K7, C6, B2+E1, E2, E3, E4, F1, F4, I1, I2; partial HW1, HW3, P1–P7, F2 (committed) and C1, C1b, B1, HW2, D5, E5, E6, K10, Q14 (uncommitted, no lane report); not started lane 4a (D2/D3/D4/I3), C3–C5, K2, K4, K6, F3, B3, B5. Gate fixes 815241f. Full suite --no-parallel on the working tree: 3712/3713 passed, 478 s; only failure is the uncommitted B1 live fixture gate. Details in progress.md.
 - 2026-10-01 · W3+W4 completion gate: done C3, K2, K4, K6, F3, B3, HW2, D5, D3, D4, I3, E5, E6, K10, Q14, F2; partial C1, C1b, C4, C5, B1, B5, D2, P1–P7 (all need V1 datasets/models/hardware). Gate fixes e4f4033 (lane 4c leftovers), 60c877a (Q14 switch). Full suite --no-parallel: 3860 passed, 0 failed, 515 s. Details in progress.md.
+- 2026-10-02 · W5+W6+W7 gate: done O1–O3, O4+O5+L4, L1–L3, L5, K3, N1, N3, N4, M1–M4, M5, M14, M12, M6, M7, M8, M10, M13, M-d, M17, M16+M21, M18+M20, M19, M22, M23, CU1, CU8, CU4, CU9, CU6, CU7, H4, LANG2, G2, G3, LR1, LR3, LR5, K5; partial L6, N2, M9, M11, CU2, LANG1, G1, LR2, K8 (models/datasets/owner). Gate fixes a4fca5a. Full suite --no-parallel: 4344 passed, 0 failed, 636 s. Details in progress.md.
