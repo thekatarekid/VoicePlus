@@ -1,7 +1,10 @@
 import Foundation
 import Shared
 
-/// T6. Per-stage provider selection. `.auto` = local first (on-device → localhost → cloud),
+/// T6. Per-stage provider selection. In the app, `.auto` means **local only**: no stage leaves the
+/// Mac unless the user pins `.provider(_)` for it (`RoutingTableProviderRouting` only enables
+/// routing for an explicit pin, and Settings/Privacy report Auto as "on this Mac"). `chain(for:)`
+/// still orders local providers before cloud ones for `.auto` callers that use the table directly,
 /// with fallback down the chain when a provider throws mid-call. Every remote call is
 /// logged to `network_log` via `NetworkLogger` (timestamp, stage, provider, bytes, purpose).
 public enum RouteChoice: Codable, Equatable, Sendable {
