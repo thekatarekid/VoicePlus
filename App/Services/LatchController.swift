@@ -69,6 +69,9 @@ public final class LatchController: @unchecked Sendable {
     /// H2 — the tenth qualifying hold built the voice profile (V4.49). Fires once; the pill says
     /// `LatchController.voiceLearnedMessage` ("Voice learned").
     public var onVoiceLearned: ((SpeakerProfile) -> Void)?
+    /// V5 M6 — the pill's "Voice learned", once ever: fired by whichever gets there first, the
+    /// passive voiceprint (`PassiveVoiceprint.minimumTurns` holds) or the H2 enrollment.
+    public var onVoiceLearnedNotice: (() -> Void)?
 
     // H2/H3 state, behind its own lock: the latch guard asks from the runtime's task, holds are
     // observed off the main thread, and install/"Not you" arrive from the main thread.
@@ -243,6 +246,7 @@ public final class SpeakerProfileStore: SpeakerProfileUpdating, @unchecked Senda
             cached = .some(nil)
             try? FileManager.default.removeItem(at: url)
             try? FileManager.default.removeItem(at: passiveURL)
+            try? FileManager.default.removeItem(at: voiceprintURL)   // M6: the voiceprint goes too
         }
         onChange?(nil)
     }
@@ -284,6 +288,72 @@ public final class SpeakerProfileStore: SpeakerProfileUpdating, @unchecked Senda
         guard var p = profile else { return }
         p.reinforce(e)
         save(p)
+    }
+
+    // MARK: V5 M6 — passive voiceprint (`speaker-profile.voiceprint.json`)
+
+    /// What is persisted: the running mean, and whether "Voice learned" was already shown (once,
+    /// ever — whichever of the voiceprint and the H2 enrollment gets there first says it).
+    struct StoredVoiceprint: Codable, Equatable {
+        var voiceprint = PassiveVoiceprint()
+        var announced = false
+    }
+
+    private var voiceprintURL: URL { url.deletingPathExtension().appendingPathExtension("voiceprint.json") }
+
+    private func loadVoiceprintLocked() -> StoredVoiceprint {
+        guard let data = try? Data(contentsOf: voiceprintURL),
+              let stored = try? JSONDecoder().decode(StoredVoiceprint.self, from: data) else { return StoredVoiceprint() }
+        return stored
+    }
+
+    private func saveVoiceprintLocked(_ stored: StoredVoiceprint) {
+        do {
+            try FileManager.default.createDirectory(at: voiceprintURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(stored).write(to: voiceprintURL, options: .atomic)
+        } catch {
+            Log.app.error("speaker: voiceprint save failed: \(error)")
+        }
+    }
+
+    /// M6 — the user's passive voiceprint as it stands (learning or usable).
+    public var voiceprint: PassiveVoiceprint { lock.withLock { loadVoiceprintLocked().voiceprint } }
+
+    /// M6 — one hold-to-talk turn's embedding, weighted by its SNR.
+    @discardableResult
+    public func updateVoiceprint(_ e: SpeakerEmbedding, snrDB: Float, at now: Date = Date()) -> PassiveVoiceprint.Outcome {
+        lock.withLock {
+            var stored = loadVoiceprintLocked()
+            let outcome = stored.voiceprint.update(e, snrDB: snrDB, at: now)
+            switch outcome {
+            case .learning, .ready, .updated: saveVoiceprintLocked(stored)
+            case .outlier, .unusable: break
+            }
+            return outcome
+        }
+    }
+
+    /// "Voice learned" is shown once, ever. True the first time; false after.
+    public func claimVoiceLearnedNotice() -> Bool {
+        lock.withLock {
+            var stored = loadVoiceprintLocked()
+            guard !stored.announced else { return false }
+            stored.announced = true
+            saveVoiceprintLocked(stored)
+            return true
+        }
+    }
+
+    /// V5 M12 — the user's voice for meeting labels, in the meeting embedder's space (WeSpeaker,
+    /// `FluidSpeakerEmbedder.name`): the passive voiceprint once usable (more turns, SNR-weighted),
+    /// else an enrolled profile built by WeSpeaker, else nil (channel labels). An MFCC profile is
+    /// never offered: its Gaussian summary means nothing to the diarizer's cosine space.
+    public func meetingEmbedding(embedder: String = "fluid-wespeaker") -> [Float]? {
+        if let v = voiceprint.embedding, v.embedder == embedder { return v.vector }
+        if let p = profile, p.centroid.embedder == embedder, p.centroid.metric == .cosine, !p.centroid.isEmpty {
+            return p.centroid.vector
+        }
+        return nil
     }
 }
 
@@ -385,14 +455,19 @@ extension LatchController {
     public func observeHoldUtterance(samples: [Float], speechSeconds: TimeInterval) -> PassiveEnrollmentResult {
         refreshEmbedderIfWeightsArrived()
         let embedder = self.embedder
-        guard !hasEnrolledVoice else { return .alreadyEnrolled }
+        let enrolled = hasEnrolledVoice
         // Never run a backend that cannot identify anyone: an MFCC profile could not be used for
         // filtering anyway (X03 — filtering stays off).
-        guard embedder.identifiesSpeakers else { return .unavailable }
+        guard embedder.identifiesSpeakers else { return enrolled ? .alreadyEnrolled : .unavailable }
         guard SpeakerEnrollment.holdQualifies(speechSeconds: speechSeconds) else {
-            return .tooShort(speechSeconds: speechSeconds)
+            return enrolled ? .alreadyEnrolled : .tooShort(speechSeconds: speechSeconds)
         }
-        guard !samples.isEmpty, let embedding = try? embedder.embed(samples) else { return .couldNotEmbed }
+        guard !samples.isEmpty, let embedding = try? embedder.embed(samples) else {
+            return enrolled ? .alreadyEnrolled : .couldNotEmbed
+        }
+        // V5 M6 — every qualifying hold also feeds the passive voiceprint, enrolled or not.
+        learnVoiceprint(embedding, samples: samples)
+        guard !enrolled else { return .alreadyEnrolled }
         let (outcome, snapshot) = speakerLock.withLock { () -> (SpeakerEnrollment.HoldOutcome, SpeakerEnrollment) in
             // Another hold may have finished enrollment while this one was being embedded.
             if let p = _speakerGate.profile, Self.canFilter(with: _embedder, profile: p) { return (.alreadyComplete, passive) }
@@ -412,8 +487,32 @@ extension LatchController {
             install(profile: profile)
             Log.app.notice("speaker: \(Self.voiceLearnedMessage) from \(SpeakerEnrollment.passiveUtterances) holds")
             onVoiceLearned?(profile)
+            announceVoiceLearnedOnce()
             return .voiceLearned(profile)
         }
+    }
+
+    /// V5 M6 — should the capture side buffer hold audio at all? Yes while the voice is still being
+    /// enrolled (H2), and yes whenever the embedder can identify speakers (the voiceprint keeps
+    /// learning). Only "enrolled, and nothing could identify anyone" says no.
+    public var wantsHoldAudio: Bool { !hasEnrolledVoice || embedder.identifiesSpeakers }
+
+    /// V5 M6 — one hold's embedding into the passive voiceprint, weighted by the hold's SNR. The
+    /// hold is the user by definition (they pressed the key — K4's `.you` anchor); a hold dominated
+    /// by another voice is caught by the voiceprint's own outlier check. Says "Voice learned" once.
+    @discardableResult
+    func learnVoiceprint(_ embedding: SpeakerEmbedding, samples: [Float]) -> PassiveVoiceprint.Outcome {
+        let outcome = profiles.updateVoiceprint(embedding, snrDB: SignalQuality.snrDB(samples))
+        if outcome == .ready {
+            Log.app.notice("speaker: voiceprint usable after \(PassiveVoiceprint.minimumTurns) holds")
+            announceVoiceLearnedOnce()
+        }
+        return outcome
+    }
+
+    func announceVoiceLearnedOnce() {
+        guard profiles.claimVoiceLearnedNotice() else { return }
+        onVoiceLearnedNotice?()
     }
 
     /// H3 — the weights may land after launch (they download with the speech stack). A fallback the

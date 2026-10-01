@@ -254,11 +254,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ten have; then latch segments go through the speaker filter, fed the latch audio here.
         let speakerAudio = SpeakerAudioWiring(
             isLatched: { [weak coordinator] in coordinator?.latched ?? false },
-            wantsHolds: { [weak container] in !(container?.latchController.hasEnrolledVoice ?? true) },
+            wantsHolds: { [weak container] in container?.latchController.wantsHoldAudio ?? false },   // V5 M6
             observe: SpeakerAudioWiring.observeHolds(on: container.latchController))
         if let audio = container.audio { speakerAudio.bind(to: audio) }
         container.latchController.attach(runtime: latch, segmentAudio: { [weak speakerAudio] in speakerAudio?.segmentAudio.take() })
-        container.latchController.onVoiceLearned = { [weak self] _ in
+        // V5 M6 — "Voice learned" once ever: the voiceprint (5 holds) or the H2 profile, whichever first.
+        container.latchController.onVoiceLearnedNotice = { [weak self] in
             DispatchQueue.main.async { self?.pill.model.present(.preview(text: LatchController.voiceLearnedMessage)) }
         }
         self.speakerAudio = speakerAudio
