@@ -74,7 +74,13 @@ public final class Qwen3RefinementSession: RefinementSession {
     /// Resolve the weights and load the models. Optional: `refine` does it on first use, but
     /// paying ~10 s of CoreML compile inside a 300 ms deadline is not a plan, so the app should
     /// call this when refinement is enabled.
+    ///
+    /// V5 Q15: loading (re-specialising) a model while a timed-out prediction from an earlier
+    /// session is still running is what crashed CoreML, so this waits for in-flight refinement
+    /// work first. A released session's models stay alive until its in-flight body finishes,
+    /// because that body holds the backend.
     public func prepare(progress: (@Sendable (Double) -> Void)? = nil) async throws {
+        await RefinementInFlight.shared.drain()
         try await backend.prepare(progress: progress)
     }
 

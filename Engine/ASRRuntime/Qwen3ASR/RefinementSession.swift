@@ -114,29 +114,129 @@ public enum Refinement {
         )
     }
 
-    /// Run `body` with a hard deadline. On timeout: cancel `body`, throw `.deadlineExceeded`.
+    /// Run `body` with a hard deadline. On timeout the **caller** gets `.deadlineExceeded` at
+    /// once; `body` is not awaited by the caller (V5 Q15).
     ///
-    /// Cancellation is cooperative — the CoreML decode loop in `Qwen3AsrManager` checks it once
-    /// per generated token, so the work stops within roughly one token of the deadline rather
-    /// than at it. A cancelled *caller* propagates `CancellationError`, not a deadline error.
+    /// CoreML crash hardening: a synchronous `MLModel.prediction` cannot be interrupted, and
+    /// releasing or re-specialising the model underneath one is what crashed. So `body` runs in
+    /// its own task, registered in `inFlight`, and on timeout it is only *asked* to stop
+    /// (cooperative cancellation — the decode loop in `Qwen3AsrManager` checks once per token,
+    /// i.e. *between* predictions; the prediction already running always finishes). Anything that
+    /// releases or reloads the model must first `await inFlight.drain()`, which returns only once
+    /// every such task has finished. A cancelled *caller* propagates `CancellationError`, not a
+    /// deadline error, and likewise returns without waiting for the prediction.
     public static func withDeadline<T: Sendable>(
         _ deadline: Duration,
+        inFlight: RefinementInFlight = .shared,
         _ body: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         guard deadline > .zero else { throw RefinementError.deadlineExceeded(deadline) }
-        return try await withThrowingTaskGroup(of: T?.self) { group in
-            group.addTask { try await body() }
-            group.addTask {
-                try await Task.sleep(for: deadline)
-                return nil
+        try Task.checkCancellation()
+        let work = inFlight.start(body)
+        let race = DeadlineRace<T>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+                race.install(continuation)
+                let timer = Task {
+                    try? await Task.sleep(for: deadline)
+                    if race.finish(.failure(RefinementError.deadlineExceeded(deadline))) { work.cancel() }
+                }
+                Task {
+                    let outcome: Result<T, Error>
+                    do { outcome = .success(try await work.value) } catch { outcome = .failure(error) }
+                    timer.cancel()
+                    race.finish(outcome)
+                }
             }
-            while let finished = try await group.next() {
-                group.cancelAll()
-                guard let value = finished else { throw RefinementError.deadlineExceeded(deadline) }
-                return value
-            }
-            throw RefinementError.deadlineExceeded(deadline)
+        } onCancel: {
+            if race.finish(.failure(CancellationError())) { work.cancel() }
         }
+    }
+}
+
+// MARK: - In-flight refinement work (V5 Q15)
+
+/// Every refinement body currently running, so a model release can wait for them.
+///
+/// `withDeadline` returns to its caller on timeout without waiting for the model; this registry
+/// is what keeps the model alive (and un-reloaded) until the prediction that was running has
+/// actually finished. Injectable for tests; production code uses `.shared`.
+public final class RefinementInFlight: @unchecked Sendable {
+    public static let shared = RefinementInFlight()
+
+    private let lock = NSLock()
+    private var tasks: [UInt64: Task<Void, Never>] = [:]
+    private var nextID: UInt64 = 0
+
+    public init() {}
+
+    /// How many bodies are still running (finished ones deregister themselves).
+    public var count: Int { lock.lock(); defer { lock.unlock() }; return tasks.count }
+
+    /// Start `body` in its own unstructured task and register it until it finishes.
+    func start<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) -> Task<T, Error> {
+        let work = Task { try await body() }
+        lock.lock()
+        let id = nextID
+        nextID &+= 1
+        tasks[id] = Task { [weak self] in
+            _ = try? await work.value
+            self?.remove(id)
+        }
+        lock.unlock()
+        return work
+    }
+
+    private func remove(_ id: UInt64) {
+        lock.lock(); tasks[id] = nil; lock.unlock()
+    }
+
+    /// Wait until no refinement body is running — call before releasing or re-specialising a
+    /// model. Never cancels anything; bodies started while draining are waited for too.
+    public func drain() async {
+        while true {
+            lock.lock()
+            let pending = Array(tasks.values)
+            lock.unlock()
+            if pending.isEmpty { return }
+            for task in pending { await task.value }
+        }
+    }
+}
+
+/// First-finisher-wins latch for `withDeadline`: result, timeout or caller cancellation.
+private final class DeadlineRace<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+    private var early: Result<T, Error>?
+    private var done = false
+
+    func install(_ continuation: CheckedContinuation<T, Error>) {
+        lock.lock()
+        if let early {
+            lock.unlock()
+            continuation.resume(with: early)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    /// Resolve the race. Returns `true` only for the call that won it.
+    @discardableResult
+    func finish(_ result: Result<T, Error>) -> Bool {
+        lock.lock()
+        guard !done else { lock.unlock(); return false }
+        done = true
+        if let continuation {
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume(with: result)
+        } else {
+            early = result
+            lock.unlock()
+        }
+        return true
     }
 }
 

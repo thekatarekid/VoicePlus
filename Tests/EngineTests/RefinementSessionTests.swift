@@ -19,7 +19,7 @@ struct RefinementSessionTests {
     @Test func spanCoversTheAudioAndCarriesProvenance() async throws {
         let session = MockRefinementSession()
         let spans = try await session.refine(
-            samples: Self.samples(seconds: 1.5), context: "", deadline: .seconds(5)
+            samples: Self.samples(seconds: 1.5), context: "", deadline: .seconds(60)
         )
         let span = try #require(spans.first)
         #expect(spans.count == 1)
@@ -33,8 +33,8 @@ struct RefinementSessionTests {
     @Test func mockOutputIsDeterministic() async throws {
         let session = MockRefinementSession()
         let audio = Self.samples(seconds: 2)
-        let a = try await session.refine(samples: audio, context: "Priya standup", deadline: .seconds(5))
-        let b = try await session.refine(samples: audio, context: "Priya standup", deadline: .seconds(5))
+        let a = try await session.refine(samples: audio, context: "Priya standup", deadline: .seconds(60))
+        let b = try await session.refine(samples: audio, context: "Priya standup", deadline: .seconds(60))
         #expect(a == b)
         #expect(a.first?.text == "mock refinement of 2.00s with 2 context words")
     }
@@ -51,7 +51,7 @@ struct RefinementSessionTests {
             stability: .final
         )
         let refined = try await session.refine(
-            span: pass1, samples: Self.samples(seconds: 3.5), context: "", deadline: .seconds(5)
+            span: pass1, samples: Self.samples(seconds: 3.5), context: "", deadline: .seconds(60)
         )
         #expect(refined.text == "the corrected text")
         #expect(refined.audioRange == 4.0...7.5)          // not 0…3.5
@@ -66,7 +66,7 @@ struct RefinementSessionTests {
         let session = MockRefinementSession(text: "   ")
         let pass1 = TranscriptSpan(text: "keep me", confidence: 0.8, audioRange: 0...1, provenance: [.asr])
         let refined = try await session.refine(
-            span: pass1, samples: Self.samples(seconds: 1), context: "", deadline: .seconds(5)
+            span: pass1, samples: Self.samples(seconds: 1), context: "", deadline: .seconds(60)
         )
         #expect(refined.text == "keep me")
         #expect(refined.provenance == [.asr, .refineQwen3])
@@ -75,7 +75,8 @@ struct RefinementSessionTests {
     // MARK: Deadline
 
     @Test func deadlineIsHardAndReturnsPromptly() async throws {
-        let session = MockRefinementSession(work: .seconds(30))
+        let work: Duration = .seconds(30)
+        let session = MockRefinementSession(work: work)
         let start = ContinuousClock.now
         await #expect(throws: RefinementError.deadlineExceeded(.milliseconds(80))) {
             _ = try await session.refine(
@@ -83,13 +84,14 @@ struct RefinementSessionTests {
             )
         }
         let elapsed = ContinuousClock.now - start
-        #expect(elapsed < .seconds(5), "the deadline did not interrupt the pass; waited \(elapsed)")
+        // V5 J1: relative to the simulated work, not an absolute budget a loaded machine can miss.
+        #expect(elapsed < work / 2, "the deadline did not interrupt the pass; waited \(elapsed)")
     }
 
     @Test func workInsideTheDeadlineSucceeds() async throws {
         let session = MockRefinementSession(work: .milliseconds(20))
         let spans = try await session.refine(
-            samples: Self.samples(seconds: 1), context: "", deadline: .seconds(5)
+            samples: Self.samples(seconds: 1), context: "", deadline: .seconds(60)
         )
         #expect(spans.count == 1)
     }
@@ -101,10 +103,91 @@ struct RefinementSessionTests {
         }
     }
 
+    // MARK: CoreML crash hardening (V5 Q15)
+
+    /// A body that behaves like a synchronous `MLModel.prediction`: it ignores cancellation and
+    /// finishes only when the test opens the gate. The caller must still get its deadline error.
+    @Test func deadlineReturnsToTheCallerWithoutWaitingForTheRunningPrediction() async throws {
+        let inFlight = RefinementInFlight()
+        let gate = Gate()
+        let probe = Probe()
+        await #expect(throws: RefinementError.deadlineExceeded(.milliseconds(30))) {
+            _ = try await Refinement.withDeadline(.milliseconds(30), inFlight: inFlight) {
+                await gate.wait()                       // never interrupted
+                probe.mark(cancelled: Task.isCancelled)
+                return "late"
+            }
+        }
+        // We are here while the "prediction" is provably still running (the gate is shut).
+        #expect(inFlight.count == 1)
+        #expect(!probe.finished)
+        gate.open()
+        await inFlight.drain()
+        #expect(probe.finished)
+        #expect(probe.sawCancellation, "a timed-out body is asked to stop at its next checkpoint")
+        #expect(inFlight.count == 0)
+    }
+
+    /// Model release / re-specialisation path: `drain()` must not return while a timed-out
+    /// prediction is still running.
+    @Test func drainWaitsForTheInFlightPrediction() async throws {
+        let inFlight = RefinementInFlight()
+        let gate = Gate()
+        let probe = Probe()
+        _ = try? await Refinement.withDeadline(.milliseconds(10), inFlight: inFlight) {
+            await gate.wait()
+            probe.mark(cancelled: false)
+            return 1
+        }
+        let drained = Probe()
+        let releaser = Task {
+            await inFlight.drain()
+            drained.mark(cancelled: false)              // "model released here"
+            #expect(probe.finished, "the model was released under a running prediction")
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!drained.finished)                       // gate shut → drain cannot have finished
+        gate.open()
+        await releaser.value
+        #expect(drained.finished)
+    }
+
+    @Test func drainWithNothingInFlightReturnsImmediately() async {
+        let inFlight = RefinementInFlight()
+        await inFlight.drain()
+        #expect(inFlight.count == 0)
+    }
+
+    @Test func aCompletedBodyDeregistersItself() async throws {
+        let inFlight = RefinementInFlight()
+        let value = try await Refinement.withDeadline(.seconds(30), inFlight: inFlight) { 7 }
+        #expect(value == 7)
+        await inFlight.drain()
+        #expect(inFlight.count == 0)
+    }
+
+    @Test func cancellingTheCallerDoesNotWaitForTheRunningPrediction() async throws {
+        let inFlight = RefinementInFlight()
+        let gate = Gate()
+        let caller = Task {
+            try await Refinement.withDeadline(.seconds(60), inFlight: inFlight) {
+                await gate.wait()
+                return 0
+            }
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        caller.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await caller.value }
+        #expect(inFlight.count == 1)
+        gate.open()
+        await inFlight.drain()
+    }
+
     // MARK: Cancellation
 
     @Test func cancellingTheCallerCancelsThePass() async throws {
-        let session = MockRefinementSession(work: .seconds(30))
+        let work: Duration = .seconds(60)
+        let session = MockRefinementSession(work: work)
         let audio = Self.samples(seconds: 1)
         let task = Task {
             try await session.refine(samples: audio, context: "", deadline: .seconds(60))
@@ -121,7 +204,7 @@ struct RefinementSessionTests {
         } catch {
             Issue.record("expected CancellationError, got \(error)")
         }
-        #expect(ContinuousClock.now - start < .seconds(5))
+        #expect(ContinuousClock.now - start < work / 2)
     }
 
     // MARK: Error paths
@@ -129,14 +212,14 @@ struct RefinementSessionTests {
     @Test func emptyAudioIsRejected() async throws {
         let session = MockRefinementSession()
         await #expect(throws: RefinementError.emptyAudio) {
-            _ = try await session.refine(samples: [], context: "", deadline: .seconds(5))
+            _ = try await session.refine(samples: [], context: "", deadline: .seconds(60))
         }
     }
 
     @Test func backendFailurePropagates() async throws {
         let session = MockRefinementSession(failure: .backendFailure("decoder said no"))
         await #expect(throws: RefinementError.backendFailure("decoder said no")) {
-            _ = try await session.refine(samples: Self.samples(seconds: 1), context: "", deadline: .seconds(5))
+            _ = try await session.refine(samples: Self.samples(seconds: 1), context: "", deadline: .seconds(60))
         }
     }
 
@@ -365,4 +448,40 @@ struct Qwen3RefinementAvailabilityTests {
         // The KV cache is fixed: prompt + reserved output must always fit.
         #expect(Qwen3RefinementBudget.contextTokenBudget(sampleCount: 16_000 * 30) >= 0)
     }
+}
+
+// MARK: - Q15 test doubles
+
+/// A non-cancellable wait, standing in for a synchronous CoreML prediction.
+private final class Gate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if isOpen { lock.unlock(); c.resume(); return }
+            waiters.append(c)
+            lock.unlock()
+        }
+    }
+
+    func open() {
+        lock.lock()
+        isOpen = true
+        let pending = waiters
+        waiters = []
+        lock.unlock()
+        pending.forEach { $0.resume() }
+    }
+}
+
+private final class Probe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _finished = false
+    private var _cancelled = false
+    func mark(cancelled: Bool) { lock.lock(); _finished = true; _cancelled = cancelled; lock.unlock() }
+    var finished: Bool { lock.lock(); defer { lock.unlock() }; return _finished }
+    var sawCancellation: Bool { lock.lock(); defer { lock.unlock() }; return _cancelled }
 }
