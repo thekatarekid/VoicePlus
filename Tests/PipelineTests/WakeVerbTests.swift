@@ -15,6 +15,15 @@ import Shared
         }
     }
 
+    // MARK: K20 — wire value "latched", one-release read-compat for "handsFree"
+    @Test func latchedWireValueAndLegacyAlias() {
+        #expect(WakeVerbPreRoute.latchedValue == "latched")
+        #expect(WakeVerbPreRoute.isLatched(StageContext(extra: [WakeVerbPreRoute.modeKey: "latched"])))
+        #expect(WakeVerbPreRoute.isLatched(StageContext(extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.legacyLatchedValue])))
+        #expect(!WakeVerbPreRoute.isLatched(StageContext(extra: [WakeVerbPreRoute.modeKey: "hold"])))
+        #expect(!WakeVerbPreRoute.isLatched(StageContext()))
+    }
+
     // MARK: Grammar
     @Test func typeVerb() {
         let p = Self.g.parse("Type hello there, World")

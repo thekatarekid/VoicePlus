@@ -166,8 +166,8 @@ struct OneMenuTests {
         model.latched = false
         #expect(!model.latched)
         // G2: every file the rename swept, checked as text so it cannot regress. Not
-        // `WakeVerbPreRoute.swift` — `latchedValue` deliberately still *carries* the string
-        // "handsFree" as an in-process context value (renaming the payload would be a data change).
+        // `WakeVerbPreRoute.swift` — since V5 K20 it writes "latched" but keeps a one-release
+        // `legacyLatchedValue = "handsFree"` read-compat alias (see WakeVerbTests).
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         let swept = [

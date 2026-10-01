@@ -11,11 +11,12 @@ public extension StageID {
 /// for the stage and bumps the usage counter that drives the in-pill hint.
 public final class WakeVerbPreRoute: GatekeeperPreRouting, @unchecked Sendable {
     public static let modeKey = "input.mode"
-    /// The value `modeKey` carries while the session is latched. The **string** is deliberately
-    /// still `"handsFree"`: it is the wire value of an in-process context key, and every reader
-    /// goes through this constant, so renaming the symbol costs nothing while renaming the value
-    /// would be a data change for no user-visible gain (V3 §4.7 renames code names, not payloads).
-    public static let latchedValue = "handsFree"
+    /// The value `modeKey` carries while the session is latched. V5 K20 retired the last
+    /// `handsFree` wire value: writers now put `"latched"`.
+    public static let latchedValue = "latched"
+    /// One-release read-compat alias (V5 K20): a context written by a pre-K20 build still says
+    /// `"handsFree"`; `isLatched` accepts it. Never written. Remove after the next release.
+    public static let legacyLatchedValue = "handsFree"
     public let grammar: WakeVerbGrammar
     public let hints: WakeVerbHintModel
     private let lock = NSLock()
@@ -26,7 +27,8 @@ public final class WakeVerbPreRoute: GatekeeperPreRouting, @unchecked Sendable {
     }
 
     public static func isLatched(_ context: StageContext) -> Bool {
-        context.extra[modeKey] == latchedValue
+        guard let value = context.extra[modeKey] else { return false }
+        return value == latchedValue || value == legacyLatchedValue
     }
 
     public func preRoute(_ text: String, context: StageContext) -> GatekeeperDecision? {
