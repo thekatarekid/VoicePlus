@@ -21,7 +21,8 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
     /// gain. Flip back once the decoder fork exposes logits (synthetic suite: 33% → 100% recall).
     public static let contextBiasing = FeatureFlag(
         id: "contextBiasing", defaultOn: false,
-        description: "Bias the decoder toward on-screen and app-specific vocabulary (Bet 2)."
+        description: "Bias the decoder toward on-screen vocabulary (Bet 2). Verdict (A3): delete — inert on the real decoder "
+            + "(0 entity-recall gain); removed by A1 when B1 CTC boosting lands."
     )
     /// Bet 3 — spoken repair of the last utterance.
     public static let voiceRepair = FeatureFlag(
@@ -31,19 +32,22 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
     /// Bet 4 — dual-path silent correction (Phase 1.5; default off until it ships).
     public static let dualPath = FeatureFlag(
         id: "dualPath", defaultOn: false,
-        description: "Run a slower second ASR pass and silently reconcile (Bet 4)."
+        description: "Run a slower second ASR pass and silently reconcile (Bet 4). Verdict (A3): off. Kill: delete unless the V1 "
+            + "replay (LibriSpeech test-other, Earnings-22) shows ≥0.5 abs WER gain with no test-clean regression and ≤1.5 s added p95."
     )
     /// Cloud ASR provider (privacy-sensitive; default off).
     public static let cloudASR = FeatureFlag(
         id: "cloudASR", defaultOn: false,
-        description: "Send audio to a cloud ASR provider when explicitly enabled."
+        description: "Send audio to a cloud ASR provider when explicitly enabled. Verdict (A3): ship as opt-in, off — a privacy "
+            + "choice, not an accuracy bet. Kill: delete if it is still unused when RoutingTable sends ASR elsewhere (W8)."
     )
 
     /// P5.1 — hands-free directed-speech detection. Experimental: stays opt-in until the
     /// recorded home+office corpus (not just the synthetic harness) holds < 1 false trigger/day.
     public static let directedSpeech = FeatureFlag(
         id: "directedSpeech", defaultOn: false,
-        description: "Experimental: hands-free mode answers speech directed at the machine (no hotkey)."
+        description: "Experimental: hands-free mode answers speech directed at the machine (no hotkey). Verdict (A3): off. "
+            + "Kill: delete when the O2/O3 decision layer ships unless V1 decide-stage replay (AMI/NOTSOFAR ambient) holds <1 false trigger/day."
     )
 
     /// R1.5 — which recognizer draws the streaming preview. `false` (the default) is the measured
@@ -52,7 +56,8 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
     /// see `PreviewBackend` and the R1.5 table in `DECISIONS.md`.
     public static let previewBackend = FeatureFlag(
         id: "previewBackend", defaultOn: false,
-        description: "Draw the preview by polling the final model instead of the EOU 120M stream (R1.5 candidate B)."
+        description: "Draw the preview by polling the final model instead of the EOU 120M stream (R1.5 candidate B). Verdict (A3): "
+            + "off pending V1. Kill: flip on and delete the EOU path if V1 shows B ≥0.05 abs WER better with first-word p95 ≤1.5 s; else delete B."
     )
 
     /// R5 — the Qwen3-ASR 0.6B second pass. **Default off, set by measurement, not caution.**
@@ -65,8 +70,13 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
     /// segment-class breakdown finds a class where it wins. See the R5 rows in `DECISIONS.md`.
     public static let qwenRefinement = FeatureFlag(
         id: "qwenRefinement", defaultOn: false,
-        description: "Refine finalized segments with a second Qwen3-ASR pass (R5; measured worse overall)."
+        description: "Refine finalized segments with a second Qwen3-ASR pass (R5; measured worse overall). Verdict (A3): off. "
+            + "Kill: delete the path in W8 unless V1 finds a segment class with ≥1.0 abs WER gain at ≤2.5 s p95."
     )
+
+    /// A3 — the six flags V5 §X20 found switched off. Each carries its verdict and written kill
+    /// criterion in `description` (DECISIONS.md, "2026-10-01 — A3").
+    public static let x20: [FeatureFlag] = [.contextBiasing, .dualPath, .cloudASR, .directedSpeech, .previewBackend, .qwenRefinement]
 
     public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR, .directedSpeech, .previewBackend, .qwenRefinement]
 }

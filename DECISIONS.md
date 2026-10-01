@@ -494,3 +494,19 @@ Build doc: `VoicePlus_ImplementationBuild_V4_Wave1+Design.md`. Five decisions th
   Replace text. Why: the user sees exactly what will be typed and can stop it; costs ~0.9 s per
   turn. Revisit with the §5 item 8 timings — if owners find 900 ms slow, lower the default before
   removing the preview.
+
+## 2026-10-01 — A3, verdicts for the six dark flags (V5 §X20) · status: criteria written, V1 re-measure pending
+
+The V1 public-set harness (lane 2a) was being built in parallel, so no flag below was re-measured on public
+sets yet. Each verdict uses the evidence already in this file and writes a **kill criterion that a V1 run
+decides mechanically**. Defaults are unchanged (all off). The text lives in each `FeatureFlag.description`
+(shown in Privacy › Diagnostics) and `FeatureFlag.x20` lists the six.
+
+| flag | verdict | evidence so far | kill criterion (decided by V1) |
+|---|---|---|---|
+| `contextBiasing` | **delete** | Bet 2: 0 entity-recall gain on the real decoder (post-hoc rescorer) | removed by A1 once B1 CTC boosting lands |
+| `dualPath` | off | Bet 4: built, never measured | delete unless LibriSpeech test-other + Earnings-22 show ≥0.5 abs WER gain, no test-clean regression, ≤1.5 s added p95 |
+| `cloudASR` | ship opt-in, off | privacy choice, not an accuracy bet | delete if still unused when RoutingTable routes ASR elsewhere (W8) |
+| `directedSpeech` | off | P5: 0 false triggers on synthetic only | delete when O2/O3 ships unless V1 decide-stage replay (AMI/NOTSOFAR ambient) holds <1 false trigger/day |
+| `previewBackend` | off pending V1 | R1.5: B WER 0.118 vs A 0.268; both miss 300 ms | flip on + delete EOU path if B ≥0.05 abs WER better with first-word p95 ≤1.5 s; else delete B |
+| `qwenRefinement` | off | R5.4: pass-2 WER 0.178 vs 0.099, 1.9–4.2 s | delete in W8 unless a segment class gains ≥1.0 abs WER at ≤2.5 s p95 |
