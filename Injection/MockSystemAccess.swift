@@ -83,6 +83,14 @@ open class MockSystemAccess: SystemAccess {
     public private(set) var journal: [String] = []
     /// Called before every keystroke/AX write; tests use it to change focus mid-injection.
     public var beforeSideEffect: (() -> Void)?
+    /// Q3 — the app applies a write only after this many further `focusedElement()` reads: until
+    /// then reads show the field as it was before the write (Electron/Chromium apply keystrokes
+    /// asynchronously). 0 = applied at once.
+    public var readbackLagReads = 0
+    /// Q3 — every `focusedElement()` call so far.
+    public private(set) var focusedReadCount = 0
+    private var staleField: Field?
+    private var staleReadsRemaining = 0
 
     public init(frontmost: FocusSnapshot? = FocusSnapshot(pid: 100, bundleID: "com.apple.TextEdit", appName: "TextEdit", elementToken: "el-1")) {
         self.frontmost = frontmost
@@ -97,6 +105,13 @@ open class MockSystemAccess: SystemAccess {
         guard hasFocusedElement else { throw SystemAccessError.noFocusedElement }
         let exposed = !requiresAccessibilityEnable || frontmost.map { accessibilityEnabledPIDs.contains($0.pid) } == true
         accessibilityEvents.append(exposed ? "read(tree)" : "read(no tree)")
+        focusedReadCount += 1
+        var field = self.field
+        if staleReadsRemaining > 0, let stale = staleField {
+            staleReadsRemaining -= 1
+            field = stale
+            if staleReadsRemaining == 0 { staleField = nil }
+        }
         let readable = axReadable && exposed
         let caretReadable = (axCaretReadable ?? axReadable) && exposed
         return FocusedElementInfo(role: field.role,
@@ -105,7 +120,7 @@ open class MockSystemAccess: SystemAccess {
                                   isValueSettable: axWriteWorks,
                                   isSelectedTextSettable: axWriteWorks,
                                   subrole: field.subrole,
-                                  selectedText: caretReadable ? selectedTextSlice : nil,
+                                  selectedText: caretReadable ? Self.slice(of: field) : nil,
                                   hints: FocusedElementInfo.hints(from: field.hints.map { $0 }))
     }
 
@@ -117,6 +132,7 @@ open class MockSystemAccess: SystemAccess {
         journal.append("ax.setValue")
         postCount += 1
         guard axWriteWorks else { throw SystemAccessError.attributeNotSettable("AXValue") }
+        beginReadbackLag()
         field.value = value
         let end = value.utf16.count
         field.selection = end..<end
@@ -208,7 +224,22 @@ open class MockSystemAccess: SystemAccess {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Q3 — a write starts the lag window (reads keep showing the pre-write field).
+    private func beginReadbackLag() {
+        guard readbackLagReads > 0 else { return }
+        if staleReadsRemaining == 0 { staleField = field }
+        staleReadsRemaining = readbackLagReads
+    }
+
+    private static func slice(of field: Field) -> String {
+        let utf16 = Array(field.value.utf16)
+        let lower = max(0, min(field.selection.lowerBound, utf16.count))
+        let upper = max(lower, min(field.selection.upperBound, utf16.count))
+        return String(decoding: utf16[lower..<upper], as: UTF16.self)
+    }
+
     private func insertAtSelection(_ text: String) {
+        beginReadbackLag()
         var utf16 = Array(field.value.utf16)
         let lower = max(0, min(field.selection.lowerBound, utf16.count))
         let sel = lower..<max(lower, min(field.selection.upperBound, utf16.count))

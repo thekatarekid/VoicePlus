@@ -34,6 +34,9 @@ public final class TextInjector: Injector {
     /// `App` installs one (see `InjectionPolicyProviding`); `Injection` never reads settings itself.
     public var policy: InjectionPolicyProviding?
     public var clock: () -> Date = Date.init
+    /// Q3 — readback is judged only after the field has had a moment to apply the write
+    /// (`AXObserver` value/selection change, else 30 ms polls, up to 400 ms).
+    public var readbackSettler = ReadbackSettler.standard
 
     /// `injection_outcomes.method` for a refusal — deliberately not an `InjectionMethod` raw value,
     /// so `MethodRouter` ignores it: refusing to type into a password field says nothing about
@@ -173,10 +176,16 @@ public final class TextInjector: Injector {
             }
 
             // Posted, or claimed success: possibly landed. No second method may run — that is the rule.
-            let verdict = adapter.verifyReadback(text: text, before: before, after: readFocused(own: own))
+            // Q3 — settle before judging: re-read until confirmed or the 400 ms budget runs out.
+            let settled = readbackSettler.settle(system: system, pid: own ? nil : focus.pid, before: before,
+                                                 read: { readFocused(own: own) },
+                                                 judge: { adapter.verifyReadback(text: text, before: before, after: $0) },
+                                                 clock: clock)
+            let verdict = settled.verdict
             // Q4 — unreadable (could not run) vs unconfirmed (ran, text absent): the pill's neutral vs sticky row.
             LandingVerdictLedger.shared.record(LandingVerdict(readback: verdict), text: request.text, utteranceID: request.utteranceID)
             let detail = thrown.map { "posted, then threw: \($0) — \(verdict.detail)" } ?? verdict.detail
+            Log.injection.debug("readback \(focus.bundleID): \(settled.detail)")
             // `succeeded` is the router's signal, not the delivery verdict: it means "worth trying
             // first again". Confirmed counts, and so does *unavailable* — an app that exposes
             // nothing to read back (a terminal, an Electron canvas) is not evidence against the
@@ -185,7 +194,9 @@ public final class TextInjector: Injector {
                    latency: latency, succeeded: verdict != .unconfirmed, detail: detail)
             Log.injection.info("\(method.rawValue) posted into \(focus.bundleID): \(detail)")
             return TurnCommitReport(.injected(method: method, verified: verdict.isConfirmed),
-                                    postedThenThrew: thrown != nil)
+                                    postedThenThrew: thrown != nil,
+                                    landing: LandingVerdict(readback: verdict),
+                                    settleMilliseconds: settled.settleMilliseconds)
         }
         return TurnCommitReport(.failed(attempts: attempts))
     }
@@ -316,10 +327,17 @@ public struct TurnCommitReport: Equatable, Sendable {
     /// The method that ended the attempt posted and then threw: some of the text may be in the
     /// field. Never "nothing was typed", never retried (design §12).
     public var postedThenThrew: Bool
+    /// Q3/Q4 — what the settled readback said about a write that posted (`nil` when nothing posted).
+    public var landing: LandingVerdict?
+    /// Q3 — how long readback waited for the field to settle before judging (for Q13 diagnostics).
+    public var settleMilliseconds: Int?
 
-    public init(_ outcome: InjectionOutcome, postedThenThrew: Bool = false) {
+    public init(_ outcome: InjectionOutcome, postedThenThrew: Bool = false,
+                landing: LandingVerdict? = nil, settleMilliseconds: Int? = nil) {
         self.outcome = outcome
         self.postedThenThrew = postedThenThrew
+        self.landing = landing
+        self.settleMilliseconds = settleMilliseconds
     }
 
     /// The delivery outcome, with the partial case `InjectionOutcome` cannot express: a method that
