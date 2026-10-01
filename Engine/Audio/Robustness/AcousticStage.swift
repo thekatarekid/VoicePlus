@@ -76,6 +76,14 @@ public struct RobustnessProfile: Codable, Equatable, Sendable {
     /// `hardware-verified pending`. Only correct when the wrapped source is
     /// `VoiceProcessingCaptureSource` (`--mic-selftest-vp`); measuring it needs live hardware.
     public static let voiceProcessing = RobustnessProfile(noiseSuppression: true, aec: .appleVoiceProcessing)
+    /// V5 C1 — Apple voice-processing I/O alone: what Settings › Voice "Noise and echo reduction
+    /// (Apple)" runs (`CaptureGraphPlan`). No spectral gate on top: R1.4 measured the gate losing on
+    /// every point of the sweep, and VP-IO already suppresses noise in the capture unit. Only correct
+    /// with `VoiceProcessingCaptureSource` wrapped.
+    public static let voiceProcessingOnly = RobustnessProfile(noiseSuppression: false, aec: .appleVoiceProcessing)
+    /// V5 C1b — LocalVQE (neural AEC + NS + dereverb) as the sample-level AEC slot, plain tap
+    /// underneath, no spectral gate. Passes audio through when no LocalVQE stage is plugged in.
+    public static let localVQE = RobustnessProfile(noiseSuppression: false, aec: .neural)
 }
 
 /// Ordered list of stages; builds from a profile. Stages that report `isAvailable == false` are

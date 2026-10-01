@@ -106,8 +106,17 @@ public enum EngineFactory {
         // twenty real-room manifests were filed with. To run Apple's AEC instead, both halves must
         // move together: `VoiceProcessingCaptureSource` + `.voiceProcessing` (see --mic-selftest-vp).
         // Evidence: Engine/Audio/Robustness/SUITES.md, "Measured: which capture chain should ship?".
-        let capture = AcousticCaptureSource(wrapping: CoreAudioCaptureSource(), profile: .default)
-        let pipeline = AudioPipeline(source: capture, vad: vad)
+        //
+        // V5 C1/C1b — Settings › Voice "Noise and echo reduction" picks the graph; `CaptureGraphPlan`
+        // moves source and profile together. Default `.off` (the R1.4 plain tap) until the V1 gate.
+        let enhancement = CaptureEnhancement.current(environment: environment)
+        let localVQE = enhancement == .localVQE ? await LocalVQEStage.loadIfAvailable() : nil
+        let plan = CaptureGraphPlan.plan(for: enhancement, localVQEAvailable: localVQE != nil)
+        let capture = plan.makeCaptureSource(plainTap: { CoreAudioCaptureSource() },
+                                             voiceProcessing: { VoiceProcessingCaptureSource() },
+                                             neuralStage: localVQE)
+        Log.engine.info("\(plan.logLine)")
+        let pipeline = AudioPipeline(source: capture, vad: vad, options: plan.apply(to: AudioPipeline.Options()))
         let audio = PipelineAudioSource(pipeline: pipeline)
         let provider = BiasingRecognizerProvider(inner: ModelManagerRecognizerProvider(manager: manager))
         let engine = RealEngine(audio: audio, provider: provider)

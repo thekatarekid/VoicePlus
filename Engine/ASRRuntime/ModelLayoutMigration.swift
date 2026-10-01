@@ -18,6 +18,8 @@ extension ModelCatalog {
         case .speakerEmbedding: return Repo.diarizer.folderName
         // V5 C6: fetched through `ModelHub` too (`Repo.vad`).
         case .sileroVAD: return Repo.vad.folderName
+        // V5 C1b: likewise (`Repo.localVqe`).
+        case .localVQE: return Repo.localVqe.folderName
         // Loaded file-by-file out of the directory we pass (`StreamingEouAsrManager.loadModels(from:)`
         // / no FluidAudio runtime at all), so no name to agree with.
         case .parakeetEOU160, .whisperSmall: return nil

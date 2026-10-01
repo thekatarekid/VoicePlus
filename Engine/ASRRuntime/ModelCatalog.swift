@@ -25,6 +25,9 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// V5 C6 — Silero VAD (CoreML, 256 ms frames, ~1 MB). Part of the stack so users get Silero, not
     /// `EnergyVAD`. Appended so older `RealEngine.revision()` bit positions hold.
     case sileroVAD = "silero-vad-coreml"
+    /// V5 C1b — LocalVQE speech enhancement (neural AEC + NS + dereverb, v1.3 4.8M, 256 ms chunk).
+    /// Not part of the stack: fetched only when Settings › Voice selects it (`ModelRole.onDemand`).
+    case localVQE = "localvqe-coreml"
 }
 
 /// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
@@ -52,6 +55,9 @@ public enum ModelRole: String, Codable, Sendable, Equatable {
     /// Second-pass refinement. Listed (and fetched) only while refinement is switched on — see
     /// `ModelStack.refinementFlagID`.
     case refinement
+    /// V5 B1/B5 — an optional model fetched only when a feature needs it (CTC boosting) or the user
+    /// opts in. Never part of the first-run stack, not listed as a choice, never deleted if present.
+    case onDemand
 }
 
 /// A file the manifest-driven fetcher downloads. `sha256` nil = record-on-download.
@@ -192,6 +198,18 @@ public enum ModelCatalog {
             hfRepo: "FluidInference/silero-vad-coreml",
             requiredPaths: ["silero-vad-unified-256ms-v6.2.1.mlmodelc"],
             approxBytes: 1_063_425, displayName: "Silero voice activity detection", license: "MIT"),
+        // V5 C1b — LocalVQE (Apache-2.0). `folderName` = `Repo.localVqe.folderName`; fetched through
+        // `FluidAudioFetcher` (Repo.localVqe) only when Settings › Voice selects it. Only the
+        // v1.3/256 ms file is required; `ModelHub` fetches the repo's other three exports too, so
+        // `approxBytes` quotes the whole download (50,290,308 bytes, HF tree 2026-10-01).
+        // Loader: `LocalVQEStage.loadIfAvailable`, never `ModelManager.load`.
+        .localVQE: ModelDescriptor(
+            id: .localVQE, kind: .streamingEOU,
+            folderName: "localvqe",
+            hfRepo: "FluidInference/localvqe-coreml",
+            requiredPaths: ["localvqe-v1.3-4.8M-256ms.mlmodelc"],
+            approxBytes: 50_290_308, displayName: "LocalVQE noise and echo reduction", license: "Apache-2.0",
+            role: .onDemand),
     ]
 
     /// Models Settings › Models may list, in catalog order.
@@ -204,6 +222,7 @@ public enum ModelCatalog {
             switch descriptor(id).role {
             case .stack: return true
             case .refinement: return qwenRefinementEnabled
+            case .onDemand: return false
             case .fallback: return false
             }
         }

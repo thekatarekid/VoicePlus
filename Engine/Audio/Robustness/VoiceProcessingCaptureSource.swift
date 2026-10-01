@@ -130,7 +130,7 @@ public final class VoiceProcessingCaptureSource: AudioCaptureSource, CaptureGrap
         let input = engine.inputNode
         let hardware = input.inputFormat(forBus: 0)
         let cached = input.outputFormat(forBus: 0)
-        let format = (hardware.sampleRate > 0 && hardware.channelCount > 0) ? hardware : cached
+        let format = Self.tapFormat(hardware: hardware, cached: cached)
         diagLock.withLock {
             diag.tapRate = format.sampleRate
             diag.tapChannels = Int(format.channelCount)
@@ -150,7 +150,15 @@ public final class VoiceProcessingCaptureSource: AudioCaptureSource, CaptureGrap
         }
     }
 
-    private func converter(matching format: AVAudioFormat) -> AudioConverter16k {
+    /// V5 C1 — the format the tap is installed with: the hardware's when it reports one (44.1 or
+    /// 48 kHz, 1–5 channels under voice processing), else the node's cached output format.
+    static func tapFormat(hardware: AVAudioFormat, cached: AVAudioFormat) -> AVAudioFormat {
+        (hardware.sampleRate > 0 && hardware.channelCount > 0) ? hardware : cached
+    }
+
+    /// The converter for a delivered buffer's format; rebuilt when the device renegotiates
+    /// (e.g. 48 → 44.1 kHz on a route change). Internal for tests.
+    func converter(matching format: AVAudioFormat) -> AudioConverter16k {
         converterLock.lock(); defer { converterLock.unlock() }
         if let c = converter, c.inputFormat.sampleRate == format.sampleRate, c.inputFormat.channelCount == format.channelCount {
             return c

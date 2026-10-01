@@ -122,6 +122,11 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
     /// Frames of closed segments, in time order, capped at `signalFrameCount`.
     private var speech: [Frame] = []
 
+    /// V5 C1 — stream time after `reset()` whose frames never feed a floor estimate (pre-speech p10
+    /// or running minimum): an AGC still ramping reads as a quiet room. Survives `reset()`; 0 = off.
+    public var warmup: TimeInterval = 0
+    private var warmupFrames: Int { Int((warmup / Self.frameDuration).rounded()) }
+
     public init() {}
 
     public func reset() {
@@ -179,7 +184,8 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
             guard openStart == nil else { return }
             if onset == nil {
                 onset = start
-                preSpeechFloor = Self.preSpeechFloor(frames.prefix(max(0, Self.firstFrame(atOrAfter: start) - frameBase)))
+                preSpeechFloor = Self.preSpeechFloor(frames.prefix(max(0, Self.firstFrame(atOrAfter: start) - frameBase))
+                    .dropFirst(max(0, warmupFrames - frameBase)))
             }
             drop(before: start)            // pause between segments: never graded
             openStart = start
@@ -236,7 +242,7 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
     private func append(_ frame: Frame) {
         let index = frameBase + frames.count
         frames.append(frame)
-        if frame.rms >= Self.digitalSilence { runningFloor.append((index, frame.rms)) }
+        if frame.rms >= Self.digitalSilence, index >= warmupFrames { runningFloor.append((index, frame.rms)) }
         let expired = runningFloor.prefix(while: { $0.index <= index - Self.runningFrameCount }).count
         if expired > 0 { runningFloor.removeFirst(expired) }
     }

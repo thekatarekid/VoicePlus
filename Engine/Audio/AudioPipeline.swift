@@ -50,6 +50,12 @@ public final class AudioPipeline: @unchecked Sendable {
         /// a revoked microphone grant, a muted input, a tap the engine reconfigured out from under
         /// us. 0 disables it. Only ever fires when *no* non-zero sample was seen in the capture.
         public var digitalSilenceTimeout: TimeInterval = CaptureSilenceWatchdog.defaultTimeout
+        /// V5 C1 — audio after `start()` that level-based mic-quality warnings ignore (the floor
+        /// estimates skip it). 0.3 s under Apple voice processing, whose AGC is still adapting
+        /// (`CaptureGraphPlan`); 0 for the plain tap.
+        public var levelWarmup: TimeInterval = 0
+        /// V5 C1 — log the AGC's adaptation time once per capture (`AGCAdaptationTracker`).
+        public var tracksAGC = false
         public init() {}
     }
 
@@ -123,6 +129,10 @@ public final class AudioPipeline: @unchecked Sendable {
     private let micQuality = MicQualityAnalyzer()
     /// Worker-only, like `chunker`: blocks are processed strictly in order, so it needs no lock.
     private var silence: CaptureSilenceWatchdog
+    /// V5 C1 — worker-only, like `silence`. Fed only when `Options.tracksAGC`.
+    private var agc = AGCAdaptationTracker()
+    /// The AGC outcome of the last capture (nil until decided or when not tracked).
+    private(set) public var lastAGCOutcome: AGCAdaptationTracker.Outcome?
     private var vadPending: [Float] = []
     private var position = 0          // 16k samples delivered
     private var vadPosition = 0       // samples fed to VAD
@@ -142,6 +152,7 @@ public final class AudioPipeline: @unchecked Sendable {
         self.latched = options.latched
         self.endpointerConfig = options.endpointer
         self.silence = CaptureSilenceWatchdog(timeout: options.digitalSilenceTimeout)
+        self.micQuality.warmup = options.levelWarmup
     }
 
     /// Fresh stream per call; every event after subscribing is delivered in order.
@@ -344,7 +355,7 @@ public final class AudioPipeline: @unchecked Sendable {
     // MARK: processing (worker task, strictly ordered)
 
     private func resetProcessing() {
-        chunker.reset(); endpointer.reset(); micQuality.reset(); silence.reset()
+        chunker.reset(); endpointer.reset(); micQuality.reset(); silence.reset(); agc.reset(); lastAGCOutcome = nil
         vadPending.removeAll(); position = 0; vadPosition = 0; totalSamples = 0; lastMicQuality = nil; lastMicMeasurement = nil; lastOverruns = 0
         stateLock.lock(); sawAudio = false; stateLock.unlock()
     }
@@ -366,7 +377,12 @@ public final class AudioPipeline: @unchecked Sendable {
             acc += s * s
             if s != 0 { anyNonZero = true }
         }
-        broadcaster.send(.level(rms: (acc / Float(samples.count)).squareRoot()))
+        let rms = (acc / Float(samples.count)).squareRoot()
+        broadcaster.send(.level(rms: rms))
+        if initialOptions.tracksAGC, let outcome = agc.feed(rms: rms, duration: Double(samples.count) / 16_000) {
+            lastAGCOutcome = outcome
+            if let line = agc.logLine { Log.engine.info("\(line)") }
+        }
 
         // A capture that is *being silenced* rather than merely quiet. Decided on the same block
         // whose RMS was just published, so the verdict is a function of the audio, not of timing.

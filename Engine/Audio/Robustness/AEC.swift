@@ -25,6 +25,8 @@ public protocol NeuralAECBackend: AnyObject {
 }
 
 /// LocalVQE slot (Apache-2.0 weights; GGML runtime not bundled). Passthrough until a backend is set.
+/// Superseded for shipping by V5 C1b's `LocalVQEStage` (CoreML via FluidAudio `LocalVqeManager`);
+/// kept as the GGML slot the P1.4 tests describe.
 public final class LocalVQEAEC: AcousticStage {
     public let name = "localvqe-aec"
     public static let weightsFileName = "localvqe-v1.2-1.3M-f32.gguf"

@@ -35,6 +35,7 @@ struct VoiceSectionView: View {
         VStack(alignment: .leading, spacing: MainWindowLayout.sectionGap) {
             microphoneGroup(presentation)
             VoiceTestPanel(test: test, presentation: presentation) { model.perform($0) }
+            CaptureEnhancementGroup()   // V5 C1/C1b
             recognitionGroup
             GroupBox(VoiceCopy.secondPass, layout: .rows) {
                 VoiceSettingsTab(model: refinement)

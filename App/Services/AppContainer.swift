@@ -80,6 +80,8 @@ public final class AppContainer {
     private var deviceMonitor: AudioDeviceMonitor?
     private var devicePrewarm: DispatchWorkItem?
     private var terminateObserver: NSObjectProtocol?
+    /// V5 C1 — Settings › Voice changed the capture enhancement: rebuild the engine's capture graph.
+    private var captureEnhancementObserver: NSObjectProtocol?
 
     public struct Options {
         public var environment: [String: String] = ProcessInfo.processInfo.environment
@@ -364,10 +366,14 @@ public final class AppContainer {
         terminateObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.releaseCapture(.quit) }
+        captureEnhancementObserver = NotificationCenter.default.addObserver(
+            forName: CaptureEnhancement.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in Task { await self?.rebuildEngineForCaptureChange() } }
     }
 
     deinit {
         if let terminateObserver { NotificationCenter.default.removeObserver(terminateObserver) }
+        if let captureEnhancementObserver { NotificationCenter.default.removeObserver(captureEnhancementObserver) }
         deviceMonitor?.stop()
     }
 
@@ -479,6 +485,20 @@ public final class AppContainer {
     /// whichever thread the refresh ran on. Onboarding listens so a model load that failed while a
     /// swap was pending retries itself.
     public static let engineDidChangeNotification = Notification.Name("VoicePlus.AppContainer.engineDidChange")
+
+    /// V5 C1/C1b — the capture enhancement (plain tap / Apple VP-IO / LocalVQE) is decided when the
+    /// engine is built, so a change rebuilds a real engine (inside `refreshGate`, like a model swap).
+    public func rebuildEngineForCaptureChange() async {
+        guard case .real = engineKind, let modelManager else { return }
+        let environment = self.environment
+        await refreshGate.run { [weak self] in
+            let built = await EngineFactory.make(environment: environment, manager: modelManager)
+            guard let self, case .real = built.kind else { return }
+            Log.engine.notice("capture enhancement changed — rebuilt the capture graph")
+            await self.apply(built)
+            NotificationCenter.default.post(name: Self.engineDidChangeNotification, object: self)
+        }
+    }
 
     /// One refresh pass; only ever run inside `refreshGate`.
     private func performEngineRefresh() async {
