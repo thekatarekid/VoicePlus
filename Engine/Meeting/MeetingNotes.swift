@@ -7,15 +7,55 @@ public struct MeetingUtterance: Codable, Equatable, Sendable {
     public var text: String
     public var range: ClosedRange<TimeInterval>
     public var confidence: Float
-    public init(speaker: MeetingSpeaker, text: String, range: ClosedRange<TimeInterval>, confidence: Float) {
+    /// V5 O2 — the capability that claimed this span while the recorder ran ("dictated", "command",
+    /// "note"); nil for plain conversation. Optional so records written before O2 still decode.
+    public var tag: UtteranceOwner?
+    public init(speaker: MeetingSpeaker, text: String, range: ClosedRange<TimeInterval>, confidence: Float,
+                tag: UtteranceOwner? = nil) {
         self.speaker = speaker; self.text = text; self.range = range; self.confidence = confidence
+        self.tag = tag
     }
+
+    /// The tag as the transcript renders it (`UtteranceOwner.recorderLabel`).
+    public var tagLabel: String? { tag?.recorderLabel }
 }
 
 public struct MeetingTranscript: Codable, Equatable, Sendable {
     public var utterances: [MeetingUtterance]
     public init(utterances: [MeetingUtterance] = []) { self.utterances = utterances }
     public var plainText: String { utterances.map { "\($0.speaker.label): \($0.text)" }.joined(separator: "\n") }
+
+    /// V5 O2 — how far a tag's wall-clock edges may sit from the recorder's own timestamps (VAD
+    /// chunking and the capture start are not sample-aligned with the dictation claim).
+    public static let tagSlack: TimeInterval = 0.5
+
+    /// Does `tag` claim an utterance spanning `range` (seconds from `origin`)? Only the user's own
+    /// voice can be claimed by a capability, and the claim must cover at least half of the span —
+    /// so a dictation never labels the conversation it sat next to.
+    public static func claims(_ tag: UtteranceTag, speaker: MeetingSpeaker, range: ClosedRange<TimeInterval>,
+                              origin: Date) -> Bool {
+        guard speaker == .you else { return false }
+        let lo = origin.addingTimeInterval(range.lowerBound), hi = origin.addingTimeInterval(range.upperBound)
+        let widened = UtteranceTag(utteranceID: tag.utteranceID, owner: tag.owner,
+                                   range: tag.range.lowerBound.addingTimeInterval(-tagSlack)...tag.range.upperBound.addingTimeInterval(tagSlack))
+        let overlap = widened.overlap(lo, hi)
+        let duration = range.upperBound - range.lowerBound
+        return duration <= 0.05 ? (widened.range.contains(lo)) : overlap >= duration * 0.5
+    }
+
+    /// Labels every untagged utterance `tag` claims. A span keeps the first owner it was given (one
+    /// owner per utterance); `.ignore` labels nothing. Returns how many utterances were tagged.
+    @discardableResult
+    public mutating func apply(_ tag: UtteranceTag, origin: Date) -> Int {
+        guard tag.owner != .ignore else { return 0 }
+        var n = 0
+        for i in utterances.indices where utterances[i].tag == nil
+            && Self.claims(tag, speaker: utterances[i].speaker, range: utterances[i].range, origin: origin) {
+            utterances[i].tag = tag.owner
+            n += 1
+        }
+        return n
+    }
 }
 
 public struct MeetingNotes: Codable, Equatable, Sendable {

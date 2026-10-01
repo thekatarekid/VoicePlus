@@ -30,7 +30,8 @@ public struct MeetingRecord: Codable, Equatable, Sendable, Identifiable {
         if let notes { s += notes.markdown + "\n" }
         s += "## Transcript\n"
         for u in transcript.utterances {
-            s += "- **\(u.speaker.label)** [\(Self.clock(u.range.lowerBound))] \(u.text)\n"
+            let tag = u.tagLabel.map { " _(\($0))_" } ?? ""   // V5 O2
+            s += "- **\(u.speaker.label)** [\(Self.clock(u.range.lowerBound))]\(tag) \(u.text)\n"
         }
         return s
     }
@@ -85,6 +86,10 @@ public actor MeetingSession {
     private let store: MeetingStore
     public var onUtterance: (@Sendable (MeetingUtterance) -> Void)?
     public var onFinished: (@Sendable (MeetingRecord) -> Void)?
+    /// V5 O2 — capability tags not yet matched to a transcribed span (the claim usually settles
+    /// before the meeting's chunk is transcribed). Kept for `pendingTagWindow` seconds.
+    private var pendingTags: [UtteranceTag] = []
+    static let pendingTagWindow: TimeInterval = 120
 
     public init(title: String, event: CalendarMeeting? = nil, transcriber: any MeetingTranscriber,
                 labeler: any SpeakerLabeler, notesProvider: any MeetingNotesProvider = ExtractiveNotesProvider(),
@@ -114,9 +119,28 @@ public actor MeetingSession {
         }
     }
 
+    /// V5 O2 — a capability (dictation, edit, act, note, ask) claimed an utterance while this meeting
+    /// was recording. The meeting already holds the words (its mic leg heard them on the shared
+    /// capture graph); the tag only labels that span, so the dictation appears once, tagged.
+    public func tag(_ tag: UtteranceTag) {
+        guard tag.owner != .ignore else { return }
+        let tagged = record.transcript.apply(tag, origin: record.startedAt)
+        if tagged > 0 { _ = try? store.save(record) }
+        // Later chunks of the same claim may still be in flight: keep the tag for them too.
+        let horizon = tag.range.upperBound.addingTimeInterval(-Self.pendingTagWindow)
+        pendingTags.removeAll { $0.range.upperBound < horizon || $0.utteranceID == tag.utteranceID }
+        pendingTags.append(tag)
+    }
+
     private func append(_ u: MeetingUtterance) {
-        // Merge with the previous utterance when same speaker and contiguous (< 1 s gap).
-        if var last = record.transcript.utterances.last, last.speaker == u.speaker, u.range.lowerBound - last.range.upperBound < 1 {
+        var u = u
+        if u.tag == nil, let claim = pendingTags.first(where: {
+            MeetingTranscript.claims($0, speaker: u.speaker, range: u.range, origin: record.startedAt)
+        }) { u.tag = claim.owner }
+        // Merge with the previous utterance when same speaker and contiguous (< 1 s gap) — and, since
+        // O2, the same owner: a dictated span never merges into the conversation around it.
+        if var last = record.transcript.utterances.last, last.speaker == u.speaker, last.tag == u.tag,
+           u.range.lowerBound - last.range.upperBound < 1 {
             last.text += " " + u.text
             last.range = last.range.lowerBound...max(last.range.upperBound, u.range.upperBound)
             last.confidence = min(last.confidence, u.confidence)

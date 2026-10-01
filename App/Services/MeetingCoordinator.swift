@@ -41,7 +41,7 @@ public final class SystemMeetingNotificationAuthorizer: MeetingNotificationAutho
 /// unconditionally from `AppDelegate`, so a user who had never heard of meeting capture got
 /// Calendar and Reminders dialogs out of nowhere on first run. When the feature *is* on, launch
 /// still only ever reads *status*; the request happens at the moment of opting in.
-public final class MeetingCoordinator: @unchecked Sendable {
+public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendable {
     public private(set) var detector: MeetingDetector
     public let store: MeetingStore
     /// Builds the running session for a prompt. Injectable so acceptance tests use mocks; the
@@ -182,6 +182,13 @@ public final class MeetingCoordinator: @unchecked Sendable {
     public func ingest(_ chunks: [MeetingChunk]) async {
         guard let running = currentSession() else { return }
         do { try await running.ingest(chunks) } catch { Log.app.error("meeting ingest failed: \(error)") }
+    }
+
+    /// V5 O2 — the meeting is a recorder: a capability's claim on an utterance (dictation during the
+    /// meeting, a note, a command) labels the span the meeting already transcribed. No session → no-op.
+    public func record(_ tag: UtteranceTag) {
+        guard let running = currentSession() else { return }
+        Task { await running.tag(tag) }
     }
 
     private func currentSession(clearing: Bool = false) -> MeetingSession? {
