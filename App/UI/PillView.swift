@@ -202,6 +202,10 @@ public final class PillViewModel: ObservableObject {
     /// Retracts a delivery / notice row after its dwell (only rows with a `.minimum` rule).
     private var deliveryTimer: Timer?
     private var ticker: Timer?
+    /// V5 K19 — the backstop that takes a timed outcome row down if nothing else has.
+    private var retentionTimer: Timer?
+    /// V5 K19 — when the current timed outcome row must be gone by (`PillRetention.deadline`).
+    public private(set) var retentionDeadline: Date?
     private var drawnSpoolKey = ""
     /// Injectable clock so tests can drive dwell without sleeping.
     public var now: () -> Date = Date.init
@@ -411,13 +415,13 @@ public final class PillViewModel: ObservableObject {
     public var onLearnDraft: ((String, String) -> Void)?
     public var onApplyRetainedDraft: ((PillState, String, String, MarkMapping) -> Bool)?
     public var onHeldDraftApplied: ((UUID, String) -> Void)?
+    /// V5 Q12 — the editor was left with an empty draft on a final preview: the turn cancels
+    /// ("Nothing was typed."). Wired to `TurnController.cancelPreview()`.
+    public var onEmptyDraftLeft: (() -> Void)?
     private var originalDraft = ""
     private var originalMapping = MarkMapping.empty
     private var destinationEdit: ((String) -> Bool)?
 
-    /// V5 Q12 — the editor was left with an empty draft on a final preview: the turn cancels
-    /// ("Nothing was typed."). Wired to `TurnController.cancelPreview()`.
-    public var onEmptyDraftLeft: (() -> Void)?
     public func suggestion(for mark: UncertainMark) -> String? {
         mark.alternatives.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0 != mark.text }
     }
@@ -505,10 +509,6 @@ public final class PillViewModel: ObservableObject {
         if wasDestination { hide() }
     }
 
-    private func finishDraftEditing() {
-        isEditingDraft = false
-        destinationEdit = nil
-        editingMarkID = nil
     /// V5 Q12 — whether leaving the editor now would cancel the turn: a final preview whose
     /// draft is empty (and not mid-composition). Never for held/error/correcting rows.
     public var leavingCancelsEmptyDraft: Bool {
@@ -527,6 +527,10 @@ public final class PillViewModel: ObservableObject {
         cancelDraftEdits()
     }
 
+    private func finishDraftEditing() {
+        isEditingDraft = false
+        destinationEdit = nil
+        editingMarkID = nil
         hasMarkedText = false
         onDraftPause?(.composition, false)
         onDraftPause?(.review, false)
@@ -756,11 +760,12 @@ public final class PillViewModel: ObservableObject {
         case .show(let shown):
             holdTimer?.invalidate()
             holdTimer = nil
+            if shown != .cancelled { turn.cancelledNote = nil }
             noteTransition(to: shown)
             state = shown
             noteSpool()
             updateTicker()
-            if shown != .cancelled { turn.cancelledNote = nil }
+            armRetentionBackstop(for: shown)
         case .hold(let until):
             scheduleHold(until: until)
         case .unchanged:
@@ -870,6 +875,35 @@ public final class PillViewModel: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
+    }
+
+    /// V5 K19 — every timed outcome row gets a hard deadline when it is shown.
+    private func armRetentionBackstop(for shown: PillState) {
+        retentionTimer?.invalidate()
+        retentionTimer = nil
+        let shownAt = now()
+        retentionDeadline = PillRetention.deadline(for: shown, shownAt: shownAt, release: presenter.releaseTime())
+        guard let deadline = retentionDeadline else { return }
+        let timer = Timer(timeInterval: max(0.05, deadline.timeIntervalSince(shownAt)), repeats: false) { [weak self] _ in
+            guard let self else { return }
+            if Thread.isMainThread { self.enforceRetention() } else { DispatchQueue.main.async { self.enforceRetention() } }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        retentionTimer = timer
+    }
+
+    /// V5 K19 — called by the backstop timer (and by tests with an advanced clock): a timed outcome
+    /// row still up past its deadline comes down now, with a fault log and a diagnostics event.
+    /// `true` when it retracted something.
+    @discardableResult
+    public func enforceRetention() -> Bool {
+        guard let deadline = retentionDeadline, now() >= deadline, PillRetention.applies(to: state) else { return false }
+        retentionDeadline = nil
+        let key = state.designStateKey
+        Log.app.fault("pill: '\(key)' row outlived its dwell by \(String(format: "%.1f", self.now().timeIntervalSince(deadline) + PillRetention.slack)) s — retracting (K19 backstop)")
+        PillDiagnostics.record(.orderOut(window: "pill", reason: "retentionBackstop:\(key)"))
+        retractDelivery(immediately: true)
+        return true
     }
 
     private func scheduleHold(until: Date) {

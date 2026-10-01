@@ -116,6 +116,7 @@ public final class PillPanelController {
             guard resolution.metrics != nil else {
                 self.panel.orderOut(nil)
                 self.shadowPanel.orderOut(nil)
+                PillDiagnostics.record(.orderOut(window: "pill", reason: "displayRemoved")) // K19
                 // BUG B — ORDER MATTERS with `lastSurface`: the panel is out, so the next render has
                 // to take the `(false, true)` branch and order it back in. Leaving `lastSurface` at a
                 // visible value made `render` believe the panel was still up, so it only ever
@@ -270,12 +271,14 @@ public final class PillPanelController {
             shadowPanel.setFrame(Self.shadowFrame(layout.retracted, attached: layout.attached), display: false)
             shadowPanel.orderFrontRegardless()
             panel.orderFrontRegardless()
+            PillDiagnostics.record(.orderFront(window: "pill", reason: state.designStateKey)) // K19
             animate(to: layout.shown)
         case (true, false):
             animate(to: layout.retracted) { [weak self] in
                 guard let self, !self.model.state.isVisible else { return }
                 self.panel.orderOut(nil)
                 self.shadowPanel.orderOut(nil)
+                PillDiagnostics.record(.orderOut(window: "pill", reason: "retracted")) // K19
                 self.pinnedMetrics = nil
                 self.noteSurfaceOnScreen()
             }

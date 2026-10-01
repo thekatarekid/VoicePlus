@@ -1688,6 +1688,11 @@ public final class TurnWiring {
                 pill?.showLaneNote("Learned spelling is kept for this session only")
             }
         }
+        // V5 K19 — pill order-in/out and retention backstops go to the Q13 diagnostics store.
+        if let database = container.database, PillDiagnostics.store == nil {
+            PillDiagnostics.store = try? TurnDiagnostics(database: database)
+        }
+        PillDiagnostics.turnID = { [weak controller] in controller?.currentTurn?.description }
         // V5 Q8 — the self-healing tick reads the pill's real state (main queue clock).
         controller.liveState = { [weak pill] in
             guard let pill else { return nil }
