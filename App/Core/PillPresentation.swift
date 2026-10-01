@@ -240,6 +240,9 @@ public struct PillTurnContext: Equatable, Sendable {
     public var finishingSince: Date?
     /// Deixis boxes drawn this turn (the chip row shows when > 0).
     public var chipCount: Int
+    /// V5 Q12 — the Cancelled row's helper when the cancel had a named cause ("Nothing was typed."
+    /// for an empty draft left in the editor). `nil` → the standard cancelled helper.
+    public var cancelledNote: String? = nil
     public init(keyLabel: String = HotkeyBinding.default.label, destination: String? = nil, startedAt: Date? = nil,
                 now: Date = Date(), liveText: String = "", captureOpen: Bool = false, latchElapsed: TimeInterval? = nil,
                 uncertainWords: Set<String> = [], uncertainCount: Int = 0, finishingSince: Date? = nil,
@@ -404,7 +407,7 @@ public struct PillContent: Equatable, Sendable {
                                                             uncertain: review ? info.uncertainCount : nil,
                                                             phrase: info.needsPhraseReview),
                                trailing: destinationTrailing(named), words: .final(info.text),
-                               helper: manual ? PillCopy.previewHelperManual : (info.paused ? "Paused · move away to insert" : PillCopy.previewHelperAuto),
+                               helper: PillCopy.previewHelper(pause: info.pauseReason, needsReview: false, manual: manual),
                                buttons: [PillButton(info.paused || manual ? "Insert now" : String(format: "Insert in %.1fs", info.dwellRemaining), .commit),
                                          PillButton("Edit draft", .editDraft),
                                          PillButton("Cancel", .cancel)],
@@ -449,7 +452,7 @@ public struct PillContent: Equatable, Sendable {
                                helper: PillDeck.mutedHelper, buttons: PillDeck.mutedButtons)
         case .cancelled:
             return PillContent(designKey: "cancelled", status: PillDeck.cancelledStatus, trailing: destinationTrailing(c),
-                               words: .fixed(PillDeck.cancelledWords), helper: PillDeck.cancelledHelper)
+                               words: .fixed(PillDeck.cancelledWords), helper: c.cancelledNote ?? PillDeck.cancelledHelper)
         case .correcting:
             return PillContent(designKey: "correcting", status: PillDeck.correctingStatus, trailing: destinationTrailing(c),
                                words: c.liveText.isEmpty ? .none : .final(c.liveText), helper: PillDeck.correctingHelper,

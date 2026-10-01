@@ -185,7 +185,7 @@ struct PillWiringTests {
         #expect(seen.isEmpty && model.isEditingDraft)
         let review = model.content()
         #expect(review.buttons.map(\.action) == [.doneEditing, .cancelEditing])
-        #expect(review.helper == "Done or ⌘Return applies edits")
+        #expect(review.helper == "Editing · leave the pill to apply")  // V5 Q12
         #expect(review.surface { _ in 0 } == .actionable)
         // The next turn starts out of review mode.
         model.apply(.starting)

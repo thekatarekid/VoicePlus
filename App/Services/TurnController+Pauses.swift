@@ -73,3 +73,16 @@ public struct PauseSet: Equatable, Sendable {
         return dropped
     }
 }
+
+/// V5 Q12 — the one line a paused preview shows, from the set of live pauses. Editing (and IME
+/// composition inside the editor) outranks keyboard focus, which outranks hover; selection and
+/// Review are explicit intents and carry no copy.
+extension DwellPause {
+    public static func pauseReason(for pauses: Set<DwellPause>) -> PreviewPauseReason? {
+        if pauses.isEmpty { return nil }
+        if pauses.contains(.editing) || pauses.contains(.composition) { return .editing }
+        if pauses.contains(.focus) { return .keyboardFocus }
+        if pauses.contains(.hover) { return .hover }
+        return .quiet
+    }
+}

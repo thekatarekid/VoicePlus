@@ -244,18 +244,23 @@ public struct FinalPreviewInfo: Equatable, Sendable {
     public var dwellRemaining: TimeInterval
     /// Hover, focus, selection or Review has frozen the dwell.
     public var paused: Bool
+    /// V5 Q12 — why the dwell is frozen (the helper line names it). `nil` while not paused; a
+    /// paused preview with no named reason reads as hover (the original single pause line).
+    public var pauseReason: PreviewPauseReason?
     /// Manual review: nothing is inserted until the Insert action.
     public var manual: Bool
     /// The destination's display name ("Mail") from the key-down snapshot, when one is known.
     public var destination: String?
 
     public init(text: String, uncertainCount: Int = 0, dwellRemaining: TimeInterval, paused: Bool = false,
-                manual: Bool = false, destination: String? = nil, needsPhraseReview: Bool = false) {
+                manual: Bool = false, destination: String? = nil, needsPhraseReview: Bool = false,
+                pauseReason: PreviewPauseReason? = nil) {
         self.text = text
         self.uncertainCount = max(0, uncertainCount)
         self.needsPhraseReview = needsPhraseReview && uncertainCount > 0
         self.dwellRemaining = max(0, dwellRemaining)
-        self.paused = paused
+        self.paused = paused || pauseReason != nil
+        self.pauseReason = self.paused ? (pauseReason ?? .hover) : nil
         self.manual = manual
         self.destination = destination
     }
@@ -276,12 +281,22 @@ public struct FinalPreviewInfo: Equatable, Sendable {
     }
 
     public var helper: String {
-        if paused, !manual { return "Paused · move away to insert" }
-        switch (needsReview, manual) {
-        case (false, false): return PillCopy.previewHelperAuto
-        case (false, true): return PillCopy.previewHelperManual
-        case (true, false): return PillCopy.reviewHelperAuto
-        case (true, true): return PillCopy.reviewHelperManual
+        PillCopy.previewHelper(pause: pauseReason, needsReview: needsReview, manual: manual)
+    }
+}
+
+/// V5 Q12 — "Pause states — simplified": each pause names itself in one line, and the explicit
+/// intents (selection, Review) say nothing — the user already knows why they stopped it.
+public enum PreviewPauseReason: String, CaseIterable, Equatable, Sendable {
+    case hover, editing, keyboardFocus, quiet
+
+    /// The helper line for this pause; `nil` → no pause copy (the row's helper is empty).
+    public var line: String? {
+        switch self {
+        case .hover: return PillCopy.pausedHover
+        case .editing: return PillCopy.pausedEditing
+        case .keyboardFocus: return PillCopy.pausedKeyboard
+        case .quiet: return nil
         }
     }
 }
@@ -389,6 +404,23 @@ public enum PillCopy {
     public static let previewHelperManual = "Manual review · insert when ready"
     public static let reviewHelperAuto = "Final preview · hover to pause"
     public static let reviewHelperManual = "Manual review · insert when ready"
+    /// V5 Q12 — the pause lines (one per reason) and the empty-draft cancel.
+    public static let pausedHover = "Paused · move away to insert"
+    public static let pausedEditing = "Editing · leave the pill to apply"
+    public static let pausedKeyboard = "Paused · Insert now when ready"
+    public static let emptyDraftCancelled = "Nothing was typed."
+
+    /// V5 Q12 — the one final-preview helper (pill row and accessibility read the same line).
+    /// A manual preview never shows a pause line: it was never going to insert on its own.
+    public static func previewHelper(pause: PreviewPauseReason?, needsReview: Bool, manual: Bool) -> String {
+        if let pause, !manual { return pause.line ?? "" }
+        switch (needsReview, manual) {
+        case (false, false): return previewHelperAuto
+        case (false, true): return previewHelperManual
+        case (true, false): return reviewHelperAuto
+        case (true, true): return reviewHelperManual
+        }
+    }
     public static func readyFor(_ destination: String) -> String { "Ready for \(destination)" }
     public static func wordsToReview(_ count: Int) -> String {
         "\(count) word\(count == 1 ? "" : "s") to review"

@@ -879,7 +879,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         FinalPreviewInfo(text: turn.payload?.text ?? "", uncertainCount: turn.uncertainCount,
                          dwellRemaining: turn.manual ? 0 : turn.dwellRemaining, paused: !turn.pauses.isEmpty,
                          manual: turn.manual, destination: turn.destinationName,
-                         needsPhraseReview: turn.phraseReview)
+                         needsPhraseReview: turn.phraseReview,
+                         pauseReason: DwellPause.pauseReason(for: turn.pauses))
     }
 
     /// The pill drew the final payload's first frame: the dwell starts now (design §5 step 4).
@@ -943,10 +944,14 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         lock.withLock {
             guard let turn = previewTurnLocked() else { return }
             let wasPaused = !turn.pauses.isEmpty
+            let before = DwellPause.pauseReason(for: turn.pauses)
             turn.pauses.insert(reason)
             turn.pausesCauseless[reason] = nil
             stopDwellLocked(turn)
-            if !wasPaused { fx.present(.finalPreview(previewInfoLocked(turn))) }
+            // Q12 — the helper names the pause, so a change of reason redraws the row too.
+            if !wasPaused || before != DwellPause.pauseReason(for: turn.pauses) {
+                fx.present(.finalPreview(previewInfoLocked(turn)))
+            }
             schedulePauseTickLocked(turn)
         }
         fx.run(self)
@@ -955,9 +960,14 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public func resumeDwell(_ reason: DwellPause) {
         var fx = Effects()
         lock.withLock {
-            guard let turn = previewTurnLocked(), turn.pauses.remove(reason) != nil else { return }
+            guard let turn = previewTurnLocked() else { return }
+            let before = DwellPause.pauseReason(for: turn.pauses)
+            guard turn.pauses.remove(reason) != nil else { return }
             turn.pausesCauseless[reason] = nil
-            guard turn.pauses.isEmpty else { return }
+            guard turn.pauses.isEmpty else {
+                if before != DwellPause.pauseReason(for: turn.pauses) { fx.present(.finalPreview(previewInfoLocked(turn))) }
+                return
+            }
             turn.pauseTick?.cancel()
             turn.pauseTick = nil
             turn.dwellRemaining = max(0.15, turn.dwellRemaining)
@@ -976,6 +986,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         lock.withLock {
             guard let turn = previewTurnLocked() else { return }
             let wasPaused = !turn.pauses.isEmpty
+            let before = DwellPause.pauseReason(for: turn.pauses)
             var set = PauseSet(reasons: turn.pauses, causelessSince: turn.pausesCauseless)
             let dropped = set.rebuild(from: live, now: clock.now)
             turn.pauses = set.reasons
@@ -991,6 +1002,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
                 startDwellLocked(turn)
             } else if !wasPaused, !turn.pauses.isEmpty {
                 stopDwellLocked(turn)
+                fx.present(.finalPreview(previewInfoLocked(turn)))
+            } else if before != DwellPause.pauseReason(for: turn.pauses) {
                 fx.present(.finalPreview(previewInfoLocked(turn)))
             }
             schedulePauseTickLocked(turn)
@@ -1667,6 +1680,8 @@ public final class TurnWiring {
         pill.onApplyRetainedDraft = { [weak controller] shown, original, edited, mapping in
             controller?.reviseRetainedDraft(shown: shown, original: original, edited: edited, mapping: mapping) ?? false
         }
+        // V5 Q12 — an empty draft left in the editor cancels the turn ("Nothing was typed.").
+        pill.onEmptyDraftLeft = { [weak controller] in controller?.cancelPreview() }
         let learner = DraftVocabularyLearner(database: container.database)
         pill.onLearnDraft = { [weak pill] original, edited in
             if !learner.learn(original: original, edited: edited) {

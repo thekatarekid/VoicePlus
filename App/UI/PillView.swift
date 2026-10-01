@@ -415,6 +415,9 @@ public final class PillViewModel: ObservableObject {
     private var originalMapping = MarkMapping.empty
     private var destinationEdit: ((String) -> Bool)?
 
+    /// V5 Q12 — the editor was left with an empty draft on a final preview: the turn cancels
+    /// ("Nothing was typed."). Wired to `TurnController.cancelPreview()`.
+    public var onEmptyDraftLeft: (() -> Void)?
     public func suggestion(for mark: UncertainMark) -> String? {
         mark.alternatives.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0 != mark.text }
     }
@@ -506,6 +509,24 @@ public final class PillViewModel: ObservableObject {
         isEditingDraft = false
         destinationEdit = nil
         editingMarkID = nil
+    /// V5 Q12 — whether leaving the editor now would cancel the turn: a final preview whose
+    /// draft is empty (and not mid-composition). Never for held/error/correcting rows.
+    public var leavingCancelsEmptyDraft: Bool {
+        guard isEditingDraft, !hasMarkedText, destinationEdit == nil, case .finalPreview = state else { return false }
+        return draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The pointer / keyboard focus left the pill while the editor was open: apply the edits, or —
+    /// for an empty draft on a final preview — cancel the turn with "Nothing was typed." (Q12).
+    func leaveDraftEditor() {
+        guard leavingCancelsEmptyDraft else { _ = applyDraftEdits(); return }
+        // Cancel first: the turn leaves the preview, so closing the editor below resumes nothing
+        // and no paused preview is redrawn between the editor and the Cancelled row.
+        turn.cancelledNote = PillCopy.emptyDraftCancelled
+        onEmptyDraftLeft?()
+        cancelDraftEdits()
+    }
+
         hasMarkedText = false
         onDraftPause?(.composition, false)
         onDraftPause?(.review, false)
@@ -516,7 +537,7 @@ public final class PillViewModel: ObservableObject {
         let wasComposing = hasMarkedText
         hasMarkedText = active
         onDraftPause?(.composition, active)
-        if wasComposing, !active, !pointerInside, !focusInside, isEditingDraft { _ = applyDraftEdits() }
+        if wasComposing, !active, !pointerInside, !focusInside, isEditingDraft { leaveDraftEditor() }
     }
 
     public func acceptSuggestion(markID: Int, replacement: String) {
@@ -545,7 +566,7 @@ public final class PillViewModel: ObservableObject {
         guard inside != pointerInside else { return }
         pointerInside = inside
         if !inside {
-            _ = applyDraftEdits()
+            leaveDraftEditor()
         }
         onPointerInsideChange?(inside)
     }
@@ -575,7 +596,7 @@ public final class PillViewModel: ObservableObject {
             // Apply only after the aggregate focus has actually left the notch.
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.focusInside, !self.pointerInside, self.isEditingDraft else { return }
-                _ = self.applyDraftEdits()
+                self.leaveDraftEditor()
             }
         }
     }
@@ -600,7 +621,8 @@ public final class PillViewModel: ObservableObject {
         if isEditingDraft {
             result.buttons = [PillButton("Done", .doneEditing), PillButton("Cancel edits", .cancelEditing)]
             if destinationEdit != nil, laneNote != nil { result.buttons.append(PillButton("Copy correction", .copy)) }
-            result.helper = hasMarkedText ? "Finish typing before inserting" : "Done or ⌘Return applies edits"
+            // V5 Q12 — editing names its pause: leaving the pill applies the draft.
+            result.helper = hasMarkedText ? "Finish typing before inserting" : PillCopy.pausedEditing
         }
         return result
     }
@@ -738,6 +760,7 @@ public final class PillViewModel: ObservableObject {
             state = shown
             noteSpool()
             updateTicker()
+            if shown != .cancelled { turn.cancelledNote = nil }
         case .hold(let until):
             scheduleHold(until: until)
         case .unchanged:
