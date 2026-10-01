@@ -123,7 +123,9 @@ public enum EngineFactory {
         options.turnPredictor = await SmartTurnModel.loadIfAvailable()
         let pipeline = AudioPipeline(source: capture, vad: vad, options: options)
         let audio = PipelineAudioSource(pipeline: pipeline)
-        let provider = BiasingRecognizerProvider(inner: ModelManagerRecognizerProvider(manager: manager))
+        // V5 G1/G2 — the LANG1 languages route the final pass (Hinglish / Nemotron when installed).
+        let routed = LanguageASRRouting.provider(inner: ModelManagerRecognizerProvider(manager: manager), manager: manager)
+        let provider = BiasingRecognizerProvider(inner: routed)
         let engine = RealEngine(audio: audio, provider: provider)
         let name: String
         switch choice {
@@ -139,7 +141,8 @@ public enum EngineFactory {
         // only when its CoreML weights are installed (otherwise routing reports why).
         let indicStatus = IndicASRAvailability.check(modelsDirectory: ModelCatalog.modelsRoot())
         built.codeSwitch = CodeSwitchRouter(primary: LazyProviderFinalRecognizer(provider: provider),
-                                            indic: UnavailableIndicBackend(status: indicStatus))
+                                            indic: LanguageASRRouting.shared.hinglish()   // V5 G1 (X7)
+                                                ?? UnavailableIndicBackend(status: indicStatus))
         if case .available(let path) = indicStatus { Log.engine.info("indic ASR weights present at \(path) (backend pending)") }
         return built
     }

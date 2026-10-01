@@ -173,8 +173,15 @@ public struct LanguagePreferences: Equatable, Sendable {
         /// Anything else (G2: Nemotron 3.5 multilingual, on demand).
         case multilingual
 
-        /// The catalogue model behind the route; nil until G1/G2 land their catalogue entries.
-        public var modelID: ModelID? { self == .parakeetV3 ? .parakeetTDTv3 : nil }
+        /// The catalogue model behind the route (G1: the shipped Hinglish candidate; Nemotron-Hinglish
+        /// has no catalogue entry — it is installed by its conversion recipe only).
+        public var modelID: ModelID? {
+            switch self {
+            case .parakeetV3: return .parakeetTDTv3
+            case .hinglish: return HinglishASRCandidate.shipped == .srota ? .qwen3AsrHinglish : nil
+            case .multilingual: return .nemotronMultilingual
+            }
+        }
     }
 
     public var asrRoutes: [ASRRoute] {
@@ -184,6 +191,28 @@ public struct LanguagePreferences: Equatable, Sendable {
         if includesHindi { routes.append(.hinglish) }
         if languages.contains(where: { $0 != "hi" && !parakeet.contains($0) }) { routes.append(.multilingual) }
         return routes
+    }
+
+    /// G1/G2 — the engine's route plan (`LanguageRoutedRecognizerProvider`): Hindi → Hinglish, then
+    /// Nemotron prompted for Hindi; a language Parakeet lacks → Nemotron; Parakeet always last.
+    public var asrRoutePlan: ASRRoutePlan {
+        let routes = asrRoutes
+        if routes.contains(.hinglish) {
+            // Hindi + English only → prompt Nemotron with Hindi; any third language → automatic.
+            let onlyHinglish = Set(languages).isSubset(of: ["hi", "en"])
+            return ASRRoutePlan(preferred: [.hinglish, .multilingual], nemotronLanguage: onlyHinglish ? "hi" : nil)
+        }
+        if routes.contains(.multilingual) {
+            // One language → name it; several (code-switching) → the model's own detection.
+            let hint = languages.count == 1 ? NemotronMultilingualFiles.promptLanguage(for: languages[0]) : nil
+            return ASRRoutePlan(preferred: [.multilingual], nemotronLanguage: hint)
+        }
+        return .parakeetOnly
+    }
+
+    /// Models the chosen languages need beyond the first-run stack — the only ones G1/G2 download.
+    public var routeModels: [ModelID] {
+        asrRoutes.filter { $0 != .parakeetV3 }.compactMap(\.modelID)
     }
 }
 

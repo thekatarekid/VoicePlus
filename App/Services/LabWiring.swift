@@ -23,6 +23,7 @@ public enum LabWiring {
         if let modelManager {
             registry.transcribers["engine"] = { _ in try makeEngineTranscriber(manager: modelManager, boosting: boosting) }
             registry.evalBackends["parakeet-tdt-v3"] = { FinalRecognizerEvalBackend(modelID: "parakeet-tdt-v3", manager: modelManager) }
+            LanguageASRRouting.registerEvalBackends(&registry)   // V5 G1/G2
         }
         return registry
     }

@@ -53,6 +53,13 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// embedding backend to WeSpeaker. On demand; the V1 `--stage diar` DER run picks the default
     /// (`MeetingEmbeddingChoice`). Appended so older `RealEngine.revision()` bits hold.
     case campPlus = "campplus-coreml"
+    /// V5 G1 — Srota (`moorlee/qwen3-asr-0.6b-hinglish`, Apache-2.0), Qwen3-ASR-0.6B fine-tuned on
+    /// Hinglish, converted with the Qwen3-ASR recipe (`tools/qwen3-asr-hinglish/`). The final pass
+    /// when Hindi is one of the user's languages (LANG1). On demand. Appended (revision bits).
+    case qwen3AsrHinglish = "qwen3-asr-0.6b-hinglish-coreml"
+    /// V5 G2 — Nemotron 3.5 ASR Streaming Multilingual, `multilingual/1120ms` only (~0.66 GB): final
+    /// pass + streaming preview when a language Parakeet v3 lacks is chosen. On demand. Appended.
+    case nemotronMultilingual = "nemotron-3.5-asr-streaming-multilingual-0.6b-coreml-1120ms"
 }
 
 /// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
@@ -311,6 +318,30 @@ public enum ModelCatalog {
             requiredPaths: ["CamPlusPreprocessor.mlmodelc", "CamPlusPlus.mlmodelc"],
             approxBytes: 16_618_757, displayName: "CAM++ speaker embedding", license: "FunASR model licence",
             role: .onDemand),
+        // V5 G1 — the converted Srota. No CoreML Srota exists upstream: the recipe writes this folder
+        // (`tools/qwen3-asr-hinglish/`), and `remoteFiles` stays empty until the owner publishes the
+        // output (`HinglishASRFiles.publishedCoreMLRepo`) — `ManifestFetcher` then refuses cleanly
+        // (`noRemoteFiles`) instead of fetching the 1.56 GB safetensors. `hfRepo` names the weights'
+        // source for attribution. Borrows `.whisper` for that fetcher; loader: `Qwen3HinglishTranscriber`
+        // through `ModelResidency`, never `ModelManager.load` (`.whisper` throws `unsupported` there).
+        .qwen3AsrHinglish: ModelDescriptor(
+            id: .qwen3AsrHinglish, kind: .whisper,
+            folderName: HinglishASRFiles.folderName,
+            hfRepo: HinglishASRFiles.publishedCoreMLRepo ?? HinglishASRFiles.sourceRepo,
+            requiredPaths: HinglishASRFiles.requiredPaths,
+            approxBytes: HinglishASRFiles.approxBytes, displayName: "Srota Hinglish speech recognition",
+            license: HinglishASRFiles.license, role: .onDemand),
+        // V5 G2 — one variant of the repo (9 languages × 4 chunk tiers upstream): `ManifestFetcher` takes
+        // the 22 files of `multilingual/1120ms` (sizes + LFS sha256 from the HF tree, 2026-10-02). Loader:
+        // `NemotronRuntime.fluid(folder:)` through `ModelResidency`, never `ModelManager.load`.
+        .nemotronMultilingual: ModelDescriptor(
+            id: .nemotronMultilingual, kind: .whisper,
+            folderName: NemotronMultilingualFiles.folderName,
+            hfRepo: NemotronMultilingualFiles.repo, hfSubdirectory: NemotronMultilingualFiles.subdirectory,
+            requiredPaths: NemotronMultilingualFiles.requiredPaths,
+            remoteFiles: NemotronMultilingualFiles.remote,
+            approxBytes: NemotronMultilingualFiles.approxBytes, displayName: "Nemotron 3.5 multilingual speech recognition",
+            license: NemotronMultilingualFiles.license, role: .onDemand),
     ]
 
     /// Whether `id` can load on the running OS. Parakeet Redux's 2-bit encoder uses iOS 18 / macOS 15

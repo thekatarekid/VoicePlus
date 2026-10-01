@@ -61,6 +61,8 @@ public final class LanguageRuntime: @unchecked Sendable {
         lock.lock(); constraint = prefs?.detectorConstraint; lock.unlock()
         if let locale = Self.itnLocale(prefs, environment: environment) { ITNStage.defaultLocale = locale }
         onConstraintChange?(prefs?.detectorConstraint)
+        // G1/G2 — the engine may have been built before the answers were readable.
+        LanguageASRRouting.shared.fetchNeededModels()
     }
 
     /// The LANG1 ITN locale, or nil when unanswered or pinned by `VOICEPLUS_ITN_LOCALE`.

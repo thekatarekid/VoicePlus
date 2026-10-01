@@ -32,6 +32,8 @@ extension ModelCatalog {
         case .sortformer: return nil
         // V5 M9: fetched through `ModelHub` (`Repo.campPlus`), loaded from our folder directly.
         case .campPlus: return Repo.campPlus.folderName
+        // V5 G1/G2: our own folders, loaded file by file (Qwen3 port / Nemotron `loadFromShared`).
+        case .qwen3AsrHinglish, .nemotronMultilingual: return nil
         }
     }
 }
