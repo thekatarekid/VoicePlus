@@ -17,7 +17,10 @@ struct Qwen3PromptProbe {
 
     static func load(folder: URL, computeUnits: MLComputeUnits = .all) async throws -> Qwen3PromptProbe {
         let manager = Qwen3AsrManager()
-        try await manager.loadModels(from: folder, computeUnits: computeUnits)
+        // V5 Q15: one Qwen3 CoreML load/prediction at a time, process-wide.
+        try await Qwen3CoreMLGate.shared.run {
+            try await manager.loadModels(from: folder, computeUnits: computeUnits)
+        }
         let tokenizer = try Qwen3ContextTokenizer(
             vocabularyFile: folder.appendingPathComponent("vocab.json")
         )
@@ -44,13 +47,17 @@ struct Qwen3PromptProbe {
         assistantPrefix: [Int32] = [],
         maxNewTokens: Int = 128
     ) async throws -> Result {
-        let text = try await manager.transcribe(
-            audioSamples: samples,
-            language: taskLanguage,
-            contextTokens: systemText.isEmpty ? [] : encode(systemText),
-            assistantPrefixTokens: assistantPrefix,
-            maxNewTokens: maxNewTokens
-        )
+        let manager = self.manager
+        let context = systemText.isEmpty ? [] : encode(systemText)
+        let text = try await Qwen3CoreMLGate.shared.run {
+            try await manager.transcribe(
+                audioSamples: samples,
+                language: taskLanguage,
+                contextTokens: context,
+                assistantPrefixTokens: assistantPrefix,
+                maxNewTokens: maxNewTokens
+            )
+        }
         return Result(
             text: text,
             prompt: await manager.lastPromptTokenIds,

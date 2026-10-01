@@ -204,6 +204,36 @@ public final class RefinementInFlight: @unchecked Sendable {
     }
 }
 
+/// One Qwen3 CoreML operation at a time, process-wide (V5 Q15).
+///
+/// Loading/specialising a Qwen3 model while another instance is mid-`prediction` crashed inside
+/// MPSGraph (`specializedModuleWithDevice`, SIGSEGV — two sessions, or a session and the prompt
+/// probe, in one process). Every model load and every transcription goes through `run`, FIFO. A
+/// body whose task was cancelled while queued (a timed-out pass) is skipped, not run.
+public actor Qwen3CoreMLGate {
+    public static let shared = Qwen3CoreMLGate()
+
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    public init() {}
+
+    public func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+        if busy {
+            await withCheckedContinuation { waiters.append($0) }
+        } else {
+            busy = true
+        }
+        defer { handOff() }
+        try Task.checkCancellation()
+        return try await body()
+    }
+
+    private func handOff() {
+        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
+    }
+}
+
 /// First-finisher-wins latch for `withDeadline`: result, timeout or caller cancellation.
 private final class DeadlineRace<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()

@@ -81,7 +81,8 @@ public final class Qwen3RefinementSession: RefinementSession {
     /// because that body holds the backend.
     public func prepare(progress: (@Sendable (Double) -> Void)? = nil) async throws {
         await RefinementInFlight.shared.drain()
-        try await backend.prepare(progress: progress)
+        let backend = self.backend
+        try await Qwen3CoreMLGate.shared.run { try await backend.prepare(progress: progress) }
     }
 
     /// Where the weights are, if they are anywhere. No network, no load.
@@ -92,7 +93,9 @@ public final class Qwen3RefinementSession: RefinementSession {
         let count = samples.count
         let backend = self.backend
         let text = try await Refinement.withDeadline(deadline) {
-            try await backend.transcribe(samples: samples, context: context)
+            try await Qwen3CoreMLGate.shared.run {
+                try await backend.transcribe(samples: samples, context: context)
+            }
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
