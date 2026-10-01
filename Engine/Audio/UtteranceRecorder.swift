@@ -17,20 +17,28 @@ import Shared
 /// sidecar records the device, its transport and rate, the capture graph and the profile, because a
 /// WAV with no provenance answers half the question.
 ///
-/// Privacy. Off by default, opt-in, local only. Nothing is uploaded, nothing is logged but the path
-/// and the folder's size, and only the most recent `retainedUtterances` are kept (V4.52: 100 by
-/// default, or every one when the owner picks "Keep all") so it cannot quietly grow unseen — the
-/// folder's size is reported (`usage()`) beside the switch. Recordings live in
-/// `~/Library/Application Support/VoicePlus/Recordings` and are deleted by removing that folder.
+/// V5 F3 — **every dictation is stored** (owner decision, V5 §F3 / X17): the switch defaults to on
+/// for the dictation capture graph (`CaptureGraphPlan`), and the sidecar also carries the turn's
+/// transcript, final text and target app (`annotateLatest`). Retention is by age — 7 / 30 / 90 days
+/// or forever, default 30 (`retentionDaysKey`) — under a disk cap, default 2 GB (`diskCapKey`), with
+/// the least-recently-used utterances deleted first (`sweep`). Recordings are never synced: the sync
+/// payload has no audio field (`SyncPayload.audit()`), and there is no Sync option for them yet.
+///
+/// Privacy. Local only. Nothing is uploaded, nothing is logged but the path and the folder's size.
+/// Turning the switch off stops the next recording. Other captures (the Voice test, the mic self-test,
+/// onboarding) record only when the user explicitly turned the switch on (`isExplicitlyEnabled`).
+/// Recordings live in `~/Library/Application Support/VoicePlus/Recordings` and are deleted by
+/// removing that folder.
 public final class UtteranceRecorder: @unchecked Sendable {
-    /// `UserDefaults` switch. Absent means off — this is never on unless a user turned it on.
+    /// `UserDefaults` switch. V5 F3: absent means **on** for dictation; `false` stored means off.
     public static let defaultsKey = "diagnostics.saveUtteranceAudio"
-    /// V4.52 — how many utterances are kept; older ones are deleted whenever a new one lands.
-    /// `SettingsKeys.recordingsRetain` in the app aliases this key. Stored as a decimal string (the
-    /// `SettingsStore` carries strings), read on every save so a change applies to the next one.
+    /// V4.52 — a legacy *count* retention, now honoured only when one is explicitly stored (F3 made
+    /// age + disk cap the retention). `SettingsKeys.recordingsRetain` in the app aliases this key.
+    /// Stored as a decimal string, read on every save so a change applies to the next one.
     public static let retainKey = "recordings.retain"
-    /// What an unset or unreadable `retainKey` means: a corpus session of ~100 lines fits unpruned.
-    public static let defaultRetainedUtterances = 100
+    /// What an unset or unreadable `retainKey` means. V5 F3: no count limit (`keepAll`); age and the
+    /// disk cap govern.
+    public static let defaultRetainedUtterances = 0
     /// The stored value for "Keep all": nothing is ever pruned.
     public static let keepAll = 0
     /// V4.52 — the label a corpus pass is tagged with (set from Settings › Privacy), written into
@@ -42,9 +50,204 @@ public final class UtteranceRecorder: @unchecked Sendable {
     /// Hard ceiling per utterance, so a locked-on dictation cannot grow the buffer without bound.
     public static let maxSeconds: Double = 180
 
+    /// V5 F3 — the dictation switch: on unless the user stored `false`.
     public static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: defaultsKey) == nil ? true : defaults.bool(forKey: defaultsKey)
+    }
+
+    /// The pre-F3 opt-in reading: on only when the user stored `true`. Captures other than dictation
+    /// (Voice test, mic self-test, onboarding) record only then.
+    public static func isExplicitlyEnabled(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: defaultsKey)
     }
+
+    // MARK: age retention + disk cap (V5 F3)
+
+    /// Days a recording is kept; `0` = forever. Stored as a decimal string.
+    public static let retentionDaysKey = "recordings.retentionDays"
+    public static let defaultRetentionDays = 30
+    public static let forever = 0
+    /// The choices Settings › Privacy offers, in order.
+    public static let retentionDayChoices = [7, 30, 90, forever]
+
+    /// Disk cap in bytes for the whole Recordings folder. Stored as a decimal string.
+    public static let diskCapKey = "recordings.diskCapBytes"
+    public static let gigabyte: Int64 = 1_000_000_000
+    public static let defaultDiskCapBytes: Int64 = 2 * gigabyte
+    /// The caps Settings › Privacy offers.
+    public static let diskCapChoices: [Int64] = [1, 2, 5, 10].map { $0 * gigabyte }
+
+    public static func retentionDays(_ defaults: UserDefaults = .standard) -> Int {
+        parseRetentionDays(defaults.object(forKey: retentionDaysKey))
+    }
+
+    public static func setRetentionDays(_ days: Int, _ defaults: UserDefaults = .standard) {
+        defaults.set(String(days < 0 ? defaultRetentionDays : days), forKey: retentionDaysKey)
+    }
+
+    /// A number or decimal string ≥ 0; anything else (absent, negative, garbage) is 30.
+    public static func parseRetentionDays(_ stored: Any?) -> Int {
+        guard let v = parseInt(stored), v >= 0 else { return defaultRetentionDays }
+        return v
+    }
+
+    public static func diskCapBytes(_ defaults: UserDefaults = .standard) -> Int64 {
+        parseDiskCap(defaults.object(forKey: diskCapKey))
+    }
+
+    public static func setDiskCapBytes(_ bytes: Int64, _ defaults: UserDefaults = .standard) {
+        defaults.set(String(bytes <= 0 ? defaultDiskCapBytes : bytes), forKey: diskCapKey)
+    }
+
+    /// A positive number or decimal string; anything else is 2 GB. There is no "no cap".
+    public static func parseDiskCap(_ stored: Any?) -> Int64 {
+        let value: Int64?
+        switch stored {
+        case let n as NSNumber: value = n.int64Value
+        case let s as String: value = Int64(s.trimmingCharacters(in: .whitespacesAndNewlines))
+        default: value = nil
+        }
+        guard let value, value > 0 else { return defaultDiskCapBytes }
+        return value
+    }
+
+    private static func parseInt(_ stored: Any?) -> Int? {
+        switch stored {
+        case let n as NSNumber: return n.intValue
+        case let s as String: return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+        default: return nil
+        }
+    }
+
+    /// What one `sweep` deleted, in whole utterances.
+    public struct SweepResult: Equatable, Sendable {
+        public var expired: Int
+        public var overCap: Int
+        public init(expired: Int = 0, overCap: Int = 0) { self.expired = expired; self.overCap = overCap }
+    }
+
+    /// Deletes every utterance older than `retentionDays` (by its stamp; `forever` keeps all), then,
+    /// while the folder is over `diskCap`, the least-recently-used utterance (latest modification of
+    /// any of its files — `annotate`/`markUsed` touch it). `keeping` is never deleted (the one just
+    /// saved). Files the recorder did not write are neither counted nor deleted.
+    @discardableResult
+    public static func sweep(in directory: URL, now: Date, retentionDays: Int, diskCap: Int64,
+                             keeping: String? = nil) -> SweepResult {
+        let fm = FileManager.default
+        let files = recordingFiles(in: directory, keys: [.fileSizeKey, .contentModificationDateKey])
+        var groups: [String: [URL]] = [:]
+        for f in files { groups[stamp(of: f), default: []].append(f) }
+        var result = SweepResult()
+        if retentionDays > forever {
+            let cutoff = now.addingTimeInterval(-Double(retentionDays) * 86_400)
+            for (s, urls) in groups where s != keeping {
+                guard let date = stampFormatter.date(from: s), date < cutoff else { continue }
+                for u in urls { try? fm.removeItem(at: u) }
+                groups[s] = nil
+                result.expired += 1
+            }
+        }
+        struct Entry { var stamp: String; var bytes: Int64; var lastUsed: Date }
+        var entries = groups.map { s, urls -> Entry in
+            var bytes: Int64 = 0
+            var last = stampFormatter.date(from: s) ?? .distantPast
+            for u in urls {
+                let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                bytes += Int64(v?.fileSize ?? 0)
+                if let m = v?.contentModificationDate, m > last { last = m }
+            }
+            return Entry(stamp: s, bytes: bytes, lastUsed: last)
+        }
+        var total = entries.reduce(Int64(0)) { $0 + $1.bytes }
+        guard total > diskCap else { return result }
+        entries.sort { ($0.lastUsed, $0.stamp) < ($1.lastUsed, $1.stamp) }
+        for e in entries where total > diskCap && e.stamp != keeping {
+            for u in groups[e.stamp] ?? [] { try? fm.removeItem(at: u) }
+            total -= e.bytes
+            result.overCap += 1
+        }
+        return result
+    }
+
+    /// LRU touch: the utterance was used (replayed, exported, made a training pair).
+    public static func markUsed(stamp: String, in directory: URL = UtteranceRecorder.directory(), at date: Date = Date()) {
+        for u in recordingFiles(in: directory) where self.stamp(of: u) == stamp {
+            try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: u.path)
+        }
+    }
+
+    // MARK: transcript, final text, app (V5 F3)
+
+    /// Writes the turn's transcript, final text and target app into `stamp`'s sidecar (which also
+    /// marks it used). False when the sidecar is missing or unreadable.
+    @discardableResult
+    public static func annotate(stamp: String, in directory: URL = UtteranceRecorder.directory(),
+                                transcript: String?, finalText: String?, appBundleID: String?) -> Bool {
+        let url = directory.appendingPathComponent("\(stamp).json")
+        guard let data = try? Data(contentsOf: url), var m = try? decoder.decode(Manifest.self, from: data) else { return false }
+        m.transcript = transcript
+        m.finalText = finalText
+        m.appBundleID = appBundleID
+        guard let out = try? encoder.encode(m) else { return false }
+        do { try out.write(to: url, options: .atomic) } catch { return false }
+        return true
+    }
+
+    /// Annotates the newest recording that has no final text yet and was saved within `window` of
+    /// `now` — the one the turn that just landed captured (capture stops, `finish()` saves, the text
+    /// lands). Returns its stamp, or nil when none qualifies (recording off, or already annotated).
+    @discardableResult
+    public static func annotateLatest(in directory: URL = UtteranceRecorder.directory(), now: Date = Date(),
+                                      window: TimeInterval = 300, transcript: String?, finalText: String?,
+                                      appBundleID: String?) -> String? {
+        let stamps = Set(recordingFiles(in: directory).filter { $0.pathExtension == "json" }.map { stamp(of: $0) })
+        for s in stamps.sorted(by: >).prefix(5) {
+            let url = directory.appendingPathComponent("\(s).json")
+            guard let data = try? Data(contentsOf: url), let m = try? decoder.decode(Manifest.self, from: data) else { continue }
+            guard m.finalText == nil else { return nil }       // the newest is already this or an older turn's
+            guard abs(now.timeIntervalSince(m.recordedAt)) <= window else { return nil }
+            return annotate(stamp: s, in: directory, transcript: transcript, finalText: finalText,
+                            appBundleID: appBundleID) ? s : nil
+        }
+        return nil
+    }
+
+    /// Where a landed turn's text goes: installed by `EngineFactory` for the real dictation stack
+    /// (`annotateLatest` on the Recordings folder, off the caller's thread); nil — tests, mock
+    /// engines — means nothing is written.
+    public static var onLanded: (@Sendable (_ transcript: String?, _ finalText: String?, _ appBundleID: String?) -> Void)? {
+        get { landedLock.withLock { _onLanded } }
+        set { landedLock.withLock { _onLanded = newValue } }
+    }
+    nonisolated(unsafe) private static var _onLanded: (@Sendable (String?, String?, String?) -> Void)?
+    private static let landedLock = NSLock()
+
+    /// Called by the lander for every landed or held turn.
+    public static func noteLanded(transcript: String?, finalText: String?, appBundleID: String?) {
+        onLanded?(transcript, finalText, appBundleID)
+    }
+
+    /// The real stack's `onLanded`: annotate the turn's recording on a utility queue.
+    public static func installLandingAnnotator(directory: URL = UtteranceRecorder.directory()) {
+        onLanded = { transcript, finalText, app in
+            DispatchQueue.global(qos: .utility).async {
+                annotateLatest(in: directory, transcript: transcript, finalText: finalText, appBundleID: app)
+            }
+        }
+    }
+
+    static let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
+
+    static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
 
     public static func setEnabled(_ enabled: Bool, _ defaults: UserDefaults = .standard) {
         defaults.set(enabled, forKey: defaultsKey)
@@ -198,6 +401,11 @@ public final class UtteranceRecorder: @unchecked Sendable {
         /// V4.52 — the corpus pass this utterance belongs to (`corpusKey` at save time), so passes
         /// are told apart by tag rather than by folder. Absent from older sidecars; they decode as nil.
         public var corpus: String? = nil
+        /// V5 F3 — the recognizer's transcript, the text that landed and the app it landed in,
+        /// written after the turn lands (`annotateLatest`). Absent from older sidecars.
+        public var transcript: String? = nil
+        public var finalText: String? = nil
+        public var appBundleID: String? = nil
     }
 
     private let directory: URL
@@ -287,15 +495,14 @@ public final class UtteranceRecorder: @unchecked Sendable {
             processedRMSdBFS: Self.rmsDBFS(processedSamples),
             processedPeakdBFS: Self.peakDBFS(processedSamples),
             corpus: Self.corpusLabel(defaults))
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(manifest).write(to: directory.appendingPathComponent("\(stamp).json"))
+        try Self.encoder.encode(manifest).write(to: directory.appendingPathComponent("\(stamp).json"))
 
         let limit = retention
         prune(keeping: limit)
+        let days = Self.retentionDays(defaults), cap = Self.diskCapBytes(defaults)
+        let swept = Self.sweep(in: directory, now: now(), retentionDays: days, diskCap: cap, keeping: stamp)
         let kept = usage()
-        Log.engine.notice("audio: saved utterance recording (diagnostics are ON) — \(rawURL.path) · \(kept.utterances) kept, \(kept.formattedSize), retention \(limit == Self.keepAll ? "all" : String(limit))")
+        Log.engine.notice("audio: saved utterance recording — \(rawURL.path) · \(kept.utterances) kept, \(kept.formattedSize); retention \(days == Self.forever ? "forever" : "\(days) d"), cap \(ByteCountFormatter.string(fromByteCount: cap, countStyle: .file)); swept \(swept.expired) expired, \(swept.overCap) over cap")
         return rawURL
     }
 
@@ -303,6 +510,13 @@ public final class UtteranceRecorder: @unchecked Sendable {
     /// the rest. `keepAll` (0) deletes nothing.
     public func prune(keeping limit: Int? = nil) {
         Self.prune(in: directory, keeping: limit ?? retention)
+    }
+
+    /// V5 F3 — the age + disk-cap sweep with this recorder's settings (the app runs it at launch too).
+    @discardableResult
+    public func sweep() -> SweepResult {
+        Self.sweep(in: directory, now: now(), retentionDays: Self.retentionDays(defaults),
+                   diskCap: Self.diskCapBytes(defaults))
     }
 
     /// This recorder's folder, counted and sized.

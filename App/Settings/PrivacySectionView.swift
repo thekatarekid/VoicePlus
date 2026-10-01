@@ -171,7 +171,7 @@ struct PrivacySectionView: View {
         }
     }
 
-    // MARK: Audio — retain audio, keep the last 100 / keep all, corpus label, folder (J1)
+    // MARK: Audio — retain audio, keep 7/30/90 days/forever + disk limit (V5 F3), corpus label, folder (J1)
 
     private var audioGroup: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.m) {
@@ -184,9 +184,9 @@ struct PrivacySectionView: View {
                 .accessibilityIdentifier("settings.saveRecordingsNote")
                 RowView(PrivacyCopy.keepTitle, detail: PrivacyCopy.keepDetail) {
                     Picker(PrivacyCopy.keepTitle, selection: Binding(
-                        get: { model.recordingsRetention }, set: { model.recordingsRetention = $0 })) {
-                        ForEach(model.retentionChoices, id: \.self) { count in
-                            Text(model.retentionLabel(count)).tag(count)
+                        get: { model.recordingsRetentionDays }, set: { model.recordingsRetentionDays = $0 })) {
+                        ForEach(model.retentionDayChoices, id: \.self) { days in
+                            Text(model.retentionDaysLabel(days)).tag(days)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -194,6 +194,17 @@ struct PrivacySectionView: View {
                     .fixedSize()
                 }
                 .accessibilityIdentifier("privacy.recordings.retention")
+                RowView(PrivacyCopy.diskCapTitle, detail: PrivacyCopy.diskCapDetail) {
+                    Picker(PrivacyCopy.diskCapTitle, selection: Binding(
+                        get: { model.recordingsDiskCap }, set: { model.recordingsDiskCap = $0 })) {
+                        ForEach(model.diskCapChoices, id: \.self) { bytes in
+                            Text(model.diskCapLabel(bytes)).tag(bytes)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                .accessibilityIdentifier("privacy.recordings.diskCap")
                 corpusRow
                 RowView(PrivacyCopy.recordingsTitle, detail: model.recordingsSentence) {
                     HStack(spacing: Tokens.Spacing.s) {

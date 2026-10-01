@@ -15,6 +15,10 @@ public extension SettingsKeys {
     static let recordingsRetain = UtteranceRecorder.retainKey
     /// Free text; absent or blank = untagged.
     static let recordingsCorpus = UtteranceRecorder.corpusKey
+    /// V5 F3 — decimal string: days kept, `30` by default, `0` = forever.
+    static let recordingsRetentionDays = UtteranceRecorder.retentionDaysKey
+    /// V5 F3 — decimal string: the Recordings folder's disk cap in bytes, 2 GB by default.
+    static let recordingsDiskCap = UtteranceRecorder.diskCapKey
 }
 
 public enum RecordingSettings {
@@ -45,5 +49,30 @@ public enum RecordingSettings {
         UtteranceRecorder.usage(of: directory)
     }
 
-    public static var allKeys: [String] { [SettingsKeys.recordingsRetain, SettingsKeys.recordingsCorpus] }
+    // MARK: V5 F3 — age retention + disk cap (the recorder sweeps at every save and at launch)
+
+    public static let defaultRetentionDays = UtteranceRecorder.defaultRetentionDays
+    public static let forever = UtteranceRecorder.forever
+    public static let defaultDiskCap = UtteranceRecorder.defaultDiskCapBytes
+
+    public static func retentionDays(_ store: SettingsStore?) -> Int {
+        UtteranceRecorder.parseRetentionDays(store?.string(SettingsKeys.recordingsRetentionDays))
+    }
+
+    public static func setRetentionDays(_ days: Int, store: SettingsStore?) {
+        store?.set(String(days < 0 ? defaultRetentionDays : days), for: SettingsKeys.recordingsRetentionDays)
+    }
+
+    public static func diskCap(_ store: SettingsStore?) -> Int64 {
+        UtteranceRecorder.parseDiskCap(store?.string(SettingsKeys.recordingsDiskCap))
+    }
+
+    public static func setDiskCap(_ bytes: Int64, store: SettingsStore?) {
+        store?.set(String(bytes <= 0 ? defaultDiskCap : bytes), for: SettingsKeys.recordingsDiskCap)
+    }
+
+    public static var allKeys: [String] {
+        [SettingsKeys.recordingsRetain, SettingsKeys.recordingsCorpus,
+         SettingsKeys.recordingsRetentionDays, SettingsKeys.recordingsDiskCap]
+    }
 }

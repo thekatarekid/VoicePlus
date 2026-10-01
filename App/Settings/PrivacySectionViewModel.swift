@@ -343,30 +343,45 @@ public final class PrivacySectionViewModel: ObservableObject {
 
     public var audioRetentionSentence: String { audioRetention ? PrivacyCopy.retainAudioOn : PrivacyCopy.retainAudioOff }
 
-    // MARK: Recordings (J1: keep the last 100 / keep all, corpus label, folder size, reveal, delete)
+    // MARK: Recordings (V5 F3: keep 7 / 30 / 90 days / forever, disk cap; J1 corpus label, folder)
 
-    /// `RecordingSettings.defaultRetention` (100) or `keepAll` (0); read by `UtteranceRecorder` at
-    /// every save.
-    public var recordingsRetention: Int {
-        get { RecordingSettings.retention(settings) }
+    /// Days a recording is kept (30 by default, `forever` = 0); the recorder sweeps at every save
+    /// and at launch.
+    public var recordingsRetentionDays: Int {
+        get { RecordingSettings.retentionDays(settings) }
         set {
-            RecordingSettings.setRetention(newValue, store: settings)
+            RecordingSettings.setRetentionDays(newValue, store: settings)
             objectWillChange.send()
         }
     }
 
-    /// The two choices the design offers, plus whatever other count is stored (never silently
-    /// re-labelled as one of them).
-    public var retentionChoices: [Int] {
-        var choices = [RecordingSettings.defaultRetention, RecordingSettings.keepAll]
-        let current = recordingsRetention
+    /// 7 / 30 / 90 days / Forever, plus whatever other count is stored (never silently relabelled).
+    public var retentionDayChoices: [Int] {
+        var choices = UtteranceRecorder.retentionDayChoices
+        let current = recordingsRetentionDays
         if !choices.contains(current) { choices.insert(current, at: 0) }
         return choices
     }
 
-    public func retentionLabel(_ count: Int) -> String {
-        count == RecordingSettings.keepAll ? PrivacyCopy.keepAll : PrivacyCopy.keepLast(count)
+    public func retentionDaysLabel(_ days: Int) -> String { PrivacyCopy.keepDays(days) }
+
+    /// The Recordings folder's disk cap (2 GB by default); least-recently-used recordings go first.
+    public var recordingsDiskCap: Int64 {
+        get { RecordingSettings.diskCap(settings) }
+        set {
+            RecordingSettings.setDiskCap(newValue, store: settings)
+            objectWillChange.send()
+        }
     }
+
+    public var diskCapChoices: [Int64] {
+        var choices = UtteranceRecorder.diskCapChoices
+        let current = recordingsDiskCap
+        if !choices.contains(current) { choices.insert(current, at: 0) }
+        return choices
+    }
+
+    public func diskCapLabel(_ bytes: Int64) -> String { PrivacyCopy.diskCap(bytes) }
 
     /// Saves the corpus label. The value is read back: a store that did not keep it is a failed save
     /// (S02 inline), the typed label stays in the field and the previous label stays active.
@@ -578,7 +593,7 @@ public final class PrivacySectionViewModel: ObservableObject {
             "Ambient capture: \(onOff(ambientCapture)), transcripts kept \(retentionDays) day\(retentionDays == 1 ? "" : "s")",
             "Keep what other people said too: \(onOff(capturesEverySpeaker))",
             "Keep held text until resolved: \(onOff(persistsRecovery))",
-            "Retain audio: \(onOff(audioRetention)), \(retentionLabel(recordingsRetention).lowercased())",
+            "Retain audio: \(onOff(audioRetention)), keep \(retentionDaysLabel(recordingsRetentionDays).lowercased()), limit \(diskCapLabel(recordingsDiskCap))",
             "Corpus label: \(RecordingSettings.corpusLabel(settings) == nil ? "not set" : "set")",
             "Screen Recording asked: \(DeixisSettings.screenRecordingRequested(settings) ? "yes" : "no")",
         ]

@@ -543,7 +543,7 @@ public final class AudioInputSettingsViewModel: ObservableObject {
         }
     }
 
-    /// Opt-in local audio capture. Off unless the owner turns it on, and loud about being on.
+    /// Local dictation audio (V5 F3: on by default, age + disk-cap retention), loud about being on.
     @Published public var saveRecordings: Bool {
         didSet { UtteranceRecorder.setEnabled(saveRecordings, defaults) }
     }
@@ -608,10 +608,11 @@ public final class AudioInputSettingsViewModel: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(at: recordingsDirectory, includingPropertiesForKeys: nil)) ?? []
         let count = Set(files.map(UtteranceRecorder.stamp(of:))).count
         guard count > 0 else { return "No recordings saved yet." }
-        // J1 (V4.52): the retention in force for *this* model's defaults — `Keep all` (0) reads as
-        // "All of them are kept.", never "the most recent 0".
-        let retain = UtteranceRecorder.retention(defaults)
-        let policy = retain > 0 ? "Only the most recent \(retain) are kept." : "All of them are kept."
+        // V5 F3: the age retention in force for *this* model's defaults; `Forever` (0) reads as
+        // "All of them are kept, up to the disk limit."
+        let days = UtteranceRecorder.retentionDays(defaults)
+        let cap = ByteCountFormatter.string(fromByteCount: UtteranceRecorder.diskCapBytes(defaults), countStyle: .file)
+        let policy = days > 0 ? "Each is kept \(days) days, up to \(cap) in all." : "All of them are kept, up to \(cap) in all."
         return "\(count) recording\(count == 1 ? "" : "s") saved on this Mac. \(policy)"
     }
 

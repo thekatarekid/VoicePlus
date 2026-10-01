@@ -451,6 +451,9 @@ public final class UtteranceLander: @unchecked Sendable {
     }
 
     private func recordHistory(_ utterance: Utterance, text: String, bundleID: String?) {
+        // V5 F3 — the turn's recording (saved at capture stop, when recordings are on) gets its
+        // transcript, final text and app. A no-op when nothing was recorded.
+        UtteranceRecorder.noteLanded(transcript: utterance.text, finalText: text, appBundleID: bundleID)
         guard let database, recordsHistory() else { return }
         do { try database.insert(try DictationRecord(utterance: utterance, finalText: text, appBundleID: bundleID)) }
         catch { Log.db.error("history insert failed: \(error)") }

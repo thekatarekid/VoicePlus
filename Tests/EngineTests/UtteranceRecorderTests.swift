@@ -27,13 +27,16 @@ struct UtteranceRecorderTests {
 
     // MARK: recorder
 
-    @Test func offByDefaultSoNothingIsEverWrittenUnasked() {
+    /// V5 F3 — every dictation is stored: absent means on for dictation; the pre-F3 opt-in reading
+    /// (`isExplicitlyEnabled`, used by non-dictation captures) stays off until the user turns it on.
+    @Test func onByDefaultForDictationOffUntilAskedForOtherCaptures() {
         let d = UserDefaults(suiteName: "vp.rec.off.\(UUID().uuidString)")!
-        #expect(UtteranceRecorder.isEnabled(d) == false)
-        UtteranceRecorder.setEnabled(true, d)
         #expect(UtteranceRecorder.isEnabled(d))
+        #expect(UtteranceRecorder.isExplicitlyEnabled(d) == false)
         UtteranceRecorder.setEnabled(false, d)
-        #expect(UtteranceRecorder.isEnabled(d) == false)
+        #expect(UtteranceRecorder.isEnabled(d) == false, "a stored off is off")
+        UtteranceRecorder.setEnabled(true, d)
+        #expect(UtteranceRecorder.isEnabled(d) && UtteranceRecorder.isExplicitlyEnabled(d))
     }
 
     @Test func writesRawProcessedAndAManifestThatExplainsTheRecording() throws {

@@ -119,12 +119,17 @@ public enum PrivacyCopy {
     // MARK: Audio (J1)
 
     public static let retainAudioTitle = "Retain audio"
-    public static let retainAudioOn = "On. Every dictation is saved as audio on this Mac, so a bad transcription can be replayed and diagnosed. Nothing is uploaded. Turn it off when you’re done."
-    public static let retainAudioOff = "Off. Turn this on only to chase down bad accuracy: it saves each dictation’s audio on this Mac. Nothing is ever uploaded."
+    public static let retainAudioOn = "On. Every dictation’s audio is kept on this Mac with its transcript and the text that landed, so a bad transcription can be replayed and fixed. Never uploaded or synced."
+    public static let retainAudioOff = "Off. No dictation audio is kept. Turn it on to keep each dictation’s audio on this Mac, never uploaded or synced."
     public static let keepTitle = "Keep"
-    public static let keepDetail = "Takes effect with the next recording. Each is about 1 MB."
+    public static let keepDetail = "Older recordings are deleted, also at launch. Each is about 1 MB."
     public static func keepLast(_ count: Int) -> String { "Keep the last \(count)" }
     public static let keepAll = "Keep all"
+    /// V5 F3 — the age choices.
+    public static func keepDays(_ days: Int) -> String { days == 0 ? "Forever" : "\(days) days" }
+    public static let diskCapTitle = "Disk limit"
+    public static let diskCapDetail = "Over the limit, the recordings used least recently are deleted first."
+    public static func diskCap(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
     public static let corpusTitle = "Corpus label"
     public static let corpusDetail = "Tags each new recording’s manifest, such as “real-room v2”. Leave blank for none."
     public static let corpusPlaceholder = "No label"

@@ -34,11 +34,12 @@ struct MicrophoneSettingsTests {
                 "back to Automatic must clear the pin, not leave a stale one")
     }
 
-    @Test("the recording toggle is off by default and writes the engine's own switch")
-    func recordingToggleIsOffByDefault() {
+    @Test("V5 F3: the recording toggle is on by default (every dictation is stored) and writes the engine's own switch")
+    func recordingToggleIsOnByDefault() {
         let d = Self.defaults()
         let model = AudioInputSettingsViewModel(defaults: d)
-        #expect(model.saveRecordings == false, "audio capture must never be on unless a person turned it on")
+        #expect(model.saveRecordings, "F3: dictation audio is kept unless a person turned it off")
+        #expect(UtteranceRecorder.isExplicitlyEnabled(d) == false, "other captures still need an explicit on")
         model.saveRecordings = true
         #expect(UtteranceRecorder.isEnabled(d))
         model.saveRecordings = false

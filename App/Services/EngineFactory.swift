@@ -114,7 +114,8 @@ public enum EngineFactory {
         let plan = CaptureGraphPlan.plan(for: enhancement, localVQEAvailable: localVQE != nil)
         let capture = plan.makeCaptureSource(plainTap: { CoreAudioCaptureSource() },
                                              voiceProcessing: { VoiceProcessingCaptureSource() },
-                                             neuralStage: localVQE)
+                                             neuralStage: localVQE,
+                                             installsRecordingHooks: true)   // V5 F3
         Log.engine.info("\(plan.logLine)")
         var options = plan.apply(to: AudioPipeline.Options())
         // V5 C4 — Smart Turn ends a latched segment at a finished sentence (≥ 400 ms pause) instead of

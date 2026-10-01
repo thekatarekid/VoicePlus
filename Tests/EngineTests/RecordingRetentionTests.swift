@@ -3,8 +3,9 @@ import Testing
 import Shared
 @testable import Engine
 
-/// J1 (V4.52) — recordings retention from the `recordings.retain` setting (100 by default, 0 = keep
-/// all), the folder size reported beside the switch, and the manifest's `corpus` label.
+/// J1 (V4.52) — recordings retention from the `recordings.retain` setting (V5 F3: a legacy count,
+/// applied only when one is stored — unset means no count limit; age + disk cap govern, see
+/// `RecordingStoreF3Tests`), the folder size reported beside the switch, and the manifest's `corpus` label.
 @Suite("Recording retention (V4.52)")
 struct RecordingRetentionTests {
 
@@ -47,10 +48,10 @@ struct RecordingRetentionTests {
 
     // MARK: the setting
 
-    @Test func unsetMeansOneHundred() {
+    @Test func unsetMeansNoCountLimit() {
         let d = Self.defaults()
-        #expect(UtteranceRecorder.retention(d) == 100)
-        #expect(UtteranceRecorder.defaultRetainedUtterances == 100)
+        #expect(UtteranceRecorder.retention(d) == UtteranceRecorder.keepAll)
+        #expect(UtteranceRecorder.defaultRetainedUtterances == 0)
         #expect(UtteranceRecorder.retainKey == "recordings.retain")
     }
 
@@ -62,17 +63,17 @@ struct RecordingRetentionTests {
         UtteranceRecorder.setRetention(250, d)
         #expect(UtteranceRecorder.retention(d) == 250)
         UtteranceRecorder.setRetention(-3, d)
-        #expect(UtteranceRecorder.retention(d) == 100, "a negative count is not a retention")
+        #expect(UtteranceRecorder.retention(d) == 0, "a negative count is not a retention")
     }
 
     @Test func parsingAcceptsNumbersAndStringsAndFallsBackOnGarbage() {
-        #expect(UtteranceRecorder.parseRetention(nil) == 100)
+        #expect(UtteranceRecorder.parseRetention(nil) == 0)
         #expect(UtteranceRecorder.parseRetention("0") == 0)
         #expect(UtteranceRecorder.parseRetention(" 40 ") == 40)
         #expect(UtteranceRecorder.parseRetention(40) == 40)
-        #expect(UtteranceRecorder.parseRetention("all") == 100)
-        #expect(UtteranceRecorder.parseRetention("-1") == 100)
-        #expect(UtteranceRecorder.parseRetention(-1) == 100)
+        #expect(UtteranceRecorder.parseRetention("all") == 0)
+        #expect(UtteranceRecorder.parseRetention("-1") == 0)
+        #expect(UtteranceRecorder.parseRetention(-1) == 0)
         let d = Self.defaults()
         d.set(30, forKey: UtteranceRecorder.retainKey)        // an integer write (e.g. `defaults write -int`)
         #expect(UtteranceRecorder.retention(d) == 30)
@@ -83,18 +84,20 @@ struct RecordingRetentionTests {
         let dir = Self.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let recorder = UtteranceRecorder(directory: dir, defaults: d)
-        #expect(recorder.retention == 100)
-        UtteranceRecorder.setRetention(0, d)
-        #expect(recorder.retention == 0, "no relaunch: the next save uses the new value")
+        #expect(recorder.retention == 0)
+        UtteranceRecorder.setRetention(100, d)
+        #expect(recorder.retention == 100, "no relaunch: the next save uses the new value")
     }
 
     // MARK: pruning
 
-    @Test func prunesToTheNewestOneHundredByDefault() throws {
+    @Test func prunesToAStoredHundred() throws {
         let dir = Self.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let clock = FakeClock()
-        let recorder = UtteranceRecorder(directory: dir, defaults: Self.defaults(), now: { clock.now })
+        let d = Self.defaults()
+        UtteranceRecorder.setRetention(100, d)
+        let recorder = UtteranceRecorder(directory: dir, defaults: d, now: { clock.now })
         let written = try Self.record(103, with: recorder, clock: clock)
 
         let kept = try Self.stamps(in: dir)
@@ -109,7 +112,9 @@ struct RecordingRetentionTests {
         let dir = Self.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let clock = FakeClock()
-        let recorder = UtteranceRecorder(directory: dir, defaults: Self.defaults(), now: { clock.now })
+        let d = Self.defaults()
+        UtteranceRecorder.setRetention(100, d)
+        let recorder = UtteranceRecorder(directory: dir, defaults: d, now: { clock.now })
         let written = try Self.record(100, with: recorder, clock: clock)
         #expect(try Self.stamps(in: dir) == Set(written))
     }

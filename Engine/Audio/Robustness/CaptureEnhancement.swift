@@ -87,9 +87,18 @@ public struct CaptureGraphPlan: Equatable, Sendable {
     /// The capture source for this plan. Sources are built lazily so only the chosen one is touched.
     public func makeCaptureSource(plainTap: () -> any AudioCaptureSource,
                                   voiceProcessing: () -> any AudioCaptureSource,
-                                  neuralStage: (any AcousticStage)? = nil) -> AcousticCaptureSource {
+                                  neuralStage: (any AcousticStage)? = nil,
+                                  installsRecordingHooks: Bool = false) -> AcousticCaptureSource {
         let inner = usesVoiceProcessingSource ? voiceProcessing() : plainTap()
-        return AcousticCaptureSource(wrapping: inner, profile: profile, aec: usesNeuralStage ? neuralStage : nil)
+        let source = AcousticCaptureSource(wrapping: inner, profile: profile, aec: usesNeuralStage ? neuralStage : nil)
+        // V5 F3 — every dictation is stored: the switch (on by default), the landed turn's text into
+        // its sidecar, and the age + disk-cap sweep once per engine build (launch, engine rebuild).
+        source.isRecordingEnabled = { UtteranceRecorder.isEnabled() }
+        if installsRecordingHooks {
+            UtteranceRecorder.installLandingAnnotator()
+            DispatchQueue.global(qos: .utility).async { UtteranceRecorder().sweep() }
+        }
+        return source
     }
 
     /// Pipeline options carrying this plan's level warm-up and AGC tracking.

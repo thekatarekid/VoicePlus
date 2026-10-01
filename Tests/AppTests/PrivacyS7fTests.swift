@@ -359,19 +359,25 @@ struct PrivacyS7fTests {
 
     // MARK: - Recordings (J1)
 
-    @Test("recordings: keep the last 100 or keep all, written where the recorder reads them")
+    @Test("recordings (V5 F3): keep 7/30/90 days/forever (30) and a disk limit (2 GB), written where the recorder reads them")
     func recordingsRetention() {
         let store = InMemorySettingsStore()
         let model = Self.model(store: store)
-        #expect(model.recordingsRetention == 100)
-        #expect(model.retentionChoices == [100, 0])
-        #expect(model.retentionChoices.map(model.retentionLabel) == ["Keep the last 100", "Keep all"])
-        model.recordingsRetention = RecordingSettings.keepAll
-        #expect(store.string(SettingsKeys.recordingsRetain) == "0")
-        #expect(UtteranceRecorder.parseRetention(store.string(UtteranceRecorder.retainKey)) == 0)
-        store.set("20", for: SettingsKeys.recordingsRetain)
-        #expect(model.retentionChoices == [20, 100, 0], "a stored count is shown as itself, never relabelled")
-        #expect(model.retentionLabel(20) == "Keep the last 20")
+        #expect(model.recordingsRetentionDays == 30)
+        #expect(model.retentionDayChoices == [7, 30, 90, 0])
+        #expect(model.retentionDayChoices.map(model.retentionDaysLabel) == ["7 days", "30 days", "90 days", "Forever"])
+        model.recordingsRetentionDays = RecordingSettings.forever
+        #expect(store.string(SettingsKeys.recordingsRetentionDays) == "0")
+        #expect(UtteranceRecorder.parseRetentionDays(store.string(UtteranceRecorder.retentionDaysKey)) == 0)
+        store.set("14", for: SettingsKeys.recordingsRetentionDays)
+        #expect(model.retentionDayChoices == [14, 7, 30, 90, 0], "a stored count is shown as itself, never relabelled")
+
+        #expect(model.recordingsDiskCap == 2_000_000_000)
+        #expect(model.diskCapChoices == [1, 2, 5, 10].map { $0 * UtteranceRecorder.gigabyte })
+        #expect(model.diskCapLabel(model.recordingsDiskCap) == "2 GB")
+        model.recordingsDiskCap = 5 * UtteranceRecorder.gigabyte
+        #expect(UtteranceRecorder.parseDiskCap(store.string(UtteranceRecorder.diskCapKey)) == 5_000_000_000)
+        #expect(RecordingSettings.allKeys.contains(SettingsKeys.recordingsDiskCap))
     }
 
     @Test("corpus label: saved and read back; a store that drops it keeps the typed value and the old label (S02)")
@@ -640,6 +646,7 @@ struct PrivacyS7fTests {
     func audioState() throws {
         let data = FakeData()
         let model = Self.model(data: data)
+        model.audioRetention = false            // V5 F3: on by default; this case is about "off"
         #expect(model.audioState.rendering == .loading, "not counted yet: never the empty words")
         model.refreshInventory()
         model.refreshSaved()

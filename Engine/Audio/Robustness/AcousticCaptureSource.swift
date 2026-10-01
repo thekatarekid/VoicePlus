@@ -61,7 +61,11 @@ public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescri
     /// "Turn it off when you're done". Turning it *on* was equally inert. The predicate is cheap
     /// (one `UserDefaults` read per utterance, off the audio thread), so it is read per utterance
     /// and the toggle means what it says.
-    public var isRecordingEnabled: () -> Bool = { UtteranceRecorder.isEnabled() }
+    ///
+    /// V5 F3 — a plain wrapper (Voice test, mic self-test, onboarding) records only when the user
+    /// explicitly switched recordings on; the dictation graph (`CaptureGraphPlan.makeCaptureSource`)
+    /// sets `UtteranceRecorder.isEnabled`, which is on by default, so every dictation is stored.
+    public var isRecordingEnabled: () -> Bool = { UtteranceRecorder.isExplicitlyEnabled() }
 
     private let lock = NSLock()
     private var preroll: [Float] = []

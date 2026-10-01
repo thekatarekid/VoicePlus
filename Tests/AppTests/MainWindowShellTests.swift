@@ -479,7 +479,10 @@ struct MainWindowShellTests {
         model.retentionDays = 30
         #expect(model.retentionDays == 30)
         // Audio retention is its own switch, and it is the *existing* recorder key, not a new mirror.
-        #expect(model.audioRetention == false)
+        // V5 F3: every dictation is stored unless the user turns it off.
+        #expect(model.audioRetention == true)
+        model.audioRetention = false
+        #expect(UtteranceRecorder.isEnabled(defaults) == false)
         model.audioRetention = true
         #expect(UtteranceRecorder.isEnabled(defaults))
         #expect(model.saved.isContent, "with recordings on, Saved has content")
