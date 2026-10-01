@@ -153,7 +153,7 @@ private func wav(_ suite: String, _ name: String) throws -> [Float] {
     @Test func aPreSpeechWindowThatHeldSpeechIsNotTheFloor() throws {
         let a = MicQualityAnalyzer()
         var words: [Float] = []
-        for _ in 0..<5 { words += tone(0.18, dbfs: -20) + noise(0.02, dbfs: -70) }   // 1 s, 10 % gaps
+        for _ in 0..<5 { words += tone(0.19, dbfs: -20) + noise(0.01, dbfs: -70) }   // 1 s, 5 % gaps (K6: the first 100 ms is never a floor)
         a.feed(Array(words.prefix(samples(0.5))))
         a.note(.speechStart(at: 0.5))                        // the VAD caught up half a second late
         let q = try #require(a.feed(Array(words.suffix(samples(0.5))) + tone(0.5, dbfs: -20) + noise(0.05, dbfs: -70) + tone(0.1, dbfs: -20)))
@@ -277,7 +277,9 @@ private func wav(_ suite: String, _ name: String) throws -> [Float] {
                 let (_, verdicts) = try await replay(input)
                 #expect(verdicts.count == 1, "\(url.lastPathComponent)")
                 let q = try #require(verdicts.first)
-                #expect(q.snr >= 20, "\(url.lastPathComponent): \(q.snr) dB")
+                // As recorded there is no room audio at all: the floor is the word's own quietest
+                // frames after the K6 start-up hold (≥ 15 dB); after a room it is the room (≥ 20 dB).
+                #expect(q.snr >= (input.count == audio.count ? 15 : 20), "\(url.lastPathComponent): \(q.snr) dB")
                 #expect(q.verdict == .good && !q.lowLevel, "\(url.lastPathComponent)")
             }
         }

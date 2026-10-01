@@ -12,9 +12,13 @@ import Shared
 ///   running minimum frame RMS over the 4 s before the verdict is taken (see `feed`) — the minimum
 ///   statistics `EnergyVAD`'s floor tracker keeps, per 10 ms frame and without its 60 ms hold. It is
 ///   tracked here because the VAD's value is private, scaled up for onset detection, and Silero keeps
-///   none. (No hold here: it would erase the short gaps between words it is meant to find, so the
-///   microphone's start-up dip can still be this floor, or the p10 of a pre-speech window shorter
-///   than ~0.5 s — which reads the SNR high, never low. Open: DECISIONS.md, F1 fix.)
+///   none. (No level hold here: it would erase the short gaps between words it is meant to find.)
+/// * **Start-up hold (V5 K6)** — the first `startupHold` (100 ms) after `reset()` never feeds a floor:
+///   the built-in microphone dips 10–20 dB below the room for 30–45 ms right after capture starts,
+///   and before K6 that dip was the floor on 9 / 20 real-room files (SNR read 6–26 dB high). Those
+///   frames are dropped from the pre-speech window before its 200 ms length test, as the C1 warm-up
+///   is (the larger of the two applies), so the floor is ≥ 200 ms of settled pre-speech or the running
+///   4 s minimum of settled audio — never the dip.
 ///   A window that reached speech level (its p90 within 10 dB of the signal's) while its p10 sat more
 ///   than 10 dB above that running minimum held speech the VAD missed — the energy VAD learns its
 ///   floor from its first frames, so words from the first sample read as floor. The running minimum
@@ -64,6 +68,9 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
     /// Missed-onset test: the pre-speech p90 within this of the signal's p90, and its p10 more than
     /// this above the running minimum.
     public static let missedOnsetMarginDB: Float = 10
+    /// V5 K6 — stream time after `reset()` that never feeds a floor: longer than the built-in mic's
+    /// start-up dip (30–45 ms, 80 ms worst seen), shorter than any pre-speech pause worth grading.
+    public static let startupHold: TimeInterval = 0.1
     /// −100 dBFS: below any real microphone's self-noise.
     public static let digitalSilence: Float = 1e-5
     /// Unclassified frames kept while no speech segment is open (30 s). The pre-speech window is the
@@ -125,7 +132,8 @@ public final class MicQualityAnalyzer: @unchecked Sendable {
     /// V5 C1 — stream time after `reset()` whose frames never feed a floor estimate (pre-speech p10
     /// or running minimum): an AGC still ramping reads as a quiet room. Survives `reset()`; 0 = off.
     public var warmup: TimeInterval = 0
-    private var warmupFrames: Int { Int((warmup / Self.frameDuration).rounded()) }
+    /// Frames that never feed a floor: the larger of the C1 warm-up and the K6 start-up hold.
+    private var warmupFrames: Int { Int((max(warmup, Self.startupHold) / Self.frameDuration).rounded()) }
 
     public init() {}
 
