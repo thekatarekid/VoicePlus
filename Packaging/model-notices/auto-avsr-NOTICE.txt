@@ -1,0 +1,13 @@
+Auto-AVSR (audio-visual and visual-only speech recognition)
+
+Code: https://github.com/mpc001/auto_avsr — Apache License 2.0.
+Weights: trained on LRS3 (and, for the AV model, LRS2/VoxCeleb2/AVSpeech). The LRS3-derived weights
+are licensed for NON-COMMERCIAL RESEARCH USE ONLY.
+
+VoicePlus is a non-commercial application; using these weights was accepted by the owner (V5 LR4,
+1 Oct 2026). This is VoicePlus's one non-commercial dependency. The weights are not bundled or
+downloaded by the app: the user converts them locally (tools/avsr/README.md). If VoicePlus ever
+becomes commercial, these weights must be removed or replaced by a model trained on licensable data.
+
+Ma, Haliassos, Fernandez-Lopez, Chen, Petridis, Pantic. "Auto-AVSR: Audio-Visual Speech Recognition
+with Automatic Labels." ICASSP 2023.
