@@ -79,6 +79,7 @@ struct RelaunchAdvisorTests {
         var advisor = RelaunchAdvisor()
         advisor.noteSentToSettings(.microphone, at: t0)
         advisor.noteBecameActive(at: t0 + 1)
+        advisor.noteFreshCapture(succeeded: false, at: t0 + 1)   // Q10: only a failed capture counts
         #expect(advisor.evaluate(matrix: ungranted, now: t0 + 10) == [.microphone])
         for i in 11...40 { #expect(advisor.evaluate(matrix: ungranted, now: t0 + Double(i)).isEmpty) }
     }

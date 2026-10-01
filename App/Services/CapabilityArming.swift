@@ -76,6 +76,48 @@ public enum CapabilityArming {
     }
 }
 
+// MARK: - Q11 · Input Monitoring re-arm
+
+/// What to do about the legacy CGEvent tap when Input Monitoring changes, per hotkey. Pure.
+///
+/// A tap created while Input Monitoring was not in force exists and delivers nothing, and a grant
+/// made later does not revive it. So on a *fresh* grant (ungranted → granted, never the first read)
+/// the tap is re-created, and the grant is only called working once `TapLiveness` says `.alive` —
+/// at which point "listening again" is surfaced exactly once.
+public struct InputMonitoringRearm: Equatable, Sendable {
+    public enum Phase: String, Equatable, Sendable { case idle, confirming, confirmed }
+    public enum Action: String, Equatable, Sendable { case none, recreateTap, announceListeningAgain }
+
+    public private(set) var phase: Phase = .idle
+    private var lastGranted: Bool?
+
+    public init() {}
+
+    public mutating func step(granted: Bool, needsInputMonitoring: Bool, isRunning: Bool,
+                              verdict: TapLiveness.Verdict) -> Action {
+        let fresh = lastGranted == false && granted
+        lastGranted = granted
+        guard needsInputMonitoring, granted else { phase = .idle; return .none }
+        if fresh {
+            phase = .confirming
+            // Not armed yet: the ordinary arm path creates a fresh tap this tick.
+            return isRunning ? .recreateTap : .none
+        }
+        guard phase == .confirming else { return .none }
+        switch verdict {
+        case .alive:
+            phase = .confirmed
+            return .announceListeningAgain
+        case .dead:
+            // The deaf-tap path (one silent re-arm, then `onTapProvenDead`) takes it from here.
+            phase = .idle
+            return .none
+        case .unknown:
+            return .none
+        }
+    }
+}
+
 // MARK: - The watcher
 
 /// Re-reads the permission matrix continuously and arms/disarms the hotkey taps to match, for the
@@ -134,13 +176,38 @@ public final class CapabilityWatcher {
     /// per trip, per service, so a one-click "Quit & Reopen" can be offered without nagging.
     public var onRelaunchAdvised: ((Permission) -> Void)?
 
+    /// Q11 — a fresh Input Monitoring grant re-created the tap and `TapLiveness` confirmed it is
+    /// receiving events. Fired once per grant.
+    public var onListeningAgain: (() -> Void)?
+
     /// Injectable so the advisor's grace period is testable without sleeping.
     public var clock: () -> Date = Date.init
     private var advisor = RelaunchAdvisor()
+    private var rearmers: [ObjectIdentifier: InputMonitoringRearm] = [:]
+    private var listeningAgainAnnounced = false
+    /// Q10 — the live microphone probe. Injected in tests; `start()` falls back to the shared one.
+    private var microphoneProbe: MicrophoneStatusProbe?
 
-    public init(checker: PermissionChecking, hotkeys: [HotkeyArming]) {
+    public init(checker: PermissionChecking, hotkeys: [HotkeyArming], microphoneProbe: MicrophoneStatusProbe? = nil) {
         self.checker = checker
         self.hotkeys = hotkeys
+        if let microphoneProbe { attach(microphoneProbe) }
+    }
+
+    private func attach(_ probe: MicrophoneStatusProbe) {
+        microphoneProbe = probe
+        probe.addTrialObserver { [weak self] ok in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.noteFreshCapture(succeeded: ok) }
+            } else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.noteFreshCapture(succeeded: ok) } }
+            }
+        }
+    }
+
+    /// Q10 — a fresh microphone capture finished. Only a failure lets the advisor offer a relaunch.
+    public func noteFreshCapture(succeeded: Bool) {
+        advisor.noteFreshCapture(succeeded: succeeded, at: clock())
     }
 
     /// The permission the hotkeys collectively need right now — nil unless one of them is on the
@@ -159,7 +226,11 @@ public final class CapabilityWatcher {
 
     /// VoicePlus came back to the foreground. Called from the `didBecomeActive` observer; exposed so
     /// tests need no notification.
-    public func noteBecameActive() { advisor.noteBecameActive(at: clock()) }
+    public func noteBecameActive() {
+        advisor.noteBecameActive(at: clock())
+        // Q10 — re-read the microphone on activation; a `.denied` read starts a fresh capture trial.
+        microphoneProbe?.probe(.becameActive)
+    }
 
     deinit {
         timer?.invalidate()
@@ -172,6 +243,8 @@ public final class CapabilityWatcher {
 
     /// Begin watching. Safe to call twice.
     public func start() {
+        if microphoneProbe == nil { attach(.shared) }
+        microphoneProbe?.startObserving()
         refresh()
         guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
@@ -224,15 +297,18 @@ public final class CapabilityWatcher {
                 + " [\(current.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: " "))]")
             onCapabilitiesChanged?(caps, current)
         }
-        applyArming(canUseGlobalHotkey: caps.canUseGlobalHotkey)
+        applyArming(canUseGlobalHotkey: caps.canUseGlobalHotkey,
+                    inputMonitoringGranted: current[.inputMonitoring] == .granted)
         for permission in advisor.evaluate(matrix: current, now: clock()) {
             Log.app.notice("capabilities: \(permission.rawValue) still not granted after the trip to System Settings — macOS hands this one over only at launch, so offering a relaunch")
             onRelaunchAdvised?(permission)
         }
     }
 
-    private func applyArming(canUseGlobalHotkey: Bool) {
+    private func applyArming(canUseGlobalHotkey: Bool, inputMonitoringGranted: Bool) {
+        if !inputMonitoringGranted { listeningAgainAnnounced = false }
         for hotkey in hotkeys {
+            if rearmInputMonitoring(hotkey, granted: inputMonitoringGranted) { continue }
             // A key the user has turned off is treated exactly like a key whose permission was
             // revoked: never armed, and torn down if it is. Re-read every tick, so flipping the
             // switch in Settings takes effect within one second and needs no relaunch.
@@ -252,6 +328,31 @@ public final class CapabilityWatcher {
             case .hold:
                 checkLiveness(of: hotkey)
             }
+        }
+    }
+
+    /// Q11 — returns true when this tick re-created the tap (the arming decision waits a tick).
+    private func rearmInputMonitoring(_ hotkey: HotkeyArming, granted: Bool) -> Bool {
+        let id = ObjectIdentifier(hotkey)
+        var machine = rearmers[id] ?? InputMonitoringRearm()
+        let action = machine.step(granted: granted,
+                                  needsInputMonitoring: hotkey.requiredPermission == .inputMonitoring,
+                                  isRunning: hotkey.isRunning, verdict: hotkey.livenessVerdict)
+        rearmers[id] = machine
+        switch action {
+        case .none:
+            return false
+        case .recreateTap:
+            Log.app.notice("hotkey: Input Monitoring was just granted — re-creating the event tap")
+            revived.remove(id)
+            hotkey.rearm()
+            return true
+        case .announceListeningAgain:
+            guard !listeningAgainAnnounced else { return false }
+            listeningAgainAnnounced = true
+            Log.app.notice("hotkey: the re-created tap is receiving events — listening again")
+            onListeningAgain?()
+            return false
         }
     }
 

@@ -122,6 +122,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PermissionSettingsOpener.onOpened = { [weak watcher] permission in
             Task { @MainActor in watcher?.noteSentToSettings(permission) }
         }
+        // V5 Q11 — a fresh Input Monitoring grant re-created the tap and it is hearing keys again.
+        watcher.onListeningAgain = { [weak self] in
+            guard let model = self?.pill.model else { return }
+            let notice = PillState.ready(hint: "Listening again")
+            model.presentNotice(notice)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak model] in
+                if model?.state == notice { model?.dismissNotice() }
+            }
+        }
         watcher.onRelaunchAdvised = { permission in
             RelaunchPrompt.present(for: permission)
         }
@@ -607,7 +616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // for the intent to show one: a press that cannot put a pill on screen must leave the chin.
         presence.bind(pill: pill.model, engineStates: coordinator.engineStates,
                       turnEnded: coordinator.turnEnded, mute: container.latchController.mute,
-                      pillOnScreen: pill.surfaceOnScreen)
+                      pillSurface: pill.surfaceReport)
         presence.start()
 
         // ── S2 · the Spool pill and the presence chin (design §4–§6, §10) ─────────────────────────

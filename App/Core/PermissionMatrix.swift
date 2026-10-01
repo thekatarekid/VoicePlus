@@ -340,6 +340,23 @@ public struct RelaunchAdvisor: Equatable, Sendable {
 
     public mutating func noteBecameActive(at now: Date) { becameActiveAt = now }
 
+    /// Q10 — when the last fresh microphone capture failed. The status API can keep reading
+    /// `.denied` after a grant that already works, so for the microphone a relaunch is only advised
+    /// once a capture made *after* the trip to Settings has actually failed.
+    public private(set) var captureFailedAt: Date?
+
+    /// Q10 — the result of a fresh microphone capture. Success means the grant is in force: forget
+    /// the trip and never advise a relaunch for it.
+    public mutating func noteFreshCapture(succeeded: Bool, at now: Date) {
+        if succeeded {
+            captureFailedAt = nil
+            sentToSettings.removeValue(forKey: .microphone)
+            advised.remove(.microphone)
+        } else {
+            captureFailedAt = now
+        }
+    }
+
     /// The services that have *newly* earned a relaunch offer. Returns each one once; a service that
     /// becomes granted is forgotten, so a later trip through Settings can advise again.
     public mutating func evaluate(matrix: PermissionMatrix, now: Date) -> [Permission] {
@@ -353,6 +370,10 @@ public struct RelaunchAdvisor: Equatable, Sendable {
                 continue
             }
             guard !advised.contains(permission) else { continue }
+            // Q10 — a stale status is not proof; only a fresh capture that failed is.
+            if permission == .microphone {
+                guard let failed = captureFailedAt, failed >= sent else { continue }
+            }
             // The user has to have come back *after* being sent out, and then settled.
             guard let active = becameActiveAt, active >= sent, now.timeIntervalSince(active) >= Self.grace else { continue }
             advised.insert(permission)

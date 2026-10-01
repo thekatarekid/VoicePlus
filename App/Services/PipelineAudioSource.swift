@@ -269,7 +269,8 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
 
     static var microphoneAuthorized: Bool {
         if ProcessInfo.processInfo.environment["VOICEPLUS_MOCK_PERMISSIONS"] == "1" { return true }
-        return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        // Q10 — the live probe, not a launch-time answer.
+        return MicrophoneStatusProbe.shared.probe(.tick) == .authorized
     }
 
     /// What a `start()` should do about the current TCC answer. Pure, so the mapping is testable
@@ -310,9 +311,11 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
 
     /// nil when capture may open; otherwise the error to throw, which classifies to P01
     /// "Microphone access is off" rather than A01 "No microphone found".
-    static func authorizationRefusal() -> AudioCaptureError? {
+    static func authorizationRefusal(probe: MicrophoneStatusProbe = .shared) -> AudioCaptureError? {
         if ProcessInfo.processInfo.environment["VOICEPLUS_MOCK_PERMISSIONS"] == "1" { return nil }
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        // Q10 — re-read before refusing; a stale `.denied` overridden by a fresh capture proceeds,
+        // and a fresh denial refuses on this very call.
+        let status = probe.probe(.beforeRefusal)
         switch decide(status) {
         case .proceed:
             return nil

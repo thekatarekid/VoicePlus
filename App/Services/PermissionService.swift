@@ -26,12 +26,9 @@ public final class SystemPermissionChecker: PermissionChecking {
     public func status(of permission: Permission) -> PermissionStatus {
         switch permission {
         case .microphone:
-            switch AVCaptureDevice.authorizationStatus(for: .audio) {
-            case .authorized: return .granted
-            case .notDetermined: return .notDetermined
-            case .denied, .restricted: return .denied
-            @unknown default: return .denied
-            }
+            // Q10 — through the live probe: re-read every tick, and a fresh capture that worked
+            // outranks a stale `.denied` from the status API.
+            return MicrophoneStatusProbe.permissionStatus(MicrophoneStatusProbe.shared.probe(.tick))
         case .accessibility:
             return AXIsProcessTrusted() ? .granted : .notDetermined
         case .inputMonitoring:
