@@ -6,8 +6,8 @@
 //      owner's copy already lives. Borrowed read-only; we never write into somebody else's cache.
 //   2. Download-on-enable, delegated to `Qwen3WeightsProvisioning`.
 //
-// Nothing here is gated on macOS 15: path resolution has to work on macOS 14 so the UI can say
-// "installed, but refinement needs macOS 15" rather than "missing".
+// Nothing here is architecture-gated: path resolution works on any Mac so the UI can say
+// "installed, but refinement needs Apple Silicon" rather than "missing".
 import Foundation
 import Shared
 

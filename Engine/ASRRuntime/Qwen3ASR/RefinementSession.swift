@@ -15,8 +15,8 @@ extension StageID {
 // MARK: - Errors
 
 public enum RefinementError: Error, LocalizedError, Equatable {
-    /// The refinement backend cannot run on this machine at all: macOS 14 (the CoreML stateful
-    /// decoder the port needs is macOS 15+), or a non-arm64 Mac (Float16 embedding lookup).
+    /// The refinement backend cannot run on this machine at all: a non-arm64 Mac (Float16 embedding
+    /// lookup). macOS 15, which the stateful CoreML decoder needs, is the package floor (V5 J7).
     case unavailableOnThisSystem(String)
     /// No usable weights directory. `searched` are the paths that were looked at, in order.
     case weightsMissing(searched: [String])

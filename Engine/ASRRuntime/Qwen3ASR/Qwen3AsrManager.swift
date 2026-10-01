@@ -3,8 +3,8 @@
 // Muesli vendored that file from FluidAudio v0.15.1 (Sources/FluidAudio/ASR/Qwen3/),
 // Apache License 2.0 — https://github.com/FluidInference/FluidAudio
 // Licence texts: LICENSE-Apache-2.0 and LICENSE-MIT in this directory.
-// Port changes only: `MuesliQwen3*` types renamed `Qwen3*`, every type gated
-// `@available(macOS 15, *)`, VoicePlus log subsystem, Muesli's managed-download
+// Port changes only: `MuesliQwen3*` types renamed `Qwen3*`, no availability gate
+// (macOS 15 is the package floor since V5 J7), VoicePlus log subsystem, Muesli's managed-download
 // entry points removed (see Qwen3Weights.swift). Algorithms are unchanged, with two additive
 // prompt hooks: `contextTokens` (biasing context in the system message) and
 // `assistantPrefixTokens` (forced decoder ids in the assistant turn).

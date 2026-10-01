@@ -2,8 +2,8 @@
 // pipeline behind the deadline/cancellation contract the pipeline needs.
 //
 // Everything Qwen touches is macOS 15+ (the stateful CoreML decoder) and arm64 (Float16 embedding
-// lookup). `RefinementAvailability` is the non-gated door: callers on macOS 14 get a clear
-// "unavailable" instead of a compile-time problem.
+// lookup). macOS 15 is the package floor (V5 J7), so
+// `RefinementAvailability` only checks the architecture: an Intel Mac gets a clear "unavailable".
 @preconcurrency import CoreML
 import Foundation
 import OSLog
