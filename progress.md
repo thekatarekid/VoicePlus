@@ -1790,3 +1790,11 @@ Initial checkpoint (superseded by the dated entries below):
 - Tests: `CaptureSilenceTests` (13), `CaptureSilentTurnTests` + `CaptureSilentLatchTests`, `HotkeyNoSurfaceTests` (10). **Full suite 3,345 passed** (`--no-parallel`, 493 s). Caveat: that run began when a parallel worktree had pushed free disk to 1.5 GB and the bootstrap printed its low-space refusal; it still compiled and passed (truncation fails to link or crashes, it does not false-pass).
 - Untestable here: real zero-filled buffers from a silenced mic, `AVAudioEngineConfigurationChange` firing for real route changes (AirPods, sleep/wake), the A05/P01 surfaces appearing, and the fn key never leaving no surface.
 - Self-contained installer **1.12.12**: `Packaging/releases/VoicePlus_V3-Spool-Full_1.12.12.dmg`, 681 MB, SHA256 `c7d6d51e40e1a9c21e35e5c15b3226b1d97271cf7320b0dbcb355d2900b759d8`. Built with 16 GB free (session scratch caches reclaimed first). `FULL_INSTALLER=1 verify_install.sh` OK incl. bundled TDT/EOU/speaker inference from the read-only mount, empty cache, no fetchers. Installed to `/Applications` and launched (owner-approved switch off the disk-image copy on 2026-10-01; all stale volumes ejected). DMG local + gitignored; public appcast/cask unchanged.
+
+## 2026-10-01 — Investigation only: insertion, invisible pill, permission relaunch (no code changed)
+- Full write-up and fix plan: `VoicePlus_Investigation_2026-10-01.md`.
+- Insertion: Claude/Electron fields are invisible to AX (repo never sets `AXManualAccessibility`) → every verdict "readback unavailable" → sticky D06; readback also runs before keystrokes land. `dbe9393` passed only because its mock exposed a caret real Claude doesn't.
+- Invisible-but-working pill: unconfirmed chains never pass through hidden, so the pill never re-chooses its display; likely pinned to an AirPlay TV after a 09:44–09:46 reconnect. "On screen" never checks which screen.
+- Safety: dictated `\n` is typed as Return in Electron apps and sends the message.
+- Quit-and-reopen is macOS's own sheet (Microphone/Input Monitoring/Screen Recording/Camera); VoicePlus's fault is trusting the cached mic status, so "Later" can't work.
+- Corrections: the 2026-09-30 cdhash-pinning explanation was wrong (designated requirement is identifier-based since 1.6.4).
