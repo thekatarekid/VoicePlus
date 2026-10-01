@@ -144,3 +144,13 @@ struct CaretBandQ14Tests {
         #expect(CaretOCRSettings.isEnabled(defaults))
     }
 }
+
+@Suite struct CaretBandSettingsRowTests {
+    @Test func insertionSettingsRowIsTheQ14Switch() {
+        #expect(CaretOCRSettings.enabledKey == InsertionSettings.confirmHiddenTextKey)
+        let defaults = UserDefaults(suiteName: "q14-row-\(UUID().uuidString)")!
+        #expect(CaretOCRSettings.isEnabled(defaults) == false)
+        defaults.set(true, forKey: InsertionSettings.confirmHiddenTextKey)
+        #expect(CaretOCRSettings.isEnabled(defaults))
+    }
+}

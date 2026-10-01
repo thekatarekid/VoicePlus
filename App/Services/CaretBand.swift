@@ -32,8 +32,10 @@ public struct CaretBandReading: Equatable, Sendable {
 }
 
 /// The opt-in switch. Off by default; nothing on the band path runs while it is off.
+/// Bound to the W1 Settings › General › Insertion row "Confirm in apps that hide their text
+/// (uses Screen Recording)" — one key, so that row is the user-facing Q14 toggle.
 public enum CaretOCRSettings {
-    public static let enabledKey = "context.ocrCaretBand"
+    public static let enabledKey = InsertionSettings.confirmHiddenTextKey
     public static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: enabledKey) }
 }
 
