@@ -39,6 +39,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public var onOpenSettings: (() -> Void)?
     /// "Review" on the held-dictations row. Nil opens the one window at Today, where held drafts are.
     public var onReviewHeld: (() -> Void)?
+    /// V5 N1 — the "N new notes" row; and how many there are. Nil opens the window (its Notes section
+    /// is one click away).
+    public var onOpenNotes: (() -> Void)?
+    public var notesUnread: (() -> Int)?
     /// Kept for the composition root; not menu rows (`DESIGN.md` §10 — they live in the window).
     public var onOpenLab: (() -> Void)?
     public var onOpenDataPanel: (() -> Void)?
@@ -190,7 +194,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         return StatusMenuState(status: MenuStatus.derive(inputs), micName: micName(),
                                micStatus: coordinator.lastMicQuality?.verdict, micAvailable: capabilities.canCapture,
                                isCapturing: inputs.dictationCaptureOpen, isMuted: muted, held: heldDrafts(),
-                               meetingRunning: meeting)
+                               meetingRunning: meeting, notesUnread: notesUnread?() ?? 0)
     }
 
     public func menuEntries(from entryPoint: MenuEntryPoint? = nil) -> [MenuEntry] {
@@ -275,6 +279,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         case .reviewHeld: (onReviewHeld ?? onOpenWindow ?? onOpenSettings)?()
         case .openWindow: (onOpenWindow ?? onOpenSettings)?()
         case .openSettings: onOpenSettings?()
+        case .openNotes: (onOpenNotes ?? onOpenWindow ?? onOpenSettings)?()
         case .quit: quitVoicePlus()
         }
         refreshIcon()

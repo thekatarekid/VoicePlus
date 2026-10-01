@@ -270,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //
         // Ambient text never reaches `delivery` — that is the property `AmbientNeverInjectsTests`
         // and `AmbientInjectionAudit` exist to defend (V3 §8: never type or act from ambient speech).
+        NotesStore.preparedDefaultRoot()   // V5 N4: fold legacy …/Ambient into …/Notes before the launch sweep
         let ambientStore = AmbientWiring.store(database: container.database, settings: container.settings)
         self.ambientStore = ambientStore
         AmbientWiring.attach(to: latch,
@@ -563,6 +564,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                           section: .today,
                                           connectedProviders: container.connectedProviderNames)
         }
+        // V5 N1–N4 — Notes: one store with the ambient Timeline, the pill's "📝 notes · N" chip, the
+        // menu's "N new notes" row, and "Insert here" into the app behind the window (hide, then type).
+        NotesWiring.install(database: container.database, settings: container.settings,
+                            pill: pill.model, status: status,
+                            openNotes: { [weak self, weak container] in
+                                guard let self, let container else { return }
+                                _ = MainWindowController.show(dependencies: container.onboardingDependencies(permissions: self.permissionChecker),
+                                                              section: .notes,
+                                                              connectedProviders: container.connectedProviderNames)
+                            },
+                            insert: { [weak container] text in
+                                guard let container else { return false }
+                                NSApp.hide(nil)
+                                try? await Task.sleep(nanoseconds: 300_000_000)
+                                return container.injector.inject(.init(text: text)).succeeded
+                            })
         // R2.4 — "Recover text" carries the same three actions as the held pill row, off the same
         // queue, and Quit warns while anything is still held (V3 §6). Both are invisible until
         // something is actually held.

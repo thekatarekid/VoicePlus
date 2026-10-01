@@ -146,7 +146,11 @@ public enum MainWindowController {
             connectors: ConnectorsSettingsViewModel(hub: connectorHub),
             sync: SyncSettingsViewModel(service: syncService),
             corrections: CorrectionSettingsViewModel(store: deps.settingsStore),
-            settingsSection: SettingsSectionViewModel(connectedProviders: { environment.connectedProviders }))
+            settingsSection: SettingsSectionViewModel(connectedProviders: { environment.connectedProviders }),
+            notes: NotesSectionViewModel(store: environment.notesStore
+                                            ?? NotesStore(database: deps.database, settings: deps.settingsStore),
+                                         settings: deps.settingsStore,
+                                         insertText: environment.insertNote))
     }
 
     /// Enrollment, folded into Voice (R7.2). The composition root still builds the recorder-backed

@@ -98,6 +98,8 @@ public enum MenuAction: Equatable, Sendable {
     case openWindow
     /// The one window, at Settings.
     case openSettings
+    /// V5 N1 — the one window, at Notes (the "N new notes" row).
+    case openNotes
     /// Guarded: open capture asks Stop and quit / Cancel; held drafts are saved first.
     case quit
 }
@@ -420,10 +422,12 @@ public struct StatusMenuState: Equatable, Sendable {
     public var held: [Held]
     /// Meeting capture is recording. Not a menu row; the quit guard needs it.
     public var meetingRunning: Bool
+    /// V5 N1 — notes kept since Notes was last opened. The row is hidden at 0.
+    public var notesUnread: Int
 
     public init(status: MenuStatus = .ready, micName: String = "Default microphone",
                 micStatus: MicQuality.Verdict? = nil, micAvailable: Bool = true, isCapturing: Bool = false,
-                isMuted: Bool = false, held: [Held] = [], meetingRunning: Bool = false) {
+                isMuted: Bool = false, held: [Held] = [], meetingRunning: Bool = false, notesUnread: Int = 0) {
         self.status = status
         self.micName = micName
         self.micStatus = micStatus
@@ -432,6 +436,7 @@ public struct StatusMenuState: Equatable, Sendable {
         self.isMuted = isMuted
         self.held = held
         self.meetingRunning = meetingRunning
+        self.notesUnread = max(0, notesUnread)
     }
 }
 
@@ -463,6 +468,7 @@ public enum StatusMenuSpec {
         public static let dictate = "menu.dictate"
         public static let mute = "menu.mute"
         public static let held = "menu.held"
+        public static let notes = "menu.notes"
         public static let openWindow = "menu.openWindow"
         public static let settings = "menu.settings"
         public static let quit = "menu.quit"
@@ -481,6 +487,7 @@ public enum StatusMenuSpec {
             mute(state),
         ]
         if let held = held(state) { entries.append(held) }
+        if let notes = notes(state) { entries.append(notes) }
         entries += [
             .separator("menu.sep.app"),
             MenuEntry(id: ID.openWindow, title: MenuCopy.openWindow, detail: MenuCopy.openWindowDetail,
@@ -541,6 +548,15 @@ public enum StatusMenuSpec {
 public enum HeldMenuRouter {
     public static func held(in guard: FocusGuard) -> [StatusMenuState.Held] {
         `guard`.held.map(StatusMenuState.Held.init)
+    }
+}
+
+extension StatusMenuSpec {
+    /// V5 N1 — "3 new notes", hidden when nothing new was kept. Opens the window at Notes.
+    static func notes(_ state: StatusMenuState) -> MenuEntry? {
+        guard state.notesUnread > 0 else { return nil }
+        return MenuEntry(id: ID.notes, title: NotesCopy.menuRow(state.notesUnread), detail: NotesCopy.menuRowDetail,
+                         action: .openNotes)
     }
 }
 

@@ -111,15 +111,17 @@ struct MainWindowShellS7aTests {
     @Test("six sections in the design's order, labelled as the prototype's sidebar labels them")
     func sectionsMatchThePrototypeSidebar() throws {
         let sidebar = try Self.prototypeSidebar()
-        #expect(sidebar.map(\.key) == MainWindowSection.allCases.map(\.rawValue))
-        #expect(sidebar.map(\.label) == MainWindowSection.allCases.map(\.title))
+        // V5 N1's Notes postdates the prototype; every prototype section is still there, in order.
+        let prototypeSections = MainWindowSection.allCases.filter { !$0.isPostPrototype }
+        #expect(sidebar.map(\.key) == prototypeSections.map(\.rawValue))
+        #expect(sidebar.map(\.label) == prototypeSections.map(\.title))
         #expect(MainWindowSection.dictionary.title == "Dictionary & Apps")
     }
 
     @Test("page titles and subtitles are the fixture's `screens`, verbatim")
     func pageTitlesAreTheFixture() throws {
         let screens = try #require(try Self.copyFixture()["screens"] as? [String: [String: String]])
-        for section in MainWindowSection.allCases {
+        for section in MainWindowSection.allCases where !section.isPostPrototype {
             let fixture = try #require(screens[section.screen.rawValue], "no fixture screen for \(section)")
             #expect(section.detailTitle == fixture["title"])
             #expect(section.subtitle == fixture["subtitle"])
@@ -152,14 +154,14 @@ struct MainWindowShellS7aTests {
 
     @Test("⌘1–⌘6 select the six sections; ⌘, opens Settings; ⌘F exists only where there is a search")
     func shortcuts() throws {
-        #expect(MainWindowSection.allCases.map(\.shortcutKey) == ["1", "2", "3", "4", "5", "6"])
+        #expect(MainWindowSection.allCases.map(\.shortcutKey) == ["1", "2", "3", "4", "5", "6", "7"])
         let view = try Self.read("App/Settings/MainWindowView.swift")
         #expect(view.contains(".keyboardShortcut(KeyEquivalent(section.shortcutKey), modifiers: .command)"))
         #expect(view.contains(#".keyboardShortcut(",", modifiers: .command)"#))
         #expect(view.contains(#".keyboardShortcut("f", modifiers: .command)"#))
         #expect(view.contains("if model.selection.hasSearchField { searchFocused = true }"))
         // The toolbar search appears only for Today, Meetings and Dictionary & Apps.
-        #expect(MainWindowSection.allCases.filter(\.hasSearchField) == [.today, .meetings, .dictionary])
+        #expect(MainWindowSection.allCases.filter(\.hasSearchField) == [.today, .meetings, .notes, .dictionary])
 
         let store = InMemorySettingsStore()
         let window = Self.window(store: store, section: .today)

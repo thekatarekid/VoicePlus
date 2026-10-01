@@ -24,9 +24,10 @@ struct MainWindowShellTests {
 
     @Test("six sections, in the order DESIGN §9 fixes, with ⌘1–⌘6 in that order")
     func sectionOrder() {
-        #expect(MainWindowSection.allCases == [.today, .meetings, .dictionary, .voice, .privacy, .settings])
-        #expect(MainWindowSection.allCases.map(\.shortcutIndex) == [1, 2, 3, 4, 5, 6])
-        #expect(MainWindowSection.allCases.map(\.shortcutKey) == ["1", "2", "3", "4", "5", "6"])
+        // V5 N1 adds Notes after Meetings (⌘3).
+        #expect(MainWindowSection.allCases == [.today, .meetings, .notes, .dictionary, .voice, .privacy, .settings])
+        #expect(MainWindowSection.allCases.map(\.shortcutIndex) == [1, 2, 3, 4, 5, 6, 7])
+        #expect(MainWindowSection.allCases.map(\.shortcutKey) == ["1", "2", "3", "4", "5", "6", "7"])
         // Sidebar labels, detail titles and subtitles all exist: a section with no name is a bug the
         // compiler cannot catch.
         for section in MainWindowSection.allCases {
@@ -37,7 +38,7 @@ struct MainWindowShellTests {
         }
         #expect(MainWindowSection.dictionary.detailTitle == "Dictionary & Apps") // S7a: design_copy.json › screens
         // ⌘F needs somewhere to go in exactly the three sections that have a search field (§5.2).
-        #expect(MainWindowSection.allCases.filter(\.hasSearchField) == [.today, .meetings, .dictionary])
+        #expect(MainWindowSection.allCases.filter(\.hasSearchField) == [.today, .meetings, .notes, .dictionary])
     }
 
     @Test("the window remembers its section, and an unknown value opens Today rather than failing")

@@ -136,6 +136,10 @@ public final class PillViewModel: ObservableObject {
     /// V5 C3 — what tapping the lane note does (e.g. `.voice` → Settings › Voice to pick a mic);
     /// nil = the note is plain text. Cleared with the note.
     @Published public private(set) var laneNoteAction: PillActionKind?
+    /// V5 N3 — notes kept since Notes was last opened; the "📝 notes · N" chip shows while > 0.
+    @Published public var notesCount: Int = 0
+    /// V5 N3 — clicking the notes chip opens the Notes section.
+    public var onOpenNotes: (() -> Void)?
     /// The pointer is on the pill (hover pauses the final preview's dwell; S3 reads it).
     @Published public private(set) var pointerInside = false
     /// V4.41 — is the pointer *really* on the pill right now? SwiftUI's `onHover` does not report an
@@ -1000,7 +1004,7 @@ struct PillBody: View {
 
     private var hasChipRow: Bool {
         guard PillViewModel.isTurnState(model.state) else { return false }
-        return !model.deixisChips.isEmpty || model.laneNote != nil
+        return !model.deixisChips.isEmpty || model.laneNote != nil || NotesChip.isVisible(count: model.notesCount)
     }
 
     var body: some View {
@@ -1030,7 +1034,8 @@ struct PillBody: View {
             if let chipRow = lanes.chipRow {
                 ScrollView(.horizontal, showsIndicators: false) {
                     PillChipRow(chips: model.deixisChips, note: model.laneNote,
-                                onNote: model.laneNoteAction.map { action in { model.perform(action) } })
+                                onNote: model.laneNoteAction.map { action in { model.perform(action) } },
+                                notesCount: model.notesCount, onNotes: model.onOpenNotes)
                         .fixedSize(horizontal: true, vertical: false)
                 }
                     .place(chipRow)
@@ -1113,9 +1118,25 @@ struct PillChipRow: View {
     let note: String?
     /// V5 C3 — set when the note is a link (the narrowband-headset chip opens Settings › Voice).
     var onNote: (() -> Void)? = nil
+    /// V5 N3 — the notes chip, drawn first so it is never pushed off by deixis boxes.
+    var notesCount: Int = 0
+    var onNotes: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 6) {
+            if NotesChip.isVisible(count: notesCount) {
+                Button(action: { onNotes?() }) {
+                    Text(NotesChip.title(count: notesCount)).font(Tokens.Typography.key.font()).lineLimit(1)
+                        .padding(.horizontal, 4)
+                        .frame(height: PillLaneLayout.chipHeight)
+                        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.keyCap)
+                            .strokeBorder(Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(NotesChip.accessibilityLabel(count: notesCount))
+                .accessibilityHint("Opens Notes")
+                .accessibilityIdentifier("pill.notesChip")
+            }
             ForEach(chips) { chip in
                 HStack(spacing: 4) {
                     if let image = chip.thumbnail {

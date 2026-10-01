@@ -143,6 +143,8 @@ public final class MainWindowViewModel: ObservableObject {
 
     public let today: TodaySectionViewModel
     public let meetings: MeetingsSectionViewModel
+    /// V5 N1 — Notes.
+    public let notes: NotesSectionViewModel
     public let dictionaryApps: DictionaryAppsSectionViewModel
     public let voice: VoiceSectionViewModel
     public let privacy: PrivacySectionViewModel
@@ -173,10 +175,12 @@ public final class MainWindowViewModel: ObservableObject {
                 sync: SyncSettingsViewModel,
                 corrections: CorrectionSettingsViewModel,
                 settingsSection: SettingsSectionViewModel? = nil,
+                notes: NotesSectionViewModel? = nil,
                 section: MainWindowSection? = nil) {
         self.deps = deps
         self.today = today
         self.meetings = meetings
+        self.notes = notes ?? NotesSectionViewModel(store: nil, settings: deps.settingsStore)
         self.dictionaryApps = dictionaryApps
         self.voice = voice
         self.privacy = privacy
@@ -256,6 +260,9 @@ public final class MainWindowViewModel: ObservableObject {
             await today.reloadTimeline()
         case .meetings:
             await meetings.reload()
+        case .notes:
+            await notes.reload()
+            notes.markSeen()
         case .dictionary:
             dictionaryApps.reload()
         case .voice:
@@ -299,6 +306,10 @@ public struct MainWindowEnvironment {
     public var makeEnrollment: (() -> SpeakerEnrollmentViewModel?)?
     public var timeline: (any AmbientTimelineReading)?
     public var setMeetingCapture: ((Bool) -> Void)?
+    /// V5 N1/N4 — the one Notes store (shared with the ambient Timeline) and "Insert here" into the
+    /// app behind the window. Built by the controller when the composition root has not set one.
+    public var notesStore: NotesStore?
+    public var insertNote: ((String) async -> Bool)?
 
     public init() {}
 }

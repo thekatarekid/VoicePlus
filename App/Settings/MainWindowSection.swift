@@ -10,9 +10,11 @@ import Foundation
 // `SettingsReachabilityTests` reads the source files and fails if any marker went missing — which is
 // the only way a toolchain with no UI testing can assert "you can still get at this" (R7 proof).
 
-/// The sidebar, in the order design §8 fixes, with `⌘1`–`⌘6` in that same order.
+/// The sidebar, in the order design §8 fixes (plus V5 N1 Notes after Meetings), with `⌘1`–`⌘7` in that same order.
 public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
-    case today, meetings, dictionary, voice, privacy, settings
+    /// V5 N1: `notes` sits after Meetings — words kept for later, beside the meetings they often
+    /// come from. It is not a prototype screen (`design_v1.html` predates Notes).
+    case today, meetings, notes, dictionary, voice, privacy, settings
 
     public var id: String { rawValue }
 
@@ -21,6 +23,7 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .today: return "Today"
         case .meetings: return "Meetings"
+        case .notes: return NotesCopy.title
         case .dictionary: return "Dictionary & Apps"
         case .voice: return "Voice"
         case .privacy: return "Privacy"
@@ -34,6 +37,7 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .today: return .today
         case .meetings: return .meetings
+        case .notes: return .today   // no design screen of its own; its copy is `NotesCopy`
         case .dictionary: return .dictionary
         case .voice: return .voice
         case .privacy: return .privacy
@@ -41,11 +45,14 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Sections added after the prototype, whose page copy is their own rather than a fixture screen's.
+    public var isPostPrototype: Bool { self == .notes }
+
     /// The page title (`design_copy.json` › `screens.<screen>.title`, verbatim).
-    public var detailTitle: String { screen.page?.title ?? title }
+    public var detailTitle: String { self == .notes ? NotesCopy.title : (screen.page?.title ?? title) }
 
     /// The page subtitle (`design_copy.json` › `screens.<screen>.subtitle`, verbatim).
-    public var subtitle: String { screen.page?.subtitle ?? "" }
+    public var subtitle: String { self == .notes ? NotesCopy.subtitle : (screen.page?.subtitle ?? "") }
 
     /// SF Symbols already in the app's vocabulary (`DESIGN.md` §12.3: one mark, everything else is
     /// SF Symbols already in use).
@@ -53,6 +60,7 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .today: return "clock"
         case .meetings: return "person.2.wave.2"
+        case .notes: return "note.text"
         case .dictionary: return "character.book.closed"
         case .voice: return "waveform"
         case .privacy: return "hand.raised"
@@ -60,7 +68,7 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// 1…6, matching `⌘1`–`⌘6` (`DESIGN.md` §5.2).
+    /// 1…7, matching `⌘1`–`⌘7` (`DESIGN.md` §5.2; Notes added by V5 N1).
     public var shortcutIndex: Int { (Self.allCases.firstIndex(of: self) ?? 0) + 1 }
 
     /// The key character for `.keyboardShortcut`.
@@ -71,7 +79,7 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
     /// actions") and hands its query to the section through `SectionNavigation.searchQuery`.
     public var hasSearchField: Bool {
         switch self {
-        case .today, .meetings, .dictionary: return true
+        case .today, .meetings, .notes, .dictionary: return true
         case .voice, .privacy, .settings: return false
         }
     }
@@ -429,6 +437,7 @@ public enum SettingsReachability {
         switch section {
         case .today: return ["App/Settings/TodayScreen.swift", "App/Settings/TodaySectionView.swift"]
         case .meetings: return ["App/Settings/MeetingsScreen.swift", "App/Settings/MeetingsSectionView.swift"]
+        case .notes: return ["App/Settings/NotesScreen.swift"]
         case .dictionary: return ["App/Settings/DictionaryAppsScreen.swift", "App/Settings/DictionaryAppsSectionView.swift"]
         case .voice: return ["App/Settings/VoiceScreen.swift", "App/Settings/VoiceSectionView.swift"]
         case .privacy: return ["App/Settings/PrivacyScreen.swift", "App/Settings/PrivacySectionView.swift"]

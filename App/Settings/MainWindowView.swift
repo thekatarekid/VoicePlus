@@ -58,7 +58,7 @@ public struct MainWindowView: View {
 
     public var body: some View {
         NavigationSplitView {
-            WindowSidebar(model: model, today: model.today)
+            WindowSidebar(model: model, today: model.today, notes: model.notes)
                 .navigationSplitViewColumnWidth(min: MainWindowLayout.sidebarWidth.lowerBound,
                                                 ideal: MainWindowLayout.sidebarIdealWidth,
                                                 max: MainWindowLayout.sidebarWidth.upperBound)
@@ -102,6 +102,7 @@ public struct MainWindowView: View {
         switch section {
         case .today: TodayScreen(context: context)
         case .meetings: MeetingsScreen(context: context)
+        case .notes: NotesScreen(context: context)
         case .dictionary: DictionaryAppsScreen(context: context)
         case .voice: VoiceScreen(context: context)
         case .privacy: PrivacyScreen(context: context)
@@ -137,6 +138,8 @@ struct WindowSidebar: View {
     @ObservedObject var model: MainWindowViewModel
     /// Observed for the footer's readiness word.
     @ObservedObject var today: TodaySectionViewModel
+    /// Observed for the Notes row's unread badge (V5 N1).
+    @ObservedObject var notes: NotesSectionViewModel
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
@@ -147,6 +150,7 @@ struct WindowSidebar: View {
             ForEach(MainWindowSection.allCases) { section in
                 Label(section.title, systemImage: section.systemImage)
                     .windowFont(Tokens.Typography.body)
+                    .badge(section == .notes ? notes.unreadCount : 0)   // V5 N1: unread notes
                     .tag(section)
                     .overlay(alignment: .leading) {
                         if contrast == .increased && section == model.selection {
