@@ -71,3 +71,38 @@
 - **Quit & Reopen** = macOS quits the app and starts it again, guaranteeing the new setting is seen. **Later** = macOS leaves the app running and it is up to the app to notice the change itself.
 - Apps that never show it either asked through their own first-run "Allow" dialog (no sheet — possible only before you've ever answered) or weren't running when you changed the switch.
 - VoicePlus's real fault: it reads the microphone status once and trusts that cached answer, so with "Later" it never notices a grant (or a revoke). The goal of fix #7 is that "Later" works — then the sheet's choice stops mattering and you never have to quit.
+
+## Microphone "Later" test — result (2026-10-01, 14:50–14:52)
+- Same process (pid 42939) throughout: no relaunch. 14:50:56 dictation → wrote 21 chars. **14:51:46** TCC `Modify` (revoke, "Later"). **14:52:01** TCC `Modify` (grant, "Later"). **14:52:04** dictation → mic opened, **wrote 21 chars**.
+- Conclusion: **audio flows after a live grant without a relaunch** — macOS does not require one for the microphone; only VoicePlus's cached status check can. The relaunch is avoidable; fix #7 is confirmed viable. (Untested: dictating *while* revoked under "Later" — the cached status still says authorized, so it would capture silence; the 1.12.12 silence watchdog now surfaces that as A05 within ~3 s.)
+
+## "Paused while VoicePlus is hidden" — withdrawn
+- `.hiddenApp` pauses the dwell on `NSApplication.didHideNotification` (⌘H while VoicePlus is active, or **⌥⌘H "Hide Others" from any other app**). The pill panel never sets `canHide = false`, so hiding VoicePlus hides the pill too — **the message could never be seen**, and the dictation silently never lands until VoicePlus is unhidden.
+- Replace with: pill and chin `canHide = false` (an always-on overlay should survive "Hide Others"), and remove the `.hiddenApp` pause.
+
+## Final implementation list
+**P0 — safety and correctness**
+1. **Newlines never send messages.** Electron/Cursor type `\n` as ⇧↩; Google Sheets routed to the spreadsheet adapter.
+2. **Expose text fields to Accessibility:** `AXManualAccessibility` on Electron apps at key-down (detect by `Electron Framework.framework`, cached per pid); `AXEnhancedUserInterface` on Chromium browsers (default on, Settings switch off — some window managers react to it).
+3. **Settle before judging:** event-driven `AXObserver` value/selection-changed with a polling fallback (~30 ms up to ~400 ms).
+4. **Neutral landing for unreadable fields:** plain "Inserted in <app>" (no ✓), auto-clears; sticky "⚠ Couldn't confirm" only when a settled readback ran and the text is absent. Update DESIGN.md (revives V4.20).
+5. **Ribbon independent of verification:** fly to the best known location — caret bounds → focused element frame → focused window — and play on every landing except a contradicted one.
+6. **Pill follows the work:** screen of the focused caret/input → focused window → active screen → mouse; re-chosen every turn.
+7. **"On screen" means on the pill's chosen display:** ordered in + occlusion-visible + frame on that screen; chin suppression and re-show use it; republish on occlusion/screen changes.
+8. **Self-healing pauses:** rebuild pauses from real state (pointer hit-test, key window + first responder, editor state) at present and every ~100 ms while paused; drop a pause with no live cause after 2 s and log a fault. Clear focus at each new turn; resign key on leaving the preview; key presses no longer convert mouse focus into keyboard focus.
+9. **Pill survives "Hide Others":** `canHide = false` on pill and chin; remove `.hiddenApp`.
+
+**P1 — permissions without relaunch**
+10. **Live microphone status:** re-read uncached on app activation, before every capture refusal, and on TCC change; gate capture on the fresh reading; `RelaunchAdvisor` offers a relaunch only if fresh=granted and capture is still silent.
+11. **Input Monitoring (legacy tap backend):** on a fresh grant, re-create the tap and confirm with `TapLiveness`.
+
+**P1 — copy (owner approval pending)**
+12. Pause helper line per reason: hover "Paused · move away to insert"; focus "Paused while the pill has keyboard focus · Insert now or Esc"; editing/composition "Editing · leave the pill to apply"; empty draft "Draft is empty".
+
+**P2 — diagnostics**
+13. Notice-level, persisted: pill placement every turn (display, reason, mouse), every orderFront/Out with reason, every pause/resume with reason, every landing verdict (`confirmed`/`unconfirmed`/`unavailable`) with app and method.
+
+**Deferred / housekeeping**
+14. OCR confirmation for canvas editors (Google Docs, Figma, AX-less terminals) via the existing `ScreenTextService` — needs Screen Recording; optional, later.
+15. `Refinement.withDeadline` cancels only per token → intermittent CoreML crash under load; harden separately.
+16. Unregister the stale `/Volumes/VoicePlus 1.12.10` LaunchServices record tccd keeps resolving.
