@@ -45,6 +45,34 @@ struct MeetingDetectionSignalsTests {
         #expect(d.apply(.recordingStopped, at: t0 + 901) == [])
     }
 
+    @Test func switchingBrowserTabMidCallKeepsRecordingAndIgnore() {
+        // Verify fix: the browser probe clears the tab when the user moves to another tab of the
+        // same browser; the call (mic held by Chrome) goes on, so neither recording nor Ignore ends.
+        var d = MeetingDetector()
+        _ = d.apply(.browserMeeting(meetTab), at: t0)
+        _ = d.apply(.micInUseElsewhere(true), at: t0 + 1)
+        _ = d.apply(.userChose(.record), at: t0 + 2)
+        #expect(d.apply(.browserMeeting(nil), at: t0 + 60) == [])                 // Docs tab for notes
+        #expect(d.apply(.tick, at: t0 + 90) == [])
+        if case .recording = d.state {} else { Issue.record("recording should continue while the mic is held") }
+        #expect(d.apply(.micInUseElsewhere(false), at: t0 + 600) == [.stopRecording])
+
+        var ig = MeetingDetector()
+        _ = ig.apply(.browserMeeting(meetTab), at: t0)
+        _ = ig.apply(.micInUseElsewhere(true), at: t0 + 1)
+        _ = ig.apply(.userChose(.ignore), at: t0 + 2)
+        #expect(ig.apply(.browserMeeting(nil), at: t0 + 30) == [])
+        #expect(ig.apply(.browserMeeting(meetTab), at: t0 + 60) == [])            // back on the call: no re-prompt
+        if case .ignored = ig.state {} else { Issue.record("ignore should be sticky for the whole call") }
+
+        // A visible prompt survives the tab switch too.
+        var pr = MeetingDetector()
+        _ = pr.apply(.browserMeeting(meetTab), at: t0)
+        _ = pr.apply(.micInUseElsewhere(true), at: t0 + 1)
+        #expect(pr.apply(.browserMeeting(nil), at: t0 + 5) == [])
+        if case .prompted = pr.state {} else { Issue.record("prompt should stay while the call goes on") }
+    }
+
     @Test func browserTabIsPreferredOverARunningCallApp() {
         var d = MeetingDetector()
         _ = d.apply(.callApps([slack]), at: t0)

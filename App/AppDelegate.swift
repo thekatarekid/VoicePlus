@@ -507,7 +507,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         container.meeting.onNotes = { record in MeetingNotifier.post(record) }
         // V5 M-d — Settings › Meetings policy, mic/call-app/browser signals, auto-export + post hook.
-        MeetingDetectionWiring.install(coordinator: container.meeting, settings: container.settings)
+        MeetingDetectionWiring.install(coordinator: container.meeting, settings: container.settings,
+                                       ownCaptureActive: { [weak container] in container?.audio?.pipeline.isRunning ?? false })
         // Inert unless the user opted in (menu-bar › "Capture meetings"). Before the opt-in gate
         // this line asked TCC for Calendar — and, via EKEventStore's initialiser, Reminders — on
         // every single launch, with no user intent anywhere in the chain.

@@ -113,6 +113,12 @@ public struct MeetingDetector: Sendable, Equatable {
     /// The detected meeting the user may be prompted about: muted apps never attribute one.
     public var promptableActivity: MeetingActivity? { activity(excluding: policy.mutedApps) }
 
+    /// A detected call is still going on. Weaker than `activity` on purpose: once a call has been
+    /// detected (prompted, recording or ignored), the camera or another process holding the mic is
+    /// enough to keep it — switching the browser to another tab, or the call app's window losing
+    /// the meeting page, must not end a recording or re-arm a prompt mid-call.
+    public var callOngoing: Bool { cameraOn || micInUseElsewhere }
+
     private func activity(excluding muted: Set<String>) -> MeetingActivity? {
         let tab = browserTab.flatMap { muted.contains($0.browserBundleID) ? nil : $0 }
         let app = runningCallApps.first { !muted.contains($0.bundleID) }
@@ -153,7 +159,7 @@ public struct MeetingDetector: Sendable, Equatable {
         case .tick: break
         }
         // A detected-meeting session ends when every activity signal is gone; the next one prompts anew.
-        if activity == nil { activityPrompted = false }
+        if activity == nil && !callOngoing { activityPrompted = false }
         return evaluate(at: now)
     }
 
@@ -181,18 +187,19 @@ public struct MeetingDetector: Sendable, Equatable {
             return []
         case .prompted(let p):
             // Auto-dismiss when the trigger disappeared before the user answered.
-            let stillRelevant = (p.event.map { $0.isLive(at: now, lead: leadTime) } ?? false) || (p.reason != .calendar && active != nil)
+            let stillRelevant = (p.event.map { $0.isLive(at: now, lead: leadTime) } ?? false) || (p.reason != .calendar && (active != nil || callOngoing))
             if !stillRelevant { state = .idle; return [.dismissPrompt] }
             return []
         case .ignored(let p):
             let eventOver = p.event.map { now >= $0.end } ?? true
-            if p.reason == .calendar ? eventOver : (active == nil && eventOver) { state = .idle }
+            if p.reason == .calendar ? eventOver : (active == nil && !callOngoing && eventOver) { state = .idle }
             return []
         case .recording(let p):
             let eventLive = p.event.map { $0.isLive(at: now, lead: 0) } ?? false
             // Keep going while a detected meeting is on, the prompt's event is live, or (detected-only
             // prompt) any calendar event is live right now.
-            if active != nil || eventLive || (p.event == nil && live != nil) { eventEndedAt = nil; return [] }
+            let detectedCallGoesOn = active != nil || (p.reason != .calendar && callOngoing)
+            if detectedCallGoesOn || eventLive || (p.event == nil && live != nil) { eventEndedAt = nil; return [] }
             let since = eventEndedAt ?? now
             eventEndedAt = since
             // Detected-only meetings stop when the activity stops; calendar ones get a grace window.

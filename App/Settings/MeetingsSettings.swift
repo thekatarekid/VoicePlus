@@ -149,7 +149,13 @@ public enum MeetingDetectionWiring {
 
     public static func install(coordinator: MeetingCoordinator, settings: SettingsStore?,
                                sources: MeetingSignalSources = MeetingSignalSources(),
+                               ownCaptureActive: (() -> Bool)? = nil,
                                center: NotificationCenter = .default) {
+        // Before macOS 14.2 the mic signal cannot tell our own capture from a call's; masking it
+        // while our pipeline runs keeps dictation-with-Slack-open from looking like a huddle.
+        if let ownCaptureActive {
+            for case let mic as MicInUseMonitor in sources.sources { mic.ownCaptureActive = ownCaptureActive }
+        }
         coordinator.apply(.policy(MeetingSettings.policy(settings)))
         if let observer { center.removeObserver(observer) }
         observer = center.addObserver(forName: MeetingSettings.didChangeNotification, object: nil, queue: nil) { [weak coordinator] _ in
