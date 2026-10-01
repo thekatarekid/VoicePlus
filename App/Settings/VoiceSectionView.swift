@@ -36,6 +36,7 @@ struct VoiceSectionView: View {
             microphoneGroup(presentation)
             VoiceTestPanel(test: test, presentation: presentation) { model.perform($0) }
             CaptureEnhancementGroup()   // V5 C1/C1b
+            MicModesGroup()             // V5 K5
             recognitionGroup
             GroupBox(VoiceCopy.secondPass, layout: .rows) {
                 VoiceSettingsTab(model: refinement)
