@@ -380,10 +380,11 @@ struct ModelsSettingsPage: View {
                         .accessibilityIdentifier("settings.speechModel")
                 }
                 GroupBox(ModelsPageCopy.refinementTitle, layout: .rows) {
-                    RowView(SettingsCopy.refinementRowTitle, detail: refinement.note) {
-                        StatusTag(refinement.isAvailable ? SettingsCopy.ready : SettingsCopy.off,
+                    RowView(SettingsCopy.refinementRowTitle, detail: refinement.modelsRowDetail) {
+                        StatusTag(refinement.statusTag,
                                   kind: refinement.isAvailable ? .good : .neutral)
                     }
+                    .accessibilityIdentifier("settings.models.refinement")
                 }
                 GroupBox(ModelsPageCopy.routingTitle, layout: .rows) {
                     ForEach(RoutableStage.all) { stage in

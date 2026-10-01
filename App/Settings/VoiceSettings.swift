@@ -46,14 +46,36 @@ public struct RefinementReadiness: Sendable, Equatable {
     public var systemReason: String?
     /// Whether a complete weights directory is on disk. No download is ever started to find out.
     public var weightsPresent: Bool
+    /// K21 — whether every weight file matches the publisher's recorded byte count
+    /// (`Qwen3WeightsStore.verify`). "Ready" is only ever shown when this is true: a folder that is
+    /// merely present can be a truncated or swapped download.
+    public var weightsVerified: Bool
 
-    public init(flagEnabled: Bool, systemReason: String?, weightsPresent: Bool) {
+    /// `weightsVerified` defaults to `weightsPresent` for injected readiness (tests, previews);
+    /// `resolve` always measures it.
+    public init(flagEnabled: Bool, systemReason: String?, weightsPresent: Bool, weightsVerified: Bool? = nil) {
         self.flagEnabled = flagEnabled
         self.systemReason = systemReason
         self.weightsPresent = weightsPresent
+        self.weightsVerified = weightsPresent && (weightsVerified ?? weightsPresent)
     }
 
-    public var isAvailable: Bool { flagEnabled && systemReason == nil && weightsPresent }
+    public var isAvailable: Bool { flagEnabled && systemReason == nil && weightsPresent && weightsVerified }
+
+    /// K21 — what the refinement row does, in one line, before any state. The ~2 s is R5.1's
+    /// measured 1.9–4.2 s on the real int8 weights (DECISIONS.md, R5 rows).
+    public static let whatItDoes = "Second pass, English, adds ~2 s per segment: a slower model re-reads "
+        + "finished segments and replaces the text only when it is more confident."
+
+    /// The Models row's detail: what it does, then the honest state.
+    public var modelsRowDetail: String { Self.whatItDoes + " " + note }
+
+    /// The Models row's tag: "Ready" only when weights are present *and* verified.
+    public var statusTag: String {
+        if isAvailable { return "Ready" }
+        if flagEnabled && systemReason == nil && weightsPresent && !weightsVerified { return "Not verified" }
+        return "Off"
+    }
 
     /// What the tab says under the picker. Never claims a pass that cannot run.
     public var note: String {
@@ -71,17 +93,24 @@ public struct RefinementReadiness: Sendable, Equatable {
             return "Refinement is enabled, but the 1.2 GB second-pass model is not on this Mac yet. "
                 + "Nothing has been downloaded; until it is, every segment keeps its first-pass text."
         }
-        return "Ready: the second-pass model is on this Mac."
+        if !weightsVerified {
+            return "Refinement is enabled and a second-pass model folder is on this Mac, but its files do not "
+                + "match the published sizes (an interrupted or altered download). It will not run until the "
+                + "model is downloaded again; every segment keeps its first-pass text."
+        }
+        return "Ready: the second-pass model is on this Mac and its files are verified."
     }
 
     /// Resolved from the real flag service and the real weights directory. Reads the disk; never
     /// downloads (`Qwen3WeightsStore.locate()` is a `stat` of files it already expects).
     public static func resolve(flags: FeatureFlagService?,
                                store: Qwen3WeightsStore = Qwen3WeightsStore()) -> RefinementReadiness {
-        RefinementReadiness(
+        let folder = store.locate()
+        return RefinementReadiness(
             flagEnabled: flags?.isEnabled(id: ModelStack.refinementFlagID) ?? false,
             systemReason: RefinementAvailability.unavailableReason,
-            weightsPresent: store.locate() != nil
+            weightsPresent: folder != nil,
+            weightsVerified: folder.map { store.verify(at: $0).isEmpty } ?? false
         )
     }
 }
