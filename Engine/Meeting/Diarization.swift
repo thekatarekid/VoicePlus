@@ -62,6 +62,12 @@ public enum EmbeddingMatch {
 /// Embedding-producing backend so the labeling logic is testable without CoreML.
 public protocol SpeakerEmbeddingBackend: AnyObject, Sendable {
     func embedding(for samples: [Float]) throws -> [Float]
+    /// V5 M12 — make the model resident before a batch (through `ModelResidency`). Default: no-op.
+    func prepare() async throws
+}
+
+extension SpeakerEmbeddingBackend {
+    public func prepare() async throws {}
 }
 
 /// FluidAudio `DiarizerManager` + enrolled user embedding. Decides per chunk: the mic leg is
@@ -72,7 +78,7 @@ public final class EmbeddingLabeler: SpeakerLabeler, @unchecked Sendable {
     public let enrolled: [Float]
     public var threshold: Float
     public var clusterThreshold: Float = 0.7
-    private let backend: any SpeakerEmbeddingBackend
+    let backend: any SpeakerEmbeddingBackend
     private var centroids: [[Float]] = []
     private let lock = NSLock()
 
@@ -82,6 +88,7 @@ public final class EmbeddingLabeler: SpeakerLabeler, @unchecked Sendable {
 
     public func label(_ chunks: [MeetingChunk]) async throws -> [LabeledChunk] {
         var out: [LabeledChunk] = []
+        try? await backend.prepare()   // a failed load degrades each chunk to its channel label below
         for c in chunks {
             guard let emb = try? backend.embedding(for: c.chunk.samples), !emb.isEmpty else {
                 out.append(LabeledChunk(chunk: c, speaker: c.channel == .mic ? .you : .others(1), confidence: 0.5)); continue
@@ -142,12 +149,69 @@ public final class FluidSpeakerEmbedding: SpeakerEmbeddingBackend, @unchecked Se
     public func embedding(for samples: [Float]) throws -> [Float] { try manager.extractSpeakerEmbedding(from: samples) }
 }
 
+/// V5 M12 — WeSpeaker for meeting labels, loaded through `ModelResidency` (§10) from wherever
+/// `SpeakerEmbedderFactory.locateModel()` finds a complete copy (our install first, then the bundle,
+/// then FluidAudio's cache). `.onDemand`: resident while a meeting labels chunks, unloaded by the
+/// idle sweeper or memory pressure afterwards. Never downloads.
+public final class ResidentSpeakerEmbedding: SpeakerEmbeddingBackend, @unchecked Sendable {
+    public static let residencyKey = "meeting.speaker-embedding"
+    private let directory: URL
+    private let residency: ModelResidency
+    private let box = Box()
+    private let lock = NSLock()
+    private var registered = false
+
+    final class Box: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _backend: FluidSpeakerEmbedder?
+        var backend: FluidSpeakerEmbedder? {
+            get { lock.withLock { _backend } }
+            set { lock.withLock { _backend = newValue } }
+        }
+    }
+
+    public init(directory: URL, residency: ModelResidency = .shared) {
+        self.directory = directory; self.residency = residency
+    }
+
+    public func prepare() async throws {
+        let first = lock.withLock { () -> Bool in defer { registered = true }; return !registered }
+        if first {
+            let box = box, dir = directory
+            let bytes = ModelCatalog.descriptor(.speakerEmbedding).approxBytes * 2
+            await residency.register(Self.residencyKey, tier: .onDemand, estimatedBytes: bytes, owner: "meeting.diarization",
+                                     load: {
+                                         guard box.backend == nil else { return }
+                                         guard let loaded = FluidSpeakerEmbedder.load(from: dir) else { throw SpeakerError.backendUnavailable }
+                                         box.backend = loaded
+                                     },
+                                     unload: { box.backend = nil })
+        }
+        try await residency.acquire(Self.residencyKey)
+    }
+
+    public func embedding(for samples: [Float]) throws -> [Float] {
+        guard let backend = box.backend else { throw SpeakerError.backendUnavailable }
+        return try backend.embed(samples).vector   // the same space the voiceprint was built in
+    }
+}
+
 public enum DiarizationFactory {
-    /// Embedding labeler when the diarization models are on disk and the user is enrolled;
-    /// channel labeler otherwise. Never downloads.
-    public static func make(enrolledUserEmbedding: [Float]?) -> any SpeakerLabeler {
-        if let enrolled = enrolledUserEmbedding, !enrolled.isEmpty, let backend = FluidSpeakerEmbedding.loadIfAvailable() {
-            return EmbeddingLabeler(backend: backend, enrolled: enrolled)
+    /// V5 M12 — mic-leg cosine bar against the user's voice. WeSpeaker, 3–5 s chunk vs a many-turn
+    /// centroid: same voice ≳ 0.6, other voices ≲ 0.3 (`TurnAnchoredVoice`'s measurements), so 0.5
+    /// keeps the user's own quieter chunks as "You" without admitting another voice.
+    public static let micThreshold: Float = 0.5
+
+    /// Embedding labeler when the WeSpeaker weights are on disk and the user's voice is known
+    /// (`SpeakerProfileStore.meetingEmbedding()`: the M6 voiceprint or an enrolled WeSpeaker
+    /// profile); channel labeler otherwise. Never downloads; the model loads through
+    /// `ModelResidency` on the first labelled batch.
+    public static func make(enrolledUserEmbedding: [Float]?,
+                            locate: () -> URL? = { SpeakerEmbedderFactory.locateModel() },
+                            residency: ModelResidency = .shared) -> any SpeakerLabeler {
+        if let enrolled = enrolledUserEmbedding, !enrolled.isEmpty, let directory = locate() {
+            return EmbeddingLabeler(backend: ResidentSpeakerEmbedding(directory: directory, residency: residency),
+                                    enrolled: enrolled, threshold: micThreshold)
         }
         return ChannelLabeler()
     }

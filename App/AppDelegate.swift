@@ -538,10 +538,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await meeting.setMeetingCaptureEnabled(next) }
         }
         // P5.4 — ambient glyph + one-gesture hard mute; P5.3 — enrollment window.
+        // V5 L1 / X14 — the ambient glyph follows the ambient mode, not the `directedSpeech` flag.
         status.ambientSymbol = { [weak container] in
-            guard let container, container.flags.isEnabled(.directedSpeech) else { return nil }
-            return container.latchController.ambientModel.menuBarSymbol
+            guard let container else { return nil }
+            let mode = AmbientModeSettings.mode(container.settings)
+            guard mode.listens || container.flags.isEnabled(.directedSpeech) else { return nil }
+            return container.latchController.mute.isMuted ? container.latchController.ambientModel.menuBarSymbol
+                : (mode.symbol ?? container.latchController.ambientModel.menuBarSymbol)
         }
+        AmbientModeWiring.install(settings: container.settings, status: status)
         status.ambientMuted = { [weak container] in container?.latchController.mute.isMuted ?? false }
         status.onToggleMute = { [weak container] in container?.latchController.mute.toggleMute() }
         status.onEnrollVoice = { [weak self, weak container] in

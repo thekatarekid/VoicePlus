@@ -16,8 +16,9 @@ import Foundation
 
 /// The ambient switches: read and written in one place, defaults included.
 public enum AmbientCaptureSettings {
-    /// The opt-in. Off unless the user turned it on, and shared with nothing else.
-    public static let enabledKey = "ambient.capture.enabled"
+    /// R8.1's opt-in. Since V5 L1 the source of truth is `AmbientModeSettings.key` (`ambient.mode`,
+    /// three settings); this key is only migrated from and mirrored (on = any mode but Off).
+    public static let enabledKey = AmbientModeSettings.legacyEnabledKey
 
     /// "Keep what other people said too." Off by default: without it, a voice that is not the
     /// enrolled user is discarded rather than stored (V3 §8).
@@ -30,12 +31,17 @@ public enum AmbientCaptureSettings {
     /// Retention length lives in `AmbientRetentionSettings` (R7.1's picker, R8.2's enforcement).
     public static var retentionDaysKey: String { AmbientRetentionSettings.daysKey }
 
+    /// Ambient capture runs: the L1 mode is Listen & note or Listen & act.
     public static func isEnabled(_ store: (any SettingsStore)?) -> Bool {
-        store?.bool(enabledKey) ?? false
+        AmbientModeSettings.mode(store).listens
     }
 
+    /// The old on/off: on keeps a listening mode (Listen & note when it was Off — never escalates to
+    /// act); off is Off.
     public static func setEnabled(_ enabled: Bool, store: (any SettingsStore)?) {
-        store?.set(enabled, for: enabledKey)
+        let current = AmbientModeSettings.mode(store)
+        if enabled { if !current.listens { AmbientModeSettings.set(.listenAndNote, store: store) } }
+        else { AmbientModeSettings.set(.off, store: store) }
     }
 
     /// True only when the user explicitly widened capture beyond their own enrolled voice.
@@ -54,5 +60,5 @@ public enum AmbientCaptureSettings {
     }
 
     /// The three keys, for the test that asserts they are three and not one.
-    public static var allKeys: [String] { [enabledKey, everySpeakerKey, audioRetentionKey, retentionDaysKey] }
+    public static var allKeys: [String] { [AmbientModeSettings.key, everySpeakerKey, audioRetentionKey, retentionDaysKey] }
 }

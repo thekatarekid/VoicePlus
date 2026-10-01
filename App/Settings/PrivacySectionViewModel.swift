@@ -274,6 +274,21 @@ public final class PrivacySectionViewModel: ObservableObject {
         }
     }
 
+    /// V5 L1 — the three ambient settings (Off · Listen & note · Listen & act), `ambient.mode`.
+    /// `ambientCapture` above is now "any mode but Off". The first enable shows the one-time explainer.
+    public var ambientMode: AmbientMode {
+        get { AmbientModeSettings.mode(settings) }
+        set {
+            let old = AmbientModeSettings.mode(settings)
+            AmbientModeSettings.set(newValue, store: settings)
+            if !old.listens, AmbientModeSettings.consumeExplainer(turningOn: newValue, store: settings) {
+                AmbientModeController.presentFirstEnable?(newValue)
+            }
+            objectWillChange.send()
+            refreshSaved()
+        }
+    }
+
     /// "Keep what other people said too." Off by default: without it a voice that is not the enrolled
     /// user is discarded rather than stored (V3 §8), and it is a *third* switch because widening
     /// capture to the room is not implied by turning the Timeline on.

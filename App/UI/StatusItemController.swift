@@ -69,6 +69,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public var ambientMuted: (() -> Bool)?
     /// Nil toggles `session.mute` directly.
     public var onToggleMute: (() -> Void)?
+    /// V5 L1 — the ambient mode row (segmented Off · Listen & note · Listen & act). Nil: no row.
+    public var ambientModeController: AmbientModeController?
     /// The presence reducer's state, when wired: the source of blockers the menu cannot derive
     /// (hotkey permission, relaunch, a model download).
     public var presenceState: (() -> PresenceState)?
@@ -217,6 +219,18 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             if entry.id == StatusMenuSpec.ID.microphone { addZeroEditItem() }
         }
         addWhyItWroteThatItem()
+        addAmbientModeItem()
+    }
+
+    /// V5 L1 — the ambient mode control, above the last group (Settings / Quit).
+    private func addAmbientModeItem() {
+        guard let controller = ambientModeController else { return }
+        MainActor.assumeIsolated {
+            let item = AmbientModeMenu.item(controller: controller) { [weak self] in self?.refreshIcon() }
+            let at = menu.items.lastIndex { $0.isSeparatorItem } ?? menu.items.count
+            menu.insertItem(item, at: at)
+            menu.insertItem(.separator(), at: at)
+        }
     }
 
     /// V5 I3 — "Why did it write that?" (live status item only, once a turn was traced).

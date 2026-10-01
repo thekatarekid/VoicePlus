@@ -136,9 +136,11 @@ struct PrivacySectionView: View {
                         get: { model.savesDictationHistory }, set: { model.savesDictationHistory = $0 }))
                 }
                 .accessibilityIdentifier("privacy.saveDictationHistory")
-                RowView(PrivacyCopy.ambientTitle, detail: PrivacySectionViewModel.enrolledSpeakerOnlyNote) {
-                    switchControl(PrivacyCopy.ambientTitle, isOn: Binding(
-                        get: { model.ambientCapture }, set: { model.ambientCapture = $0 }))
+                RowView(PrivacyCopy.ambientTitle, detail: model.ambientMode.detail) {
+                    SegmentedControl(PrivacyCopy.ambientTitle, selection: Binding(
+                        get: { model.ambientMode }, set: { model.ambientMode = $0 }),
+                        identifier: "privacy.ambientMode") { $0.title }
+                        .fixedSize()
                 }
                 .accessibilityIdentifier("privacy.ambientCapture")
                 RowView(PrivacyCopy.everySpeakerTitle,

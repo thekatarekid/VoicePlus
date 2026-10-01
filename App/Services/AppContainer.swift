@@ -356,7 +356,8 @@ public final class AppContainer {
                 ProviderMeetingTranscriber(resolve: { try await p.resolve().final })
             } ?? SilentMeetingTranscriber()
             return MeetingSession(title: prompt.title, event: prompt.event, transcriber: transcriber,
-                                  labeler: DiarizationFactory.make(enrolledUserEmbedding: nil),
+                                  // V5 M12 — the user's voice (M6 voiceprint / WeSpeaker profile) reaches the labeler.
+                                  labeler: DiarizationFactory.make(enrolledUserEmbedding: self?.latchController.profiles.meetingEmbedding()),
                                   notesProvider: MeetingIntelligence.shared.notesProvider(store: meetingStore),   // V5 M17
                                   store: meetingStore)
         }
