@@ -22,6 +22,9 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// shape). ~14 MB. Declared last so `RealEngine.revision()`'s bit positions for the speech
     /// models do not move.
     case speakerEmbedding = "speaker-diarization-coreml"
+    /// V5 C6 — Silero VAD (CoreML, 256 ms frames, ~1 MB). Part of the stack so users get Silero, not
+    /// `EnergyVAD`. Appended so older `RealEngine.revision()` bit positions hold.
+    case sileroVAD = "silero-vad-coreml"
 }
 
 /// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
@@ -176,6 +179,19 @@ public enum ModelCatalog {
             hfRepo: "FluidInference/speaker-diarization-coreml",
             requiredPaths: ["pyannote_segmentation.mlmodelc", "wespeaker_v2.mlmodelc"],
             approxBytes: 13_720_676, displayName: "WeSpeaker v2 speaker embedding", license: "CC-BY-4.0"),
+        // V5 C6 — Silero VAD. `folderName` = `Repo.vad.folderName` ("silero-vad"), the folder
+        // FluidAudio's `ModelHub` produces for this repo, so `FluidAudioFetcher` stages and publishes
+        // it like the diarizer. The required file is the one the pinned FluidAudio asks for
+        // (`ModelNames.VAD.sileroVadFile`, v6.2.1 since J6; a test pins the two together). The
+        // byte count is the real sum of its five files. Loader: `SileroVAD.loadIfAvailable`, never
+        // `ModelManager.load` (the borrowed `.streamingEOU` kind would fail cleanly there, as for
+        // the speaker model). MIT (Silero) — the copy in `Packaging/vad/` ships in every app bundle.
+        .sileroVAD: ModelDescriptor(
+            id: .sileroVAD, kind: .streamingEOU,
+            folderName: "silero-vad",
+            hfRepo: "FluidInference/silero-vad-coreml",
+            requiredPaths: ["silero-vad-unified-256ms-v6.2.1.mlmodelc"],
+            approxBytes: 1_063_425, displayName: "Silero voice activity detection", license: "MIT"),
     ]
 
     /// Models Settings › Models may list, in catalog order.
@@ -221,7 +237,10 @@ public enum ModelStack {
     /// streaming preview second; the speaker-embedding weights last (H3, V4.50). They are small
     /// (~14 MB) and required, but nothing about dictating waits on them, so a failed fetch of them
     /// can never hold up either speech model.
-    public static let models: [ModelID] = [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding]
+    ///
+    /// V5 C6: Silero VAD last, for the same reason — ~1 MB, and every app bundle already carries a
+    /// copy (`Packaging/vad/`), so on a normal install this entry is satisfied without a fetch.
+    public static let models: [ModelID] = [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding, .sileroVAD]
 
     /// The flag that turns Qwen refinement on. Read by *id* on purpose: the flag itself is declared
     /// in `Shared/Types/FeatureFlag.swift` by the refinement work (V3 R5), and `isEnabled(id:)`

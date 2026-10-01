@@ -390,11 +390,11 @@ struct FX3DownloadProgressLineTests {
                                             bytesExpected: total, modelName: "WeSpeaker v2 speaker embedding",
                                             index: 3, count: 3),
             elapsed: 0,
-            expected: "Downloading model 3 of 3 · WeSpeaker v2 speaker embedding · 707 MB of 721 MB overall (98%)"),
+            expected: "Downloading model 3 of 3 · WeSpeaker v2 speaker embedding · 707 MB of 722 MB overall (98%)"),   // V5 C6: +1 MB Silero
         Row(progress: ModelDownloadProgress(fraction: 0.25, bytesReceived: total / 4, bytesExpected: total,
                                             modelName: "Parakeet TDT 0.6B v3", index: 1, count: 3),
             elapsed: 20,
-            expected: "Downloading model 1 of 3 · Parakeet TDT 0.6B v3 · 180 MB of 721 MB overall (25%), about 60 seconds left"),
+            expected: "Downloading model 1 of 3 · Parakeet TDT 0.6B v3 · 181 MB of 722 MB overall (25%), about 60 seconds left"),
         // One model left to fetch: its total *is* the overall total, so no "overall" and no index.
         Row(progress: ModelDownloadProgress(fraction: 0.5, bytesReceived: 112_023_919, bytesExpected: 224_047_838,
                                             modelName: "Parakeet Realtime EOU 120M (160 ms)", index: 1, count: 1),
@@ -416,6 +416,6 @@ struct FX3DownloadProgressLineTests {
         #expect(ByteText.short(ModelCatalog.descriptor(.parakeetTDTv3).approxBytes) == "483 MB")
         #expect(ByteText.short(ModelCatalog.descriptor(.parakeetEOU160).approxBytes) == "224 MB")
         #expect(ByteText.short(ModelCatalog.descriptor(.speakerEmbedding).approxBytes) == "14 MB")
-        #expect(ByteText.short(ModelStack.approximateBytes) == "721 MB", "was 914 MB for ~721 MB of files")
+        #expect(ByteText.short(ModelStack.approximateBytes) == "722 MB", "was 914 MB for ~721 MB of files (+1 MB Silero, V5 C6)")
     }
 }

@@ -509,10 +509,10 @@ struct ModelStackNamingTests {
     @Test func namesAndSizesComeFromTheCatalog() {
         // H3: the speaker-embedding weights install with the speech models.
         #expect(ModelStack.displayNames == ["Parakeet TDT 0.6B v3", "Parakeet Realtime EOU 120M (160 ms)",
-                                            "WeSpeaker v2 speaker embedding"])
+                                            "WeSpeaker v2 speaker embedding", "Silero voice activity detection"])
         // FX3: the real on-disk sizes (483 + 224 + 14 MB), not the old 500 + 400 + 14 estimate.
-        #expect(ModelStack.approximateBytes == 721_025_756)
-        #expect(ByteText.short(ModelStack.approximateBytes) == "721 MB")
+        #expect(ModelStack.approximateBytes == 722_089_181)  // + V5 C6 Silero (1,063,425)
+        #expect(ByteText.short(ModelStack.approximateBytes) == "722 MB")
         #expect(ModelStack.approximateBytes == ModelStack.descriptors.reduce(0) { $0 + $1.approxBytes },
                 "the size is a sum over the catalog, so it cannot drift")
     }

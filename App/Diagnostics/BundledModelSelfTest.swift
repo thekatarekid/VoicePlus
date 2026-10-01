@@ -50,12 +50,24 @@ enum BundledModelSelfTest {
                         && squaredNorm.isFinite && abs(squaredNorm - 1) < 0.01,
                         "Speaker inference returned an invalid 256-dimensional embedding")
                     print("bundle-check: speaker inference PASS (256 finite normalized values)")
+                case .sileroVAD:
+                    // V5 C6 — the shipped VAD, loaded from the bundle copy only (empty locator), and
+                    // run over the synthetic signal: a finite probability per 256 ms frame.
+                    guard let vad = await SileroVAD.loadIfAvailable(manager: manager, locator: SileroModelLocator(folders: [])) else {
+                        throw Failure(reason: "Silero VAD load failed")
+                    }
+                    var frame = Array(samples.prefix(vad.frameSize))
+                    frame += [Float](repeating: 0, count: max(0, vad.frameSize - frame.count))
+                    let step = try await vad.process(frame: frame)
+                    try require(step.probability.isFinite && (0...1).contains(step.probability),
+                                "Silero VAD returned an invalid probability")
+                    print("bundle-check: silero VAD inference PASS (p=\(step.probability))")
                 default:
                     throw Failure(reason: "No inference check defined for \(id.rawValue)")
                 }
                 await manager.unload(id)
             }
-            print("bundle-check: PASS — bundled TDT, EOU and speaker inference; synthetic audio; empty user cache; no fetchers")
+            print("bundle-check: PASS — bundled TDT, EOU, speaker and Silero VAD inference; synthetic audio; empty user cache; no fetchers")
             return 0
         } catch {
             await manager.unloadAll()

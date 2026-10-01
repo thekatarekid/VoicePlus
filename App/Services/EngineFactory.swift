@@ -97,7 +97,7 @@ public enum EngineFactory {
             return makeUnavailable(manager: manager)
         }
 
-        let vad = await VADFactory.make()
+        let vad = await VADFactory.make(manager: manager)   // V5 C6: Silero via ModelManager.locate first
         // R1.4 — the shipping capture graph, chosen by measurement. `CoreAudioCaptureSource` is a
         // plain tap (its graph line reads `vp=false`) and `.default` is now the profile that matches
         // it: no spectral gate, no echo cancellation, pre-roll only. Profile and graph therefore

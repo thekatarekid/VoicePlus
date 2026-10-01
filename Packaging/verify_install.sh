@@ -73,7 +73,13 @@ hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MNT" "$DMG"
 if [ "${FULL_INSTALLER:-0}" = "1" ]; then
   [ -d "$MNT/VoicePlus.app/Contents/Resources/Models" ] || fail "full installer lacks bundled models"
 fi
-if [ -d "$MNT/VoicePlus.app/Contents/Resources/Models" ]; then
+# V5 C6 — every bundle carries Silero VAD (thin installers included).
+SILERO="$MNT/VoicePlus.app/Contents/Resources/Models/silero-vad"
+[ -f "$SILERO/silero-vad-unified-256ms-v6.2.1.mlmodelc/coremldata.bin" ] || fail "Silero VAD missing from bundle (V5 C6)"
+[ -f "$SILERO/voiceplus-manifest.json" ] || fail "Silero VAD manifest missing (V5 C6)"
+echo "[verify] Silero VAD bundled"
+# The full bundled-stack self-test needs the speech models, which only a full installer carries.
+if [ -d "$MNT/VoicePlus.app/Contents/Resources/Models/parakeet-tdt-0.6b-v3" ]; then
   echo "[verify] bundled stack from read-only mounted app, empty model cache, no fetchers"
   "$MNT/VoicePlus.app/Contents/MacOS/VoicePlus" --bundled-model-selftest \
     || fail "bundled model self-test"

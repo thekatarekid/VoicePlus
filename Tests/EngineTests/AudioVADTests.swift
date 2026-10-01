@@ -4,7 +4,7 @@ import Testing
 @testable import Shared
 
 /// Offline VAD accuracy on Fixtures/audio/vad with labels.json. Runs the energy fallback always;
-/// runs Silero too when its CoreML model is already on disk (never downloads).
+/// runs Silero too — always resolvable since V5 C6/K17 (never downloads).
 @Suite struct VADAccuracyTests {
     struct Row { let file: String; let score: VADScore; let predicted: Int; let truth: Int }
 
@@ -49,11 +49,9 @@ import Testing
         }
     }
 
+    /// V5 K17: no longer skipped — the checked-in copy (`Packaging/vad/`) resolves in the test process.
     @Test func sileroVADWhenModelIsOnDisk() async throws {
-        guard let silero = await SileroVAD.loadIfAvailable() else {
-            print("VAD[silero] skipped: model not downloaded at \(SileroVAD.modelFileURL.path)")
-            return
-        }
+        let silero = try #require(await SileroVAD.loadIfAvailable(), "Silero must resolve in tests (K17)")
         let rows = try await evaluate(silero)
         let mean = report("silero", rows)
         #expect(mean >= 0.85)
@@ -63,7 +61,7 @@ import Testing
         let vad = await VADFactory.make(preferSilero: false)
         #expect(vad.name == "energy")
         let auto = await VADFactory.make()
-        #expect(auto.name == (SileroVAD.isModelDownloaded ? "silero" : "energy") || auto.name == "energy")
+        #expect(auto.name == "silero", "V5 C6/K17: the shipped model resolves")
     }
 
     @Test func scoringMath() {

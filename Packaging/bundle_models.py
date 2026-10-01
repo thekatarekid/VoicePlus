@@ -2,6 +2,7 @@
 """Stage the default model stack from a verified local cache; no personal data or downloads.
 Every manifest path is constrained to its model folder and every byte re-hashed before copying.
 Usage: bundle_models.py SOURCE_MODELS_ROOT DESTINATION_MODELS_ROOT [--verify-only]
+       bundle_models.py --vad DESTINATION_MODELS_ROOT   (V5 C6: the checked-in Silero VAD, every build)
 """
 import argparse
 import hashlib
@@ -14,6 +15,11 @@ STACK = {
     'parakeet-realtime-eou-120m-coreml-160ms': ('parakeet-realtime-eou-120m-coreml-160ms', ['streaming_encoder.mlmodelc', 'decoder.mlmodelc', 'joint_decision.mlmodelc', 'vocab.json']),
     'speaker-diarization': ('speaker-diarization-coreml', ['pyannote_segmentation.mlmodelc', 'wespeaker_v2.mlmodelc']),
 }
+
+# V5 C6 — Silero VAD (MIT, ~1 MB) is checked in under Packaging/vad/ and ships in *every* bundle,
+# thin or full, so no install ever falls back to the energy VAD. Folder = FluidAudio Repo.vad.folderName.
+VAD = {'silero-vad': ('silero-vad-coreml', ['silero-vad-unified-256ms-v6.2.1.mlmodelc'])}
+VAD_SOURCE = Path(__file__).resolve().parent / 'vad'
 
 def digest(path):
     h = hashlib.sha256()
@@ -82,7 +88,27 @@ def bundle(source, destination, verify_only=False):
     (destination / 'README.txt').write_text('''VoicePlus default local speech stack\n\nParakeet TDT 0.6B v3 — NVIDIA / FluidInference — CC-BY-4.0\nhttps://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml\nParakeet realtime EOU 120M, 160ms — NVIDIA / FluidInference\nhttps://huggingface.co/FluidInference/parakeet-realtime-eou-120m-coreml\nSpeaker embedding / segmentation — WeSpeaker / pyannote / FluidInference\nhttps://huggingface.co/FluidInference/speaker-diarization-coreml\n\nConverted CoreML weights are unchanged. Each folder retains its SHA256 manifest\nand original model repository attribution. No recordings or personal vocabulary\nare included. Included Notices/ contains the upstream cards, license copies and attribution.
 The notice revisions identify documentation; model bytes are pinned by SHA256 manifests.\nThe app treats this signed Models directory as read-only.\n''')
 
+def bundle_vad(destination, source=VAD_SOURCE):
+    """Copy the checked-in VAD into DESTINATION_MODELS_ROOT, re-hashing every byte before and after."""
+    for name, (model_id, required) in VAD.items():
+        paths = verified_files(source / name, model_id, required)
+        for relative in paths + [Path('voiceplus-manifest.json')]:
+            target = destination / name / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / name / relative, target)
+        verified_files(destination / name, model_id, required)
+        license_file = source / 'LICENSE-silero-vad.txt'
+        if license_file.is_file():
+            notices = destination / 'Notices'
+            notices.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(license_file, notices / license_file.name)
+
 if __name__ == '__main__':
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == '--vad':
+        bundle_vad(Path(sys.argv[2]))
+        print('Silero VAD: SHA256 verification passed; copied into app bundle')
+        sys.exit(0)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('destination', type=Path)

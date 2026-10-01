@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import shutil
 import unittest
-from bundle_models import verified_files, verified_notices
+from bundle_models import verified_files, verified_notices, bundle_vad, VAD, VAD_SOURCE
 
 class BundleModelsTests(unittest.TestCase):
     def setUp(self):
@@ -43,5 +43,26 @@ class ModelNoticeTests(unittest.TestCase):
             shutil.copytree(Path(__file__).parent / 'model-notices', folder)
             (folder / 'eou-NOTICE.txt').write_text('missing attribution')
             with self.assertRaises(ValueError): verified_notices(folder)
+
+class SileroVADBundleTests(unittest.TestCase):
+    """V5 C6 — the checked-in VAD verifies and lands where ModelCatalog/BundledModelResources look."""
+    def test_checked_in_vad_verifies(self):
+        for name, (model_id, required) in VAD.items():
+            self.assertTrue(verified_files(VAD_SOURCE / name, model_id, required))
+
+    def test_bundle_vad_copies_verified_tree_and_licence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / 'Models'
+            bundle_vad(dest)
+            self.assertTrue((dest / 'silero-vad' / 'silero-vad-unified-256ms-v6.2.1.mlmodelc' / 'coremldata.bin').is_file())
+            self.assertTrue((dest / 'silero-vad' / 'voiceplus-manifest.json').is_file())
+            self.assertTrue((dest / 'Notices' / 'LICENSE-silero-vad.txt').is_file())
+
+    def test_tampered_vad_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            src = Path(temp) / 'vad'
+            shutil.copytree(VAD_SOURCE, src)
+            (src / 'silero-vad' / 'silero-vad-unified-256ms-v6.2.1.mlmodelc' / 'model.mil').write_text('tampered')
+            with self.assertRaises(ValueError): bundle_vad(Path(temp) / 'Models', source=src)
 
 if __name__ == '__main__': unittest.main()

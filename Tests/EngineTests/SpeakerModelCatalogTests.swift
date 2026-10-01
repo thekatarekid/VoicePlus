@@ -74,15 +74,15 @@ struct SpeakerModelCatalogTests {
         let encoded = try JSONEncoder().encode([ModelID.speakerEmbedding])
         #expect(try JSONDecoder().decode([ModelID].self, from: encoded) == [.speakerEmbedding])
         #expect(ModelID(rawValue: "speaker-diarization-coreml") == .speakerEmbedding)
-        #expect(ModelID.allCases.last == .speakerEmbedding, "appended, so older bit positions hold")
+        #expect(ModelID.allCases.firstIndex(of: .speakerEmbedding) == 4, "appended, so older bit positions hold")
         let folders = ModelID.allCases.map(ModelCatalog.folderName(for:))
         #expect(Set(folders).count == folders.count)
     }
 
     @Test("it is a required download with Parakeet, after both speech models")
     func requiredWithTheStack() {
-        #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding])
-        #expect(ModelStack.approximateBytes == 483_257_242 + 224_047_838 + 13_720_676)  // FX3: real sizes
+        #expect(ModelStack.models == [.parakeetTDTv3, .parakeetEOU160, .speakerEmbedding, .sileroVAD])  // + V5 C6
+        #expect(ModelStack.approximateBytes == 483_257_242 + 224_047_838 + 13_720_676 + 1_063_425)  // FX3: real sizes
         #expect(ModelCatalog.userVisible(qwenRefinementEnabled: false).contains(.speakerEmbedding),
                 "Settings › Models lists it (the speaker-embedding row)")
     }
@@ -97,7 +97,7 @@ struct SpeakerModelCatalogTests {
                                    externalCaches: [:], maintenance: .skip)
         #expect(await !manager.isPresent(.speakerEmbedding))
         try await ModelStack.install(manager: manager)
-        #expect(fetcher.fetched.last == .speakerEmbedding)
+        #expect(fetcher.fetched.suffix(2) == [.speakerEmbedding, .sileroVAD], "after both speech models (V5 C6: Silero last)")
         let installed = try #require(await manager.locate(.speakerEmbedding))
         #expect(installed.standardizedFileURL == ModelCatalog.folder(for: .speakerEmbedding, in: root).standardizedFileURL)
 

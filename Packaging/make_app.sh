@@ -125,6 +125,10 @@ if [ -n "${BUNDLE_MODELS_FROM:-}" ]; then
   log "bundling verified default speech models"
   python3 "$PKG_DIR/bundle_models.py" "$BUNDLE_MODELS_FROM" "$CONTENTS/Resources/Models"
 fi
+# V5 C6 — Silero VAD ships in every bundle (thin or full): ~1 MB, MIT, checked in under
+# Packaging/vad/, hash-verified on the way in. Without it users got EnergyVAD.
+log "bundling Silero VAD"
+python3 "$PKG_DIR/bundle_models.py" --vad "$CONTENTS/Resources/Models"
 
 # --- 4. Dynamic libraries / frameworks the binary links ---------------------
 # Anything under the build dir (or a binary xcframework artifact) referenced via @rpath.

@@ -692,7 +692,7 @@ struct SettingsSubpagesS7gTests {
         #expect(speaker?.name == ModelCatalog.descriptor(.speakerEmbedding).displayName)
         #expect(ModelsPage.speakerNote(installed: false)?.hasPrefix("Voice filtering unavailable") == true)
         #expect(ModelsPage.speakerNote(installed: true) == nil)
-        #expect(page.missing == [.speakerEmbedding])
+        #expect(page.missing == [.speakerEmbedding, .sileroVAD])  // V5 C6
         #expect(speaker?.detail.contains("to download") == true)
     }
 

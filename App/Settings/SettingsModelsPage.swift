@@ -163,6 +163,7 @@ public enum ModelsPage {
         case .parakeetTDTv3: return "Speech recognition · \(speechCompatibility)"
         case .parakeetEOU160: return "Live preview and end of speech"
         case .speakerEmbedding: return "Speaker embedding · lets Latch answer only to you"
+        case .sileroVAD: return "Voice activity detection · hears when you start and stop"
         default: return "Fallback"
         }
     }
