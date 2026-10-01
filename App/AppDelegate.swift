@@ -1,5 +1,6 @@
 import Actions
 import AppKit
+import Engine
 import Pipeline
 import Shared
 
@@ -142,7 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func wire(_ container: AppContainer) {
         let coordinator = DictationCoordinator(engine: container.engine, database: container.database, pill: pill)
         coordinator.lander = container.lander
-        coordinator.onPrepare = { [weak container] in container?.prepareForUtterance() }
+        coordinator.onPrepare = { [weak container] in
+            ModelPrewarmer.shared.hotkeyDown()   // V5 D5: start loading the cleanup LLM while the user speaks
+            container?.prepareForUtterance()
+        }
         coordinator.focusSnapshot = { [weak container] in container?.injector.focusGuard.snapshot() }
         // R2.4 — every `DeliveryOutcome` becomes a pill row: the committed text on land, the
         // "Landed · not confirmed" variant when readback could not confirm it, and a held row with
