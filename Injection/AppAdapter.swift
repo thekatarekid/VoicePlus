@@ -98,6 +98,48 @@ public extension AppAdapter {
     }
 }
 
+// MARK: - Q1 — newlines never send
+
+/// Q1 (P0, safety) — an app where a typed `\n` (↩) would *send* or *commit*: Electron chat
+/// composers (Claude, Slack), Cursor's AI composer, web chat boxes and Google Sheets cells. Half a
+/// dictated message went out every time a paragraph break was spoken.
+///
+/// For these adapters the keystroke method never posts a bare ↩: each `\n` is posted as
+/// `newlineCombo` (⇧↩, or ⌥↩ in a spreadsheet cell), so a paragraph break (`\n\n`) is two of them.
+/// `SubmitPolicy` keeps `allowSubmit` false for them whatever the field claims.
+public protocol NewlineSafeAdapter: AppAdapter {
+    /// The key combo that inserts a line break without sending / committing.
+    func newlineCombo(focused: FocusedElementInfo?) -> KeyCombo
+}
+
+public enum NewlineSafety {
+    /// Every line-separator spelling becomes `\n`; a Unicode paragraph separator is a paragraph
+    /// break (`\n\n`). After this the only line break left in the text is `\n`.
+    public static func normalize(_ text: String) -> String {
+        guard text.contains(where: { $0 == "\r" || $0 == "\r\n" || $0 == "\u{2028}" || $0 == "\u{2029}" }) else { return text }
+        return text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{2028}", with: "\n")
+            .replacingOccurrences(of: "\u{2029}", with: "\n\n")
+    }
+
+    /// `docs.google.com/spreadsheets/…` — the stand-in for the spreadsheet-cell `FieldRole` (E2).
+    public static func isSpreadsheetDocument(_ url: String?) -> Bool {
+        guard let url, let parsed = URL(string: url), let host = parsed.host?.lowercased() else { return false }
+        return host == "docs.google.com" && parsed.path.hasPrefix("/spreadsheets")
+    }
+
+    /// Types `text` with every `\n` posted as `combo` — never as a bare ↩ (unicode `\n` or `\r`).
+    /// Runs of plain text go out as unicode keystrokes, exactly as the keystroke method does.
+    public static func type(_ text: String, newline combo: KeyCombo, toPID pid: Int32, system: SystemAccess) throws {
+        let lines = normalize(text).split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
+            if index > 0 { try system.postKeyCombo(combo, toPID: pid) }
+            if !line.isEmpty { try system.postUnicodeKeystrokes(String(line), toPID: pid) }
+        }
+    }
+}
+
 /// Generic app: the full stack in canonical order.
 public final class DefaultAdapter: AppAdapter {
     public let id = "default"
@@ -144,7 +186,7 @@ public final class TerminalAdapter: AppAdapter {
 /// `osascript -e 'id of app "Claude"'` against Claude 2.110.0, which ships `Electron Framework`)
 /// used to fall through to `DefaultAdapter`, whose `.ax` first write is exactly the ProseMirror
 /// desync this adapter exists to avoid.
-public final class ElectronAdapter: AppAdapter {
+public final class ElectronAdapter: NewlineSafeAdapter {
     public static let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
     public static let bundleIDs: Set<String> = ["com.tinyspeck.slackmacgap", "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders",
                                                "com.hnc.Discord", "notion.id", "md.obsidian", "com.figma.Desktop",
@@ -153,6 +195,10 @@ public final class ElectronAdapter: AppAdapter {
     public init() {}
     public func matches(bundleID: String) -> Bool { Self.bundleIDs.contains(bundleID) }
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
+
+    /// Q1 — a typed `\n` is ↩, and ↩ sends the message in Claude / Slack / Discord. ⇧↩ everywhere.
+    public func newlineCombo(focused: FocusedElementInfo?) -> KeyCombo { .shiftReturn }
+    public func prepare(_ text: String, focused: FocusedElementInfo?) -> String { NewlineSafety.normalize(text) }
 
     /// V4.41 — Electron composers are exactly the Chromium readback case and were never given it:
     /// the default `Readback.byValue` judged a ProseMirror field whose `AXValue` is absent or stale,
@@ -165,11 +211,15 @@ public final class ElectronAdapter: AppAdapter {
 }
 
 /// Cursor is a VS Code fork with an AI composer; same rules as Electron, separate id for routing telemetry.
-public final class CursorAdapter: AppAdapter {
+public final class CursorAdapter: NewlineSafeAdapter {
     public let id = "cursor"
     public init() {}
     public func matches(bundleID: String) -> Bool { bundleID == "com.todesktop.230313mzl4w4u92" || bundleID.lowercased().contains("cursor") }
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
+
+    /// Q1 — ↩ submits the AI composer. ⇧↩ is a line break in both the composer and the editor.
+    public func newlineCombo(focused: FocusedElementInfo?) -> KeyCombo { .shiftReturn }
+    public func prepare(_ text: String, focused: FocusedElementInfo?) -> String { NewlineSafety.normalize(text) }
 
     public func verifyReadback(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
         Readback.byValueOrCaret(text: text, before: before, after: after)
@@ -191,7 +241,7 @@ public final class CursorAdapter: AppAdapter {
 ///
 /// Order is `[.keystroke, .paste]`: AX value writes desync Blink's own model exactly as they do in
 /// Electron, and paste only ever runs when keystrokes threw before posting anything.
-public final class ChromiumAdapter: AppAdapter {
+public final class ChromiumAdapter: NewlineSafeAdapter {
     public static let bundleIDs: Set<String> = ["com.brave.Browser", "com.google.Chrome",
                                                 "com.microsoft.edgemac", "company.thebrowser.Browser"]
     public let id = "chromium"
@@ -204,6 +254,15 @@ public final class ChromiumAdapter: AppAdapter {
     }
 
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
+
+    /// Q1 — a Google Sheets cell commits on ↩ (and moves down a row): ⌥↩ is the in-cell newline.
+    /// Everywhere else in web content ↩ sends chat messages (claude.ai, Slack web, Gmail chat) or
+    /// submits forms, so ⇧↩ — a line break in `<textarea>` and every contenteditable composer.
+    /// Until the spreadsheet `FieldRole` (E2) lands, the host decides "cell".
+    public func newlineCombo(focused: FocusedElementInfo?) -> KeyCombo {
+        NewlineSafety.isSpreadsheetDocument(focused?.documentURL) ? .optionReturn : .shiftReturn
+    }
+    public func prepare(_ text: String, focused: FocusedElementInfo?) -> String { NewlineSafety.normalize(text) }
 
     /// Neither the value nor the caret available: skip verification rather than claim a failure.
     /// If one of them *was* available and showed nothing, say so — but still unverified.

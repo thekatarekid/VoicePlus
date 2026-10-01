@@ -65,6 +65,10 @@ public final class FieldContextReader: @unchecked Sendable {
     /// nothing focused). A field that answers with a role but no hints is not nil: it is a
     /// `FieldContext` with `hints == []`, which classifies by role + app exactly as before.
     public func fieldContext(bundleID: String?) -> FieldContext? {
+        // Q2 — Electron / Chromium build their AX tree only when asked: ask before the caret read.
+        if let focus = system.frontmostApp(), !OwnProcess.owns(focus) {
+            (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: focus.pid)
+        }
         guard let info = try? system.focusedElement() else { return nil }
         let reading = readCaret(info: info, bundleID: bundleID)
         return Self.fieldContext(from: info, bundleID: bundleID, caret: reading.caret)

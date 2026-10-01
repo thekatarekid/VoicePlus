@@ -42,10 +42,15 @@ public struct FocusedElementInfo: Equatable, Sendable {
     /// ("Monaco editor"): both are `AXTextArea` in the same bundle ID, so role and app class
     /// cannot separate them. `Pipeline`'s `FieldRole.classify` reads these as `FieldContext.hints`.
     public var hints: [String]
+    /// Q1 — the URL of the web document the element sits in (`AXURL` of its `AXWebArea`), when
+    /// the injector asked for it (`FocusedDocumentURLReading`). `nil` for native fields and by
+    /// default: it costs a parent walk, so only a multi-line write into a browser reads it.
+    public var documentURL: String?
 
     public init(role: String, value: String?, selectedRange: Range<Int>?, isValueSettable: Bool,
                 isSelectedTextSettable: Bool, subrole: String? = nil, selectedText: String? = nil,
-                hints: [String] = []) {
+                hints: [String] = [], documentURL: String? = nil) {
+        self.documentURL = documentURL
         self.role = role
         self.subrole = subrole
         self.value = value
@@ -117,6 +122,8 @@ public struct KeyCombo: Equatable, Sendable {
     public static let paste = KeyCombo(keyCode: 9, command: true)          // ⌘V
     public static let returnKey = KeyCombo(keyCode: 36)
     public static let optionReturn = KeyCombo(keyCode: 36, option: true)   // newline inside a spreadsheet cell
+    /// Q1 — a soft line break in chat composers (Claude, Slack, Cursor): never sends the message.
+    public static let shiftReturn = KeyCombo(keyCode: 36, shift: true)
 }
 
 public enum SystemAccessError: Error, Equatable, Sendable {
@@ -169,6 +176,15 @@ public protocol SystemAccess: AnyObject {
 
     /// Sleeps for settle time (mock returns immediately).
     func settle(milliseconds: Int)
+}
+
+// MARK: - Q1 — the web document a field lives in
+
+/// Q1 — the URL of the web page holding the focused element (`AXURL` on the nearest `AXWebArea`
+/// ancestor). A separate protocol so existing conformers compile unchanged; asked for only when a
+/// multi-line write goes into a browser (Google Sheets needs ⌥↩, not ⇧↩).
+public protocol FocusedDocumentURLReading: AnyObject {
+    func focusedDocumentURL() -> String?
 }
 
 // MARK: - D1 (V4.2, V4.3) — reading the caret honestly

@@ -35,6 +35,15 @@ open class MockSystemAccess: SystemAccess {
     public var frontmost: FocusSnapshot?
     public var field = Field()
     public var hasFocusedElement = true
+    /// Q2 — model an Electron app that builds no AX tree until `enableAppAccessibility` is called
+    /// for its pid: until then the field exposes no value, no caret and no selection.
+    public var requiresAccessibilityEnable = false
+    public private(set) var accessibilityEnabledPIDs: Set<Int32> = []
+    /// Q2 — `enable(pid)` / `read(tree|no tree)` in call order, so a test can prove enable → read.
+    /// Kept out of `journal`, whose exact contents other suites assert.
+    public private(set) var accessibilityEvents: [String] = []
+    /// Q1 — `AXURL` of the web area around the field (`FocusedDocumentURLReading`).
+    public var documentURL: String?
 
     /// Whether AX exposes the field's value for reading (false models Electron/Figma canvases).
     public var axReadable = true
@@ -86,9 +95,12 @@ open class MockSystemAccess: SystemAccess {
     public func focusedElement() throws -> FocusedElementInfo {
         guard isAccessibilityTrusted else { throw SystemAccessError.accessibilityNotTrusted }
         guard hasFocusedElement else { throw SystemAccessError.noFocusedElement }
-        let caretReadable = axCaretReadable ?? axReadable
+        let exposed = !requiresAccessibilityEnable || frontmost.map { accessibilityEnabledPIDs.contains($0.pid) } == true
+        accessibilityEvents.append(exposed ? "read(tree)" : "read(no tree)")
+        let readable = axReadable && exposed
+        let caretReadable = (axCaretReadable ?? axReadable) && exposed
         return FocusedElementInfo(role: field.role,
-                                  value: axReadable ? field.value : nil,
+                                  value: readable ? field.value : nil,
                                   selectedRange: caretReadable ? field.selection : nil,
                                   isValueSettable: axWriteWorks,
                                   isSelectedTextSettable: axWriteWorks,
@@ -138,13 +150,13 @@ open class MockSystemAccess: SystemAccess {
 
     open func postKeyCombo(_ combo: KeyCombo, toPID pid: Int32) throws {
         try failBeforePosting(.keyCombo)
-        journal.append("key.combo(\(pid)):\(combo.keyCode)\(combo.command ? "+cmd" : "")\(combo.option ? "+opt" : "")")
+        journal.append("key.combo(\(pid)):\(combo.keyCode)\(combo.command ? "+cmd" : "")\(combo.option ? "+opt" : "")\(combo.shift ? "+shift" : "")")
         postCount += 1
         guard pid == frontmost?.pid else { return }
         if combo == .paste {
             guard pasteWorks, let string = pasteboardString else { return }
             insertAtSelection(string)
-        } else if combo == .optionReturn || combo == .returnKey {
+        } else if combo == .optionReturn || combo == .returnKey || combo == .shiftReturn {
             if keystrokesWork { insertAtSelection("\n") }
         }
     }
@@ -204,5 +216,18 @@ open class MockSystemAccess: SystemAccess {
         field.value = String(decoding: utf16, as: UTF16.self)
         let caret = sel.lowerBound + text.utf16.count
         field.selection = caret..<caret
+    }
+}
+
+extension MockSystemAccess: FocusedDocumentURLReading {
+    public func focusedDocumentURL() -> String? { documentURL }
+}
+
+extension MockSystemAccess: AppAccessibilityEnabling {
+    @discardableResult
+    public func enableAppAccessibility(pid: Int32) -> Bool {
+        accessibilityEvents.append("enable(\(pid))")
+        accessibilityEnabledPIDs.insert(pid)
+        return requiresAccessibilityEnable
     }
 }

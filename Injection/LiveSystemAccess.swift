@@ -45,6 +45,19 @@ public final class LiveSystemAccess: SystemAccess {
 
     public var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
+    /// Q2 — turns on Electron's / Chromium's accessibility tree (`AppAccessibilityEnabling`).
+    public let appAccessibility = AppAccessibilityEnabler(
+        lookup: { pid in
+            NSRunningApplication(processIdentifier: pid).map {
+                AppAccessibilityEnabler.App(bundleID: $0.bundleIdentifier, bundleURL: $0.bundleURL)
+            }
+        },
+        setAttribute: { pid, attribute in
+            guard AXIsProcessTrusted() else { return false }
+            let app = AXUIElementCreateApplication(pid)
+            return AXUIElementSetAttributeValue(app, attribute as CFString, kCFBooleanTrue) == .success
+        })
+
     /// Every AX text write / keystroke / key combo that reached `postToPid`. See the protocol doc:
     /// the injector uses this to know whether a method posted before it threw.
     public private(set) var postCount = 0
@@ -255,6 +268,36 @@ public final class LiveSystemAccess: SystemAccess {
         if counts { postCount += 1 }
         let err = AXUIElementSetAttributeValue(element, name as CFString, value)
         guard err == .success else { throw SystemAccessError.axError(err.rawValue) }
+    }
+}
+
+// MARK: - Q2 — expose Electron / Chromium text fields
+
+extension LiveSystemAccess: AppAccessibilityEnabling {
+    @discardableResult
+    public func enableAppAccessibility(pid: Int32) -> Bool { appAccessibility.enable(pid: pid) }
+}
+
+// MARK: - Q1 — the web document around the focused element
+
+extension LiveSystemAccess: FocusedDocumentURLReading {
+    /// Walks `AXParent` from the focused element (bounded) to the first ancestor exposing `AXURL`
+    /// — Chromium's and WebKit's `AXWebArea`. `nil` on any failure or for native fields.
+    public func focusedDocumentURL() -> String? {
+        (try? onSafeThread(ownProcess: ownProcessHasFocus()) { [self] () -> String? in
+            var element: AXUIElement? = try focusedAXElement()
+            var depth = 0
+            while let current = element, depth < 40 {
+                if let url = copyAttribute(current, "AXURL") {
+                    if let cfURL = url as? URL { return cfURL.absoluteString }
+                    if let text = url as? String { return text }
+                }
+                // swiftlint:disable:next force_cast
+                element = copyAttribute(current, kAXParentAttribute).map { $0 as! AXUIElement }
+                depth += 1
+            }
+            return nil
+        }) ?? nil
     }
 }
 

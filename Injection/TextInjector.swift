@@ -123,6 +123,8 @@ public final class TextInjector: Injector {
             return TurnCommitReport(refuse(.neverInject, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
         }
         let own = OwnProcess.owns(focus)
+        // Q2 — the tree must exist before the first read (cached per pid: free after key-down).
+        if !own { (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: focus.pid) }
         let focusedBefore = readFocused(own: own)
         if focusedBefore?.isSecure == true {
             return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
@@ -140,7 +142,12 @@ public final class TextInjector: Injector {
             guard focusGuard.matches(request.expectedFocus) else {
                 return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID))
             }
-            let before = readFocused(own: own)
+            var before = readFocused(own: own)
+            // Q1 — a browser's line break depends on the page (⌥↩ in a Sheets cell, ⇧↩ elsewhere).
+            if adapter is NewlineSafeAdapter, text.contains("\n"), before != nil, before?.documentURL == nil,
+               let reader = system as? FocusedDocumentURLReading {
+                before?.documentURL = reader.focusedDocumentURL()
+            }
             let postsBefore = system.postCount
             // FX1 — kept at notice (info/debug are not persisted), so the last write before a freeze
             // is always in the log: what, where, how.
@@ -268,6 +275,11 @@ public final class TextInjector: Injector {
             return false
         case .keystroke:
             guard system.isAccessibilityTrusted else { return false }
+            // Q1 — in a send-on-↩ app a line break is ⇧↩ (⌥↩ in a sheet cell), never a bare ↩.
+            if let safe = adapter as? NewlineSafeAdapter, text.contains("\n") {
+                try NewlineSafety.type(text, newline: safe.newlineCombo(focused: focused), toPID: focus.pid, system: system)
+                return true
+            }
             try system.postUnicodeKeystrokes(text, toPID: focus.pid)
             return true
         case .adapter:

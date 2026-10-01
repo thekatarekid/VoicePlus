@@ -57,3 +57,17 @@ public final class UserDefaultsInjectionPolicy: InjectionPolicyProviding {
         return InjectionSettingsKeys.parseBundleIDs(defaults.string(forKey: InjectionSettingsKeys.neverInject))
     }
 }
+
+/// Q1 — the Injection-side gate on `FieldRules.allowSubmit`. Nothing may press Return to *send*
+/// in an app where ↩ sends (Electron/Cursor composers, browsers): for a `NewlineSafeAdapter` the
+/// answer is `false` whatever the field claimed (`submitsOnReturn`, a chat category).
+public enum SubmitPolicy {
+    public static func allowSubmit(requested: Bool, adapter: AppAdapter) -> Bool {
+        adapter is NewlineSafeAdapter ? false : requested
+    }
+
+    public static func allowSubmit(requested: Bool, bundleID: String,
+                                   registry: AdapterRegistry = .standard()) -> Bool {
+        allowSubmit(requested: requested, adapter: registry.adapter(for: bundleID))
+    }
+}

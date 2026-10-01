@@ -167,6 +167,8 @@ public final class FocusGuard {
     /// One `focusedElement()` read. Never throws: an unreadable element yields `nil` fields.
     public func targetRevision() -> TargetRevision {
         let focus = system.frontmostApp()
+        // Q2 — key-down: ask Electron / Chromium for their AX tree *before* the caret read.
+        if let focus, !OwnProcess.owns(focus) { (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: focus.pid) }
         guard let info = try? system.focusedElement() else { return TargetRevision(focus: focus) }
         // A password field's value is never read into a version, not even as a hash.
         return TargetRevision(focus: focus, role: info.role, selection: info.selectedRange,
