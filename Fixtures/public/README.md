@@ -14,3 +14,9 @@ Real-model run (Lab cannot link Engine):
 3. `VOICEPLUS_EVAL_SET=librispeech-test-clean VOICEPLUS_EVAL_HYP=<cache>/librispeech-test-clean/hyp-parakeet-tdt-v3.json swift test --filter PublicEvalAcceptanceTests`
    → `lab eval --gate` table + `Lab/results/<date>-<set>-parakeet-tdt-v3.json`.
 In the app, `parakeet-tdt-v3` is a registered eval backend (`LabWiring`).
+
+Noise (V3): `lab mix --set librispeech-test-clean --limit 50` (opt-in test: `VOICEPLUS_EVAL_MIX=<set>
+VOICEPLUS_EVAL_LIMIT=50 swift test --filter NoiseMixAcceptanceTests`) writes `<cache>/<set>-noisy/`:
+the clean items (`snr-clean`) + babble (3 other LibriSpeech talkers) and pink noise at 20/10/5/0 dB,
+seeded, tagged `snr-<dB>` / `noise-<kind>`. MUSAN (FluidInference mirror, `noise/` only) plugs in with
+`--noise-dir <dir>` once the owner has disk for it (T1); tags `noise-musan`.

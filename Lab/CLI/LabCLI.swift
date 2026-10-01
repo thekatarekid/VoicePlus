@@ -69,7 +69,7 @@ public enum LabCLI {
                             runner: LabRunner? = nil, eval: PublicEval? = nil,
                             transport: (any DatasetTransport)? = nil) async -> Output {
         do {
-            if let command = args.first, ["eval", "fetch", "datasets"].contains(command) {
+            if let command = args.first, ["eval", "fetch", "datasets", "mix", "pairs"].contains(command) {
                 let ev = eval ?? PublicEval(paths: EvalPaths(fixturesDirectory: fixturesDirectory))
                 return try await PublicEvalCLI.execute(command, try parse(Array(args.dropFirst())), registry: registry,
                                                        eval: ev, transport: transport ?? URLSessionTransport())
@@ -87,6 +87,9 @@ public enum LabCLI {
            lab eval --set <name> --stage asr|cleanup|diar|decide --model <id> [--raw] [--limit N] [--tags a,b] [--hyp FILE] [--gate] [--no-write]
            lab fetch --set <name>                              # download a public set + build its manifest
            lab datasets                                        # public-set catalogue
+           lab mix --set <name> [--snr 20,10,5,0] [--noise babble,pink,white] [--noise-dir D] [--limit N] [--seed S]
+                                                               # V3: build <name>-noisy (clean + noise at each SNR)
+           lab pairs --set <name> --model <id> [--hyp FILE]    # B4: error pairs → Lab/results/error-pairs/<set>.jsonl
     """
 
     static func execute(_ args: [String], registry: LabRegistry, fixturesDirectory: URL?, runner: LabRunner?) async throws -> Output {
