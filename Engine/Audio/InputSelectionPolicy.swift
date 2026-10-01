@@ -52,7 +52,12 @@ public struct InputSelectionPolicy: @unchecked Sendable {
         // An explicit choice always wins, narrowband or not. The user is allowed to be wrong.
         if let uid = preferredUID, let d = usable.first(where: { $0.uid == uid }) { return Choice(device: d) }
         if let d = usable.first(where: { preference(for: $0.uid) == true }) { return Choice(device: d) }
-        if let current, let d = usable.first(where: { $0.uid == current.uid }) { return Choice(device: d) }
+        // V5 C3 — keeping the current mic while macOS made a call-mode headset the default (AirPods
+        // just connected) is an avoidance too, and is reported as one.
+        if let current, let d = usable.first(where: { $0.uid == current.uid }) {
+            let avoided = Self.isNarrowbandBluetooth(systemDefault) && d.uid != systemDefault?.uid ? systemDefault : nil
+            return Choice(device: d, avoidedNarrowbandBluetooth: avoided)
+        }
         let picked = usable.max { rank($0, systemDefault: systemDefault) < rank($1, systemDefault: systemDefault) }
         let avoided = Self.isNarrowbandBluetooth(systemDefault) && picked?.uid != systemDefault?.uid ? systemDefault : nil
         return Choice(device: picked, avoidedNarrowbandBluetooth: avoided)

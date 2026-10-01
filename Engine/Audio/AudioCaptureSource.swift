@@ -394,7 +394,7 @@ public extension CaptureGraphDriver {
 /// Clean-room; FluidVoice is a design reference only.
 /// The live driver needs a microphone + TCC permission — exercised by `VoicePlusApp --mic-selftest`;
 /// everything else runs against a fake driver in `EngineTests`.
-public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescribing, @unchecked Sendable {
+public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescribing, NarrowbandInputReporting, @unchecked Sendable {
     public var sink: ((UnsafeBufferPointer<Float>) -> Void)?
     public var onDeviceChanged: ((AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
     private(set) public var device: AudioDeviceInfo?
@@ -402,6 +402,8 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescr
     public var diagnostics: AudioCaptureDiagnostics { diagLock.withLock { diag } }
     public var phase: CapturePhase { lock.withLock { lifecycle.phase } }
     public var isRunning: Bool { phase == .running }
+    /// V5 C3 — see `NarrowbandInputReporting`.
+    public var avoidedNarrowbandInput: AudioDeviceInfo? { diagLock.withLock { avoidedNarrowband } }
     /// How long a paused graph is kept before it is fully released. 0 or less keeps it forever.
     public let idleReleaseAfter: TimeInterval
     public static let defaultIdleRelease: TimeInterval = 600
@@ -417,6 +419,8 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescr
     private var diag = AudioCaptureDiagnostics()
     private let lock = NSLock()
     private let policy: InputSelectionPolicy
+    /// V5 C3 — the narrowband headset the policy avoided on its last decision (`diagLock`).
+    private var avoidedNarrowband: AudioDeviceInfo?
     private var monitoring = false
     private var idleWork: DispatchWorkItem?
     private let idleQueue = DispatchQueue(label: "in.adityakatare.voiceplus.audio.idle", qos: .utility)
@@ -581,6 +585,7 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescr
         noteEnumeration()
         let decision = policy.decide(from: driver.inputDevices(), systemDefault: driver.defaultInputDevice())
         guard let target = requestedDevice ?? decision.device else { throw AudioCaptureError.noInputDevice }
+        diagLock.withLock { avoidedNarrowband = requestedDevice == nil ? decision.avoidedNarrowbandBluetooth : nil }
         if requestedDevice == nil, let avoided = decision.avoidedNarrowbandBluetooth {
             Log.engine.notice("""
                 audio: \(avoided.name) is the system input but its mic runs at \
@@ -618,7 +623,9 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescr
         let all = driver.inputDevices()
         let current = device
         let stillPresent = current.map { c in all.contains { $0.uid == c.uid } } ?? false
-        let chosen = policy.choose(from: all, systemDefault: newDefault, current: stillPresent ? current : nil)
+        let decision = policy.decide(from: all, systemDefault: newDefault, current: stillPresent ? current : nil)
+        let chosen = decision.device
+        diagLock.withLock { avoidedNarrowband = decision.avoidedNarrowbandBluetooth }
         guard chosen?.uid != current?.uid else { return }
         do { try switchDevice(to: chosen) } catch { Log.engine.error("audio: route change failed: \(error)") }
     }

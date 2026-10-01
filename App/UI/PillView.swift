@@ -133,6 +133,9 @@ public final class PillViewModel: ObservableObject {
     /// A one-line note for the turn ("Screen text isn't available"), drawn in the chip row so it never
     /// replaces the live words.
     @Published public private(set) var laneNote: String?
+    /// V5 C3 — what tapping the lane note does (e.g. `.voice` → Settings › Voice to pick a mic);
+    /// nil = the note is plain text. Cleared with the note.
+    @Published public private(set) var laneNoteAction: PillActionKind?
     /// The pointer is on the pill (hover pauses the final preview's dwell; S3 reads it).
     @Published public private(set) var pointerInside = false
     /// V4.41 — is the pointer *really* on the pill right now? SwiftUI's `onHover` does not report an
@@ -297,6 +300,7 @@ public final class PillViewModel: ObservableObject {
         switch state {
         case .preview(let text) where turn.captureOpen:
             laneNote = text
+            laneNoteAction = nil
         case .preview:
             route(state)
             scheduleDeliveryRetraction(after: PillDwell.transientNotice)
@@ -564,7 +568,10 @@ public final class PillViewModel: ObservableObject {
     }
 
     /// A one-line note for the turn's chip row (deixis notices).
-    public func showLaneNote(_ line: String?) { laneNote = line }
+    public func showLaneNote(_ line: String?, action: PillActionKind? = nil) {
+        laneNote = line
+        laneNoteAction = line == nil ? nil : action
+    }
 
     public func setPointerInside(_ inside: Bool) {
         guard inside != pointerInside else { return }
@@ -785,6 +792,7 @@ public final class PillViewModel: ObservableObject {
             turn = PillTurnContext()
             deixisChips = []
             laneNote = nil
+            laneNoteAction = nil
             if pointerInside { setPointerInside(false) }
             if focusInside { focusedElements.removeAll(); setFocus(false) }
             return
@@ -847,6 +855,7 @@ public final class PillViewModel: ObservableObject {
         // Boxes drawn before the key went down (latch "draw without a key") belong to this turn.
         turn.chipCount = deixisChips.count
         laneNote = nil
+        laneNoteAction = nil
     }
 
     private func noteSpool() {
@@ -1020,7 +1029,8 @@ struct PillBody: View {
             }
             if let chipRow = lanes.chipRow {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    PillChipRow(chips: model.deixisChips, note: model.laneNote)
+                    PillChipRow(chips: model.deixisChips, note: model.laneNote,
+                                onNote: model.laneNoteAction.map { action in { model.perform(action) } })
                         .fixedSize(horizontal: true, vertical: false)
                 }
                     .place(chipRow)
@@ -1101,6 +1111,8 @@ private extension View {
 struct PillChipRow: View {
     let chips: [PillDeixisChip]
     let note: String?
+    /// V5 C3 — set when the note is a link (the narrowband-headset chip opens Settings › Voice).
+    var onNote: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1128,7 +1140,15 @@ struct PillChipRow: View {
                 .accessibilityLabel("Box: \(chip.label)")
                 .accessibilityIdentifier("pill.chip")
             }
-            if let note {
+            if let note, let onNote {
+                Button(action: onNote) {
+                    Text(note).font(Tokens.Typography.pillStatus.font()).lineLimit(1).truncationMode(.tail)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens Settings to choose another microphone")
+                .accessibilityIdentifier("pill.note")
+            } else if let note {
                 Text(note).font(Tokens.Typography.pillStatus.font()).lineLimit(1).truncationMode(.tail)
                     .accessibilityIdentifier("pill.note")
             }

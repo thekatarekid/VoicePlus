@@ -14,11 +14,13 @@ import Shared
 /// the microphone itself gets no pad.
 ///
 /// Drop-in: `AudioPipeline(source: AcousticCaptureSource(wrapping: inner, profile: p), ...)`.
-public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescribing, @unchecked Sendable {
+public final class AcousticCaptureSource: AudioCaptureSource, CaptureGraphDescribing, NarrowbandInputReporting, @unchecked Sendable {
     public var sink: ((UnsafeBufferPointer<Float>) -> Void)?
     public var onDeviceChanged: ((AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
     public var device: AudioDeviceInfo? { inner.device }
     public let inner: any AudioCaptureSource
+    /// V5 C3 — forwarded from the wrapped source.
+    public var avoidedNarrowbandInput: AudioDeviceInfo? { (inner as? NarrowbandInputReporting)?.avoidedNarrowbandInput }
     /// The wrapped source's own view of the graph it resolved to, when it has one. Forwarded so a
     /// caller (and the recorder's manifest) never has to guess which concrete source is inside.
     public var diagnostics: AudioCaptureDiagnostics {

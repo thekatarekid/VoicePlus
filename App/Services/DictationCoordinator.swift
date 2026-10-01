@@ -317,6 +317,20 @@ public final class DictationCoordinator {
         DispatchQueue.global(qos: .userInitiated).async { graph.release(reason: .silent) }
     }
 
+    /// V5 C3 — capture just opened: if the input policy landed on (or walked away from) a Bluetooth
+    /// headset in call mode, say so as the turn's lane chip, linked to Settings › Voice's mic picker.
+    @MainActor
+    public func noteInputRoute() {
+        guard let source = latchAudio?.pipeline.source else { return }
+        let notice = NarrowbandInputNotice.evaluate(source: source)
+        guard narrowbandGate.shouldShow(notice), let notice else { return }
+        Log.app.notice("\(notice.logLine)")
+        pill.model.showLaneNote(notice.chip, action: .voice)
+        PillDiagnostics.record(.pillDisplay(reason: notice.reasonCode, mouse: nil, frame: nil))   // Q13
+    }
+    /// Main-actor only (`noteInputRoute`).
+    private var narrowbandGate = NarrowbandNoticeGate()
+
     public func noteMicQuality(_ quality: MicQuality) {
         lastMicQuality = quality
         if quality.verdict != .good { pill.model.apply(.warning(quality)) }
@@ -356,6 +370,7 @@ public final class DictationCoordinator {
         guard let turn, let turns else { return }
         if isSessionHeld {
             turns.captureOpened(turn)
+            await MainActor.run { self.noteInputRoute() }   // V5 C3
         } else {
             // BUG B — a start that never opened capture says so in the pill, in the catalogue's own
             // words for *this* failure (A03 when nothing recognises it). Until now the turn ended

@@ -14,7 +14,7 @@ import Shared
 ///   * if voice processing accepts the mode but then delivers nothing, the graph is rebuilt as a
 ///     plain tap after `fallbackTimeout`. Producing silence forever is never an option.
 /// Untestable without a mic + TCC permission — exercised by `VoicePlusApp --mic-selftest`.
-public final class VoiceProcessingCaptureSource: AudioCaptureSource, CaptureGraphDescribing, @unchecked Sendable {
+public final class VoiceProcessingCaptureSource: AudioCaptureSource, CaptureGraphDescribing, NarrowbandInputReporting, @unchecked Sendable {
     public var sink: ((UnsafeBufferPointer<Float>) -> Void)?
     public var onDeviceChanged: ((AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
     private(set) public var device: AudioDeviceInfo?
@@ -32,6 +32,9 @@ public final class VoiceProcessingCaptureSource: AudioCaptureSource, CaptureGrap
     private let converterLock = NSLock()
     private let diagLock = NSLock()
     private var diag = AudioCaptureDiagnostics()
+    /// V5 C3 — the narrowband headset the policy avoided at prewarm (`diagLock`).
+    private var avoidedNarrowband: AudioDeviceInfo?
+    public var avoidedNarrowbandInput: AudioDeviceInfo? { diagLock.withLock { avoidedNarrowband } }
     private var prewarmed = false
     private(set) public var isRunning = false
     private let lock = NSLock()
@@ -51,8 +54,12 @@ public final class VoiceProcessingCaptureSource: AudioCaptureSource, CaptureGrap
     public func prewarm() throws {
         lock.lock(); defer { lock.unlock() }
         guard !prewarmed else { return }
-        let target = device ?? policy.choose(from: AudioDeviceEnumerator.inputDevices(), systemDefault: AudioDeviceEnumerator.defaultInputDevice())
+        let decision = device == nil
+            ? policy.decide(from: AudioDeviceEnumerator.inputDevices(), systemDefault: AudioDeviceEnumerator.defaultInputDevice())
+            : nil
+        let target = device ?? decision?.device
         guard let target else { throw AudioCaptureError.noInputDevice }
+        diagLock.withLock { avoidedNarrowband = decision?.avoidedNarrowbandBluetooth }
         diagLock.withLock {
             diag = AudioCaptureDiagnostics()
             diag.deviceName = target.name
