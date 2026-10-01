@@ -20,6 +20,14 @@ import Shared
 /// * it owns the mode (`hold` / `latched`) and every event that must end a session outright — hard
 ///   mute (V3 §4.4), screen lock and sleep (§8), Escape (§4.3).
 ///
+/// **V5 O1 — arbiter of intent, not owner of the microphone.** Since O1 the microphone is one capture
+/// graph with many subscribers (`AudioPipeline.Broadcaster`). What this class arbitrates is who
+/// *claims the next utterance* (`activeRequester`, an intent claim — dictation, the menu, onboarding,
+/// diagnostics), not who may hear audio. The meeting and the ambient timeline are **recorders**
+/// (`Requester.isRecorder`): they keep everything while on, are never pre-empted by a claim and never
+/// pre-empt one, and are tracked separately (`activeRecorders`). Only hard mute, lock and sleep stand
+/// a recorder down.
+///
 /// It does **not** open or close the capture graph itself. `DictationCoordinator` → `RealEngine` →
 /// `PipelineAudioSource.start(for:)` is still the only path to the microphone; a second one here
 /// would be the duplicate the build doc forbids.
@@ -30,12 +38,27 @@ public final class SessionCoordinator {
         case hotkey
         /// Menu bar / "Start dictation".
         case menu
-        /// Meeting capture.
+        /// Meeting capture. V5 O1: a recorder — it never takes the utterance claim.
         case meeting
         /// Onboarding's mic check and dictation test.
         case onboarding
         /// `--mic-selftest` and friends.
         case diagnostics
+        /// V5 O1 — the ambient timeline. A recorder, like `.meeting`.
+        case ambient
+
+        /// V5 O1 — recorders keep audio; they never claim an utterance, never pre-empt a claim and
+        /// are never pre-empted by one.
+        public var isRecorder: Bool { self == .meeting || self == .ambient }
+
+        /// The capture graph's recorder slot for a recorder requester (nil for claims).
+        public var recorder: PipelineAudioSource.Recorder? {
+            switch self {
+            case .meeting: return .meeting
+            case .ambient: return .ambient
+            case .hotkey, .menu, .onboarding, .diagnostics: return nil
+            }
+        }
 
         /// Rank *within* this layer. Higher wins; equal ranks preempt in arrival order, which is
         /// what makes "menu then hotkey" work the way the user expects.
@@ -44,18 +67,20 @@ public final class SessionCoordinator {
             case .hotkey: return 3
             case .menu: return 2
             case .meeting: return 1
-            case .onboarding, .diagnostics: return 0
+            case .onboarding, .diagnostics, .ambient: return 0
             }
         }
 
         /// How this requester shows up to the capture graph. Dictation-shaped requesters are the
         /// graph's `.engine` owner; the meter and diagnostics keep their own lower-ranked slots, so
-        /// the two rankings can never disagree about who beats whom.
-        public var audioOwner: PipelineAudioSource.Owner {
+        /// the two rankings can never disagree about who beats whom. V5 O1: recorders own nothing —
+        /// they attach as `PipelineAudioSource.Recorder` (`recorder`), so this is nil for them.
+        public var audioOwner: PipelineAudioSource.Owner? {
             switch self {
-            case .hotkey, .menu, .meeting: return .engine
+            case .hotkey, .menu: return .engine
             case .onboarding: return .meter
             case .diagnostics: return .diagnostics
+            case .meeting, .ambient: return nil
             }
         }
 
@@ -106,6 +131,8 @@ public final class SessionCoordinator {
 
     private let lock = NSLock()
     private var holder: Requester?
+    /// V5 O1 — running recorders (meeting, ambient). Never touched by claim arbitration.
+    private var recorders: Set<Requester> = []
     private var requestedMode: Mode = .idle
     /// Set by lock/sleep. Cleared only by an explicit start — never by waking up (V3 §8).
     private var awaitingRestart = false
@@ -176,8 +203,13 @@ public final class SessionCoordinator {
 
     // MARK: State
 
-    /// Who holds the microphone, as far as this layer is concerned.
+    /// Who holds the utterance claim (V5 O1: an intent claim, not microphone ownership — recorders
+    /// may be hearing the same audio at the same time).
     public var activeRequester: Requester? { lock.withLock { holder } }
+    /// V5 O1 — recorders currently running, in `Requester` order.
+    public var activeRecorders: [Requester] {
+        lock.withLock { Requester.allCases.filter(recorders.contains) }
+    }
     public var mode: Mode {
         if dictation.latched { return .latched }
         return lock.withLock { holder == nil ? .idle : requestedMode }
@@ -207,6 +239,12 @@ public final class SessionCoordinator {
         if mute.isMuted {
             onRefusal?(requester, .muted)
             return .refused(.muted)
+        }
+        // V5 O1 — a recorder joins the one capture graph beside whoever holds the claim: it is
+        // never refused for being outranked and never displaces anyone.
+        if requester.isRecorder {
+            _ = lock.withLock { recorders.insert(requester) }
+            return .granted
         }
         var displaced: Requester?
         var refusal: Refusal?
@@ -238,6 +276,10 @@ public final class SessionCoordinator {
 
     /// Releases the microphone if `requester` still holds it.
     public func release(_ requester: Requester) {
+        if requester.isRecorder {
+            _ = lock.withLock { recorders.remove(requester) }
+            return
+        }
         lock.withLock {
             guard holder == requester else { return }
             holder = nil
@@ -253,6 +295,8 @@ public final class SessionCoordinator {
     public func start(_ requester: Requester, mode: Mode = .hold) -> Arbitration {
         let verdict = requestMicrophone(requester)
         guard verdict.isGranted else { return verdict }
+        // V5 O1 — a recorder opens its own subscription (`SharedMicrophoneSource`); it has no mode.
+        if requester.isRecorder { return verdict }
         lock.withLock { requestedMode = mode == .idle ? .hold : mode }
         if mode == .latched, !dictation.latched { dictation.handle(.enterLatch) }
         if requester.dictates {
@@ -265,6 +309,7 @@ public final class SessionCoordinator {
 
     /// Stops and finalizes: the single tap in latch, the key release in hold.
     public func stop(_ requester: Requester = .hotkey, reason: StopReason = .userStopped) {
+        if requester.isRecorder { return stopRecorder(requester, reason: reason) }
         guard lock.withLock({ holder == nil || holder == requester }) else { return }
         if dictation.latched { dictation.endLatch() }
         if requester.dictates { dictation.finalize() }
@@ -274,12 +319,30 @@ public final class SessionCoordinator {
 
     /// Aborts without landing anything, and drops anything that had closed but not been delivered.
     public func cancel(_ requester: Requester = .hotkey, reason: StopReason = .userStopped) {
+        if requester.isRecorder { return stopRecorder(requester, reason: reason) }
         guard lock.withLock({ holder == nil || holder == requester }) else { return }
         if dictation.latched { dictation.endLatch() }
         latch?.cancelPending(reason: reason.rawValue)
         if requester.dictates { dictation.cancel() }
         release(requester)
         onStopped?(requester, reason)
+    }
+
+    /// V5 O1 — a recorder ends on its own account; the utterance claim (and any dictation or latch
+    /// it drives) is untouched.
+    private func stopRecorder(_ requester: Requester, reason: StopReason) {
+        guard lock.withLock({ recorders.remove(requester) }) != nil else { return }
+        onStopped?(requester, reason)
+    }
+
+    /// Recorders stood down by hard mute, lock or sleep — the events that close the microphone for
+    /// every subscriber. Returns them, cleared.
+    private func takeRecorders() -> [Requester] {
+        lock.withLock {
+            let all = Requester.allCases.filter(recorders.contains)
+            recorders.removeAll()
+            return all
+        }
     }
 
     /// The hotkey's gesture stream. This is the only place mode transitions happen for the hotkey.
@@ -347,6 +410,10 @@ public final class SessionCoordinator {
             return was
         }
         if let holder, !holder.dictates { onStandDown?(holder) }
+        for recorder in takeRecorders() {
+            onStandDown?(recorder)
+            onStopped?(recorder, .muted)
+        }
         onStopped?(holder ?? .hotkey, .muted)
     }
 
@@ -377,6 +444,10 @@ public final class SessionCoordinator {
             return was
         }
         if let holder, !holder.dictates { onStandDown?(holder) }
+        for recorder in takeRecorders() {
+            onStandDown?(recorder)
+            onStopped?(recorder, reason)
+        }
         Log.app.notice("session: capture stopped (\(reason.rawValue)); it will not resume on its own")
         onStopped?(holder ?? .hotkey, reason)
     }

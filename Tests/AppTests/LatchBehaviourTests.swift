@@ -622,10 +622,12 @@ struct LatchBehaviourTests {
         rig.session.start(.hotkey)
         await rig.settle()
 
-        #expect(rig.session.start(.meeting) == .refused(.busy(.hotkey)))
+        // V5 O1 — the meeting is a recorder: it joins beside the hotkey instead of being refused.
+        #expect(rig.session.start(.meeting) == .granted)
         #expect(rig.session.start(.onboarding) == .refused(.busy(.hotkey)))
-        #expect(refusals.map(\.0) == [.meeting, .onboarding])
+        #expect(refusals.map(\.0) == [.onboarding])
         #expect(rig.session.activeRequester == .hotkey)
+        #expect(rig.session.activeRecorders == [.meeting])
         #expect(rig.engine.starts == 1, "a refused requester still opened capture")
     }
 
@@ -637,7 +639,7 @@ struct LatchBehaviourTests {
             if requester.dictates {
                 #expect(requester.audioOwner == .engine)
             } else {
-                #expect(requester.audioOwner != .engine || requester == .meeting)
+                #expect(requester.audioOwner != .engine)
             }
         }
         #expect(SessionCoordinator.Requester.hotkey.rank > SessionCoordinator.Requester.onboarding.rank)

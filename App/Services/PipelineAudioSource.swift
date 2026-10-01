@@ -70,15 +70,41 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
         var rank: Int { self == .engine ? 1 : 0 }
     }
 
+    /// V5 O1 — consumers that *keep* audio rather than own an utterance: the meeting mic leg and the
+    /// ambient timeline (V5 §O2 "recorders"). A recorder never pre-empts an `Owner` and is never
+    /// pre-empted by one; it only keeps the one capture graph running and holds its own
+    /// `AudioPipeline.Subscription`. Dictation that starts while a recorder runs **joins** the
+    /// running graph (no restart, no gap in the recording); dictation that ends leaves it running.
+    public enum Recorder: String, Sendable, CaseIterable {
+        case meeting
+        case ambient
+    }
+
     private let lock = NSLock()
+    /// Serialises every graph transition (owner start/stop, recorder attach/detach). Recursive so a
+    /// callback fired inside a transition (`onPreempted`) may itself stop an owner.
+    private let transition = NSRecursiveLock()
     private var forwarder: Task<Void, Never>?
+    private var forwarderSubscription: AudioPipeline.Subscription?
     private var owner: Owner?
+    /// V5 O1 — attached recorders, by subscription id (guarded by `lock`).
+    private var recorders: [UUID: Recorder] = [:]
+    /// This bridge has the pipeline running (guarded by `lock`).
+    private var graphRunning = false
     /// The owner that was displaced by a higher-ranked `start()`, so a meter can say "dictation took
     /// the microphone" instead of silently going flat.
     public var onPreempted: (@Sendable (Owner) -> Void)?
 
     /// Who currently holds capture, if anyone. Diagnostics / tests.
     public var currentOwner: Owner? { lock.withLock { owner } }
+
+    /// V5 O1 — the recorders currently attached (sorted, one entry per attachment).
+    public var activeRecorders: [Recorder] {
+        lock.withLock { recorders.values.sorted { $0.rawValue < $1.rawValue } }
+    }
+
+    /// V5 O1 — anyone (an owner or a recorder) holds the capture graph.
+    public var isCapturing: Bool { lock.withLock { owner != nil || !recorders.isEmpty } }
 
     public init(pipeline: AudioPipeline) { self.pipeline = pipeline }
 
@@ -96,36 +122,64 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
 
     /// Opens capture for `owner`, or fails loudly.
     ///
-    /// The three outcomes, none of them silent:
+    /// The outcomes, none of them silent:
     /// * nobody holds the graph → a fresh start (ring cleared, VAD reset, utterance tap reset);
     /// * a lower-or-equal-ranked owner holds it → it is torn down completely and restarted for the
     ///   new owner, who therefore gets a stream configured for *its* utterance, not an inherited one;
-    /// * a higher-ranked owner holds it → `AudioCaptureError.busy`, so the caller can say so.
+    /// * a higher-ranked owner holds it → `AudioCaptureError.busy`, so the caller can say so;
+    /// * V5 O1 — a recorder keeps the graph running → the owner joins it: its own subscription, an
+    ///   empty utterance tap and a re-armed endpointer, but no restart (that would cut the recording).
     public func start(for owner: Owner) throws {
         if requireMicrophonePermission, let refusal = Self.authorizationRefusal() { throw refusal }
-        let displaced: Owner? = try lock.withLock {
+        transition.lock(); defer { transition.unlock() }
+        let (displaced, shared): (Owner?, Bool) = try lock.withLock {
             if let current = self.owner {
                 guard owner.rank >= current.rank else { throw AudioCaptureError.busy(owner: current.rawValue) }
-                return current
+                return (current, !recorders.isEmpty)
             }
-            return nil
+            return (nil, !recorders.isEmpty)
         }
         if let displaced {
-            // Never inherit somebody else's running graph. Restarting is what guarantees the
-            // recognizer is fed a stream with a cleared ring, a reset VAD and an empty utterance tap.
-            Log.engine.notice("audio source: \(owner.rawValue) takes capture from \(displaced.rawValue); restarting the graph")
-            stopGraph()
+            if shared {
+                // Recorders keep the graph: the displaced owner just loses its stream.
+                Log.engine.notice("audio source: \(owner.rawValue) takes capture from \(displaced.rawValue); recorders keep the graph running")
+                lock.withLock { self.owner = nil }
+                detachForwarder()
+            } else {
+                // Never inherit somebody else's running graph. Restarting is what guarantees the
+                // recognizer is fed a stream with a cleared ring, a reset VAD and an empty utterance tap.
+                Log.engine.notice("audio source: \(owner.rawValue) takes capture from \(displaced.rawValue); restarting the graph")
+                stopGraph()
+            }
             onPreempted?(displaced)
         }
         lock.withLock { self.owner = owner }
         utteranceTap?.reset()
+        startForwarder(for: owner)
 
+        if lock.withLock({ graphRunning }) && pipeline.isRunning {
+            pipeline.rearmEndpointer()
+            Log.engine.info("audio source: \(owner.rawValue) joins the running capture (recorders: \(activeRecorders.map(\.rawValue).joined(separator: ",")))")
+            return
+        }
+        do {
+            try startGraph()
+        } catch {
+            lock.withLock { self.owner = nil }
+            cancelForwarder()
+            throw error
+        }
+    }
+
+    /// The owner's forwarder: pipeline events → `sink` and the side-channel callbacks.
+    private func startForwarder(for owner: Owner) {
         // V4.7 — key-down → first buffer, once per turn. `start(for:)` is called on key-down, so its
         // entry is the closest point to the press this layer can see.
         let pressedAt = DispatchTime.now().uptimeNanoseconds
         let describing = pipeline.source as? any CaptureGraphDescribing
-        let events = pipeline.events()
-        forwarder = Task.detached(priority: .userInteractive) { [weak self] in
+        let subscription = pipeline.subscribe()
+        let events = subscription.events
+        let task = Task.detached(priority: .userInteractive) { [weak self] in
             var awaitingFirstBuffer = true
             for await event in events {
                 guard let self else { return }
@@ -163,7 +217,23 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
                 }
             }
         }
+        lock.withLock {
+            forwarder = task
+            forwarderSubscription = subscription
+        }
+    }
 
+    private func cancelForwarder() {
+        let (task, subscription) = lock.withLock { () -> (Task<Void, Never>?, AudioPipeline.Subscription?) in
+            defer { forwarder = nil; forwarderSubscription = nil }
+            return (forwarder, forwarderSubscription)
+        }
+        subscription?.cancel()
+        task?.cancel()
+    }
+
+    /// Starts the pipeline inside the device's start budget.
+    private func startGraph() throws {
         // `AudioSource.start()` is synchronous; run the async pipeline start on the pool and
         // wait briefly so errors (no device, engine start failure) still propagate to the engine.
         // V4.10 — how briefly depends on the device: a Bluetooth or Continuity mic legitimately
@@ -177,8 +247,8 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
             done.signal()
             // A start that outlived its budget and then succeeded has opened a microphone nobody
             // owns — the indicator would stay lit behind an error. Close it again unless another
-            // owner took the graph in the meantime.
-            guard attempt.finish(), box.error == nil, self?.currentOwner == nil else { return }
+            // owner (or a recorder) took the graph in the meantime.
+            guard attempt.finish(), box.error == nil, self?.isCapturing != true else { return }
             Log.engine.notice("audio source: a start that ran out of budget finished late; closing the unowned capture")
             await pipeline.stop()
         }
@@ -188,15 +258,10 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
             // device (A03), because "start timed out" never said which microphone was slow.
             let device = startDeviceLabel()
             Log.engine.error("audio pipeline start timed out after \(budget)s on \(device)")
-            lock.withLock { self.owner = nil }
-            forwarder?.cancel()
             throw AudioCaptureError.startTimedOut(device: device, seconds: budget)
         }
-        if let error = box.error {
-            lock.withLock { self.owner = nil }
-            forwarder?.cancel()
-            throw error
-        }
+        if let error = box.error { throw error }
+        lock.withLock { graphRunning = true }
     }
 
     /// V4.10 start budgets. Built-in opens in well under a second; USB and wired display audio in a
@@ -228,22 +293,103 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     /// Releases capture **only if `owner` still holds it**. A meter that was preempted by dictation
     /// calling `stopMonitoring()` a moment later must not close the microphone out from under the
     /// utterance that took it — that is the other half of the shared-source bug.
+    ///
+    /// V5 O1 — while a recorder is attached the graph keeps running: the owner's stream is drained
+    /// up to now and ended, and nothing else changes.
     public func stop(for owner: Owner) {
-        let mine = lock.withLock { () -> Bool in
-            guard self.owner == owner else { return false }
+        transition.lock(); defer { transition.unlock() }
+        let (mine, shared) = lock.withLock { () -> (Bool, Bool) in
+            guard self.owner == owner else { return (false, false) }
             self.owner = nil
-            return true
+            return (true, !recorders.isEmpty)
         }
         guard mine else { return }
-        stopGraph()
+        if shared { detachForwarder() } else { stopGraph() }
+    }
+
+    // MARK: Recorders — V5 O1
+
+    /// Attaches a recorder to the one capture graph, starting it if nobody holds it. The returned
+    /// subscription carries every pipeline event from now on; hand it back to `detachRecorder(_:)`.
+    /// Never pre-empts an owner and is never refused because one holds the graph.
+    public func attachRecorder(_ recorder: Recorder) throws -> AudioPipeline.Subscription {
+        if requireMicrophonePermission, let refusal = Self.authorizationRefusal() { throw refusal }
+        transition.lock(); defer { transition.unlock() }
+        let subscription = pipeline.subscribe()
+        let alreadyRunning = lock.withLock { () -> Bool in
+            recorders[subscription.id] = recorder
+            return graphRunning
+        }
+        if !(alreadyRunning && pipeline.isRunning) {
+            do {
+                try startGraph()
+            } catch {
+                lock.withLock { recorders[subscription.id] = nil }
+                subscription.cancel()
+                throw error
+            }
+        }
+        Log.engine.info("audio source: recorder \(recorder.rawValue) attached (owner: \(currentOwner?.rawValue ?? "none"), joined running graph: \(alreadyRunning))")
+        return subscription
+    }
+
+    /// Detaches a recorder. The last claim to leave stops the graph (its stream then ends with
+    /// `.stopped`); otherwise the recorder's stream is drained up to now and ended.
+    public func detachRecorder(_ subscription: AudioPipeline.Subscription) {
+        transition.lock(); defer { transition.unlock() }
+        let (removed, unclaimed) = lock.withLock { () -> (Recorder?, Bool) in
+            let r = recorders.removeValue(forKey: subscription.id)
+            return (r, owner == nil && recorders.isEmpty)
+        }
+        guard let removed else { subscription.cancel(); return }
+        if unclaimed {
+            stopGraph()
+        } else {
+            drainPipeline()
+        }
+        subscription.cancel()
+        Log.engine.info("audio source: recorder \(removed.rawValue) detached (graph \(unclaimed ? "stopped" : "kept for \(currentOwner?.rawValue ?? "recorders")"))")
+    }
+
+    /// The owner leaves a graph recorders keep running: everything captured so far reaches it, then
+    /// its stream ends and its forwarder finishes. Bounded like `stopGraph()`.
+    private func detachForwarder() {
+        let (task, subscription) = lock.withLock { () -> (Task<Void, Never>?, AudioPipeline.Subscription?) in
+            defer { forwarder = nil; forwarderSubscription = nil }
+            return (forwarder, forwarderSubscription)
+        }
+        drainPipeline()
+        subscription?.cancel()
+        if let task {
+            let drained = DispatchSemaphore(value: 0)
+            Task.detached(priority: .userInteractive) {
+                await task.value
+                drained.signal()
+            }
+            if drained.wait(timeout: .now() + Self.drainTimeout) == .timedOut { task.cancel() }
+        }
+    }
+
+    /// Processes every sample already in the ring so it has been published to subscribers. Only
+    /// while running: a stopped pipeline has nothing to drain (and its drain would never return).
+    private func drainPipeline() {
+        guard pipeline.isRunning else { return }
+        let done = DispatchSemaphore(value: 0)
+        Task.detached(priority: .userInteractive) { [pipeline] in
+            await pipeline.drain()
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + Self.stopTimeout)
     }
 
     /// Ends the pipeline's run. The capture source underneath keeps its graph paused between turns
     /// (V4.7); `release(reason:)` on the source is the full teardown. The owner slot is the caller's
     /// business.
     private func stopGraph() {
-        let forwarder = self.forwarder
-        self.forwarder = nil
+        let forwarder = lock.withLock { () -> Task<Void, Never>? in
+            defer { self.forwarder = nil; forwarderSubscription = nil; graphRunning = false }
+            return self.forwarder
+        }
         let done = DispatchSemaphore(value: 0)
         Task.detached(priority: .userInteractive) { [pipeline] in
             await pipeline.stop()
@@ -402,4 +548,91 @@ public final class UtteranceAudioTap: @unchecked Sendable {
         lock.withLock { if buffer.count < maxSamples { buffer.append(contentsOf: samples.prefix(maxSamples - buffer.count)) } }
     }
     public var samples: [Float] { lock.withLock { buffer } }
+}
+
+/// V5 O1 — an `AudioCaptureSource` over a recorder subscription to the app's one capture graph, so
+/// a consumer written against "a microphone" (`DualCapture(mic:)`) needs no change and opens no
+/// second HAL client. `start()` attaches a recorder to `PipelineAudioSource` (starting the shared
+/// graph only if nobody holds it); `stop()` detaches it (stopping the graph only if it was the last
+/// claim). The graph's device, route changes and teardown stay the shared graph's business: this
+/// adapter never switches or releases the device under dictation.
+public final class SharedMicrophoneSource: AudioCaptureSource, @unchecked Sendable {
+    public var sink: ((UnsafeBufferPointer<Float>) -> Void)?
+    public var onDeviceChanged: ((AudioDeviceInfo?, AudioDeviceInfo?) -> Void)?
+    public let recorder: PipelineAudioSource.Recorder
+    /// Resolved at `start()`: the app swaps its pipeline when a model lands, and a meeting started
+    /// later must join the graph that exists *then*.
+    private let resolve: () -> PipelineAudioSource?
+    private let lock = NSLock()
+    private var attached: (audio: PipelineAudioSource, subscription: AudioPipeline.Subscription)?
+    private var pump: Task<Void, Never>?
+
+    public init(recorder: PipelineAudioSource.Recorder, audio: @escaping () -> PipelineAudioSource?) {
+        self.recorder = recorder
+        self.resolve = audio
+    }
+
+    public convenience init(_ audio: PipelineAudioSource, recorder: PipelineAudioSource.Recorder) {
+        self.init(recorder: recorder, audio: { audio })
+    }
+
+    public var device: AudioDeviceInfo? {
+        (lock.withLock { attached?.audio } ?? resolve())?.pipeline.source.device
+    }
+
+    /// Whether this adapter currently holds a recorder claim.
+    public var isAttached: Bool { lock.withLock { attached != nil } }
+
+    /// The shared graph is prepared by the app (V4.7 launch warm-up); nothing to build here.
+    public func prewarm() throws {}
+
+    public func start() throws {
+        guard !isAttached else { return }
+        guard let audio = resolve() else { throw AudioCaptureError.noInputDevice }
+        let subscription = try audio.attachRecorder(recorder)
+        let events = subscription.events
+        let task = Task.detached(priority: .userInteractive) { [weak self] in
+            for await event in events {
+                guard let self else { return }
+                switch event {
+                case .audio(let samples, _):
+                    samples.withUnsafeBufferPointer { self.sink?($0) }
+                case .deviceChanged(let from, let to):
+                    self.onDeviceChanged?(from, to)
+                case .stopped:
+                    return
+                default:
+                    break
+                }
+            }
+        }
+        lock.withLock {
+            attached = (audio, subscription)
+            pump = task
+        }
+    }
+
+    /// Detaches, then waits (bounded) until every sample already published has reached `sink`, so a
+    /// caller that drains right after `stop()` (`DualCapture.stop()`) gets the tail.
+    public func stop() {
+        let (claim, task) = lock.withLock { () -> ((audio: PipelineAudioSource, subscription: AudioPipeline.Subscription)?, Task<Void, Never>?) in
+            defer { attached = nil; pump = nil }
+            return (attached, pump)
+        }
+        guard let claim else { return }
+        claim.audio.detachRecorder(claim.subscription)
+        guard let task else { return }
+        let done = DispatchSemaphore(value: 0)
+        Task.detached(priority: .userInteractive) {
+            await task.value
+            done.signal()
+        }
+        if done.wait(timeout: .now() + PipelineAudioSource.drainTimeout) == .timedOut { task.cancel() }
+    }
+
+    /// The device is the shared graph's; a recorder never re-points dictation's microphone.
+    public func switchDevice(to device: AudioDeviceInfo?) throws {}
+
+    /// Never tears the shared graph down: a recorder only lets go of its claim.
+    public func release(reason: CaptureReleaseReason) { stop() }
 }

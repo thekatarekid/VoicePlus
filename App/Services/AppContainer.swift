@@ -349,7 +349,10 @@ public final class AppContainer {
         }
         meetingCoordinator.makeCapture = { [weak self] in
             guard let self, case .real = self.engineKind else { return nil }
-            return DualCapture(mic: CoreAudioCaptureSource(), system: SystemAudioRecorder.live(),
+            // V5 O1 — the meeting's mic leg is a recorder on the app's one capture graph, never a
+            // second HAL client: dictation during a meeting and the meeting both hear the same audio.
+            let mic = SharedMicrophoneSource(recorder: .meeting, audio: { [weak self] in self?.audio })
+            return DualCapture(mic: mic, system: SystemAudioRecorder.live(),
                                micVAD: EnergyVAD(), systemVAD: EnergyVAD())
         }
         Log.app.info("container up: engine=\(String(describing: built.kind)) db=\(database != nil) providers=\(routing.allProviders.count)")
@@ -361,6 +364,9 @@ public final class AppContainer {
         latchController.mute.observe { [weak self] model in
             guard let self, let muted = muteEdge.change(to: model.muted) else { return }
             if muted {
+                // V5 O1 — hard mute closes the microphone for every subscriber: a meeting recording
+                // on the shared graph ends first, then the graph itself is released.
+                if self.meeting.session != nil { self.meeting.apply(.recordingStopped) }
                 self.releaseCapture(.mute)
             } else {
                 DispatchQueue.main.async { [weak self] in self?.prewarmCapture() }
@@ -417,7 +423,7 @@ public final class AppContainer {
     /// while somebody holds capture (a prewarm resets the VAD).
     private func prewarmCapture(engine: RealEngine? = nil, modelLoaded: Bool? = nil) {
         guard case .real = engineKind, let audio else { return }
-        guard PipelineAudioSource.microphoneAuthorized, !latchController.mute.isMuted, audio.currentOwner == nil else { return }
+        guard PipelineAudioSource.microphoneAuthorized, !latchController.mute.isMuted, !audio.isCapturing else { return }
         let real = engine ?? (swappableEngine.current as? RealEngine)
         if let real, modelLoaded ?? real.isModelLoaded {
             // `engine.prewarm()` with the model already resolved publishes nothing; it only

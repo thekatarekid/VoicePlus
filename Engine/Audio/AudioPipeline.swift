@@ -165,6 +165,24 @@ public final class AudioPipeline: @unchecked Sendable {
     /// Fresh stream per call; every event after subscribing is delivered in order.
     public func events() -> AsyncStream<AudioPipelineEvent> { broadcaster.subscribe() }
 
+    /// V5 O1 — a stream that can be ended on its own (`Subscription.cancel()`) without stopping the
+    /// capture, for consumers that join and leave a graph other subscribers keep running.
+    public func subscribe() -> Subscription { broadcaster.subscription() }
+
+    /// V5 O1 — how many consumers are subscribed right now (diagnostics / tests).
+    public var subscriberCount: Int { broadcaster.subscriberCount }
+
+    /// V5 O1 — true between a successful `start()` and `stop()`.
+    public var isRunning: Bool { stateLock.withLock { running } }
+
+    /// V5 O1 — re-arms the latched endpointer from the next processed block, keeping capture (and
+    /// stream time) running. A dictation that joins a capture a recorder already holds starts its
+    /// segment bounds here instead of inheriting the recorder's, without restarting the graph under
+    /// the recorder.
+    public func rearmEndpointer() {
+        stateLock.withLock { endpointerRearmPending = true }
+    }
+
     /// Just the 16 kHz audio, for consumers that do their own analysis.
     public func audioBuffers() -> AsyncStream<[Float]> {
         let events = broadcaster.subscribe()
@@ -510,22 +528,50 @@ public final class AudioPipeline: @unchecked Sendable {
         waiters.forEach { $0.resume() }
     }
 
-    // MARK: fan-out
+    // MARK: fan-out (V5 O1)
 
-    final class Broadcaster: @unchecked Sendable {
+    /// One subscriber's event stream. `cancel()` ends **only this** stream: every event already
+    /// published to it is still delivered, then `events` finishes — so a consumer that leaves a
+    /// capture other subscribers keep running (dictation ending inside a meeting) drains exactly
+    /// up to the moment it left, and nobody else notices.
+    public final class Subscription: @unchecked Sendable {
+        public let id: UUID
+        public let events: AsyncStream<AudioPipelineEvent>
+        private weak var broadcaster: Broadcaster?
+        init(id: UUID, events: AsyncStream<AudioPipelineEvent>, broadcaster: Broadcaster) {
+            self.id = id; self.events = events; self.broadcaster = broadcaster
+        }
+        public func cancel() { broadcaster?.finish(id) }
+    }
+
+    /// V5 O1 — the fan-out. After O1 this is the only source of microphone audio in the app (§10):
+    /// dictation (via `PipelineAudioSource`), the meeting mic leg (`SharedMicrophoneSource`),
+    /// ambient, directed-speech features and the speaker gate each hold a subscription to the same
+    /// capture rather than opening one of their own. Every subscriber sees every event, in order.
+    public final class Broadcaster: @unchecked Sendable {
         private let lock = NSLock()
         private var conts: [UUID: AsyncStream<AudioPipelineEvent>.Continuation] = [:]
-        func subscribe() -> AsyncStream<AudioPipelineEvent> {
+        public init() {}
+        public func subscribe() -> AsyncStream<AudioPipelineEvent> { subscription().events }
+        public func subscription() -> Subscription {
             let id = UUID()
-            return AsyncStream(bufferingPolicy: .unbounded) { c in
+            let stream = AsyncStream<AudioPipelineEvent>(bufferingPolicy: .unbounded) { c in
                 lock.lock(); conts[id] = c; lock.unlock()
                 c.onTermination = { [weak self] _ in
                     guard let self else { return }
                     self.lock.lock(); self.conts[id] = nil; self.lock.unlock()
                 }
             }
+            return Subscription(id: id, events: stream, broadcaster: self)
         }
-        func send(_ e: AudioPipelineEvent) {
+        /// Ends one subscriber's stream after what it has already been sent.
+        public func finish(_ id: UUID) {
+            lock.lock(); let c = conts.removeValue(forKey: id); lock.unlock()
+            c?.finish()
+        }
+        /// Live subscribers (tests / diagnostics).
+        public var subscriberCount: Int { lock.withLock { conts.count } }
+        public func send(_ e: AudioPipelineEvent) {
             lock.lock(); let targets = Array(conts.values); lock.unlock()
             targets.forEach { $0.yield(e) }
         }
