@@ -105,8 +105,9 @@ struct RealEngineColdStartTests {
     }
 }
 
-/// Polls `condition` until it holds or the deadline passes.
-private func waitForCondition(timeoutMs: Int = 20_000, _ condition: @Sendable () -> Bool) async throws {
+/// Polls `condition` until it holds or the deadline passes. V5 J1: 90 s ceiling — a parallel
+/// full-package run starved these waits past 20 s; it only costs time when the test fails anyway.
+private func waitForCondition(timeoutMs: Int = 90_000, _ condition: @Sendable () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
     while Date() < deadline {
         if condition() { return }
