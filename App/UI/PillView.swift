@@ -142,6 +142,10 @@ public final class PillViewModel: ObservableObject {
     @Published public var notesCount: Int = 0
     /// V5 N3 — clicking the notes chip opens the Notes section.
     public var onOpenNotes: (() -> Void)?
+    /// V5 HW3 — "Running lighter models — memory is low" while the residency runs lighter
+    /// alternatives under critical memory pressure; nil = hidden. Not turn-scoped: it stays until
+    /// pressure returns to normal (`LighterModelsChip.wire`).
+    @Published public var memoryNote: String?
     /// The pointer is on the pill (hover pauses the final preview's dwell; S3 reads it).
     @Published public private(set) var pointerInside = false
     /// V4.41 — is the pointer *really* on the pill right now? SwiftUI's `onHover` does not report an
@@ -1007,6 +1011,7 @@ struct PillBody: View {
     private var hasChipRow: Bool {
         guard PillViewModel.isTurnState(model.state) else { return false }
         return !model.deixisChips.isEmpty || model.laneNote != nil || NotesChip.isVisible(count: model.notesCount)
+            || model.memoryNote != nil
     }
 
     var body: some View {
@@ -1037,7 +1042,8 @@ struct PillBody: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     PillChipRow(chips: model.deixisChips, note: model.laneNote,
                                 onNote: model.laneNoteAction.map { action in { model.perform(action) } },
-                                notesCount: model.notesCount, onNotes: model.onOpenNotes)
+                                notesCount: model.notesCount, onNotes: model.onOpenNotes,
+                                memoryNote: model.memoryNote)
                         .fixedSize(horizontal: true, vertical: false)
                 }
                     .place(chipRow)
@@ -1125,9 +1131,19 @@ struct PillChipRow: View {
     /// V5 N3 — the notes chip, drawn first so it is never pushed off by deixis boxes.
     var notesCount: Int = 0
     var onNotes: (() -> Void)? = nil
+    /// V5 HW3 — the lighter-models chip (plain text, drawn first).
+    var memoryNote: String? = nil
 
     var body: some View {
         HStack(spacing: 6) {
+            if let memoryNote {
+                Text(memoryNote).font(Tokens.Typography.key.font()).lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .frame(height: PillLaneLayout.chipHeight)
+                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.keyCap)
+                        .strokeBorder(Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
+                    .accessibilityIdentifier("pill.memoryChip")
+            }
             if NotesChip.isVisible(count: notesCount) {
                 Button(action: { onNotes?() }) {
                     Text(NotesChip.title(count: notesCount)).font(Tokens.Typography.key.font()).lineLimit(1)
