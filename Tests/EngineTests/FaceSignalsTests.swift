@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreVideo
 import Foundation
 import Testing
 @testable import Engine
@@ -162,5 +163,17 @@ import Testing
         let violations = try #require(CameraPrivacyAudit.audit(root: dir))
         #expect(violations.filter { $0.line > 0 }.count == 2)
         #expect(violations.filter { $0.line == 0 }.count == CameraPrivacyAudit.requiredInvariants.count)
+    }
+
+    /// Vision on a frame with no face: no face, no yaw, no mouth rect — and no crash (the two-request
+    /// path: face rectangles rev 3 for yaw, then landmarks on that face).
+    @Test func visionLandmarkerOnABlankFrameSeesNoFace() throws {
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &buffer)
+        let pb = try #require(buffer)
+        let analysis = VisionFaceLandmarker().analyze(pb, time: 3)
+        #expect(analysis.frame.facePresent == false)
+        #expect(analysis.frame.yaw == nil)
+        #expect(analysis.mouthRect == nil)
     }
 }

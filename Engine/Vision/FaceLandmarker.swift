@@ -45,17 +45,27 @@ public final class VisionFaceLandmarker: FaceLandmarking, @unchecked Sendable {
     public init() {}
 
     public func analyze(_ pixelBuffer: CVPixelBuffer, time: TimeInterval) -> FaceAnalysis {
-        let request = VNDetectFaceLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
-        do { try handler.perform([request]) } catch { return FaceAnalysis(frame: .noFace(at: time)) }
-        guard let face = (request.results ?? []).max(by: { $0.boundingBox.visionArea < $1.boundingBox.visionArea }) else {
+        // Head yaw comes from the face-rectangles request (revision 3 reports yaw/roll/pitch); the
+        // landmarks request alone leaves `yaw` nil, which would make "facing the screen" mean only
+        // "a face is present". The largest face is detected once and handed to the landmarks pass.
+        let rects = VNDetectFaceRectanglesRequest()
+        rects.revision = VNDetectFaceRectanglesRequestRevision3
+        do { try handler.perform([rects]) } catch { return FaceAnalysis(frame: .noFace(at: time)) }
+        guard let detected = (rects.results ?? []).max(by: { $0.boundingBox.visionArea < $1.boundingBox.visionArea }) else {
             return FaceAnalysis(frame: .noFace(at: time))
+        }
+        let request = VNDetectFaceLandmarksRequest()
+        request.inputFaceObservations = [detected]
+        try? handler.perform([request])
+        guard let face = request.results?.first else {
+            return FaceAnalysis(frame: FaceFrame(time: time, facePresent: true, yaw: detected.yaw?.doubleValue))
         }
         let inner = face.landmarks?.innerLips?.normalizedPoints ?? []
         let outer = face.landmarks?.outerLips?.normalizedPoints ?? []
         let open = MouthGeometry.openness(innerLips: inner)
         let mouth = MouthGeometry.imageRect(points: outer.isEmpty ? inner : outer, faceBox: face.boundingBox)
-        let frame = FaceFrame(time: time, facePresent: true, mouthOpen: open, yaw: face.yaw?.doubleValue)
+        let frame = FaceFrame(time: time, facePresent: true, mouthOpen: open, yaw: (face.yaw ?? detected.yaw)?.doubleValue)
         return FaceAnalysis(frame: frame, mouthRect: mouth)
     }
 }
