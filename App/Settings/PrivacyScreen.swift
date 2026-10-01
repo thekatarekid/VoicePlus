@@ -75,6 +75,7 @@ struct PrivacyScreen: SectionScreen {
                 featureFlags
                 PrivacyDataPanel(model: model)
                 PrivacyExportView(model: model)
+                TurnDiagnosticsExportRow(database: model.turnDiagnosticsDatabase) // V5 Q13
             }
             .padding(.top, Tokens.Spacing.m)
         }

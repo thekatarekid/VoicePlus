@@ -92,6 +92,8 @@ public final class PrivacySectionViewModel: ObservableObject {
     private let flags: FeatureFlagService?
     private let gate: EgressGate
     private let database: AppDatabase?
+    /// V5 Q13 — the database the Turn diagnostics export reads (`turn_diagnostics`).
+    var turnDiagnosticsDatabase: AppDatabase? { database }
     private let data: any PrivacyDataStoring
     public let recordingsDirectory: URL
     private let injectedMute: (any PrivacyMuteControlling)?

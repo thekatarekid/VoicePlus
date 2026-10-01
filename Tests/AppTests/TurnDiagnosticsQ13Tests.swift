@@ -84,7 +84,7 @@ struct TurnDiagnosticsQ13Tests {
     @Test func sourceAuditNoTranscriptTextStored() throws {
         let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("App/Diagnostics")
-        let files = ["TurnDiagnostics.swift", "TurnDiagnosticsExportAction.swift"]
+        let files = ["TurnDiagnostics.swift", "TurnDiagnosticsExportAction.swift", "TurnDiagnosticsExportRow.swift"]
         let banned = ["TranscriptSpan", "rawText", "finalText", "transcript:", "text:", "Utterance(", "spansJSON",
                       "dictation_history", "audioURL", "samples"]
         for f in files {
@@ -97,5 +97,23 @@ struct TurnDiagnosticsQ13Tests {
         _ = try TurnDiagnostics(writer: db)
         let cols = try db.read { try $0.columns(in: TurnDiagnostics.table).map(\.name) }
         #expect(Set(cols) == ["id", "turnID", "at", "kind", "payloadJSON"])
+    }
+
+    /// The Privacy row: owner-triggered export through the app database; no database → disabled message.
+    @Test @MainActor func privacyRowExportsThroughAppDatabase() throws {
+        let db = try AppDatabase.inMemory()
+        try TurnDiagnostics(database: db).record(.orderFront(window: "pill", reason: "r"), turn: "t")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("q13-row-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let status = TurnDiagnosticsExportRow.run(database: db) { store in try store.exportJSON(to: url); return url }
+        #expect(status == "Saved \(url.lastPathComponent)")
+        let doc = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        #expect((doc?["turns"] as? [Any])?.count == 1)
+        #expect(TurnDiagnosticsExportRow.run(database: db) { _ in nil } == nil)  // cancelled → no status
+        #expect(TurnDiagnosticsExportRow.run(database: nil) { _ in url } == "No local database.")
+        // Source audit: the Privacy screen hosts the row.
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let screen = try String(contentsOf: root.appendingPathComponent("App/Settings/PrivacyScreen.swift"), encoding: .utf8)
+        #expect(screen.contains("TurnDiagnosticsExportRow("))
     }
 }

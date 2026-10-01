@@ -223,6 +223,7 @@ public final class LivePrivacyDataStore: PrivacyDataStoring {
         if let database {
             do { _ = try database.writer.write { try DictationRecord.deleteAll($0) } }
             catch { reason = "\(error)" }
+            try? TurnDiagnostics(database: database).deleteAll() // V5 Q13: per-turn diagnostics go with history
         }
         if let store = turns() {
             for entry in store.recent(limit: 100_000) where Self.isSettledHistory(entry) { store.remove(entry.id) }
