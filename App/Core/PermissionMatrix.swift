@@ -392,11 +392,15 @@ public struct RelaunchAdvisor: Equatable, Sendable {
 public enum OptionalPermission: String, CaseIterable, Codable, Sendable, Identifiable {
     /// V4.29 / V4.53 — the screenshot of a drawn box and text recognition over it.
     case screenRecording
+    /// V5 LR1 — the front camera for lip activity, facing and presence (and LR2/LR3 lip reading).
+    /// Asked only when the user turns a camera mode on; frames stay in memory and are never saved.
+    case camera
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
         case .screenRecording: return "Screen Recording"
+        case .camera: return "Camera (optional)"
         }
     }
 
@@ -406,17 +410,26 @@ public enum OptionalPermission: String, CaseIterable, Codable, Sendable, Identif
         switch self {
         case .screenRecording:
             return "Optional. Lets VoicePlus read the text inside a box you draw when the app doesn't share it — the image stays in memory for that dictation and is never saved."
+        case .camera:
+            return "Optional. Only while a camera mode is on, VoicePlus watches whether your lips move with your voice — so a TV or a colleague can't start a command — and can read your lips. Frames stay in memory for under a second, are never saved and never leave this Mac."
         }
     }
 
     /// `CGRequestScreenCaptureAccess()` shows its alert once and returns the current state at
     /// once; the user flips the switch in System Settings. Same shape as Input Monitoring.
-    public var isPromptable: Bool { false }
+    /// The camera has a real consent dialog (`AVCaptureDevice.requestAccess(for: .video)`).
+    public var isPromptable: Bool {
+        switch self {
+        case .screenRecording: return false
+        case .camera: return true
+        }
+    }
 
     /// `revealElementKeyName` for System Settings › Privacy & Security.
     public var settingsAnchor: String {
         switch self {
         case .screenRecording: return "Privacy_ScreenCapture"
+        case .camera: return "Privacy_Camera"
         }
     }
 
