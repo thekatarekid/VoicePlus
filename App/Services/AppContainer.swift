@@ -47,6 +47,8 @@ public final class AppContainer {
     /// P3 — timeline recorder + deixis/referent resolution + AX window text feed.
     public let deixis: DeixisService
     public let axWindowText: AXReaderWindowText
+    /// V5 B2 + E1 — the ranked context, rebuilt per utterance, as `StageContext.extra["context.prompt"]`.
+    public let contextPrompt: ContextPromptSession
     /// P4 — act domain: catalogue + consent + executor + agent behind the second key.
     public let actState = ActDomainState()
     public let actHook: ActPreRouteHook
@@ -214,6 +216,8 @@ public final class AppContainer {
         if let database { harvester.add(CorrectionSource(store: DatabaseCorrectionStore(database: database))) }
         if let adaptationService { harvester.add(LearnedLexiconSource(loop: adaptationService.loop)) }
         biasing = BiasingController(harvester: harvester, vocabulary: BiasVocabulary.discoverParakeet(), flags: flags)
+        // V5 B2 (X2) — the ranked list now has a caller: one session over the same harvester.
+        contextPrompt = ContextPromptSession(harvester: harvester, idleDiscardAfter: 120)
 
         // Voice repair (P1.6, Bet 3): AX replace-range + correction log + zero-edit decrement.
         let dictionary = (try? database?.dictionaryTerms().map(\.term)) ?? []
@@ -248,7 +252,10 @@ public final class AppContainer {
         lander.correction = correction
         // S7d — the app's Dictionary & Apps rule applies last: Verbatim switches the style pass and
         // writing instructions off; contextual reading off drops what was read from the screen.
-        lander.contextAugmenter = AppRules.applying(after: { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx })
+        // V5 B2 — then the ranked-context prompt for the cleanup stage (D2), after the rule.
+        lander.contextAugmenter = ContextPromptAugmenter.applying(
+            after: AppRules.applying(after: { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }),
+            session: contextPrompt)
         // R4.2 — the AX hints the field-role formatter classifies on, read once per utterance.
         let fieldContextReader = FieldContextReader(system: system)
         lander.fieldContextProvider = { [fieldContextReader] bundleID in fieldContextReader.fieldContext(bundleID: bundleID) }

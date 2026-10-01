@@ -22,10 +22,36 @@ public final class AXReaderWindowText: FocusedWindowTextProvider, @unchecked Sen
     /// Focused-window content, visible portion only (cache-backed).
     public func content() -> WindowContent? {
         guard let reader, let front = system.frontmostApp() else { return nil }
+        // Q2 / E1 — Electron and Chromium build their AX tree only when asked (cached per pid).
+        if !OwnProcess.owns(front) { (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: front.pid) }
         return try? reader.readFocusedWindow(pid: front.pid, options: .visible)
     }
 
-    /// Biasing source: title at full salience, body blocks decaying with tree depth.
+    /// V5 E1 — how much of the document behind the visible part is read: the **tail**, bounded.
+    /// A thread / document / terminal's latest text is what an utterance is most likely about.
+    public var documentTailCharacters = 2_000
+    /// Salience of the document tail (below the visible body: it is off screen).
+    public var documentTailSalience = 0.5
+
+    /// V5 E1 — the focused window's document text, scrollback included, keeping only the last
+    /// `limit` characters (`readDocument`'s keep-tail policy with a 2 k cap instead of 200 k).
+    /// `nil` when there is no reader or nothing to read.
+    public func documentTail(of window: AXWindowID, limit: Int? = nil) -> String? {
+        guard let reader else { return nil }
+        let cap = max(0, limit ?? documentTailCharacters)
+        guard cap > 0 else { return nil }
+        var limits = AXReadLimits()
+        limits.maxCharacters = cap
+        let options = AXReadOptions(includeScrollback: true, limits: limits, truncation: .keepTail)
+        guard let document = try? reader.readWindow(window, options: options) else { return nil }
+        let text = document.text
+        guard !text.isEmpty else { return nil }
+        return text.count > cap ? String(text.suffix(cap)) : text
+    }
+
+    /// Biasing source: title at full salience, body blocks decaying with tree depth, then (E1) the
+    /// bounded document tail. Electron apps answer here because `content()` enables their AX tree
+    /// first (Q2).
     public func visibleStrings() -> [(String, Double)] {
         guard let content = content() else { return [] }
         var out: [(String, Double)] = []
@@ -33,6 +59,7 @@ public final class AXReaderWindowText: FocusedWindowTextProvider, @unchecked Sen
         for block in content.blocks.prefix(maxBlocks) where !block.text.isEmpty {
             out.append((block.text, max(0.4, 1.0 - Double(block.depth) * 0.08)))
         }
+        if let tail = documentTail(of: content.window) { out.append((tail, documentTailSalience)) }
         return out
     }
 
@@ -91,5 +118,35 @@ public final class AXReferentContext: ParticipantProviding, ArtifactProviding {
         }
         if role == "AXLink" { return .link }
         return nil
+    }
+}
+
+// MARK: - V5 B2 + E1 — ranked context into the cleanup prompt
+
+/// The lander's augmenter step that puts the utterance's ranked-context prompt into
+/// `StageContext.extra[ContextPromptKeys.prompt]` for D2's cleanup stage.
+///
+/// Runs **after** `AppRules.applying` so the destination app's rule is already known: with
+/// contextual reading off for that app nothing is harvested at all (the key is removed and the
+/// session is not rebuilt), the same promise `AppRule.apply` makes for the window text.
+public enum ContextPromptAugmenter {
+    public static func applying(
+        after base: @escaping ([TranscriptSpan], StageContext) -> StageContext,
+        session: ContextPromptSession,
+        contextualReading: @escaping (String?) -> Bool = { bundleID in
+            guard let bundleID, !bundleID.isEmpty else { return true }
+            return AppRules.current().resolved(for: bundleID).contextualReading.value
+        },
+        now: @escaping () -> Date = Date.init
+    ) -> ([TranscriptSpan], StageContext) -> StageContext {
+        { spans, context in
+            var ctx = base(spans, context)
+            guard contextualReading(ctx.appBundleID) else {
+                ctx.extra.removeValue(forKey: ContextPromptKeys.prompt)
+                return ctx
+            }
+            session.write(into: &ctx, now: now())
+            return ctx
+        }
     }
 }
