@@ -5,6 +5,7 @@ import Shared
 public enum StageRegistry {
     public static let builtIn: [any PipelineStage] = [
         GatekeeperStage(), // always first; PipelineRunner runs it separately and filters it out of the stage list
+        ProsodyPunctuationStage(), // V5 K8 — pauses/pitch → . , ? before the formatters; off until the LibriSpeech-PC gate
         ProseListFormatter(),
         EmailFormatter(),
         ChatFormatter(),
