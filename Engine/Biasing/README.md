@@ -1,64 +1,31 @@
-# Engine/Biasing — decode-time context biasing (P1.5, Bet 2)
+# Engine/Biasing — vocabulary boosting (V5 B1) and the ranked context list
 
-Pipeline: `ContextSource`s → `ContextHarvester` (dedup) → `Ranker` (source × recency × salience,
-**hard cap 400**) → `BiasPrefixTree` (token-id trie built with `BiasVocabulary`) →
-`ShallowFusionBiaser: LogitBiaser` (boost on prefix match, completion bonus, partial-match
-unbiasing, `maxBoost` clamp as the false-insertion guard) → installed on any `Decoder`.
+## V5 B1 — final-pass CTC vocabulary boosting (replaces decode-time shallow fusion)
 
-- Sources: `AXTreeSource` (live `LiveAXFocusedWindowText`, AX only, no screenshots),
-  `RecentWordsRing` (10 min), `CorrectionSource` (`DatabaseCorrectionStore` over
-  CorrectionRecord/DictionaryRecord), `CodeSymbolSource` (file names), `ContactsSource`
-  (`LiveContacts`, reads only if already authorized), `ParticipantsSource` (app-fed).
-- Vocab: the frozen `Decoder` has no tokenizer API, so `BiasVocabulary.load` reads
-  `parakeet_vocab.json` (id→piece) / SentencePiece `.vocab`; `discoverParakeet()` finds the
-  cached model; `synthetic()` for tests.
-- `ScriptedLogitDecoder` (top-K logits + true re-argmax) is the synthetic decoder for the
-  Lab/tests; `NarrowBeamBiasedDecoder` (width 2–4) wraps any `StepwiseDecoder`.
-- Gating: `BiasingController.makeBiaser()` returns nil unless `FeatureFlag.contextBiasing`.
-- Lab: `BiasingMetrics` (entity recall, false-insertion rate, added latency, µs per boost call).
+    Dictionary + confirmed corrections + RankedContext(.authored)   (never screen text)
+        → BoostVocabulary.build (dedupe, ≥3 letters, cap 400, rebuilt per utterance)
+        → BoostingController.makeBoosterForUtterance()  (AppContainer.prepareForUtterance, hotkey-down)
+        → BiasingRecognizerProvider.install(booster) → FluidAudioTDTDecoder.booster
+        → final pass: TDT greedy → CTCVocabularyBooster (parakeet-ctc-110m keyword spotting +
+          FluidAudio's constrained rescorer) → BoostAlignment maps the rescored words back to tokens
 
-## Biasing is not a suspect for bad dictation accuracy — measured 2026-09-08
-
-Read this before investigating biasing as a cause of wrong words, and before tuning `BiasingConfig`.
-
-Two independent reasons it cannot be responsible on the shipping build:
-
-1. **The flag is off.** `FeatureFlag.contextBiasing` is `defaultOn: false` (P1.12 T2, DECISIONS.md).
-   With no `feature_flags.json` override, `BiasingController.makeBiaser()` returns nil and
-   `AppContainer.prepareForUtterance()` installs *no* biaser at all.
-2. **Even switched on it cannot change a word.** On the real Parakeet path,
-   `FluidAudioTDTDecoder` runs FluidAudio's greedy TDT to completion and *then* calls
-   `BiasRescorer.apply`, which adjusts the `logProb` of tokens that were **already chosen**. It
-   never re-picks a token, so no value of `boostPerToken` / `maxBoost` can substitute one word for
-   another. `ShallowFusionBiaser` only does true shallow fusion under `ScriptedLogitDecoder` /
-   `NarrowBeamBiasedDecoder`, neither of which the app builds.
-
-Measured through the app's real configuration (Parakeet TDT 0.6B v3, 12 clean fixtures, a trie built
-by the real `ContextHarvester` + `Ranker` from unrelated on-screen prose deliberately stuffed with
-phonetic neighbours) — `Tests/EngineTests/BiasedDecodeWERTests.swift`:
-
-    biaser == nil        mean WER 0.0291
-    biaser installed     mean WER 0.0291   (byte-identical text on all 12 fixtures)
-    "the quick brown fox jumps over the lazy dog"   WER 0.000 on both paths
-
-What biasing *does* change is confidence, and that is worth knowing if the flag is ever flipped
-back on: a candidate that walks into the trie and then leaves it is penalised by up to `maxBoost`
-(−4 log-prob ≈ ×0.018 probability), which can drop a correct, acoustically-confident word below
-`TranscriptSpan.lowConfidenceThreshold` and change how every downstream stage treats it
-(Bet 9 rewrite contract). `leavingTheTrieCanPushACorrectWordBelowTheLowConfidenceThreshold`
-measures that; `biasingPerturbsConfidenceNotText` pins the text-invariance.
-
-`Tests/AppTests/ShippingDecoderConfigTests.swift` pins the install path itself, so tests and
-`AppContainer` cannot drift apart again.
-
-### Privacy of the harvest
-
-Screen text harvested by `AXTreeSource` lives only in `ContextHarvester.lastEntries` and the
-in-memory `BiasPrefixTree`, both rebuilt per utterance and never written to disk (guarded by
-`harvestedScreenTextIsNotPersisted`). No screenshots: AX only. `LiveContacts` reads nothing unless
-Contacts authorization was already granted elsewhere. The only persisted vocabularies are the user's
-own `dictionary` and `corrections` rows in the local SQLite — terms they entered, confirmed, or
-imported in onboarding — and nothing here leaves the machine.
+- **Two `AsrManager`s, one `AsrModels`.** `FluidAudioTDTDecoder.decode` (final) is boosted;
+  `decodePreview` (streaming manager, used by `PollingPreviewRecognizer`) never is — the pill never
+  shows a term the CTC pass has not confirmed.
+- **No flag.** An empty list installs nothing; a missing CTC model makes the booster a no-op and
+  `ManagedCTCBoostingSource` fetches it (~103 MB, `ModelRole.onDemand`) in the background the first
+  time a non-empty list asks. That utterance is unboosted; the next one is boosted.
+- **Confidence stays honest.** Untouched words keep their tokens bit-for-bit; a replaced word takes
+  the best log-prob of the tokens it replaced (no invented certainty) and their audio range.
+- Deleted (V5 A1, X3/X5): `ShallowFusionBiaser`, `BiasRescorer`, `NarrowBeamBiasedDecoder`,
+  `ScriptedLogitDecoder`, `ContextRecallProbe`, `BiasingController`, flag `contextBiasing`. They
+  could only re-score a token the greedy decoder had already chosen, and the Lab measured 0
+  entity-recall gain. `LogitBiaser` stays on the frozen `Decoder` protocol, accepted and inert.
+- Kept: `ContextHarvester`, `Ranker`, `ContextRanker` (consumed by B2/E1 and the authored tier
+  here); `BiasingMetrics` (entity recall / false insertions — the B1 gate); `BiasVocabulary`
+  (error mapping only); `PrefixTree`.
+- Gate: `Tests/EngineTests/CTCBoostingLiveTests.swift` (entity fixtures, real models; skips without
+  them). The public-set gate (Earnings-22 entity subset + MUSAN 10 dB) runs through the V1 harness.
 
 ## R4.1b — the ranked context list and the refinement prompt
 
@@ -66,9 +33,8 @@ A second path through the same harvest, for the consumer that *can* change a wor
 
     ContextSources → ContextHarvester → ContextRanker → RankedContext (tiered, deduped, cap 400)
                                                         ├─ PromptBuilder → bounded, sanitised string
-                                                        ├─ ContextGate    → should this segment get
-                                                        │                   a second pass?
-                                                        └─ ContextRecallProbe (measurement only)
+                                                        └─ ContextGate    → should this segment get
+                                                                            a second pass?
 
 - `ContextRanker` ranks in **bands first, score second** (`ContextTier`): corrections + Dictionary
   (`.authored`) → focused-window text and open-document names (`.screen`) → recent vocabulary and
@@ -84,16 +50,16 @@ A second path through the same harvest, for the consumer that *can* change a wor
   prompt exists. `Limits` caps the whole string (default 1,000 characters), the term count (400) and
   each term (48 characters, 4 words); the cap holds for a five-megabyte "term" too.
 - Nothing in `ContextRanker.swift`, `PromptBuilder.swift`, `ContextGate.swift` or
-  `ContextRecallProbe.swift` logs — `ContextPrivacyTests` reads the source to keep that true. What a
+  `BoostVocabulary.swift` logs — `ContextPrivacyTests` reads the source to keep that true. What a
   caller *may* log is `RankedContext.shape`, `PromptBuilder.Result.shape` and
   `ContextGate.Decision.summary`: counts and enum cases, never a term.
 - `ContextGate` is the consumer today (V3 §7.1): pass-1 confidence plus phonetic near misses of list
   terms (`PhoneticContextIndex`, double metaphone + edit distance, possessive-aware). R5.2 wires the
   refinement pass and R5.3 owns the shipped policy; `PromptBuilder.prompt(for:)` is the call it makes.
 
-### Measured — real-room corpus, 11 September 2026
+### Measured — real-room corpus, 11 September 2026 (historical: the probe and its test were deleted in V5 B1)
 
-`Tests/EngineTests/ContextRecallCorpusTests.swift`, Parakeet TDT 0.6B v3 on the twenty real-room
+`ContextRecallCorpusTests`, Parakeet TDT 0.6B v3 on the twenty real-room
 recordings, ten curated entities, one simulated workspace for all twenty (the corpus's own names plus
 sixty unrelated ones, several of them sound-alikes of words the corpus gets right):
 

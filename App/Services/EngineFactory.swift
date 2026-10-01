@@ -3,13 +3,13 @@ import Foundation
 import Shared
 
 /// Wraps any `RecognizerProvider` and keeps the resolved final recognizer so a fresh
-/// `ShallowFusionBiaser` (Bet 2) can be installed on its decoder before every utterance.
-/// Apple Speech has no decoder hook, so biasing is silently a no-op there.
+/// per-utterance vocabulary booster (V5 B1, CTC boosting) can be installed on its decoder before
+/// every utterance. Apple Speech has no decoder, so boosting is silently a no-op there.
 public final class BiasingRecognizerProvider: RecognizerProvider, @unchecked Sendable {
     private let inner: RecognizerProvider
     private let lock = NSLock()
     private var final: FinalRecognizer?
-    public private(set) var biasingInstalled = false
+    public private(set) var boostingInstalled = false
 
     public init(inner: RecognizerProvider) { self.inner = inner }
 
@@ -21,15 +21,15 @@ public final class BiasingRecognizerProvider: RecognizerProvider, @unchecked Sen
 
     public var finalRecognizerName: String? { lock.withLock { final?.name } }
 
-    /// Installs (or clears, when nil) the biaser on the decoder-backed recognizer.
-    public func install(_ biaser: LogitBiaser?) {
+    /// Installs (or clears, when nil) the final-pass booster on the decoder-backed recognizer.
+    public func install(_ booster: VocabularyBooster?) {
         let recognizer = lock.withLock { final }
         guard let decoderBacked = recognizer as? DecoderFinalRecognizer else {
-            lock.withLock { biasingInstalled = false }
+            lock.withLock { boostingInstalled = false }
             return
         }
-        decoderBacked.decoder.biaser = biaser
-        lock.withLock { biasingInstalled = biaser != nil }
+        let installed = decoderBacked.installBooster(booster)
+        lock.withLock { boostingInstalled = installed }
     }
 }
 

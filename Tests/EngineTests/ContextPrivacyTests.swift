@@ -77,7 +77,6 @@ struct ContextPrivacyTests {
         #expect(!(RankedContextTerm.self is any Encodable.Type))
         #expect(!(PromptBuilder.Result.self is any Encodable.Type))
         #expect(!(ContextGate.Decision.self is any Encodable.Type))
-        #expect(!(ContextRecallProbe.Resolution.self is any Encodable.Type))
     }
 
     // MARK: never logged
@@ -87,7 +86,7 @@ struct ContextPrivacyTests {
     @Test
     func theContextPathContainsNoLoggingCall() throws {
         let biasing = Self.repoRoot().appendingPathComponent("Engine/Biasing")
-        let owned = ["ContextRanker.swift", "PromptBuilder.swift", "ContextGate.swift", "ContextRecallProbe.swift"]
+        let owned = ["ContextRanker.swift", "PromptBuilder.swift", "ContextGate.swift", "BoostVocabulary.swift"]
         for name in owned {
             let source = try String(contentsOf: biasing.appendingPathComponent(name), encoding: .utf8)
             for forbidden in ["Log.", "os_log", "NSLog", "Logger(", "print(", "debugPrint", "dump("] {

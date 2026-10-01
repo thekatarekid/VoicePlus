@@ -74,7 +74,7 @@ import Testing
         }
         let context = StageContext(register: .chat, appBundleID: "com.tinyspeck.slackmacgap", flags: ["voiceRepair": false])
         #expect(!context.isEnabled(.voiceRepair))
-        #expect(context.isEnabled(.contextBiasing) == FeatureFlag.contextBiasing.defaultOn)
+        #expect(context.isEnabled(.dualPath) == FeatureFlag.dualPath.defaultOn)
         let output = try await Upper().process(input, context: context)
         #expect(ConfidenceContract.verify(input: input, output: output) == [])
         #expect(output[0].text == "HELLO")

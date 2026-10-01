@@ -66,7 +66,7 @@ struct ASRConfidenceTests {
     }
 }
 
-@Suite("Decoder protocol + biasing hook (T1)")
+@Suite("Decoder protocol (T1)")
 struct ASRDecoderTests {
     struct Boost: LogitBiaser {
         let bonus: [Int: Float]
@@ -85,27 +85,13 @@ struct ASRDecoderTests {
         #expect(r3.tokens.count == 3 && d.decodeCalls == 3)
     }
 
-    @Test func biaserRescoresButNeverExceedsCertainty() async throws {
+    /// V5 A1: the decode-time `LogitBiaser` is accepted but no longer applied (it could only
+    /// re-score the chosen token and never changed a word). Boosting is the final-pass booster.
+    @Test func biaserIsAcceptedButInert() async throws {
         let script = [tok(7, "▁team", p: 0.4, 0, 0.1), tok(8, "viewer", p: 0.9, 0.1, 0.2)]
         let d = MockDecoder(script: script)
         d.biaser = Boost(bonus: [7: 0.5, 8: 5.0])
         let r = try await d.decode(encoderFrames: EncoderFrames(values: [], frameCount: 10, hiddenSize: 0))
-        #expect(abs(r.tokens[0].logProb - (log(0.4) + 0.5)) < 1e-5)
-        #expect(r.tokens[1].logProb == 0)         // clamped at log(1)
-        #expect(r.score <= 0)
-    }
-
-    @Test func prefixStateIsThreadedThroughBiaser() async throws {
-        final class Recorder: LogitBiaser, @unchecked Sendable {
-            var seen: [PrefixState] = []
-            let lock = NSLock()
-            func boost(tokenIds: [Int], prefixState: PrefixState) -> [Int: Float] { lock.withLock { seen.append(prefixState) }; return [:] }
-        }
-        let rec = Recorder()
-        let d = MockDecoder(script: [tok(1, "▁x", p: 0.9, 0, 0.1), tok(2, "y", p: 0.9, 0.1, 0.2), tok(3, "▁z", p: 0.9, 0.2, 0.3)])
-        d.biaser = rec
-        _ = try await d.decode(encoderFrames: EncoderFrames(values: [], frameCount: 10, hiddenSize: 0))
-        #expect(rec.seen.map(\.tokenIds) == [[], [1], [1, 2]])
-        #expect(rec.seen.map(\.text) == ["", "x", "xy"])
+        #expect(r.tokens == script)
     }
 }

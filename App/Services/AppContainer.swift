@@ -12,7 +12,7 @@ import Shared
 /// `swift run VoicePlusApp` comes up without microphone / accessibility / input-monitoring.
 ///
 ///   engine (RealEngine | MockEngine) ─▶ DictationCoordinator ─▶ UtteranceLander
-///        ▲ biasing (ContextHarvester → ShallowFusionBiaser)         ├─ PipelineRunner.standard (gatekeeper → formatter → style)
+///        ▲ boosting (Dictionary + corrections → CTC booster)         ├─ PipelineRunner.standard (gatekeeper → formatter → style)
 ///                                                                    ├─ RepairSession (route repairCommand) → ReplaceRange (AX)
 ///                                                                    ├─ TextInjector (LiveSystemAccess, FocusGuard)
 ///                                                                    └─ ZeroEditTracker / history DB / recent words
@@ -31,7 +31,8 @@ public final class AppContainer {
     public let injector: TextInjector
     public let pipeline: PipelineRunner
     public let repair: RepairSession
-    public let biasing: BiasingController?
+    /// V5 B1 — per-utterance CTC vocabulary boosting (replaces decode-time shallow fusion, A1).
+    public let boosting: BoostingController?
     public let recentWords: RecentWordsRing
     public let zeroEdit: ZeroEditTracker?
     public let egressGate: EgressGate
@@ -224,7 +225,7 @@ public final class AppContainer {
         if let database { harvester.add(CorrectionSource(store: DatabaseCorrectionStore(database: database))) }
         if let adaptationService { harvester.add(LearnedLexiconSource(loop: adaptationService.loop)) }
         DictionaryWiring.install(harvester: harvester, windowText: axWindowText)   // V5 P1/P2/P7 public dictionaries
-        biasing = BiasingController(harvester: harvester, vocabulary: BiasVocabulary.discoverParakeet(), flags: flags)
+        boosting = BoostingWiring.controller(database: database, adaptation: adaptationService, modelManager: built.modelManager)
         // V5 B2 (X2) — the ranked list now has a caller: one session over the same harvester.
         contextPrompt = ContextPromptSession(harvester: harvester, idleDiscardAfter: 120)
 
@@ -326,7 +327,7 @@ public final class AppContainer {
         let meetingStore = meetingCoordinator.store
         meeting = meetingCoordinator
 
-        labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, biasing: biasing)
+        labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, boosting: boosting)
 
         zeroEditTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak zeroEditTracker] _ in
             zeroEditTracker?.poll()
@@ -452,10 +453,10 @@ public final class AppContainer {
 
     /// Called at hotkey-down: refresh the decoder's bias list from the current screen/context.
     public func prepareForUtterance() {
-        guard let recognizerProvider, let biasing else { return }
-        let biaser = biasing.makeBiaser()
-        recognizerProvider.install(biaser)
-        if let biaser { Log.engine.debug("biasing: \(biaser.tree.entryCount) entries in \(String(format: "%.1f", biasing.lastBuildMs)) ms") }
+        guard let recognizerProvider, let boosting else { return }
+        let booster = boosting.makeBoosterForUtterance()
+        recognizerProvider.install(booster)
+        if let booster { Log.engine.debug("boosting: \(booster.terms.count) terms in \(String(format: "%.1f", boosting.lastBuildMs)) ms") }
     }
 
     /// Re-resolve the recognizer and swap the engine if what is on disk no longer matches what the

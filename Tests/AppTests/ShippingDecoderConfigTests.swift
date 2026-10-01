@@ -4,21 +4,16 @@ import Shared
 import Testing
 @testable import VoicePlusApp
 
-/// Pins the decoder configuration the app actually ships, so a test can never again pass against a
-/// decoder the user never runs.
-///
-/// The gap this closes: every accuracy test resolved the recognizer with
-/// `RecognizerFactory.makeFinal`, which leaves `decoder.biaser == nil`, while `AppContainer`
-/// additionally calls `BiasingRecognizerProvider.install(biasing.makeBiaser())` on every
-/// hotkey-down. Nothing asserted that those two agree, so "the app's real decoder config" was
-/// untested by construction. These tests assert the whole install path end to end, and
-/// `Tests/EngineTests/BiasedDecodeWERTests.swift` measures WER through it against the real model.
+/// Pins the decoder configuration the app actually ships (V5 B1): `AppContainer.prepareForUtterance`
+/// builds a boost list from the Dictionary + corrections (never the screen) and installs a final-pass
+/// booster through `BiasingRecognizerProvider.install`; an empty list installs nothing.
 @Suite("Shipping decoder configuration")
 struct ShippingDecoderConfigTests {
-    /// Minimal `Decoder` that only has to record what was installed on it.
-    final class SpyDecoder: Decoder, @unchecked Sendable {
+    /// Minimal boostable `Decoder` that only has to record what was installed on it.
+    final class SpyDecoder: Decoder, VocabularyBoostable, @unchecked Sendable {
         let name = "spy"
         var biaser: LogitBiaser?
+        var booster: VocabularyBooster?
         func decode(encoderFrames: EncoderFrames) async throws -> DecodeResult { DecodeResult(tokens: []) }
         func reset() async {}
     }
@@ -29,89 +24,65 @@ struct ShippingDecoderConfigTests {
         return p
     }
 
-    static func controller(flagOn: Bool, screen: [String] = ["Quake Engine Release Notes", "Rishi Kothari", "TeamViewer AG"]) -> BiasingController {
-        BiasingController(harvester: ContextHarvester(sources: [AXTreeSource(provider: MockFocusedWindowText(screen))]),
-                          vocabulary: BiasVocabulary.synthetic(),
-                          flags: .inMemory([FeatureFlag.contextBiasing.id: flagOn]))
+    static func controller(dictionary: [String] = [], corrections: [String] = []) -> BoostingController {
+        BoostingController(dictionary: { dictionary }, corrections: { corrections },
+                           makeBooster: { ScriptedVocabularyBooster(terms: $0, rewrites: [:]) })
     }
 
-    /// **The production default.** `contextBiasing` has been `defaultOn: false` since P1.12 T2
-    /// (DECISIONS.md), so with no override on disk `makeBiaser()` returns nil and the shipping app
-    /// installs *no* biaser. If this test ever fails, the app started biasing decodes — go and read
-    /// `BiasedDecodeWERTests` before deciding that is fine.
+    /// A user with no Dictionary words and no corrections gets no booster at all: nothing to prefer.
     @Test
-    func shippingDefaultInstallsNoBiaser() async throws {
-        #expect(FeatureFlag.contextBiasing.defaultOn == false)
-        let flags = FeatureFlagService.inMemory()          // no overrides: production defaults
-        #expect(flags.isEnabled(.contextBiasing) == false)
-
+    func emptyVocabularyInstallsNoBooster() async throws {
         let decoder = SpyDecoder()
         let p = try await Self.provider(decoder)
-        let biasing = BiasingController(harvester: ContextHarvester(sources: []),
-                                        vocabulary: BiasVocabulary.synthetic(), flags: flags)
-        p.install(biasing.makeBiaser())                    // exactly AppContainer.prepareForUtterance()
-        #expect(decoder.biaser == nil)
-        #expect(p.biasingInstalled == false)
+        p.install(Self.controller().makeBoosterForUtterance())     // exactly AppContainer.prepareForUtterance()
+        #expect(decoder.booster == nil)
+        #expect(p.boostingInstalled == false)
     }
 
-    /// With the flag on, the biaser really does reach the decoder — i.e. the install path is live
-    /// and `BiasedDecodeWERTests` is measuring something real, not a silently-dropped hook.
+    /// Dictionary words reach the decoder as a booster; clearing clears.
     @Test
-    func flagOnReachesTheDecoder() async throws {
+    func dictionaryReachesTheDecoder() async throws {
         let decoder = SpyDecoder()
         let p = try await Self.provider(decoder)
-        let biaser = try #require(Self.controller(flagOn: true).makeBiaser())
-        p.install(biaser)
-        #expect(decoder.biaser != nil)
-        #expect(p.biasingInstalled)
-        #expect(biaser.tree.entryCount > 0, "an empty trie would make the biased path indistinguishable from the plain one")
+        let booster = try #require(Self.controller(dictionary: ["Kothari", "TeamViewer"]).makeBoosterForUtterance())
+        p.install(booster)
+        #expect(decoder.booster?.terms == ["Kothari", "TeamViewer"])
+        #expect(p.boostingInstalled)
 
         p.install(nil)
-        #expect(decoder.biaser == nil, "clearing must actually clear, or one utterance's screen text leaks into the next")
+        #expect(decoder.booster == nil, "clearing must actually clear, or one utterance's list leaks into the next")
     }
 
-    /// The install path is only reachable through `DecoderFinalRecognizer`. Apple Speech has no
-    /// decoder hook, and the provider must report that honestly rather than pretend biasing is on.
+    /// Apple Speech has no decoder: the provider reports boosting off rather than pretending.
     @Test
-    func nonDecoderRecognizerReportsBiasingOff() async throws {
+    func nonDecoderRecognizerReportsBoostingOff() async throws {
         final class Plain: FinalRecognizer, @unchecked Sendable {
             let name = "plain"
             func recognize(_ samples: [Float]) async throws -> [TranscriptSpan] { [] }
         }
         let p = BiasingRecognizerProvider(inner: StaticRecognizerProvider(final: Plain()))
         _ = try await p.resolve()
-        p.install(Self.controller(flagOn: true).makeBiaser())
-        #expect(p.biasingInstalled == false)
+        p.install(Self.controller(dictionary: ["Kothari"]).makeBoosterForUtterance())
+        #expect(p.boostingInstalled == false)
     }
 
-    /// `AppContainer` rebuilds the biaser per utterance from whatever is on screen *now*. Two
-    /// different screens must produce two different tries — otherwise the harvest is stale and the
-    /// "refresh on hotkey-down" contract is not being honoured.
+    /// The list is rebuilt per utterance, so a word added to the Dictionary is boosted next time.
     @Test
-    func eachUtteranceRebuildsFromTheCurrentScreen() throws {
-        let first = try #require(Self.controller(flagOn: true, screen: ["Rishi Kothari"]).makeBiaser())
-        let second = try #require(Self.controller(flagOn: true, screen: ["Rishi Kothari", "TeamViewer AG", "Priya"]).makeBiaser())
-        #expect(second.tree.entryCount > first.tree.entryCount)
+    func eachUtteranceRebuildsTheList() throws {
+        final class Box: @unchecked Sendable { var words = ["Kothari"] }
+        let box = Box()
+        let c = BoostingController(dictionary: { box.words }, makeBooster: { ScriptedVocabularyBooster(terms: $0, rewrites: [:]) })
+        #expect(c.makeBoosterForUtterance()?.terms == ["Kothari"])
+        box.words.append("Priya")
+        #expect(c.makeBoosterForUtterance()?.terms == ["Kothari", "Priya"])
     }
 
-    /// Screen-harvested terms live only in the in-memory trie for the duration of one utterance.
-    /// Nothing in the biasing path writes them to disk — the persisted vocabularies are the user's
-    /// own dictionary and corrections, which they entered or confirmed. Guards the Build doc §1
-    /// privacy stance the same way a test guards behaviour.
+    /// The app wiring reads only authored sources: a screen-only term is never boosted.
     @Test
-    func harvestedScreenTextIsNotPersisted() throws {
-        let harvester = ContextHarvester(sources: [AXTreeSource(provider: MockFocusedWindowText(["Acme Secret Project Zephyr"]))])
-        let controller = BiasingController(harvester: harvester, vocabulary: BiasVocabulary.synthetic(),
-                                           flags: .inMemory([FeatureFlag.contextBiasing.id: true]))
-        _ = controller.makeBiaser()
-        #expect(controller.lastEntries.contains { $0.text.contains("Zephyr") }, "the harvest should have seen it")
-
-        // The only on-disk state the biasing path touches is the read-only vocabulary file.
-        let support = AppPaths.supportDirectory()
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: support.path)) ?? []
-        for name in files where name.hasSuffix(".json") {
-            let text = (try? String(contentsOf: support.appendingPathComponent(name), encoding: .utf8)) ?? ""
-            #expect(text.contains("Zephyr") == false, "harvested screen text reached \(name)")
-        }
+    func screenTextIsNeverBoosted() {
+        let screenOnly = ContextRanker().rank([ContextEntry(text: "Zephyr", source: .axTree, observedAt: Date(), salience: 1)])
+        let c = BoostingController(context: { _ in screenOnly }, dictionary: { ["Kothari"] },
+                                   makeBooster: { ScriptedVocabularyBooster(terms: $0, rewrites: [:]) })
+        #expect(c.makeBoosterForUtterance()?.terms == ["Kothari"])
     }
 }

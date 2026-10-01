@@ -12,7 +12,7 @@ import SwiftUI
 /// no microphone.
 public enum LabWiring {
     public static func registry(modelManager: ModelManager?, repair: RepairSession?,
-                                biasing: BiasingController?) -> LabRegistry {
+                                boosting: BoostingController?) -> LabRegistry {
         var registry = LabRegistry.mocks
         for stage in StageRegistry.allStages() {
             registry.stages[stage.id.rawValue] = { stage }
@@ -21,18 +21,18 @@ public enum LabWiring {
         if let repair { registry.stages[StageID.repair.rawValue] = { RepairStage(session: repair) } }
 
         if let modelManager {
-            registry.transcribers["engine"] = { _ in try makeEngineTranscriber(manager: modelManager, biasing: biasing) }
+            registry.transcribers["engine"] = { _ in try makeEngineTranscriber(manager: modelManager, boosting: boosting) }
             registry.evalBackends["parakeet-tdt-v3"] = { FinalRecognizerEvalBackend(modelID: "parakeet-tdt-v3", manager: modelManager) }
         }
         return registry
     }
 
-    static func makeEngineTranscriber(manager: ModelManager, biasing: BiasingController?) throws -> any FixtureTranscriber {
+    static func makeEngineTranscriber(manager: ModelManager, boosting: BoostingController?) throws -> any FixtureTranscriber {
         let feed = FileFeedAudioSource()
         let provider = BiasingRecognizerProvider(inner: ModelManagerRecognizerProvider(manager: manager))
         let engine = RealEngine(audio: feed, provider: provider)
         return EngineFixtureTranscriber(name: "engine", engine: engine) { url in
-            provider.install(biasing?.makeBiaser())
+            provider.install(boosting?.makeBoosterForUtterance())
             try feed.feed(url: url)
         }
     }

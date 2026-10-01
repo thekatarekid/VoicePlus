@@ -1,7 +1,8 @@
 import Foundation
 import Shared
 
-/// Lab-facing numbers for Bet 2 (P1.5 T4): entity recall, false insertions, added latency.
+/// Lab-facing numbers for entity boosting (P1.5 T4; V5 B1 gate): entity recall, false insertions,
+/// added latency.
 public struct BiasingMetrics: Sendable, Equatable, Codable {
     public var entitiesExpected = 0
     public var entitiesRecalled = 0
@@ -9,9 +10,8 @@ public struct BiasingMetrics: Sendable, Equatable, Codable {
     public var falseInsertions = 0
     public var hypothesisWords = 0
     public var utterances = 0
-    /// Wall-clock added by the biased decode vs. the unbiased one (ms, summed).
+    /// Wall-clock added by the boosted decode vs. the unboosted one (ms, summed).
     public var addedLatencyMs: Double = 0
-    public var biaserMicrosPerCall: Double = 0
 
     public init() {}
 
@@ -53,44 +53,5 @@ public struct BiasingMetrics: Sendable, Equatable, Codable {
 
     static func words(_ s: String) -> [String] {
         s.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "-" && $0 != "_" && $0 != "." }).map(String.init)
-    }
-}
-
-/// Wires harvester → ranker → tree → biaser, gated by `FeatureFlag.contextBiasing`.
-/// `makeBiaser()` returns nil when the flag is off so callers simply install nil.
-public final class BiasingController: @unchecked Sendable {
-    public let harvester: ContextHarvester
-    public let ranker: Ranker
-    public let flags: FeatureFlagService
-    public var config: BiasingConfig
-    private let lock = NSLock()
-    private var vocabulary: BiasVocabulary?
-    public private(set) var lastEntries: [BiasEntry] = []
-    public private(set) var lastBuildMs: Double = 0
-
-    public init(harvester: ContextHarvester, ranker: Ranker = Ranker(), vocabulary: BiasVocabulary? = nil,
-                flags: FeatureFlagService, config: BiasingConfig = BiasingConfig()) {
-        self.harvester = harvester
-        self.ranker = ranker
-        self.vocabulary = vocabulary
-        self.flags = flags
-        self.config = config
-    }
-
-    public var isEnabled: Bool { flags.isEnabled(.contextBiasing) }
-
-    public func setVocabulary(_ v: BiasVocabulary?) { lock.withLock { vocabulary = v } }
-
-    /// Harvest + rank + build. Nil when disabled or no vocabulary is available.
-    public func makeBiaser(now: Date = Date()) -> ShallowFusionBiaser? {
-        guard isEnabled, let vocab = lock.withLock({ vocabulary }) else { return nil }
-        let t0 = DispatchTime.now().uptimeNanoseconds
-        let entries = ranker.rank(harvester.harvest(now: now), now: now)
-        let biaser = ShallowFusionBiaser(entries: entries, vocabulary: vocab, config: config)
-        lock.withLock {
-            lastEntries = entries
-            lastBuildMs = Double(DispatchTime.now().uptimeNanoseconds &- t0) / 1e6
-        }
-        return biaser
     }
 }

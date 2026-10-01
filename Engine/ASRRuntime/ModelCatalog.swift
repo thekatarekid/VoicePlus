@@ -22,6 +22,10 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// shape). ~14 MB. Declared last so `RealEngine.revision()`'s bit positions for the speech
     /// models do not move.
     case speakerEmbedding = "speaker-diarization-coreml"
+    /// V5 B1 — Parakeet CTC 110M (~103 MB), the keyword-spotting model behind final-pass vocabulary
+    /// boosting (`CTCVocabularyBooster`). Not a transcriber. Fetched on demand: only once the user
+    /// has words to boost (Dictionary / corrections), never as part of the stack.
+    case parakeetCTC110m = "parakeet-ctc-110m-coreml"
     /// V5 C6 — Silero VAD (CoreML, 256 ms frames, ~1 MB). Part of the stack so users get Silero, not
     /// `EnergyVAD`. Appended so older `RealEngine.revision()` bit positions hold.
     case sileroVAD = "silero-vad-coreml"
@@ -154,6 +158,20 @@ public enum ModelCatalog {
             // `BundledModel` walk down to it when the stack is not on disk yet, and because a user
             // who already has it keeps it — but it is no longer something anybody is asked to pick.
             role: .fallback),
+        // V5 B1 — CTC keyword spotter for vocabulary boosting. `folderName` = upstream's
+        // `Repo.parakeetCtc110m.folderName` (which keeps `-coreml`), like every `ModelHub` repo here.
+        // Loaded by `CTCBoostingRuntime.load(from:)` (`CtcModels.loadDirect` + `CtcTokenizer`), never
+        // `ModelManager.load`: `kind: .streamingEOU` is borrowed only for its fetcher
+        // (`FluidAudioFetcher`), exactly as for the speaker model. Bytes: the two `.mlmodelc` trees the
+        // hub fetches (101,843,432 + 582,831) plus the root JSON (tokenizer/vocab/config, 377,606);
+        // the repo's `CtcHead` and conversion files are not fetched.
+        .parakeetCTC110m: ModelDescriptor(
+            id: .parakeetCTC110m, kind: .streamingEOU,
+            folderName: "parakeet-ctc-110m-coreml",
+            hfRepo: "FluidInference/parakeet-ctc-110m-coreml",
+            requiredPaths: ["AudioEncoder.mlmodelc", "MelSpectrogram.mlmodelc", "vocab.json", "tokenizer.json"],
+            approxBytes: 102_803_869, displayName: "Parakeet CTC 110M (vocabulary boosting)", license: "CC-BY-4.0",
+            role: .onDemand),
         .whisperSmall: ModelDescriptor(
             id: .whisperSmall, kind: .whisper, hfRepo: "ggerganov/whisper.cpp",
             requiredPaths: ["ggml-small.bin"],

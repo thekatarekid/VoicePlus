@@ -45,15 +45,17 @@ public protocol LogitBiaser: Sendable {
   hook publicly, so the adapter:
   1. Runs full utterances through `AsrManager.transcribe(_:decoderState:)` and maps
      `ASRResult.tokenTimings` → `[DecodedToken]` (`logProb = log(confidence)`).
-  2. Applies the installed `LogitBiaser` in a **post-hoc rescoring pass** over each token (the
-     only candidate id is the chosen one, so a biaser can only re-score, not re-pick). When the
-     FluidAudio fork patch (`TdtDecoderV3.decodeWithTimings` hook at `~:280`) lands, the adapter
-     switches to per-step biasing with zero API change for callers.
+  2. V5 B1: holds **two `AsrManager`s over one `AsrModels`** — `decode` (final pass) applies the
+     installed `VocabularyBooster` (`CTCVocabularyBooster`: parakeet-ctc-110m keyword spotting +
+     FluidAudio's constrained rescorer, mapped back to tokens by `BoostAlignment`); `decodePreview`
+     (`PreviewDecoding`, used by `PollingPreviewRecognizer`) is never boosted. The legacy
+     `LogitBiaser` is accepted for protocol conformance and ignored (it could never change a word).
   `EncoderFrames` for this adapter are **not** raw encoder output: `FluidAudioTDTDecoder.decode`
   expects `EncoderFrames` produced by `FluidAudioTDTDecoder.frames(fromSamples:)` (samples packed,
   hiddenSize 1, frameDuration 1/16000), because the upstream runs preprocessor+encoder+decoder
   as one unit. A raw-frames path is the fork follow-up.
-- `MockDecoder` (tests + `Lab`) — replays scripted `[DecodedToken]`, honours `biaser`.
+- `MockDecoder` (tests + `Lab`) — replays scripted `[DecodedToken]`, applies an installed `booster`
+  (e.g. `ScriptedVocabularyBooster`), ignores `biaser`.
 
 ## Word confidence (Engine/Confidence)
 `WordConfidence.aggregate(tokens)` groups sub-word tokens into words (`isWordStart` boundaries) and

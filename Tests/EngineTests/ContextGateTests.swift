@@ -82,32 +82,4 @@ struct ContextGateTests {
         #expect(index.neighbour(of: "Kothari", minSimilarity: 0.7) == nil)
         #expect(index.neighbour(of: "elephant", minSimilarity: 0.7) == nil)
     }
-
-    // MARK: the measurement stand-in
-
-    @Test
-    func theProbeRewritesNearMissesAndNothingElse() {
-        let probe = ContextRecallProbe()
-        let context = Self.context(["Kothari", "Priya", "Bandra"])
-        let resolved = probe.resolve(hypothesis: "book a table at Katari's for Prea in Bandra",
-                                     context: context)
-        #expect(resolved.text.contains("Kothari"))
-        #expect(resolved.text.contains("Priya"))
-        #expect(resolved.text.contains("Bandra"), "an exact hit must be left untouched")
-        #expect(resolved.count == 2)
-        #expect(resolved.text.hasPrefix("book a table at"))
-    }
-
-    @Test
-    func theProbeIsAnIdentityWithoutAList() {
-        let text = "book a table at Katari's"
-        #expect(ContextRecallProbe().resolve(hypothesis: text, context: .empty).text == text)
-    }
-
-    @Test
-    func theProbeKeepsPunctuationAndSentenceCase() {
-        let resolved = ContextRecallProbe().resolve(hypothesis: "Katari's, tonight.",
-                                                    context: Self.context(["kothari"]))
-        #expect(resolved.text == "Kothari's, tonight.")
-    }
 }

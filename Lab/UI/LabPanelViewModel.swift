@@ -62,14 +62,14 @@ public final class LabPanelViewModel: ObservableObject {
         self.thermal = ThermalReadout(state: thermalSource.current())
     }
 
-    /// The acceptance comparison: biasing on vs off, plus voice repair on/off.
+    /// The acceptance comparison: voice repair on vs off. (The old "biasing on/off" pair compared the
+    /// `contextBiasing` flag, deleted by V5 A1/B1; boosting is measured by `lab eval` on public sets.)
     nonisolated public static func defaultChoices(transcriber: String = "perfect", stages: [String] = []) -> [LabConfigChoice] {
         [
-            LabConfigChoice(config: LabConfig(name: "biasing on", transcriber: transcriber, stages: stages, flags: [FeatureFlag.contextBiasing.id: true])),
-            LabConfigChoice(config: LabConfig(name: "biasing off", transcriber: transcriber, stages: stages, flags: [FeatureFlag.contextBiasing.id: false])),
-            LabConfigChoice(config: LabConfig(name: "repair off", transcriber: transcriber, stages: stages, flags: [FeatureFlag.voiceRepair.id: false]), selected: false),
+            LabConfigChoice(config: LabConfig(name: "repair on", transcriber: transcriber, stages: stages, flags: [FeatureFlag.voiceRepair.id: true])),
+            LabConfigChoice(config: LabConfig(name: "repair off", transcriber: transcriber, stages: stages, flags: [FeatureFlag.voiceRepair.id: false])),
         ]
-        // R1.5 preview candidates, offered but not selected: the default run stays the biasing comparison.
+        // R1.5 preview candidates, offered but not selected: the default run stays the repair comparison.
         + LabConfigChoice.previewBackendChoices(transcriber: transcriber, stages: stages)
     }
 

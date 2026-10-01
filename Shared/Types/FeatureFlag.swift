@@ -15,15 +15,10 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
 
     // MARK: Known flags
 
-    /// Bet 2 — decode-time context biasing from screen/app vocabulary.
-    /// Default OFF since P1.12 T2 (see DECISIONS.md): on the real Parakeet decoder the biaser is a
-    /// post-hoc rescorer that cannot change the greedy path, so the Lab measured zero entity-recall
-    /// gain. Flip back once the decoder fork exposes logits (synthetic suite: 33% → 100% recall).
-    public static let contextBiasing = FeatureFlag(
-        id: "contextBiasing", defaultOn: false,
-        description: "Bias the decoder toward on-screen vocabulary (Bet 2). Verdict (A3): delete — inert on the real decoder "
-            + "(0 entity-recall gain); removed by A1 when B1 CTC boosting lands."
-    )
+    // `contextBiasing` (Bet 2, decode-time shallow fusion) was deleted by V5 A1/B1: inert on the real
+    // decoder (0 entity-recall gain), replaced by final-pass CTC vocabulary boosting, which needs no
+    // flag — it acts only on words the user put in their Dictionary or corrected. A stored override
+    // for the old id is simply never read.
     /// Bet 3 — spoken repair of the last utterance.
     public static let voiceRepair = FeatureFlag(
         id: "voiceRepair", defaultOn: true,
@@ -74,9 +69,9 @@ public struct FeatureFlag: Codable, Equatable, Hashable, Sendable, Identifiable 
             + "Kill: delete the path in W8 unless V1 finds a segment class with ≥1.0 abs WER gain at ≤2.5 s p95."
     )
 
-    /// A3 — the six flags V5 §X20 found switched off. Each carries its verdict and written kill
-    /// criterion in `description` (DECISIONS.md, "2026-10-01 — A3").
-    public static let x20: [FeatureFlag] = [.contextBiasing, .dualPath, .cloudASR, .directedSpeech, .previewBackend, .qwenRefinement]
+    /// A3 — the flags V5 §X20 found switched off (six; `contextBiasing` since deleted by A1/B1).
+    /// Each carries its verdict and written kill criterion in `description` (DECISIONS.md, "2026-10-01 — A3").
+    public static let x20: [FeatureFlag] = [.dualPath, .cloudASR, .directedSpeech, .previewBackend, .qwenRefinement]
 
-    public static let all: [FeatureFlag] = [.contextBiasing, .voiceRepair, .dualPath, .cloudASR, .directedSpeech, .previewBackend, .qwenRefinement]
+    public static let all: [FeatureFlag] = [.voiceRepair, .dualPath, .cloudASR, .directedSpeech, .previewBackend, .qwenRefinement]
 }

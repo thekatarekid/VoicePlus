@@ -33,6 +33,30 @@ public final class DecoderFinalRecognizer: FinalRecognizer, @unchecked Sendable 
     }
 }
 
+/// V5 B1 — a final recognizer with a separate, never-boosted preview pass (the decoder's streaming
+/// `AsrManager`). `PollingPreviewRecognizer` uses it so preview polls neither pay for CTC boosting
+/// nor disturb the final pass's decoder state.
+public protocol PreviewPassRecognizer: FinalRecognizer {
+    func recognizePreview(_ samples: [Float]) async throws -> [TranscriptSpan]
+}
+
+extension DecoderFinalRecognizer: PreviewPassRecognizer {
+    public func recognizePreview(_ samples: [Float]) async throws -> [TranscriptSpan] {
+        guard let preview = decoder as? PreviewDecoding else { return try await recognize(samples) }
+        let result = try await preview.decodePreview(encoderFrames: FluidAudioTDTDecoder.frames(fromSamples: samples))
+        return WordConfidence.spans(from: result.tokens)
+    }
+
+    /// Installs (nil clears) the final-pass booster when the decoder supports one. Returns whether
+    /// it was installed.
+    @discardableResult
+    public func installBooster(_ booster: VocabularyBooster?) -> Bool {
+        guard let boostable = decoder as? VocabularyBoostable else { return false }
+        boostable.booster = booster
+        return booster != nil
+    }
+}
+
 /// Parakeet Realtime EOU 120M streaming preview. Upstream chunks internally (160 ms, 50 %
 /// overlap) and exposes the running transcript via `getPartialTranscript()`; per-token
 /// confidence is not available on this path. `finish()` is never called here: the TDT final
@@ -79,7 +103,13 @@ public final class PollingPreviewRecognizer: PreviewRecognizer, @unchecked Senda
             return (r, buffer)
         }
         if run {
-            let text = try await recognizer.recognize(snapshot).joinedText
+            let spans: [TranscriptSpan]
+            if let pass = recognizer as? PreviewPassRecognizer {
+                spans = try await pass.recognizePreview(snapshot)
+            } else {
+                spans = try await recognizer.recognize(snapshot)
+            }
+            let text = spans.joinedText
             lock.withLock { latest = text }
         }
         return lock.withLock { latest }
