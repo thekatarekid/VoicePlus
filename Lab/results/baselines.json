@@ -1,0 +1,17 @@
+{
+  "gateDelta" : 0.3,
+  "entries" : [
+    { "model" : "parakeet-tdt-v3", "set" : "librispeech-test-clean", "metric" : "wer", "value" : 1.93, "normalizer" : "normalized",
+      "source" : "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3", "note" : "model card, Open ASR Leaderboard normaliser, greedy" },
+    { "model" : "parakeet-tdt-v3", "set" : "librispeech-test-other", "metric" : "wer", "value" : 3.59, "normalizer" : "normalized",
+      "source" : "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3", "note" : "model card, Open ASR Leaderboard normaliser, greedy" },
+    { "model" : "parakeet-tdt-v2", "set" : "librispeech-test-clean", "metric" : "wer", "value" : 1.69, "normalizer" : "normalized",
+      "source" : "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", "note" : "model card, Open ASR Leaderboard" },
+    { "model" : "parakeet-tdt-v2", "set" : "librispeech-test-other", "metric" : "wer", "value" : 3.19, "normalizer" : "normalized",
+      "source" : "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", "note" : "model card, Open ASR Leaderboard" },
+    { "model" : "whisper-large-v3", "set" : "librispeech-test-clean", "metric" : "wer", "value" : 2.01, "normalizer" : "normalized",
+      "source" : "https://huggingface.co/spaces/hf-audio/open_asr_leaderboard", "note" : "Open ASR Leaderboard row" },
+    { "model" : "whisper-large-v3", "set" : "librispeech-test-other", "metric" : "wer", "value" : 3.91, "normalizer" : "normalized",
+      "source" : "https://huggingface.co/spaces/hf-audio/open_asr_leaderboard", "note" : "Open ASR Leaderboard row" }
+  ]
+}
