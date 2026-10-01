@@ -22,6 +22,7 @@ public enum LabWiring {
 
         if let modelManager {
             registry.transcribers["engine"] = { _ in try makeEngineTranscriber(manager: modelManager, biasing: biasing) }
+            registry.evalBackends["parakeet-tdt-v3"] = { FinalRecognizerEvalBackend(modelID: "parakeet-tdt-v3", manager: modelManager) }
         }
         return registry
     }
@@ -34,6 +35,25 @@ public enum LabWiring {
             provider.install(biasing?.makeBiaser())
             try feed.feed(url: url)
         }
+    }
+}
+
+/// V5 V1 — `lab eval --model parakeet-tdt-v3`: the dictation final-pass recognizer on public-set
+/// audio (batch, same decoder as dictation). Created lazily on first item.
+final class FinalRecognizerEvalBackend: EvalBackend, @unchecked Sendable {
+    let modelID: String
+    let manager: ModelManager
+    private var recognizer: FinalRecognizer?
+
+    init(modelID: String, manager: ModelManager) { self.modelID = modelID; self.manager = manager }
+
+    func evaluate(_ item: EvalItem, audioURL: URL?, stage: EvalStage) async throws -> EvalOutput {
+        guard stage == .asr, let audioURL else { throw EvalError.stageUnsupported("\(modelID) does \(EvalStage.asr.rawValue) only") }
+        if recognizer == nil { recognizer = try await RecognizerFactory.makeFinal(manager: manager) }
+        let samples = try SampleAudioSource.load16k(url: audioURL)
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        let spans = try await recognizer!.recognize(samples)
+        return EvalOutput(text: spans.joinedText, latencyMs: Double(DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)
     }
 }
 

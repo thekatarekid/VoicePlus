@@ -6,11 +6,16 @@ import Shared
 public struct LabRegistry: Sendable {
     public var transcribers: [String: @Sendable ([FixtureSuite]) throws -> any FixtureTranscriber]
     public var stages: [String: @Sendable () throws -> any PipelineStage]
+    /// V5 V1 — `lab eval --model <id>` backends. The app registers real models (`LabWiring`);
+    /// `reference` (echo the reference: WER 0) is always present for smoke runs.
+    public var evalBackends: [String: @Sendable () throws -> any EvalBackend]
 
     public init(transcribers: [String: @Sendable ([FixtureSuite]) throws -> any FixtureTranscriber] = [:],
-                stages: [String: @Sendable () throws -> any PipelineStage] = [:]) {
+                stages: [String: @Sendable () throws -> any PipelineStage] = [:],
+                evalBackends: [String: @Sendable () throws -> any EvalBackend] = ["reference": { ScriptedEvalBackend(modelID: "reference") }]) {
         self.transcribers = transcribers
         self.stages = stages
+        self.evalBackends = evalBackends
     }
 
     /// `perfect` echoes the manifests; `degraded` deterministically corrupts every 5th word.
@@ -51,12 +56,24 @@ public enum LabCLI {
         public var exitCode: Int32
         public var text: String
         public var reports: [LabReport]
+        /// V5 V1 — set by `lab eval`.
+        public var eval: EvalReport?
+
+        public init(exitCode: Int32, text: String, reports: [LabReport], eval: EvalReport? = nil) {
+            self.exitCode = exitCode; self.text = text; self.reports = reports; self.eval = eval
+        }
     }
 
     public static func main(_ args: [String], registry: LabRegistry = .mocks,
                             fixturesDirectory: URL? = AppPaths.fixturesDirectory(),
-                            runner: LabRunner? = nil) async -> Output {
+                            runner: LabRunner? = nil, eval: PublicEval? = nil,
+                            transport: (any DatasetTransport)? = nil) async -> Output {
         do {
+            if let command = args.first, ["eval", "fetch", "datasets"].contains(command) {
+                let ev = eval ?? PublicEval(paths: EvalPaths(fixturesDirectory: fixturesDirectory))
+                return try await PublicEvalCLI.execute(command, try parse(Array(args.dropFirst())), registry: registry,
+                                                       eval: ev, transport: transport ?? URLSessionTransport())
+            }
             return try await execute(args, registry: registry, fixturesDirectory: fixturesDirectory, runner: runner)
         } catch {
             return Output(exitCode: 2, text: "error: \(error)\n\n\(usage)", reports: [])
@@ -67,6 +84,9 @@ public enum LabCLI {
     usage: lab run [--name N] [--transcriber T] [--suites a,b] [--stages s1,s2] [--flags f=on,g=off] [--format md|json] [--out FILE] [--db FILE]
            lab compare --flag contextBiasing [run options]
            lab suites
+           lab eval --set <name> --stage asr|cleanup|diar|decide --model <id> [--raw] [--limit N] [--tags a,b] [--hyp FILE] [--gate] [--no-write]
+           lab fetch --set <name>                              # download a public set + build its manifest
+           lab datasets                                        # public-set catalogue
     """
 
     static func execute(_ args: [String], registry: LabRegistry, fixturesDirectory: URL?, runner: LabRunner?) async throws -> Output {
