@@ -692,7 +692,7 @@ public final class PillViewModel: ObservableObject {
     public func retractDelivery(immediately: Bool = false) {
         deliveryTimer?.invalidate()
         deliveryTimer = nil
-        if !immediately, presenter.hasFiniteFlightHold, case .landed(let info) = state, info.verified,
+        if !immediately, presenter.hasFiniteFlightHold, case .landed(let info) = state, info.clearsOnItsOwn,   // Q5 — unreadable flies too
            let release = presenter.releaseTime(), release > now() {
             // Includes latched delivery: returning to the live row must not remove the source early.
             scheduleDeliveryRetraction(after: release.timeIntervalSince(now()))
@@ -747,7 +747,7 @@ public final class PillViewModel: ObservableObject {
         // engine tick never replaces it.
         if case .muted = state, next.isVisible, next != .muted { return }
         let reduced: Bool
-        if case .landed(let info) = next, info.verified { reduced = deliveryReduceMotion() }
+        if case .landed(let info) = next, info.clearsOnItsOwn { reduced = deliveryReduceMotion() }
         else { reduced = false }
         apply(decision: presenter.request(next, now: now(), reducedMotion: reduced))
     }

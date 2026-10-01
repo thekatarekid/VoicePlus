@@ -113,3 +113,30 @@ struct LandingVerdictQ4Tests {
         #expect(ledger.verdict(forText: "two") == nil)            // stale
     }
 }
+
+/// V5 Q4/Q5 verify — the view model holds an unreadable landing's source through the ribbon's flight,
+/// exactly as it does a verified one (the presenter already arms the hold; the retraction must honour it).
+@Suite("Q4/Q5 · unreadable landing holds through the flight")
+@MainActor
+struct LandingVerdictFlightHoldTests {
+    @Test func unreadableDeliveryKeepsTheSourceThroughFlightThenClears() {
+        let t0 = Date(timeIntervalSince1970: 4_000)
+        let text = "unreadable flight \(UUID().uuidString)"
+        LandingVerdictLedger.shared.record(.unreadable, text: text)
+        let model = PillViewModel()
+        var clock = t0
+        model.now = { clock }
+        model.deliveryReduceMotion = { false }
+        model.present(.inserting(text: text))
+        clock = t0.addingTimeInterval(0.14)
+        model.present(delivery: .delivered(verified: false, method: "ax"), text: text)
+        let acknowledged = model.state
+        #expect(acknowledged == .landed(LandedPillInfo(text: text, verdict: .unreadable)))
+        clock = t0.addingTimeInterval(0.84)                  // the 650 ms landed timer fires mid-flight
+        model.retractDelivery()
+        #expect(model.state == acknowledged)
+        clock = t0.addingTimeInterval(SpoolFlight.duration + PillDwell.inserted + 0.001)
+        model.retractDelivery()
+        #expect(model.state == .hidden)                      // never sticky
+    }
+}
