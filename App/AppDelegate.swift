@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var speakerAudio: SpeakerAudioWiring?
     /// R8.1 — held so the ambient store outlives `applicationDidFinishLaunching`.
     private var ambientStore: AmbientTranscriptStore?
+    /// V5 L3 — ambient listening on the shared capture, held for the life of the app.
+    private var ambientListening: AmbientListenerWiring?
     private var orchestrator: PermissionOrchestrator?
     private var permissionPoller: PermissionPoller?
     /// Owns the tap lifecycle for the whole life of the process — see `CapabilityWatcher`.
@@ -264,8 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.speakerAudio = speakerAudio
 
-        // R8.1/R8.2 — ambient capture hangs off the latch runtime's transcript seam, which is the
-        // only place ambient text exists. It is read through `gate` on every segment rather than
+        // R8.1/R8.2 — ambient capture. The gate is read on every segment rather than
         // captured once, so turning the switch off stops capture on the next utterance instead of
         // the next relaunch, and the enrolled-speaker verdict is re-read for the same reason.
         //
@@ -275,21 +276,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotesStore.preparedDefaultRoot()   // V5 N4: fold legacy …/Ambient into …/Notes before the launch sweep
         let ambientStore = AmbientWiring.store(database: container.database, settings: container.settings)
         self.ambientStore = ambientStore
-        AmbientWiring.attach(to: latch,
-                             sink: ambientStore,
-                             gate: { [weak container] in
-                                 AmbientWiring.gate(settings: container?.settings,
-                                                    filter: container?.latchController.speakerFilter)
-                             },
-                             decisions: AmbientWiring.decisionPipeline(
-                                settings: container.settings, actParser: container.actRouter.parser,
-                                mode: AmbientModeWiring.controller ?? AmbientModeController(settings: container.settings)))
-        // The verdict stays at its default `.unknown`: the transcript seam carries text and a
-        // SegmentID, not audio, and `SpeakerGate.verdict(for:embedder:)` needs samples. With the
-        // enrolled-only path that means every segment is discarded — `.modelUnavailable` on a
-        // machine without WeSpeaker weights suppresses, which is the honest answer rather than a
-        // claim that a check ran. Ambient therefore keeps nothing until the seam carries audio.
-        // Recorded as gap G11 in the build document.
+        // V5 L3 (X13) — ambient is a recorder on the one capture graph (O1): VAD-cut speech segments,
+        // ASR only on those, the speaker verdict from each segment's own samples, then gate → Timeline
+        // → decision pipeline. Speech an explicit claim (hold / latch / act key) owns is not decided twice.
+        let ambientListener = AmbientWiring.listener(
+            audio: PipelineAmbientAudio(audio: { [weak container] in container?.audio }, session: sessionCoordinator,
+                                        isMuted: { [weak container] in container?.latchController.mute.isMuted ?? true }),
+            sink: ambientStore,
+            gate: { [weak container] in
+                AmbientWiring.gate(settings: container?.settings, filter: container?.latchController.speakerFilter)
+            },
+            claimed: { [weak sessionCoordinator] in sessionCoordinator?.activeRequester != nil },
+            transcribe: { [weak container] in container?.ambientTranscribe },
+            verdict: AmbientWiring.verdict(filter: { [weak container] in container?.latchController.speakerFilter },
+                                           embedder: { [weak container] in container?.latchController.embedder }),
+            decisions: AmbientWiring.decisionPipeline(
+                settings: container.settings, actParser: container.actRouter.parser,
+                mode: AmbientModeWiring.controller ?? AmbientModeController(settings: container.settings)))
+        let ambientListening = AmbientListenerWiring(listener: ambientListener,
+                                                     isMuted: { [weak container] in container?.latchController.mute.isMuted ?? true })
+        ambientListening.start(mute: container.latchController.mute)
+        self.ambientListening = ambientListening
 
         // P2.3 — transform pill (tint, "editing N words", ghost, 8 s warm window).
         let transformPill = TransformPillDriver(pill: pill.model, warmWindow: container.transform.session.warmWindow)

@@ -6,10 +6,10 @@ import Shared
 // R8.1 / R8.2 — the composition seam. One place that builds ambient capture, and one place that
 // attaches it.
 //
-// `LatchRuntime` already has the hole this fills: `onTranscript` is documented there as "Ambient
-// transcript sink (V3 §8: into the Timeline, never typed). Set by the ambient item." This is the
-// ambient item. The seam is not a `LatchDelivering` and carries no destination: `LatchRuntime.run`
-// reaches it by returning **before** delivery is consulted. Since V5 L2 a kept utterance also goes to
+// V5 L3: ambient listens on the always-on capture (`listener(...)`, a recorder on O1's broadcaster),
+// with the speaker verdict computed from each segment's samples. The older `LatchRuntime.onTranscript`
+// seam (`attach(to:)`) is kept for the latch runtime's own tests; both go through `process(...)`, which
+// is not a `LatchDelivering` and carries no destination. Since V5 L2 a kept utterance also goes to
 // the `AmbientDecisionPipeline` (arbiter → `AmbientGuarantees`), which is the only way ambient speech
 // can become a Note or — in Listen & act, from the user's voice, in the act band — a capability.
 //
@@ -57,41 +57,94 @@ public enum AmbientWiring {
         return gate(settings: settings, filter: filter)
     }
 
+    /// V5 L3 — one heard ambient segment through the gate, into the Timeline, then (kept only) to the
+    /// decision pipeline with the verdict computed from its samples. The one path both the listener
+    /// and the legacy latch seam use, so the two can never disagree about what is kept.
+    @discardableResult
+    public static func process(_ heard: AmbientHeard,
+                               sink: any AmbientTranscriptSink,
+                               gate: AmbientCaptureGate,
+                               decisions: AmbientDecisionPipeline?,
+                               forwardsVerdict: Bool = true,
+                               onDecision: ((AmbientCaptureDecision) -> Void)? = nil) -> AmbientCaptureDecision {
+        let decision = gate.decide(text: heard.text, verdict: heard.verdict, at: heard.capturedAt,
+                                   duration: heard.duration, confidence: heard.confidence)
+        switch decision {
+        case .keep(let entry):
+            do { try sink.store(entry) }
+            catch { Log.app.error("ambient: entry \(heard.id) not stored: \(error)") }
+            // V5 L2/L4 — a kept utterance is decided (Layer 1 on every ambient utterance) and routed
+            // only as `AmbientGuarantees` allow, with this utterance's own speaker verdict.
+            let end = entry.capturedAt.addingTimeInterval(max(0, entry.duration))
+            decisions?.enqueue(entry.text, utteranceID: heard.id, range: entry.capturedAt...end,
+                               verdict: forwardsVerdict ? heard.verdict : nil)
+        case .discard(let reason):
+            Log.app.notice("ambient: segment \(heard.id) discarded — \(reason.rawValue)")
+        }
+        onDecision?(decision)
+        return decision
+    }
+
+    /// V5 L3 — the production listener: a recorder on the one capture graph (O1), ASR only on closed
+    /// speech segments, the speaker verdict from each segment's samples, then `process`.
+    ///
+    /// `gate`, `transcribe` and `verdict` are closures because all three change while the app runs
+    /// (the mode, a model landing after launch, enrollment and the embedder's weights).
+    public static func listener(audio: any AmbientAudioAttaching,
+                                sink: any AmbientTranscriptSink,
+                                gate: @escaping () -> AmbientCaptureGate,
+                                claimed: @escaping () -> Bool = { false },
+                                transcribe: @escaping () -> AmbientListener.Transcribe?,
+                                verdict: @escaping AmbientListener.Verdict,
+                                decisions: AmbientDecisionPipeline?,
+                                onDecision: ((AmbientCaptureDecision) -> Void)? = nil) -> AmbientListener {
+        let box = UncheckedBox((sink, gate, decisions, onDecision))
+        return AmbientListener(audio: audio, listens: { gate().isEnabled }, claimed: claimed,
+                               transcribe: transcribe, verdict: verdict) { heard in
+            let (sink, gate, decisions, onDecision) = box.value
+            process(heard, sink: sink, gate: gate(), decisions: decisions, onDecision: onDecision)
+        }
+    }
+
+    /// The production verdict: `SpeakerGate.verdict(for:embedder:)` on the segment's samples, run only
+    /// when it can mean something — an identifying embedder and an enrolled profile. Otherwise
+    /// `.unknown` without embedding (the gate then discards honestly unless every speaker is kept).
+    public static func verdict(filter: @escaping () -> SpeakerFilter?,
+                               embedder: @escaping () -> (any SpeakerEmbedder)?) -> AmbientListener.Verdict {
+        let box = UncheckedBox((filter, embedder))
+        return { samples in
+            let (filter, embedder) = box.value
+            guard let f = filter(), f.canIdentify, f.gate.profile != nil, let e = embedder() else { return .unknown }
+            return f.gate.verdict(for: samples, embedder: e)
+        }
+    }
+
     /// Connects a latch runtime's ambient transcript seam to the gate and the store.
     ///
-    /// `gate` and `verdict` are closures, not values: both depend on state that changes while the app
-    /// runs (the switch, enrollment, whether the embedding weights loaded). `onDecision` exists for
-    /// the pill and the Timeline's "why is this empty?" line — it is told what happened, and is given
-    /// no way to act on it.
+    /// Legacy (pre-L3) path: the seam carries text and a SegmentID but no audio, so the verdict comes
+    /// from `verdict`. Production uses `listener(...)` on the shared capture instead; nothing in the app
+    /// sets `LatchRuntime.source = .ambient` any more.
     public static func attach(to runtime: LatchRuntime,
                               sink: any AmbientTranscriptSink,
                               gate: @escaping () -> AmbientCaptureGate,
-                              verdict: @escaping () -> SpeakerGate.Verdict = { .unknown },
+                              verdict: (() -> SpeakerGate.Verdict)? = nil,
                               now: @escaping () -> Date = { Date() },
                               decisions: AmbientDecisionPipeline? = nil,
                               onDecision: ((AmbientCaptureDecision) -> Void)? = nil) {
         runtime.onTranscript = { text, segment in
-            let decision = gate().decide(text: text, verdict: verdict(), at: now())
-            switch decision {
-            case .keep(let entry):
-                do { try sink.store(entry) }
-                catch { Log.app.error("ambient: entry \(segment) not stored: \(error)") }
-                // V5 L2/L4 — a kept utterance is decided (Layer 1 on every ambient utterance) and
-                // routed only as `AmbientGuarantees` allows.
-                let end = entry.capturedAt.addingTimeInterval(max(0, entry.duration))
-                decisions?.enqueue(text, utteranceID: "ambient-\(segment.sessionID.uuidString)-\(segment.index)",
-                                   range: entry.capturedAt...end)
-            case .discard(let reason):
-                Log.app.notice("ambient: segment \(segment) discarded — \(reason.rawValue)")
-            }
-            onDecision?(decision)
+            let heard = AmbientHeard(id: "ambient-\(segment.sessionID.uuidString)-\(segment.index)", text: text,
+                                     verdict: verdict?() ?? .unknown, capturedAt: now(), duration: 0)
+            // No samples here: the decision pipeline keeps its own verdict unless one was given.
+            process(heard, sink: sink, gate: gate(), decisions: decisions, forwardsVerdict: verdict != nil,
+                    onDecision: onDecision)
         }
     }
 
     /// V5 L2/L4 — the ambient decision pipeline: mode → arbiter (built asynchronously: registering
     /// the decision model with `ModelResidency` is async; until it is ready utterances are only
-    /// recorded) → `AmbientGuarantees` → Notes. No capability delivery is attached yet (needs L3's
-    /// samples on the seam for a real speaker verdict, and CU for act); `delivery` stays nil.
+    /// recorded) → `AmbientGuarantees` → Notes. Since L3 each utterance carries its own speaker verdict
+    /// (`verdict` here is only the fallback). No capability delivery is attached yet (needs CU for
+    /// act); `delivery` stays nil.
     @MainActor
     public static func decisionPipeline(settings: (any SettingsStore)?, actParser: ActIntentParser?,
                                         mode: AmbientModeController,
@@ -113,6 +166,12 @@ public enum AmbientWiring {
         }
         return pipeline
     }
+}
+
+/// Lets non-Sendable composition values ride in a `@Sendable` closure; they are only read.
+final class UncheckedBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }
 
 /// Holds the arbiter once it is built.

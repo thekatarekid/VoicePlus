@@ -201,7 +201,9 @@ public final class LatchRuntime: @unchecked Sendable {
     /// R3.3 — asked once per closed segment while speaker filtering is on. `nil` means "no filter
     /// configured", which is not the same as "filter says yes": see `SpeakerFilter`.
     public var speakerGuard: (() -> SpeakerFilter.Decision)?
-    /// Ambient transcript sink (V3 §8: into the Timeline, never typed). Set by the ambient item.
+    /// Ambient transcript sink (V3 §8: into the Timeline, never typed). V5 L3: production ambient no
+    /// longer comes through here — it is a recorder on the shared capture (`AmbientListener`), whose
+    /// segments carry samples for the speaker verdict. Kept for `.ambient` runtimes in tests.
     public var onTranscript: ((String, SegmentID) -> Void)?
     /// Every outcome, for the pill and for tests.
     public var onOutcome: ((LatchSegmentOutcome, SegmentID) -> Void)?

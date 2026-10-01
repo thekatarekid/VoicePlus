@@ -63,6 +63,11 @@ public final class AppContainer {
     public let latchController: LatchController
     public let wakeVerb: WakeVerbPreRoute
     public let meeting: MeetingCoordinator
+    /// V5 L3 — the engine's final recognizer for ambient speech segments (nil while no real model is
+    /// installed). Read on every segment so a model that lands after launch is picked up.
+    public var ambientTranscribe: AmbientListener.Transcribe? {
+        recognizerProvider.map { provider in { samples in try await provider.resolve().final.recognize(samples) } }
+    }
     /// V5 O2 — the ambient timeline as a recorder of capability tags (held here; the hub is weak).
     public let ambientTagger: AmbientTimelineTagger
     /// P6 — personal adaptation loop, code-switching, encrypted sync.
