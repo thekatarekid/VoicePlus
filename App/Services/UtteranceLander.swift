@@ -310,7 +310,9 @@ public final class UtteranceLander: @unchecked Sendable {
         if let field {
             let plan = FieldRoleFormatter().plan(for: field)
             if readField != nil { result.fieldRole = plan.role }
-            result.allowSubmit = plan.rules.allowSubmit
+            // Q1 — never Return-to-send in an app where ↩ sends (Electron / Cursor / browsers).
+            result.allowSubmit = bundleID.map { SubmitPolicy.allowSubmit(requested: plan.rules.allowSubmit, bundleID: $0) }
+                ?? plan.rules.allowSubmit
             if plan.rules.refusesDictation {
                 // A password field. Nothing is formatted, nothing is typed, nothing is written to
                 // history, and the words are not kept as held text — the same verdict, for the same
