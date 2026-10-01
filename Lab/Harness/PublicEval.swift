@@ -13,10 +13,15 @@ public struct EvalOutput: Codable, Equatable, Sendable {
     public var label: String?
     public var latencyMs: Double?
     public var peakRSSBytes: UInt64?
+    /// V4 — duration of the item's audio (duration segment classes).
+    public var audioSeconds: Double?
+    /// V4 — extra per-item numbers a backend measured (e.g. `snrDB` from the mic-quality analyzer).
+    public var metrics: [String: Double]?
 
     public init(text: String? = nil, turns: [SpeakerTurn]? = nil, label: String? = nil,
-                latencyMs: Double? = nil, peakRSSBytes: UInt64? = nil) {
+                latencyMs: Double? = nil, peakRSSBytes: UInt64? = nil, audioSeconds: Double? = nil, metrics: [String: Double]? = nil) {
         self.text = text; self.turns = turns; self.label = label; self.latencyMs = latencyMs; self.peakRSSBytes = peakRSSBytes
+        self.audioSeconds = audioSeconds; self.metrics = metrics
     }
 }
 

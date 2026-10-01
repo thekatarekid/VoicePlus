@@ -20,6 +20,21 @@ enum PublicEvalCLI {
             guard let set = opts["set"] else { throw LabError.badArguments("fetch needs --set <name>") }
             let m = try await DatasetFetcher(paths: eval.paths, transport: transport).fetch(set)
             return LabCLI.Output(exitCode: 0, text: "\(set): \(m.items.count) items → \(eval.paths.cacheDirectory.appendingPathComponent(set).path)", reports: [])
+        case "revalidate":
+            guard let set = opts["set"] else { throw LabError.badArguments("revalidate needs --set <name>") }
+            let manifest = try eval.paths.loadManifest(set: set)
+            let dir = eval.paths.cacheDirectory.appendingPathComponent(set, isDirectory: true)
+            var hyps: [String: ReplayBackend.File] = [:]
+            for name in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasPrefix("hyp-") && name.hasSuffix(".json") {
+                let f = try ReplayBackend(url: dir.appendingPathComponent(name)).file
+                hyps[f.model] = f
+            }
+            guard !hyps.isEmpty else { throw LabError.badArguments("no hyp-*.json in \(dir.path); run EvalPublicSetTests first") }
+            let rv = Revalidation(paths: eval.paths, hardware: eval.hardware)
+            let result = rv.run(manifest: manifest, hyps: hyps, date: PublicEval.day(eval.now()))
+            var text = Revalidation.markdown(result)
+            if opts["no-write"] != "true" { text += "\nwrote \(try rv.write(result).path)" }
+            return LabCLI.Output(exitCode: 0, text: text, reports: [])
         case "mix":
             guard let set = opts["set"] else { throw LabError.badArguments("mix needs --set <name>") }
             let snrs = try LabCLI.list(opts["snr"] ?? "20,10,5,0").map { v -> Double in

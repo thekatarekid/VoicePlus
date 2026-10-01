@@ -510,3 +510,22 @@ decides mechanically**. Defaults are unchanged (all off). The text lives in each
 | `directedSpeech` | off | P5: 0 false triggers on synthetic only | delete when O2/O3 ships unless V1 decide-stage replay (AMI/NOTSOFAR ambient) holds <1 false trigger/day |
 | `previewBackend` | off pending V1 | R1.5: B WER 0.118 vs A 0.268; both miss 300 ms | flip on + delete EOU path if B ≥0.05 abs WER better with first-word p95 ≤1.5 s; else delete B |
 | `qwenRefinement` | off | R5.4: pass-2 WER 0.178 vs 0.099, 1.9–4.2 s | delete in W8 unless a segment class gains ≥1.0 abs WER at ≤2.5 s p95 |
+
+## 2026-10-01 — V4, provisional decisions re-measured on public sets (V5 §V, rule 0.4)
+
+**Re-measured on public sets.** LibriSpeech test-clean, 50 utterances evenly spread over the set, each
+clean and mixed (V3, seed 20261001) with 3-talker LibriSpeech babble and pink noise at 20/10/5/0 dB =
+450 items; real on-disk models, M2 Pro 16 GB. Tables: `Lab/results/v4-revalidation-librispeech-test-clean-noisy.md`
+(+ `.json`); final-pass report `Lab/results/2026-10-01-librispeech-test-clean-noisy-parakeet-tdt-v3.json`;
+error pairs (B4) `Lab/results/error-pairs/librispeech-test-clean-noisy.jsonl`. Reproduce: Fixtures/public/README.md.
+
+| decision | public-set evidence | default |
+|---|---|---|
+| `previewBackend` (R1.5) | B polling TDT v3 WER **15.6 %** vs A EOU 120M **29.2 %** (clean 4.8 vs 8.4; babble 5 dB 22.1 vs 56.0); A never produced a word on 58/450 (B 3); CPU 0.08 vs 0.16 s/s. First word p50 817 vs 534 ms, **p95 2092 vs 1575 ms** (clean only: 1920 vs 960). | **kept off (A).** A3's kill rule needs B ≥ 5 pts better **and** first-word p95 ≤ 1.5 s: the WER half passes by 13.6 pts, the latency half fails (2.1 s). Neither "flip" nor "delete B" is met cleanly; the obvious arm is a shorter polling interval (0.5 s), unmeasured. Owner call, with this table. |
+| mic-quality bounds poor < 10 / bad < 5 dB (F1, K6) | Final WER climbs ≥ 2× clean in 4/8 conditions (babble 10/5/0 dB: 9.9/17.2/69.9 %; pink 0 dB 6.0 %). The analyzer graded **0 %** of those utterances poor/bad: its SNR read 27–31 dB median under babble (non-stationary noise fills the p10 floor gaps only partly) and 14–20 dB under pink. No threshold on the analyzer's SNR separates the conditions (degraded max 31.4 dB > near-clean min 15.2 dB). Also: `EnergyVAD` found **no speech** in 49/50 pink-0 dB and 11/50 pink-5 dB items. | **bounds kept** (moving them cannot fix it: the estimator, not the bound, is blind to babble). Hand-off: K6 (floor hold) and C6 (Silero VAD) own the fix; re-run this table after them. |
+| segment-class WER (R5.4) | Clean final WER by class: < 5 s 1.26 % (n 26), 5–7 s 1.60 % (n 11), ≥ 7 s 1.90 % (n 13), number words 0 % (n 5). No class stands out; `entities` is all 50 (LibriSpeech references are upper-case, so the capital-letter entity detector tags everything — not informative here). | no change |
+| `qwenRefinement` (D7) | **not re-measured**: Qwen3-ASR 0.6B int8 weights (1.2 GB) are not on disk and the disk budget (≥ 8 GB free, no download > 500 MB) forbids pulling them. The runner accepts `qwen3-refinement` hyps when present. | kept off (owner-approved keep of the path, D7); → T1 |
+
+Caveats: 50 base utterances (Δ of 1 error ≈ 0.1 pt on clean); SNR is the whole-utterance power ratio
+(Kaldi convention), not the analyzer's speech-frame estimate; MUSAN noise not used (11 GB; `--noise-dir`
+ready when there is disk, T1).

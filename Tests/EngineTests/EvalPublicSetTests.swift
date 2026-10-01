@@ -4,13 +4,21 @@ import Testing
 import Shared
 @testable import Engine
 
-/// V5 V1 — runs the real final-pass recognizer (Parakeet TDT v3) over a public-set manifest built by
-/// `lab fetch --set <name>` and writes a hypothesis file the Lab scores with
-/// `lab eval --set <name> --model parakeet-tdt-v3 --hyp <file>` (the Lab target cannot link Engine).
+/// V5 V1/V3/V4 — runs real on-disk models over a public-set manifest built by `lab fetch` /
+/// `lab mix` and writes one hypothesis file per model, which the Lab scores with
+/// `lab eval --set <name> --model <id> --hyp <file>` (the Lab target cannot link Engine).
 ///
-/// Opt-in, never part of the normal gate: set `VOICEPLUS_EVAL_SET=librispeech-test-clean`
-/// (optionally `VOICEPLUS_EVAL_LIMIT=N`, `VOICEPLUS_EVAL_CACHE=dir`). Output:
-/// `<cache>/<set>/hyp-parakeet-tdt-v3.json`.
+/// Opt-in, never part of the normal gate: `VOICEPLUS_EVAL_SET=<set>` (optionally
+/// `VOICEPLUS_EVAL_LIMIT=N`, `VOICEPLUS_EVAL_CACHE=dir`,
+/// `VOICEPLUS_EVAL_MODELS=parakeet-tdt-v3,preview-eou,preview-polling,micquality`).
+/// Output: `<cache>/<set>/hyp-<model>.json`.
+///
+/// - `parakeet-tdt-v3`: the final recognizer, whole utterance (latency = compute).
+/// - `preview-eou` / `preview-polling`: the R1.5 preview candidates fed in 100 ms chunks as
+///   `RealEngine` feeds live capture; text = last preview, latency = first word after speech onset.
+/// - `micquality`: `MicQualityAnalyzer` + `EnergyVAD` in VAD lockstep (as `AudioPipeline`); label =
+///   verdict, metrics `snrDB` (the analyzer's estimate).
+/// Every item also carries `audioSeconds` (for duration segment classes).
 @Suite("Public-set replay (real model)", .serialized)
 struct EvalPublicSetTests {
     struct Manifest: Decodable {
@@ -19,7 +27,13 @@ struct EvalPublicSetTests {
         let audioRoot: String
         let items: [Item]
     }
-    struct HypItem: Encodable { let text: String; let latencyMs: Double }
+    struct HypItem: Encodable {
+        var text: String?
+        var label: String?
+        var latencyMs: Double?
+        var audioSeconds: Double
+        var metrics: [String: Double]?
+    }
     struct HypFile: Encodable { let model: String; let set: String; let peakRSSBytes: UInt64; let items: [String: HypItem] }
 
     static func cache() -> URL {
@@ -32,13 +46,33 @@ struct EvalPublicSetTests {
         return getrusage(RUSAGE_SELF, &u) == 0 ? UInt64(max(0, u.ru_maxrss)) : 0
     }
 
-    @Test(.timeLimit(.minutes(60)))
-    func replayParakeetTDTv3() async throws {
+    /// Analyzer verdict the way `AudioPipeline.process` produces it (one VAD frame at a time).
+    static func micQuality(_ audio: [Float]) async throws -> MicQuality? {
+        let vad = EnergyVAD()
+        let analyzer = MicQualityAnalyzer()
+        await vad.reset()
+        var verdict: MicQuality?
+        var i = 0
+        while i < audio.count {
+            let end = min(i + vad.frameSize, audio.count)
+            if let q = analyzer.feed(Array(audio[i..<end])), verdict == nil { verdict = q }
+            var frame = Array(audio[i..<end])
+            frame.append(contentsOf: [Float](repeating: 0, count: vad.frameSize - frame.count))
+            if let event = try await vad.process(frame: frame).event { analyzer.note(event) }
+            i = end
+        }
+        if verdict == nil { verdict = analyzer.flush() }
+        return verdict
+    }
+
+    @Test(.timeLimit(.minutes(120)))
+    func replayPublicSet() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let set = env["VOICEPLUS_EVAL_SET"], !set.isEmpty else {
-            print("SKIPPED: set VOICEPLUS_EVAL_SET=<set> (after `lab fetch --set <set>`) to replay a public set through Parakeet TDT v3.")
+            print("SKIPPED: set VOICEPLUS_EVAL_SET=<set> (after `lab fetch` / `lab mix`) to replay a public set through real models.")
             return
         }
+        let models = (env["VOICEPLUS_EVAL_MODELS"] ?? "parakeet-tdt-v3").split(separator: ",").map(String.init)
         let manager = ModelManager(maintenance: .skip)
         guard await manager.isPresent(.parakeetTDTv3) else {
             print("SKIPPED: parakeet-tdt-0.6b-v3 not on disk.")
@@ -52,21 +86,51 @@ struct EvalPublicSetTests {
 
         let final = try await RecognizerFactory.makeFinal(manager: manager)
         #expect(final.name == "fluidaudio.tdt.v3")
-        var out: [String: HypItem] = [:]
+        var eou: PreviewRecognizer?
+        if models.contains("preview-eou") {
+            eou = await PreviewReplayTests.eouPreview(manager)
+            if eou == nil { print("NOTE: parakeet-realtime-eou-120m not on disk — preview-eou skipped, not estimated.") }
+        }
+        var out: [String: [String: HypItem]] = [:]
         for (n, item) in items.enumerated() {
             guard let audio = item.audio else { continue }
-            let samples = try SampleAudioSource.load16k(url: root.appendingPathComponent(audio))
-            let t0 = DispatchTime.now().uptimeNanoseconds
-            let spans = try await final.recognize(samples)
-            let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
-            out[item.id] = HypItem(text: spans.joinedText, latencyMs: ms)
-            if n % 250 == 0 { print("eval \(set): \(n)/\(items.count)") }
+            let url = audio.hasPrefix("/") ? URL(fileURLWithPath: audio) : root.appendingPathComponent(audio)
+            let samples = try SampleAudioSource.load16k(url: url)
+            let seconds = Double(samples.count) / 16_000
+            for model in models {
+                switch model {
+                case "parakeet-tdt-v3":
+                    let t0 = DispatchTime.now().uptimeNanoseconds
+                    let spans = try await final.recognize(samples)
+                    let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
+                    out[model, default: [:]][item.id] = HypItem(text: spans.joinedText, latencyMs: ms, audioSeconds: seconds)
+                case "preview-eou":
+                    guard let eou else { continue }
+                    let t = try await PreviewReplayTests.replay(samples, through: eou)
+                    out[model, default: [:]][item.id] = HypItem(text: t.text, latencyMs: t.firstWordMs, audioSeconds: seconds,
+                                                               metrics: ["cpuSeconds": t.cpuSeconds])
+                case "preview-polling":
+                    let t = try await PreviewReplayTests.replay(samples, through: PollingPreviewRecognizer(recognizer: final))
+                    out[model, default: [:]][item.id] = HypItem(text: t.text, latencyMs: t.firstWordMs, audioSeconds: seconds,
+                                                               metrics: ["cpuSeconds": t.cpuSeconds])
+                case "micquality":
+                    let q = try await Self.micQuality(samples)
+                    out[model, default: [:]][item.id] = HypItem(label: q?.verdict.rawValue ?? "none", latencyMs: 0, audioSeconds: seconds,
+                                                               metrics: q.map { ["snrDB": Double($0.snr), "clipping": Double($0.clipping)] })
+                default:
+                    Issue.record("unknown model \(model)")
+                    return
+                }
+            }
+            if n % 50 == 0 { print("eval \(set): \(n)/\(items.count)") }
         }
-        let file = HypFile(model: "parakeet-tdt-v3", set: set, peakRSSBytes: Self.peakRSS(), items: out)
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
-        let url = setDir.appendingPathComponent("hyp-parakeet-tdt-v3.json")
-        try enc.encode(file).write(to: url)
-        print("wrote \(out.count) hypotheses → \(url.path)")
-        #expect(out.count == items.filter { $0.audio != nil }.count)
+        for (model, hyps) in out {
+            let file = HypFile(model: model, set: set, peakRSSBytes: Self.peakRSS(), items: hyps)
+            let url = setDir.appendingPathComponent("hyp-\(model).json")
+            try enc.encode(file).write(to: url)
+            print("wrote \(hyps.count) hypotheses → \(url.path)")
+        }
+        #expect(out["parakeet-tdt-v3"].map { $0.count == items.filter { $0.audio != nil }.count } ?? true)
     }
 }

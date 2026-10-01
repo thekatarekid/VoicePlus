@@ -69,7 +69,7 @@ public enum LabCLI {
                             runner: LabRunner? = nil, eval: PublicEval? = nil,
                             transport: (any DatasetTransport)? = nil) async -> Output {
         do {
-            if let command = args.first, ["eval", "fetch", "datasets", "mix", "pairs"].contains(command) {
+            if let command = args.first, ["eval", "fetch", "datasets", "mix", "pairs", "revalidate"].contains(command) {
                 let ev = eval ?? PublicEval(paths: EvalPaths(fixturesDirectory: fixturesDirectory))
                 return try await PublicEvalCLI.execute(command, try parse(Array(args.dropFirst())), registry: registry,
                                                        eval: ev, transport: transport ?? URLSessionTransport())
@@ -89,6 +89,7 @@ public enum LabCLI {
            lab datasets                                        # public-set catalogue
            lab mix --set <name> [--snr 20,10,5,0] [--noise babble,pink,white] [--noise-dir D] [--limit N] [--seed S]
                                                                # V3: build <name>-noisy (clean + noise at each SNR)
+           lab revalidate --set <name>                         # V4: preview / mic-quality / segment-class tables from hyp-*.json
            lab pairs --set <name> --model <id> [--hyp FILE]    # B4: error pairs → Lab/results/error-pairs/<set>.jsonl
     """
 

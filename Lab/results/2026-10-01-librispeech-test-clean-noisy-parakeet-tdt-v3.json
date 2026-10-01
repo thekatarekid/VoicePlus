@@ -1,0 +1,5446 @@
+{
+  "byCondition" : {
+    "clean-read" : {
+      "cer" : 9.397055858035895,
+      "items" : 450,
+      "latencyP50Ms" : 101.450209,
+      "latencyP95Ms" : 322.315292,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 7632,
+      "wer" : 12.670335429769391
+    },
+    "noise-babble" : {
+      "cer" : 19.844600725952812,
+      "items" : 200,
+      "latencyP50Ms" : 112.548583,
+      "latencyP95Ms" : 455.298875,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 3392,
+      "wer" : 25.02948113207547
+    },
+    "noise-pink" : {
+      "cer" : 1.1740018148820326,
+      "items" : 200,
+      "latencyP50Ms" : 91.763,
+      "latencyP95Ms" : 238.611416,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 3392,
+      "wer" : 3.0660377358490565
+    },
+    "snr-0" : {
+      "cer" : 30.807622504537203,
+      "items" : 100,
+      "latencyP50Ms" : 111.74575,
+      "latencyP95Ms" : 542.55525,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 1696,
+      "wer" : 37.971698113207545
+    },
+    "snr-10" : {
+      "cer" : 3.561705989110708,
+      "items" : 100,
+      "latencyP50Ms" : 100.814708,
+      "latencyP95Ms" : 263.898709,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 1696,
+      "wer" : 5.778301886792453
+    },
+    "snr-20" : {
+      "cer" : 0.941470054446461,
+      "items" : 100,
+      "latencyP50Ms" : 92.815333,
+      "latencyP95Ms" : 187.666542,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 1696,
+      "wer" : 2.358490566037736
+    },
+    "snr-5" : {
+      "cer" : 6.726406533575318,
+      "items" : 100,
+      "latencyP50Ms" : 102.308666,
+      "latencyP95Ms" : 291.91025,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 1696,
+      "wer" : 10.08254716981132
+    },
+    "snr-clean" : {
+      "cer" : 0.49909255898366606,
+      "items" : 50,
+      "latencyP50Ms" : 95.622,
+      "latencyP95Ms" : 223.397,
+      "peakRSSMB" : 591.9375,
+      "referenceWords" : 848,
+      "wer" : 1.650943396226415
+    }
+  },
+  "date" : "2026-10-01",
+  "hardware" : "Apple M2 Pro \/ Version 26.6.2 (Build 25G83) \/ 16 GB",
+  "items" : [
+    {
+      "errors" : 0,
+      "hypothesis" : "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes, and fat mutton pieces to be ladled out in thick, peppered, flour fattened sauce.",
+      "id" : "1089-134686-0000",
+      "latencyMs" : 152.06025,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes, and fat mutton pieces to be ladled out in thick, peppered, flour fattened sauce.",
+      "id" : "1089-134686-0000@babble-snr-20",
+      "latencyMs" : 121.253333,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes and fat mutton pieces to be ladled out in thick, peppered, flour-fatten sauce.",
+      "id" : "1089-134686-0000@babble-snr-10",
+      "latencyMs" : 120.983167,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 6,
+      "hypothesis" : "If you're hoped there would be stew for dinner, turnips and carrots and bruised potatoes and fat mutton pieces to be ladled out in thick pepper and flour fat sauce.",
+      "id" : "1089-134686-0000@babble-snr-5",
+      "latencyMs" : 128.846125,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "He hoped there would be steam for dinner, turnips and carrots and smooth potatoes and fat mutton pieces to be labeled out soon sticky to shepherd sour sat sauce.",
+      "id" : "1089-134686-0000@babble-snr-0",
+      "latencyMs" : 136.20425,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes, and fat mutton pieces to be ladled out in thick, peppered, flour fattened sauce.",
+      "id" : "1089-134686-0000@pink-snr-20",
+      "latencyMs" : 125.587958,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes, and fat mutton pieces to be ladled out in thick, peppered, flour fattened sauce.",
+      "id" : "1089-134686-0000@pink-snr-10",
+      "latencyMs" : 117.859667,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes and fat mutton pieces to be ladled out in thick peppered flour fat sauce.",
+      "id" : "1089-134686-0000@pink-snr-5",
+      "latencyMs" : 107.6285,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes and fat mutton pieces to be ladled out, thick, peppered, flour fat sauce.",
+      "id" : "1089-134686-0000@pink-snr-0",
+      "latencyMs" : 116.923666,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The phrase and the day and the scene harmonized in accord.",
+      "id" : "1089-134691-0014",
+      "latencyMs" : 91.890792,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The phrase and the day and the scene harmonized in accord.",
+      "id" : "1089-134691-0014@babble-snr-20",
+      "latencyMs" : 81.354167,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The phrase and the day and the scene harmonized in a chord.",
+      "id" : "1089-134691-0014@babble-snr-10",
+      "latencyMs" : 74.719625,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The phrase and the day and the scene harmonized in accord from",
+      "id" : "1089-134691-0014@babble-snr-5",
+      "latencyMs" : 132.339417,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "Their praises and the day and the scene harmonize of the card on the city.",
+      "id" : "1089-134691-0014@babble-snr-0",
+      "latencyMs" : 89.294958,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The phrase and the day and the scene harmonized in accord.",
+      "id" : "1089-134691-0014@pink-snr-20",
+      "latencyMs" : 72.510375,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The phrase and the day and the scene harmonized in accord.",
+      "id" : "1089-134691-0014@pink-snr-10",
+      "latencyMs" : 70.057334,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The phrase and the day and the scene harmonized in accord.",
+      "id" : "1089-134691-0014@pink-snr-5",
+      "latencyMs" : 78.289542,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The phrase and the day and the scene harmonized in chord.",
+      "id" : "1089-134691-0014@pink-snr-0",
+      "latencyMs" : 76.289833,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040",
+      "latencyMs" : 65.026917,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040@babble-snr-20",
+      "latencyMs" : 67.517458,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040@babble-snr-10",
+      "latencyMs" : 298.816917,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040@babble-snr-5",
+      "latencyMs" : 122.064,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "If you only now need to be a little",
+      "id" : "1188-133604-0040@babble-snr-0",
+      "latencyMs" : 75.845333,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040@pink-snr-20",
+      "latencyMs" : 68.338958,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040@pink-snr-10",
+      "latencyMs" : 67.483375,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040@pink-snr-5",
+      "latencyMs" : 69.935166,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The crampness and the poverty are all intended.",
+      "id" : "1188-133604-0040@pink-snr-0",
+      "latencyMs" : 67.7385,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it, that this narrative, from an exact transcript of my own made much later, is what I shall presently give.",
+      "id" : "121-127105-0023",
+      "latencyMs" : 117.629792,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it that this narrative from an exact transcript of my own made much later is what I shall presently give.",
+      "id" : "121-127105-0023@babble-snr-20",
+      "latencyMs" : 119.059458,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it that this narrative from an exact transcript of my own made much later is what I shall presently give.",
+      "id" : "121-127105-0023@babble-snr-10",
+      "latencyMs" : 116.54025,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it that this narrative from an exact transcript of my own made much later is what I shall presently give.",
+      "id" : "121-127105-0023@babble-snr-5",
+      "latencyMs" : 112.548583,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "Let me say here distinctly to have done with it that this narrative from an exact transcript of my own made much less than simple enough is what I shall presently give it to the first.",
+      "id" : "121-127105-0023@babble-snr-0",
+      "latencyMs" : 130.203584,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it, that this narrative, from an exact transcript of my own made much later, is what I shall presently give.",
+      "id" : "121-127105-0023@pink-snr-20",
+      "latencyMs" : 107.698542,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it, that this narrative, from an exact transcript of my own made much later, is what I shall presently give.",
+      "id" : "121-127105-0023@pink-snr-10",
+      "latencyMs" : 101.38175,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it, that this narrative, from an exact transcript of my own made much later, is what I shall presently give.",
+      "id" : "121-127105-0023@pink-snr-5",
+      "latencyMs" : 102.263208,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let me say here distinctly to have done with it that this narrative from an exact transcript of my own made much later is what I shall presently give.",
+      "id" : "121-127105-0023@pink-snr-0",
+      "latencyMs" : 97.99725,
+      "referenceWords" : 29,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "but the proprietor appeared already to have relinquished as hopeless the effort to perpetuate, on this side of the Atlantic, in a hard soil, and amid the close struggle for subsistence, the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022",
+      "latencyMs" : 137.302583,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic, in a hard soil, and amid the close struggle for subsistence, the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022@babble-snr-20",
+      "latencyMs" : 137.558,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic, in a hard soil and amid the close struggle for subsistence, the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022@babble-snr-10",
+      "latencyMs" : 138.562291,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil and amid the close struggle for subsistence the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022@babble-snr-5",
+      "latencyMs" : 136.956167,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on the side of the Atlantic open hard soil and amid the close struggle for subsistence had known a native English taste for ornamental.",
+      "id" : "1221-135767-0022@babble-snr-0",
+      "latencyMs" : 153.463083,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "but the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic, in a hard soil, and amid the close struggle for subsistence, the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022@pink-snr-20",
+      "latencyMs" : 148.685709,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "but the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic, in a hard soil, and amid the close struggle for subsistence, the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022@pink-snr-10",
+      "latencyMs" : 372.367167,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "but the proprietor appeared already to have relinquished as hopeless the effort to perpetuate, on this side of the Atlantic, in a hard soil, and amid the close struggle for subsistence, the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022@pink-snr-5",
+      "latencyMs" : 180.6035,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "but the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic, in a hard soil, and amid the close struggle for subsistence, the native English taste for ornamental gardening.",
+      "id" : "1221-135767-0022@pink-snr-0",
+      "latencyMs" : 155.33975,
+      "referenceWords" : 38,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of Glinda, and I'm told he is getting to be a pretty good wizard. But he is merely the assistant of the great sorceress.",
+      "id" : "1284-1181-0017",
+      "latencyMs" : 159.532916,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The Wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of Glinda, and I'm told he is getting to be a pretty good wizard. But he is nearly the assistant of the great sorceress.",
+      "id" : "1284-1181-0017@babble-snr-20",
+      "latencyMs" : 140.399208,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of Glenda, and I'm told he is getting to be a pretty good wizard. But he is merely the assistant of the great sorceress.",
+      "id" : "1284-1181-0017@babble-snr-10",
+      "latencyMs" : 138.130208,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of Linda, and I'm told he is getting to be a pretty good wizard. But he is merely the assistant of the great sorceress.",
+      "id" : "1284-1181-0017@babble-snr-5",
+      "latencyMs" : 145.723875,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 31,
+      "hypothesis" : "And I'm told he is getting to be a pretty good easy than the assistant sources.",
+      "id" : "1284-1181-0017@babble-snr-0",
+      "latencyMs" : 366.641625,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of Glinda, and I'm told he is getting to be a pretty good wizard. But he is merely the assistant of the great sorceress.",
+      "id" : "1284-1181-0017@pink-snr-20",
+      "latencyMs" : 171.615666,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of Glinda, and I'm told he is getting to be a pretty good wizard. But he is merely the assistant of the great sorceress.",
+      "id" : "1284-1181-0017@pink-snr-10",
+      "latencyMs" : 147.551333,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of Glinda, and I'm told he is getting to be a pretty good wizard. But he is really the assistant of the great sorceress.",
+      "id" : "1284-1181-0017@pink-snr-5",
+      "latencyMs" : 143.654625,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 5,
+      "hypothesis" : "The Wizard of Oz, who used to be a humbug and knew no magic at all, has been taking lessons of dilda. And I'm told he is getting to be a pretty good wizard, but he is the immediate system to the great sorceress.",
+      "id" : "1284-1181-0017@pink-snr-0",
+      "latencyMs" : 145.713333,
+      "referenceWords" : 45,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Delawares are children of the tortoise, and they outstrip the deer.",
+      "id" : "1320-122617-0022",
+      "latencyMs" : 80.359125,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Delawares are children of the tortoise and they outstrip the deer.",
+      "id" : "1320-122617-0022@babble-snr-20",
+      "latencyMs" : 81.340125,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The Delawares are children of the tortoise and they outstrip the deer facts.",
+      "id" : "1320-122617-0022@babble-snr-10",
+      "latencyMs" : 88.396,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Delawares are children of the tortoise and they outstrip the deer.",
+      "id" : "1320-122617-0022@babble-snr-5",
+      "latencyMs" : 80.974708,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 12,
+      "hypothesis" : "",
+      "id" : "1320-122617-0022@babble-snr-0",
+      "latencyMs" : 377.6785,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Delawares are children of the tortoise, and they outstrip the deer.",
+      "id" : "1320-122617-0022@pink-snr-20",
+      "latencyMs" : 80.620125,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Delawares are children of the tortoise and they outstrip the deer.",
+      "id" : "1320-122617-0022@pink-snr-10",
+      "latencyMs" : 75.7385,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The Delawares are children of the tortoise and they outstrip the deer.",
+      "id" : "1320-122617-0022@pink-snr-5",
+      "latencyMs" : 75.25925,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The Delawares are children of the tortoise and they outscript the deer.",
+      "id" : "1320-122617-0022@pink-snr-0",
+      "latencyMs" : 79.193041,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Watson, I have always done you an injustice. There are others.",
+      "id" : "1580-141083-0032",
+      "latencyMs" : 79.1305,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Watson, I have always done you an injustice. There are others.",
+      "id" : "1580-141083-0032@babble-snr-20",
+      "latencyMs" : 78.531875,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Watson, I have always done you an injustice. There are others.",
+      "id" : "1580-141083-0032@babble-snr-10",
+      "latencyMs" : 81.770959,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Watson, I have always done you an injustice. There are other usual.",
+      "id" : "1580-141083-0032@babble-snr-5",
+      "latencyMs" : 89.901291,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Watson, I have always done you an injustice.",
+      "id" : "1580-141083-0032@babble-snr-0",
+      "latencyMs" : 78.202792,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Watson, I have always done you an injustice. There are others.",
+      "id" : "1580-141083-0032@pink-snr-20",
+      "latencyMs" : 81.965084,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Watson, I have always done you an injustice. There are others.",
+      "id" : "1580-141083-0032@pink-snr-10",
+      "latencyMs" : 78.913209,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Watson, I have always done you an injustice. There are others.",
+      "id" : "1580-141083-0032@pink-snr-5",
+      "latencyMs" : 78.527916,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Watson, I have always done you an injustice. There are others.",
+      "id" : "1580-141083-0032@pink-snr-0",
+      "latencyMs" : 80.05375,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, mister Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031",
+      "latencyMs" : 101.6,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, Mr. Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@babble-snr-20",
+      "latencyMs" : 104.340709,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, Mr. Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@babble-snr-10",
+      "latencyMs" : 104.878084,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "But we want to know, Mr. Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@babble-snr-5",
+      "latencyMs" : 110.893875,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, Mr. Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@babble-snr-0",
+      "latencyMs" : 111.74575,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, mister Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@pink-snr-20",
+      "latencyMs" : 104.314416,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, mister Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@pink-snr-10",
+      "latencyMs" : 107.340292,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, mister Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@pink-snr-5",
+      "latencyMs" : 99.534417,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We want to know, mister Gilchrist, how you, an honorable man, ever came to commit such an action as that of yesterday.",
+      "id" : "1580-141084-0031@pink-snr-0",
+      "latencyMs" : 103.940208,
+      "referenceWords" : 22,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "misses Gray had met southerners before, but not intimately, and she always had in mind vividly their cruelty to poor negroes, a subject she made a point of introducing forthwith, but",
+      "id" : "1995-1836-0005",
+      "latencyMs" : 139.440875,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Mrs. Gray had met southerners before, but not intimately, and she always had in mind vividly their cruelty to poor negroes, a subject she made a point of introducing forthwith.",
+      "id" : "1995-1836-0005@babble-snr-20",
+      "latencyMs" : 130.13025,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Mrs. Gray had met southerners before, but not intimately, and she always had in mind vividly their cruelty to poor Negroes, a subject she made a point of introducing forthwith.",
+      "id" : "1995-1836-0005@babble-snr-10",
+      "latencyMs" : 130.18575,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "Mrs. Gray had met Southerners before but not intimately and she always had in mind vividly their cruelty to poor Negroes.",
+      "id" : "1995-1836-0005@babble-snr-5",
+      "latencyMs" : 123.564375,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 30,
+      "hypothesis" : "Yeah, right there's all that one.",
+      "id" : "1995-1836-0005@babble-snr-0",
+      "latencyMs" : 122.582709,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "misses Gray had met southerners before, but not intimately, and she always had in mind vividly their cruelty to poor negroes, a subject she made a point of introducing forthwith.",
+      "id" : "1995-1836-0005@pink-snr-20",
+      "latencyMs" : 128.8095,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Mrs. Gray had met southerners before, but not intimately, and she always had in mind vividly their cruelty to poor Negroes, a subject she made a point of introducing forthwith.",
+      "id" : "1995-1836-0005@pink-snr-10",
+      "latencyMs" : 133.477958,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Mrs. Gray had met southerners before, but not intimately, and she always had in mind vividly their cruelty to poor negroes, a subject she made a point of introducing forthwith.",
+      "id" : "1995-1836-0005@pink-snr-5",
+      "latencyMs" : 128.618167,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Mrs. Gray had met southerners before, but not intimately, and she always had in mind vividly their cruelty to poor Negroes, a subject she made a point of introducing forthwith.",
+      "id" : "1995-1836-0005@pink-snr-0",
+      "latencyMs" : 127.70325,
+      "referenceWords" : 30,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Her tongue was not less keen than her eye, and whenever a damsel came within earshot, seemed to take up an unfinished lecture, as a barrel organ takes up a tune, precisely at the point where it had left off.",
+      "id" : "2094-142345-0013",
+      "latencyMs" : 143.255,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Her tongue was not less keen than her eye, and whenever a damsel came within earshot, seemed to take up an unfinished lecture, as a barrel organ takes up a tune, precisely at the point where it had left off.",
+      "id" : "2094-142345-0013@babble-snr-20",
+      "latencyMs" : 135.354667,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Her tongue was not less keen than her eye, and whenever a damn soul came within earshot, seemed to take up an unfinished lecture as a barrel organ takes up a tune precisely at the point where it had left off.",
+      "id" : "2094-142345-0013@babble-snr-10",
+      "latencyMs" : 141.96725,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 12,
+      "hypothesis" : "Yeah, it's a very good keen than her eyes, and whenever a damn soul came within your shot, seemed to take up an unfinished luxury as a barrel organ takes up a tune precisely at the point where it had left off.",
+      "id" : "2094-142345-0013@babble-snr-5",
+      "latencyMs" : 281.894,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 37,
+      "hypothesis" : "But your tongue was not guaranteed that the gazette is a damn ear shot.",
+      "id" : "2094-142345-0013@babble-snr-0",
+      "latencyMs" : 130.895083,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Her tongue was not less keen than her eye, and whenever a damsel came within earshot, seemed to take up an unfinished lecture, as a barrel organ takes up a tune, precisely at the point where it had left off.",
+      "id" : "2094-142345-0013@pink-snr-20",
+      "latencyMs" : 146.467334,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Her tongue was not less keen than her eye, and whenever a damsel came within earshot, seemed to take up an unfinished lecture, as a barrel organ takes up a tune, precisely at the point where it had left off.",
+      "id" : "2094-142345-0013@pink-snr-10",
+      "latencyMs" : 132.290541,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Her tongue was not less keen than her eye, and whenever a damsel came with the earshot, seemed to take up an unfinished lecture, as a barrel organ takes up a tune, precisely at the point where it had left off.",
+      "id" : "2094-142345-0013@pink-snr-5",
+      "latencyMs" : 123.220292,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Her tongue was not less keen than an eye, and whenever a damsel came with the earshot, seemed to take up an unfinished lecture, as a barrel organ takes up a tune, precisely at the point where it had left off.",
+      "id" : "2094-142345-0013@pink-snr-0",
+      "latencyMs" : 215.374542,
+      "referenceWords" : 40,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Owing to his insistence on low pressure, direct current for use in densely populated districts as the only safe and truly universal profitable way of delivering electrical energy to the consumers, Edison has been frequently spoken of as an opponent of the alternating current",
+      "id" : "2300-131720-0004",
+      "latencyMs" : 344.890166,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Owing to his insistence on low pressure, direct current for use in densely populated districts as the only safe and truly universal, profitable way of delivering electrical energy to the consumers, Edison has been frequently spoken of as an opponent of the alternating current.",
+      "id" : "2300-131720-0004@babble-snr-20",
+      "latencyMs" : 471.113167,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "But it is a very important thing. Owing to his insistence on low pressure, direct current for use in densely populated districts as the only safe and truly universal profitable way of delivering electrical energy to the consumers, Edison has been frequently spoken of as an opponent of the alternating current.",
+      "id" : "2300-131720-0004@babble-snr-10",
+      "latencyMs" : 724.179125,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "Direct current for use in densely populated districts as the only safe and truly universal profitable way of delivering electrical energy to the consumers. Edison has been frequently spoken of as an opponent of the alternating current.",
+      "id" : "2300-131720-0004@babble-snr-5",
+      "latencyMs" : 376.936709,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 42,
+      "hypothesis" : "There was a lot of gates of partial funds with all your clever.",
+      "id" : "2300-131720-0004@babble-snr-0",
+      "latencyMs" : 2142.7555,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Owing to his insistence on low pressure, direct current for use in densely populated districts as the only safe and truly universal profitable way of delivering electrical energy to the consumers, Edison has been frequently spoken of as an opponent of the alternating current.",
+      "id" : "2300-131720-0004@pink-snr-20",
+      "latencyMs" : 275.335667,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Owing to his insistence on low pressure, direct current for use in densely populated districts as the only safe and truly universal profitable way of delivering electrical energy to the consumers, Edison has been frequently spoken of as an opponent of the alternating current.",
+      "id" : "2300-131720-0004@pink-snr-10",
+      "latencyMs" : 317.669667,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Owing to his insistence on low pressure, direct current for use in densely populated districts as the only safe and truly universal profitable way of delivering electrical energy to the consumers, Edison has been frequently spoken of as an opponent of the alternating current.",
+      "id" : "2300-131720-0004@pink-snr-5",
+      "latencyMs" : 256.7,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Owing to his insistence on low pressure, direct current for use in densely populated districts as the only safe and truly universal profitable way of delivering electrical energy to the consumers, Edison has been frequently spoken of as an opponent of the alternating curve.",
+      "id" : "2300-131720-0004@pink-snr-0",
+      "latencyMs" : 267.567417,
+      "referenceWords" : 44,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "asked Phronsie, in intense interest, slipping down out of Polly's arms and crowding up close to Jasper's side",
+      "id" : "237-126133-0014",
+      "latencyMs" : 115.2235,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "asked Phronsie, in intense interest, slipping down out of Polly's arms and crowding up close to Jasper's side.",
+      "id" : "237-126133-0014@babble-snr-20",
+      "latencyMs" : 103.79475,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "asked Phronsie, in intense interest, slipping down out of Polly's arms and crowding up close to Jasper's side.",
+      "id" : "237-126133-0014@babble-snr-10",
+      "latencyMs" : 103.993292,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 5,
+      "hypothesis" : "As toy, in intense interest, slipping down aunt Polly's arms and crowding up close to Jasper's eyes.",
+      "id" : "237-126133-0014@babble-snr-5",
+      "latencyMs" : 219.272834,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 15,
+      "hypothesis" : "It is an intense interview slipping down on Polly's armor.",
+      "id" : "237-126133-0014@babble-snr-0",
+      "latencyMs" : 100.989667,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "asked Phronsie, in intense interest, slipping down out of Polly's arms and crowding up close to Jasper's side.",
+      "id" : "237-126133-0014@pink-snr-20",
+      "latencyMs" : 107.406458,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "asked Phronsie, in intense interest, slipping down out of Polly's arms and crowding up close to Jasper's side.",
+      "id" : "237-126133-0014@pink-snr-10",
+      "latencyMs" : 100.814708,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "asked Phronsine, in intense interest, slipping down out of Polly's arms and crowding up close to Jasper's side.",
+      "id" : "237-126133-0014@pink-snr-5",
+      "latencyMs" : 110.758875,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "asked Phronsie, in intense interest slipping down of Polly's arms and crowding up close to Jasper's side.",
+      "id" : "237-126133-0014@pink-snr-0",
+      "latencyMs" : 103.82975,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "when she used to tell me about him, I always wondered whether she wasn't a little in love with him.",
+      "id" : "237-134500-0022",
+      "latencyMs" : 89.353,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When she used to tell me about him, I always wondered whether she wasn't a little in love with him.",
+      "id" : "237-134500-0022@babble-snr-20",
+      "latencyMs" : 94.059916,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When she used to tell me about him, I always wondered whether she wasn't a little in love with him.",
+      "id" : "237-134500-0022@babble-snr-10",
+      "latencyMs" : 92.596833,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When she used to tell me about him, I always wondered whether she wasn't a little in love with him.",
+      "id" : "237-134500-0022@babble-snr-5",
+      "latencyMs" : 94.88175,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 18,
+      "hypothesis" : "When she was a good thing but with all your keyboards, it was impossible that you could know.",
+      "id" : "237-134500-0022@babble-snr-0",
+      "latencyMs" : 100.089833,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When she used to tell me about him, I always wondered whether she wasn't a little in love with him.",
+      "id" : "237-134500-0022@pink-snr-20",
+      "latencyMs" : 90.711416,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When she used to tell me about him, I always wondered whether she wasn't a little in love with him.",
+      "id" : "237-134500-0022@pink-snr-10",
+      "latencyMs" : 85.959583,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When she used to tell me about him, I always wondered whether she wasn't a little in love with him.",
+      "id" : "237-134500-0022@pink-snr-5",
+      "latencyMs" : 86.651833,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "When she used to tell me about me, I always wondered whether she wasn't a little in love with me.",
+      "id" : "237-134500-0022@pink-snr-0",
+      "latencyMs" : 90.500875,
+      "referenceWords" : 21,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "As for the Ithyosaurus, has he returned to his submarine cabin?",
+      "id" : "260-123286-0031",
+      "latencyMs" : 82.521375,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "As for the Ithosaurus, has he returned to his submarine cavern?",
+      "id" : "260-123286-0031@babble-snr-20",
+      "latencyMs" : 86.468084,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "As for the Ithyosaurus, has he returned to his submarine cavern?",
+      "id" : "260-123286-0031@babble-snr-10",
+      "latencyMs" : 89.437333,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "As for the Ithosaurus, has he returned to his submarine cavern?",
+      "id" : "260-123286-0031@babble-snr-5",
+      "latencyMs" : 87.726667,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 11,
+      "hypothesis" : "",
+      "id" : "260-123286-0031@babble-snr-0",
+      "latencyMs" : 365.082125,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "As for the Ithyosaurus, has he returned to his submarine cavern?",
+      "id" : "260-123286-0031@pink-snr-20",
+      "latencyMs" : 80.3835,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "As for the Ithyosaurus, has he returned to his submarine cavern?",
+      "id" : "260-123286-0031@pink-snr-10",
+      "latencyMs" : 83.060458,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "As for the Iphiosaurus, has he returned to his submarine cavern?",
+      "id" : "260-123286-0031@pink-snr-5",
+      "latencyMs" : 81.795458,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "As for the Ichthyosaurus, has he returned to the submarine cavern?",
+      "id" : "260-123286-0031@pink-snr-0",
+      "latencyMs" : 152.889,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let us begin with that his commentary on Galatians.",
+      "id" : "2830-3979-0002",
+      "latencyMs" : 115.859875,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let us begin with that. His commentary on Galatians.",
+      "id" : "2830-3979-0002@babble-snr-20",
+      "latencyMs" : 145.309,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let us begin with that. His commentary on Galatians.",
+      "id" : "2830-3979-0002@babble-snr-10",
+      "latencyMs" : 133.9295,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Let us begin with uh his commentary on Galatians.",
+      "id" : "2830-3979-0002@babble-snr-5",
+      "latencyMs" : 163.243084,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "No, that's a cleverness of the same thing",
+      "id" : "2830-3979-0002@babble-snr-0",
+      "latencyMs" : 186.364666,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let us begin with that. His commentary on Galatians.",
+      "id" : "2830-3979-0002@pink-snr-20",
+      "latencyMs" : 125.408917,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let us begin with that. His commentary on Galatians.",
+      "id" : "2830-3979-0002@pink-snr-10",
+      "latencyMs" : 127.557583,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let us begin with that. His commentary on Galatians.",
+      "id" : "2830-3979-0002@pink-snr-5",
+      "latencyMs" : 163.24025,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Let us begin with that. His commentary on Galatians.",
+      "id" : "2830-3979-0002@pink-snr-0",
+      "latencyMs" : 112.852,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Grace involves the remission of sins, peace, and a happy conscience.",
+      "id" : "2830-3980-0041",
+      "latencyMs" : 174.194917,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Grace involves the remission of sins, peace, and a happy conscience.",
+      "id" : "2830-3980-0041@babble-snr-20",
+      "latencyMs" : 140.048292,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Grace involves the remission of sins, peace and a happy conscience.",
+      "id" : "2830-3980-0041@babble-snr-10",
+      "latencyMs" : 119.971292,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Grace involves the remission of sins, peace and a happy conscience of the people.",
+      "id" : "2830-3980-0041@babble-snr-5",
+      "latencyMs" : 119.290291,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 10,
+      "hypothesis" : "But with all your cleverness, you could have a good idea",
+      "id" : "2830-3980-0041@babble-snr-0",
+      "latencyMs" : 224.204708,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Grace involves the remission of sins, peace, and a happy conscience.",
+      "id" : "2830-3980-0041@pink-snr-20",
+      "latencyMs" : 300.770667,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Grace involves the remission of sins, peace, and a happy conscience.",
+      "id" : "2830-3980-0041@pink-snr-10",
+      "latencyMs" : 178.927792,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Grace involves the remission of sins, peace, and a happy conscience.",
+      "id" : "2830-3980-0041@pink-snr-5",
+      "latencyMs" : 168.216958,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Grace involves the remission of sins, peace, and a happy conscience.",
+      "id" : "2830-3980-0041@pink-snr-0",
+      "latencyMs" : 210.029625,
+      "referenceWords" : 11,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But Plato has not the same mastery over his instrument which he exhibits in the Phaedrus or Symposium",
+      "id" : "2961-960-0016",
+      "latencyMs" : 158.831833,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But Plato has not the same mastery over his instrument which he exhibits in the Phaedrus or Symposium.",
+      "id" : "2961-960-0016@babble-snr-20",
+      "latencyMs" : 144.158667,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But Plato has not the same mastery over his instrument, which he exhibits in the Phaedrus or Symposium.",
+      "id" : "2961-960-0016@babble-snr-10",
+      "latencyMs" : 279.543709,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 11,
+      "hypothesis" : "But Plato has not the same mastery over this instrument but which he exhibits in the theatres we are supposed to be able to government.",
+      "id" : "2961-960-0016@babble-snr-5",
+      "latencyMs" : 177.481792,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "If Plato has not the same over his instrument, which makes it feeding it.",
+      "id" : "2961-960-0016@babble-snr-0",
+      "latencyMs" : 190.115417,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But Plato has not the same mastery over his instrument which he exhibits in the Phaedrus or symposium",
+      "id" : "2961-960-0016@pink-snr-20",
+      "latencyMs" : 187.666542,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "But Plato has not the same mastery over his instrument which he exhibits in the Phedras or Symposium.",
+      "id" : "2961-960-0016@pink-snr-10",
+      "latencyMs" : 140.0515,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "But Plato has not the same mastery over his instrument which he exhibits in the theatres or symposium",
+      "id" : "2961-960-0016@pink-snr-5",
+      "latencyMs" : 103.884083,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "But Plato has not the same mastery over his instrument, which he exhibits in the theatres or symbols.",
+      "id" : "2961-960-0016@pink-snr-0",
+      "latencyMs" : 103.500458,
+      "referenceWords" : 18,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently these two groups coincide",
+      "id" : "3570-5695-0000",
+      "latencyMs" : 81.790334,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently, these two groups coincide.",
+      "id" : "3570-5695-0000@babble-snr-20",
+      "latencyMs" : 79.348417,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently, these two groups coincide.",
+      "id" : "3570-5695-0000@babble-snr-10",
+      "latencyMs" : 75.110917,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently, these two groups coincide.",
+      "id" : "3570-5695-0000@babble-snr-5",
+      "latencyMs" : 109.530667,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "In a general way to do it, but it's the effect.",
+      "id" : "3570-5695-0000@babble-snr-0",
+      "latencyMs" : 94.474209,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently these two groups coincide.",
+      "id" : "3570-5695-0000@pink-snr-20",
+      "latencyMs" : 72.177584,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently, these two groups coincide.",
+      "id" : "3570-5695-0000@pink-snr-10",
+      "latencyMs" : 82.8955,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently these two groups coincide.",
+      "id" : "3570-5695-0000@pink-snr-5",
+      "latencyMs" : 83.659833,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "In a general way, though not wholly nor consistently, these two groups coincide.",
+      "id" : "3570-5695-0000@pink-snr-0",
+      "latencyMs" : 80.237459,
+      "referenceWords" : 13,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Again I thank you. This incident, I suppose, will be renewed no more. If I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025",
+      "latencyMs" : 125.074541,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Again I thank you. This incident, I suppose, will be renewed no more. If I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025@babble-snr-20",
+      "latencyMs" : 132.507083,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Again I thank you. This incident I suppose will be renewed no more. If I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025@babble-snr-10",
+      "latencyMs" : 121.187625,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "Yeah, I'm not sure this incident I suppose will be renewed no more. If you're not if I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025@babble-snr-5",
+      "latencyMs" : 143.016334,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 16,
+      "hypothesis" : "Again, I think it's easy and I suppose will be no more. If I lose an old woman, I shall remember it was right for the women.",
+      "id" : "3575-170457-0025@babble-snr-0",
+      "latencyMs" : 138.292208,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Again I thank you. This incident, I suppose, will be renewed no more. If I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025@pink-snr-20",
+      "latencyMs" : 121.469334,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Again I thank you. This incident, I suppose, will be renewed no more. If I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025@pink-snr-10",
+      "latencyMs" : 125.233709,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Again I thank you. This incident, I suppose, will be renewed no more. If I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025@pink-snr-5",
+      "latencyMs" : 122.697041,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Again I thank you. This incident I suppose would be renewed no more. If I live to be an old woman I shall remember it thirty years hence as a bright dream.",
+      "id" : "3575-170457-0025@pink-snr-0",
+      "latencyMs" : 121.553,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him, and take my leave",
+      "id" : "3729-6852-0021",
+      "latencyMs" : 58.53725,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him and take my leave.",
+      "id" : "3729-6852-0021@babble-snr-20",
+      "latencyMs" : 62.783625,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him and take my leave.",
+      "id" : "3729-6852-0021@babble-snr-10",
+      "latencyMs" : 65.531834,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him and take my leave.",
+      "id" : "3729-6852-0021@babble-snr-5",
+      "latencyMs" : 70.266708,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "",
+      "id" : "3729-6852-0021@babble-snr-0",
+      "latencyMs" : 340.664792,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him, and take my leave",
+      "id" : "3729-6852-0021@pink-snr-20",
+      "latencyMs" : 57.694791,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him, and take my leave.",
+      "id" : "3729-6852-0021@pink-snr-10",
+      "latencyMs" : 59.904417,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him and take my leave",
+      "id" : "3729-6852-0021@pink-snr-5",
+      "latencyMs" : 62.895917,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "I thank him and take my leave.",
+      "id" : "3729-6852-0021@pink-snr-0",
+      "latencyMs" : 58.68275,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Already a north and a south were talked of. Why not set up also a west?",
+      "id" : "4077-13754-0004",
+      "latencyMs" : 82.162,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Already a north and a south were talked of. Why not set up also a west?",
+      "id" : "4077-13754-0004@babble-snr-20",
+      "latencyMs" : 83.091583,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "Already a north and a south were talked of.",
+      "id" : "4077-13754-0004@babble-snr-10",
+      "latencyMs" : 76.651041,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Already a north and a south were talked of. Why not set up also a west?",
+      "id" : "4077-13754-0004@babble-snr-5",
+      "latencyMs" : 87.631875,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "I'm already in north and south of the talk. Why not set up also in west?",
+      "id" : "4077-13754-0004@babble-snr-0",
+      "latencyMs" : 98.61125,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Already a north and a south were talked of. Why not set up also a west?",
+      "id" : "4077-13754-0004@pink-snr-20",
+      "latencyMs" : 78.330625,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Already a north and a south were talked of. Why not set up also a west?",
+      "id" : "4077-13754-0004@pink-snr-10",
+      "latencyMs" : 80.137959,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Already a north and a south were talked of. Why not set up also a west?",
+      "id" : "4077-13754-0004@pink-snr-5",
+      "latencyMs" : 79.060375,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Already a north and a south were talked of. Why not set up also a west?",
+      "id" : "4077-13754-0004@pink-snr-0",
+      "latencyMs" : 78.7615,
+      "referenceWords" : 16,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "There are a few changes in the old quarter.",
+      "id" : "4446-2273-0014",
+      "latencyMs" : 74.534291,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "There are a few changes in the old quarter.",
+      "id" : "4446-2273-0014@babble-snr-20",
+      "latencyMs" : 73.125042,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "Yeah.",
+      "id" : "4446-2273-0014@babble-snr-10",
+      "latencyMs" : 61.515,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "There are a few changes in the old quarter.",
+      "id" : "4446-2273-0014@babble-snr-5",
+      "latencyMs" : 69.469833,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "There are a few changes in the old border now.",
+      "id" : "4446-2273-0014@babble-snr-0",
+      "latencyMs" : 72.4605,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "There are a few changes in the old quarter.",
+      "id" : "4446-2273-0014@pink-snr-20",
+      "latencyMs" : 68.733209,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "There are a few changes in the old quarter.",
+      "id" : "4446-2273-0014@pink-snr-10",
+      "latencyMs" : 72.81975,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "There are a few changes in the old quarter.",
+      "id" : "4446-2273-0014@pink-snr-5",
+      "latencyMs" : 69.4315,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "There are a few changes in the old quarter.",
+      "id" : "4446-2273-0014@pink-snr-0",
+      "latencyMs" : 68.519416,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that, he said simply.",
+      "id" : "4446-2275-0030",
+      "latencyMs" : 68.045334,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that, he said simply.",
+      "id" : "4446-2275-0030@babble-snr-20",
+      "latencyMs" : 71.209791,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that, he said simply.",
+      "id" : "4446-2275-0030@babble-snr-10",
+      "latencyMs" : 117.273833,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that he said simply.",
+      "id" : "4446-2275-0030@babble-snr-5",
+      "latencyMs" : 71.87925,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Yes, Hilda I know that he said.",
+      "id" : "4446-2275-0030@babble-snr-0",
+      "latencyMs" : 70.470917,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that, he said simply.",
+      "id" : "4446-2275-0030@pink-snr-20",
+      "latencyMs" : 67.569459,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that, he said simply.",
+      "id" : "4446-2275-0030@pink-snr-10",
+      "latencyMs" : 70.99375,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that, he said simply.",
+      "id" : "4446-2275-0030@pink-snr-5",
+      "latencyMs" : 70.92575,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Yes, Hilda, I know that, he said simply.",
+      "id" : "4446-2275-0030@pink-snr-0",
+      "latencyMs" : 70.188917,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "facts form one of these, and ideas the other.",
+      "id" : "4507-16021-0036",
+      "latencyMs" : 74.273417,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "Okay.",
+      "id" : "4507-16021-0036@babble-snr-20",
+      "latencyMs" : 59.235417,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Facts form one of these and ideas the other.",
+      "id" : "4507-16021-0036@babble-snr-10",
+      "latencyMs" : 65.250084,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "",
+      "id" : "4507-16021-0036@babble-snr-5",
+      "latencyMs" : 316.572916,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "I never",
+      "id" : "4507-16021-0036@babble-snr-0",
+      "latencyMs" : 220.055542,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "facts form one of these, and ideas the other.",
+      "id" : "4507-16021-0036@pink-snr-20",
+      "latencyMs" : 72.766541,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "facts form one of these and ideas the other.",
+      "id" : "4507-16021-0036@pink-snr-10",
+      "latencyMs" : 60.149625,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "facts form one of these and ideas the other.",
+      "id" : "4507-16021-0036@pink-snr-5",
+      "latencyMs" : 62.3485,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "facts form one of these and ideas the other.",
+      "id" : "4507-16021-0036@pink-snr-0",
+      "latencyMs" : 62.067959,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Thy ways greatly try me, Ruth, and all thy relations.",
+      "id" : "4970-29095-0005",
+      "latencyMs" : 66.884541,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Thy ways greatly try me, Ruth, and all thy relations.",
+      "id" : "4970-29095-0005@babble-snr-20",
+      "latencyMs" : 68.894542,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Thy ways greatly try me, Ruth, and all thy relationship for",
+      "id" : "4970-29095-0005@babble-snr-10",
+      "latencyMs" : 118.911709,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Thy ways greatly try me, Bruce, and all thy relations.",
+      "id" : "4970-29095-0005@babble-snr-5",
+      "latencyMs" : 119.284375,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 14,
+      "hypothesis" : "If you only try to get with all your cleverness, all possible stuff you could know.",
+      "id" : "4970-29095-0005@babble-snr-0",
+      "latencyMs" : 90.928041,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Thy ways greatly try me, Ruth, and all thy relations.",
+      "id" : "4970-29095-0005@pink-snr-20",
+      "latencyMs" : 70.682083,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Thy ways greatly try me, Ruth, and all thy relations.",
+      "id" : "4970-29095-0005@pink-snr-10",
+      "latencyMs" : 68.794875,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Thy ways greatly try me, Ruth, and all thy relations.",
+      "id" : "4970-29095-0005@pink-snr-5",
+      "latencyMs" : 68.494875,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Thy ways greatly try thee, honey, and all thy relations.",
+      "id" : "4970-29095-0005@pink-snr-0",
+      "latencyMs" : 75.026666,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "To relieve her from both, he laid his hand with force upon his heart and said, Do you believe me?",
+      "id" : "4992-23283-0018",
+      "latencyMs" : 87.270708,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "To relieve her from both, he laid his hand with force upon his heart and said, Do you believe me?",
+      "id" : "4992-23283-0018@babble-snr-20",
+      "latencyMs" : 88.404208,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 20,
+      "hypothesis" : "I'm not sure.",
+      "id" : "4992-23283-0018@babble-snr-10",
+      "latencyMs" : 68.563709,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 4,
+      "hypothesis" : "To relieve her from both, he laid his hand with force upon his heart and said,",
+      "id" : "4992-23283-0018@babble-snr-5",
+      "latencyMs" : 79.980209,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 19,
+      "hypothesis" : "But if you only had known possible that you could",
+      "id" : "4992-23283-0018@babble-snr-0",
+      "latencyMs" : 96.66975,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "To relieve her from both, he laid his hand with force upon his heart and said, Do you believe me?",
+      "id" : "4992-23283-0018@pink-snr-20",
+      "latencyMs" : 83.906792,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "To relieve her from both, he laid his hand with force upon his heart and said, Do you believe me?",
+      "id" : "4992-23283-0018@pink-snr-10",
+      "latencyMs" : 81.734292,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "To relieve her from both, he laid his hand with force upon his heart and said, Do you believe me?",
+      "id" : "4992-23283-0018@pink-snr-5",
+      "latencyMs" : 89.209166,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "To relieve her from both, he laid his hand with force upon his heart and said, Do you believe me?",
+      "id" : "4992-23283-0018@pink-snr-0",
+      "latencyMs" : 96.569542,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When a private in the eighth Cavalry, he had been on the point of quitting the army, at twenty eight years of age, but unexpectedly he had been appointed orderly to Captain Servadac.",
+      "id" : "5105-28233-0008",
+      "latencyMs" : 133.893208,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When a private in the eighth Cavalry, he had been on the point of quitting the army at twenty eight years of age, but unexpectedly he had been appointed orderly to Captain Servadac.",
+      "id" : "5105-28233-0008@babble-snr-20",
+      "latencyMs" : 135.225959,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When a private in the eighth cavalry, he had been on the point of quitting the army at twenty-eight years of age, but unexpectedly he had been appointed orderly to Captain Servadac.",
+      "id" : "5105-28233-0008@babble-snr-10",
+      "latencyMs" : 131.80675,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "When a private in the eighth cavalry, he had been on the point of quitting the army at twenty eight years of age, but unexpectedly he had been appointed orderly to captain service.",
+      "id" : "5105-28233-0008@babble-snr-5",
+      "latencyMs" : 147.407292,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "Yeah, when a private cavalry he had been on the point of quitting the army twenty-eight years of age, but unexpectedly he had been appointed orderly to cattle and service.",
+      "id" : "5105-28233-0008@babble-snr-0",
+      "latencyMs" : 145.98725,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When a private in the eighth Cavalry, he had been on the point of quitting the army at twenty eight years of age, but unexpectedly he had been appointed orderly to Captain Servadac.",
+      "id" : "5105-28233-0008@pink-snr-20",
+      "latencyMs" : 121.711792,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "When a private in the eighth Cavalry, he had been on the point of quitting the army at twenty eight years of age, but unexpectedly he had been appointed orderly to Captain Servadac.",
+      "id" : "5105-28233-0008@pink-snr-10",
+      "latencyMs" : 234.805167,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "when a private in the eighth Cavalry. He had been on the point of quitting the army at twenty eight years of age, but unexpectedly he had been appointed orderly to Captain Servadet.",
+      "id" : "5105-28233-0008@pink-snr-5",
+      "latencyMs" : 238.611416,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "When a private in the eighth Cavalry, he had been on the point of quitting the army at twenty eight years of age, but unexpectedly he had been appointed orderly to Captain Servadin.",
+      "id" : "5105-28233-0008@pink-snr-0",
+      "latencyMs" : 240.76325,
+      "referenceWords" : 32,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But I stayed that spring and built me a boat.",
+      "id" : "5142-33396-0005",
+      "latencyMs" : 141.239375,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But I stayed that spring and built me a boat.",
+      "id" : "5142-33396-0005@babble-snr-20",
+      "latencyMs" : 106.527916,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "But I stayed that spring and built me a bow.",
+      "id" : "5142-33396-0005@babble-snr-10",
+      "latencyMs" : 125.932833,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But I stayed that spring and built me a boat.",
+      "id" : "5142-33396-0005@babble-snr-5",
+      "latencyMs" : 148.085667,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "But I stayed there, you don't need to be able to",
+      "id" : "5142-33396-0005@babble-snr-0",
+      "latencyMs" : 145.0025,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But I stayed that spring and built me a boat.",
+      "id" : "5142-33396-0005@pink-snr-20",
+      "latencyMs" : 99.753166,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But I stayed that spring and built me a boat.",
+      "id" : "5142-33396-0005@pink-snr-10",
+      "latencyMs" : 94.840542,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "But I stayed that spring and built me a boat.",
+      "id" : "5142-33396-0005@pink-snr-5",
+      "latencyMs" : 132.973542,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "But I say that spring and built me a boat.",
+      "id" : "5142-33396-0005@pink-snr-0",
+      "latencyMs" : 166.337625,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We sunk his ship and men, but him we brought to you.",
+      "id" : "5142-33396-0057",
+      "latencyMs" : 104.009416,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We sunk his ship and men, but him we brought to you.",
+      "id" : "5142-33396-0057@babble-snr-20",
+      "latencyMs" : 115.01025,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We sunk his ship and men, but him we brought to you.",
+      "id" : "5142-33396-0057@babble-snr-10",
+      "latencyMs" : 197.64525,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "We sunk his ship and men, so him we brought to you.",
+      "id" : "5142-33396-0057@babble-snr-5",
+      "latencyMs" : 150.08425,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 12,
+      "hypothesis" : "",
+      "id" : "5142-33396-0057@babble-snr-0",
+      "latencyMs" : 1235.329709,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We sunk his ship and men, but him we brought to you.",
+      "id" : "5142-33396-0057@pink-snr-20",
+      "latencyMs" : 154.077541,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We sunk his ship and men, but him we brought to you.",
+      "id" : "5142-33396-0057@pink-snr-10",
+      "latencyMs" : 162.95975,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We sunk his ship and men, but him we brought to you.",
+      "id" : "5142-33396-0057@pink-snr-5",
+      "latencyMs" : 150.6745,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We sunk his ship and men, but him we brought to you.",
+      "id" : "5142-33396-0057@pink-snr-0",
+      "latencyMs" : 99.407709,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Who touches me? Am I in bed?",
+      "id" : "5639-40744-0008",
+      "latencyMs" : 81.992417,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Who touches me? Am I in bed?",
+      "id" : "5639-40744-0008@babble-snr-20",
+      "latencyMs" : 73.643084,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Who touches me? Am I in bed?",
+      "id" : "5639-40744-0008@babble-snr-10",
+      "latencyMs" : 117.074708,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Am I in bed?",
+      "id" : "5639-40744-0008@babble-snr-5",
+      "latencyMs" : 86.1735,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "",
+      "id" : "5639-40744-0008@babble-snr-0",
+      "latencyMs" : 615.115125,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Who touches me? Am I in bed?",
+      "id" : "5639-40744-0008@pink-snr-20",
+      "latencyMs" : 73.263916,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Who touches me? Am I in bed?",
+      "id" : "5639-40744-0008@pink-snr-10",
+      "latencyMs" : 113.038708,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Who touches me? Am I in bed?",
+      "id" : "5639-40744-0008@pink-snr-5",
+      "latencyMs" : 109.494834,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Who touches me? Am I in bed?",
+      "id" : "5639-40744-0008@pink-snr-0",
+      "latencyMs" : 130.301375,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Miss Lake declined the carriage to night.",
+      "id" : "5683-32866-0000",
+      "latencyMs" : 102.016,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Miss Lake declined the carriage tonight.",
+      "id" : "5683-32866-0000@babble-snr-20",
+      "latencyMs" : 102.262417,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Miss Lake declined the carriage tonight.",
+      "id" : "5683-32866-0000@babble-snr-10",
+      "latencyMs" : 100.469459,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 4,
+      "hypothesis" : "Miss Lake declined the carriage and the first time.",
+      "id" : "5683-32866-0000@babble-snr-5",
+      "latencyMs" : 98.159709,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "",
+      "id" : "5683-32866-0000@babble-snr-0",
+      "latencyMs" : 701.640167,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Miss Lake declined the carriage to night.",
+      "id" : "5683-32866-0000@pink-snr-20",
+      "latencyMs" : 70.97925,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Miss Lake declined the carriage to night.",
+      "id" : "5683-32866-0000@pink-snr-10",
+      "latencyMs" : 97.467541,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Miss Lake declined the carriage tonight.",
+      "id" : "5683-32866-0000@pink-snr-5",
+      "latencyMs" : 85.184166,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Miss Lake declined the carriage tonight.",
+      "id" : "5683-32866-0000@pink-snr-0",
+      "latencyMs" : 110.958708,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Dorcas, in her strange way, was moved.",
+      "id" : "5683-32879-0021",
+      "latencyMs" : 89.320333,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Dorcas, in her strange way, was moved.",
+      "id" : "5683-32879-0021@babble-snr-20",
+      "latencyMs" : 85.21825,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "Yeah, yeah.",
+      "id" : "5683-32879-0021@babble-snr-10",
+      "latencyMs" : 87.312584,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 6,
+      "hypothesis" : "Dorcas.",
+      "id" : "5683-32879-0021@babble-snr-5",
+      "latencyMs" : 73.581208,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "",
+      "id" : "5683-32879-0021@babble-snr-0",
+      "latencyMs" : 455.298875,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Dorcas, in her strange way, was moved.",
+      "id" : "5683-32879-0021@pink-snr-20",
+      "latencyMs" : 61.582875,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Dorcas, in her strange way, was moved.",
+      "id" : "5683-32879-0021@pink-snr-10",
+      "latencyMs" : 63.373125,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Dorcas, in her strange way, was moved.",
+      "id" : "5683-32879-0021@pink-snr-5",
+      "latencyMs" : 71.05075,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Dorcas, in her strange way, was moved.",
+      "id" : "5683-32879-0021@pink-snr-0",
+      "latencyMs" : 62.441542,
+      "referenceWords" : 7,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "and Henry might return to England at any moment.",
+      "id" : "61-70968-0048",
+      "latencyMs" : 80.439,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "and Henry might return to England at any moment.",
+      "id" : "61-70968-0048@babble-snr-20",
+      "latencyMs" : 64.98375,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "and Henry might return to England at any moment.",
+      "id" : "61-70968-0048@babble-snr-10",
+      "latencyMs" : 136.060666,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "And Henry might return to England at any moment.",
+      "id" : "61-70968-0048@babble-snr-5",
+      "latencyMs" : 83.025709,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "And Henry might return to England at Hayes Month.",
+      "id" : "61-70968-0048@babble-snr-0",
+      "latencyMs" : 95.033292,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "and Henry might return to England at any moment.",
+      "id" : "61-70968-0048@pink-snr-20",
+      "latencyMs" : 72.484,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "and Henry might return to England at any moment.",
+      "id" : "61-70968-0048@pink-snr-10",
+      "latencyMs" : 65.686375,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "and Henry might return to England at any moment.",
+      "id" : "61-70968-0048@pink-snr-5",
+      "latencyMs" : 64.729209,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "and Henry might return to England at any moment.",
+      "id" : "61-70968-0048@pink-snr-0",
+      "latencyMs" : 68.881208,
+      "referenceWords" : 9,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "His tones rang pleasantly on Warranton's ears, and forthwith a good fellowship was heralded between them.",
+      "id" : "61-70970-0037",
+      "latencyMs" : 101.450209,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "His tones rang pleasantly on Warranton's ears, and forthwith the good fellowship was heralded between them.",
+      "id" : "61-70970-0037@babble-snr-20",
+      "latencyMs" : 121.888084,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "His tones rang pleasantly on Warrington's ears, and forthwith a good fellowship was heralded between them.",
+      "id" : "61-70970-0037@babble-snr-10",
+      "latencyMs" : 101.38075,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "His tones rang pleasantly on Warrington's ears, and forthwith the good fellowship was heralded between them.",
+      "id" : "61-70970-0037@babble-snr-5",
+      "latencyMs" : 91.709292,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "And forthwith the good fellowship was heralded between them.",
+      "id" : "61-70970-0037@babble-snr-0",
+      "latencyMs" : 76.952667,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "His tones rang pleasantly on Warrington's ears, and forthwith a good fellowship was heralded between them.",
+      "id" : "61-70970-0037@pink-snr-20",
+      "latencyMs" : 92.815333,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "His tones rang pleasantly on Warranton's ears, and forthwith a good fellowship was heralded between them.",
+      "id" : "61-70970-0037@pink-snr-10",
+      "latencyMs" : 87.078542,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "His tones rang pleasantly on Warrington's ears, and forthwith a good fellowship was heralded between them.",
+      "id" : "61-70970-0037@pink-snr-5",
+      "latencyMs" : 92.266709,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "His tones rang pleasantly on Warranton's ears, and forthwith a good fellowship was heralded between them.",
+      "id" : "61-70970-0037@pink-snr-0",
+      "latencyMs" : 96.329,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Squeak, squeak.",
+      "id" : "672-122797-0049",
+      "latencyMs" : 57.545083,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Squeak, squeak.",
+      "id" : "672-122797-0049@babble-snr-20",
+      "latencyMs" : 58.946333,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Squeak! Squeak!",
+      "id" : "672-122797-0049@babble-snr-10",
+      "latencyMs" : 58.89975,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "",
+      "id" : "672-122797-0049@babble-snr-5",
+      "latencyMs" : 342.38425,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "",
+      "id" : "672-122797-0049@babble-snr-0",
+      "latencyMs" : 317.398166,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Squeak, squeak.",
+      "id" : "672-122797-0049@pink-snr-20",
+      "latencyMs" : 54.139833,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Squeak, squeak.",
+      "id" : "672-122797-0049@pink-snr-10",
+      "latencyMs" : 53.934041,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Squeak, squeak.",
+      "id" : "672-122797-0049@pink-snr-5",
+      "latencyMs" : 52.770708,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Squeak, squeak.",
+      "id" : "672-122797-0049@pink-snr-0",
+      "latencyMs" : 51.5685,
+      "referenceWords" : 2,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026",
+      "latencyMs" : 71.65675,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026@babble-snr-20",
+      "latencyMs" : 77.463417,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026@babble-snr-10",
+      "latencyMs" : 75.43725,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026@babble-snr-5",
+      "latencyMs" : 76.422625,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "He spoke simply, but paced up and down with the narrow cell in front of them.",
+      "id" : "6829-68769-0026@babble-snr-0",
+      "latencyMs" : 72.024209,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026@pink-snr-20",
+      "latencyMs" : 77.979917,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026@pink-snr-10",
+      "latencyMs" : 78.36975,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026@pink-snr-5",
+      "latencyMs" : 75.435084,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "He spoke simply, but paced up and down the narrow cell in front of them.",
+      "id" : "6829-68769-0026@pink-snr-0",
+      "latencyMs" : 86.58675,
+      "referenceWords" : 15,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "For the first time the maid seemed a little confused, and her gaze wandered from the face of her visitor.",
+      "id" : "6829-68771-0024",
+      "latencyMs" : 95.622,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "For the first time, the maid seemed a little confused, and her gaze wandered from the face of her visitor.",
+      "id" : "6829-68771-0024@babble-snr-20",
+      "latencyMs" : 88.203625,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "For the first time the maid seemed a little confused, and her gaze wandered from the face of her visitor.",
+      "id" : "6829-68771-0024@babble-snr-10",
+      "latencyMs" : 92.870958,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 6,
+      "hypothesis" : "Yes, I think it's for the first time the maid seemed a little confused, and her gaze wandered from the face of her visitors.",
+      "id" : "6829-68771-0024@babble-snr-5",
+      "latencyMs" : 99.755833,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "Yeah, I think that's a first time the maid seemed a little confused, and her gaze wandered from the face of her listeners.",
+      "id" : "6829-68771-0024@babble-snr-0",
+      "latencyMs" : 100.867959,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "For the first time the maid seemed a little confused, and her gaze wandered from the face of her visitor.",
+      "id" : "6829-68771-0024@pink-snr-20",
+      "latencyMs" : 87.077792,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "For the first time the maid seemed a little confused, and her gaze wandered from the face of her visitor.",
+      "id" : "6829-68771-0024@pink-snr-10",
+      "latencyMs" : 88.124167,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "For the first time the maid seemed a little confused, and her gaze wandered from the face of her visitor.",
+      "id" : "6829-68771-0024@pink-snr-5",
+      "latencyMs" : 88.149125,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "For the first time the maid seemed a little confused, and her gaze wandered from the face of her visitor.",
+      "id" : "6829-68771-0024@pink-snr-0",
+      "latencyMs" : 87.637334,
+      "referenceWords" : 20,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Now let's dust the furniture and pictures.",
+      "id" : "6930-76324-0019",
+      "latencyMs" : 66.69575,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Now let's dust the furniture and pictures.",
+      "id" : "6930-76324-0019@babble-snr-20",
+      "latencyMs" : 71.871584,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Now let's dust the furniture and pictures off.",
+      "id" : "6930-76324-0019@babble-snr-10",
+      "latencyMs" : 74.885333,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Now let's dust the furniture pictures.",
+      "id" : "6930-76324-0019@babble-snr-5",
+      "latencyMs" : 251.587292,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 4,
+      "hypothesis" : "The furniture and pictures",
+      "id" : "6930-76324-0019@babble-snr-0",
+      "latencyMs" : 192.846042,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Now let's dust the furniture and pictures.",
+      "id" : "6930-76324-0019@pink-snr-20",
+      "latencyMs" : 67.35125,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Now let's dust the furniture and pictures.",
+      "id" : "6930-76324-0019@pink-snr-10",
+      "latencyMs" : 72.399875,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Now let's dust the furniture and pictures.",
+      "id" : "6930-76324-0019@pink-snr-5",
+      "latencyMs" : 68.04525,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Now let's dust the furniture and pictures.",
+      "id" : "6930-76324-0019@pink-snr-0",
+      "latencyMs" : 67.983542,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "You have come Andella Andella was the name of Jane's doll, to make Rosalie a visit.",
+      "id" : "7021-79740-0004",
+      "latencyMs" : 94.102083,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "You have come, Andella. Andella was the name of Jane Stull, to make Rosalie a visit.",
+      "id" : "7021-79740-0004@babble-snr-20",
+      "latencyMs" : 91.327459,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 4,
+      "hypothesis" : "You have come, Andela. Andella was the name of James Doc, to make Rosalie a visit.",
+      "id" : "7021-79740-0004@babble-snr-10",
+      "latencyMs" : 102.719666,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 9,
+      "hypothesis" : "You have come to Andela. And I'm not to make Rosalie a visit.",
+      "id" : "7021-79740-0004@babble-snr-5",
+      "latencyMs" : 103.003125,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 17,
+      "hypothesis" : "",
+      "id" : "7021-79740-0004@babble-snr-0",
+      "latencyMs" : 511.448333,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "You have come, Andela Andela was the name of Jane's doll, to make Rosalie a visit.",
+      "id" : "7021-79740-0004@pink-snr-20",
+      "latencyMs" : 96.036459,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "You have come, Andella. Andella was the name of James Doll, to make Rosalie a visit.",
+      "id" : "7021-79740-0004@pink-snr-10",
+      "latencyMs" : 184.588833,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 4,
+      "hypothesis" : "You have come, Andella. And Della was the name of Jane Star. To make Rosalie a visit.",
+      "id" : "7021-79740-0004@pink-snr-5",
+      "latencyMs" : 165.566083,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "You have come, and delay and dela was the name of James Dow, to make Rosalie a visit.",
+      "id" : "7021-79740-0004@pink-snr-0",
+      "latencyMs" : 157.554792,
+      "referenceWords" : 17,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Does your Majesty, then, no longer believe the disloyal attempt?",
+      "id" : "7127-75946-0008",
+      "latencyMs" : 221.064291,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Does your majesty then no longer believe the disloyal attempt?",
+      "id" : "7127-75946-0008@babble-snr-20",
+      "latencyMs" : 126.53775,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Does your majesty then no longer believe the disloyal attempt?",
+      "id" : "7127-75946-0008@babble-snr-10",
+      "latencyMs" : 151.609167,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Oh, yeah. Does your majesty then no longer believe the disloyal attempt that?",
+      "id" : "7127-75946-0008@babble-snr-5",
+      "latencyMs" : 168.684625,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 10,
+      "hypothesis" : "Oh well, I'm not sure the disloyal sent to you.",
+      "id" : "7127-75946-0008@babble-snr-0",
+      "latencyMs" : 169.108833,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Does your Majesty, then, no longer believe the disloyal attempt?",
+      "id" : "7127-75946-0008@pink-snr-20",
+      "latencyMs" : 150.281417,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Does your Majesty then no longer believe the disloyal attempt?",
+      "id" : "7127-75946-0008@pink-snr-10",
+      "latencyMs" : 174.84525,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Does your majesty then no longer believe the disloyal attempt?",
+      "id" : "7127-75946-0008@pink-snr-5",
+      "latencyMs" : 112.34875,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Does your majesty then no longer believe the disloyal attempt?",
+      "id" : "7127-75946-0008@pink-snr-0",
+      "latencyMs" : 122.183,
+      "referenceWords" : 10,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the Count",
+      "id" : "7127-75947-0030",
+      "latencyMs" : 322.315292,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the Count.",
+      "id" : "7127-75947-0030@babble-snr-20",
+      "latencyMs" : 260.201291,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the Count.",
+      "id" : "7127-75947-0030@babble-snr-10",
+      "latencyMs" : 152.093792,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the count.",
+      "id" : "7127-75947-0030@babble-snr-5",
+      "latencyMs" : 985.533166,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "",
+      "id" : "7127-75947-0030@babble-snr-0",
+      "latencyMs" : 718.584208,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the Count.",
+      "id" : "7127-75947-0030@pink-snr-20",
+      "latencyMs" : 96.639916,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the Count.",
+      "id" : "7127-75947-0030@pink-snr-10",
+      "latencyMs" : 85.82275,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the Count.",
+      "id" : "7127-75947-0030@pink-snr-5",
+      "latencyMs" : 112.650958,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "She was here just now, said the Count.",
+      "id" : "7127-75947-0030@pink-snr-0",
+      "latencyMs" : 123.848625,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We moderns, however, see the absurdity of it.",
+      "id" : "7176-92135-0013",
+      "latencyMs" : 131.513916,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We moderns, however, see the absurdity of it.",
+      "id" : "7176-92135-0013@babble-snr-20",
+      "latencyMs" : 111.999209,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We moderns, however, see the absurdity of it.",
+      "id" : "7176-92135-0013@babble-snr-10",
+      "latencyMs" : 142.261917,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "We modern, however, see the absurdity of it.",
+      "id" : "7176-92135-0013@babble-snr-5",
+      "latencyMs" : 93.00875,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "",
+      "id" : "7176-92135-0013@babble-snr-0",
+      "latencyMs" : 542.55525,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We moderns, however, see the absurdity of it.",
+      "id" : "7176-92135-0013@pink-snr-20",
+      "latencyMs" : 98.002958,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "We moderns, however, see the absurdity of it.",
+      "id" : "7176-92135-0013@pink-snr-10",
+      "latencyMs" : 83.514458,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The moderns, however, see the absurdity of it.",
+      "id" : "7176-92135-0013@pink-snr-5",
+      "latencyMs" : 82.673542,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The modern, however, see the absurdity of it.",
+      "id" : "7176-92135-0013@pink-snr-0",
+      "latencyMs" : 84.643625,
+      "referenceWords" : 8,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was summoned, no further effort made, and reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020",
+      "latencyMs" : 223.397,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was summoned, no further effort made, and reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020@babble-snr-20",
+      "latencyMs" : 180.895291,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was summoned, no further effort made, and Reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020@babble-snr-10",
+      "latencyMs" : 178.253875,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was sung, no further effort made, and Reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020@babble-snr-5",
+      "latencyMs" : 140.833083,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 24,
+      "hypothesis" : "And read off various and stuff it into the easy.",
+      "id" : "7729-102255-0020@babble-snr-0",
+      "latencyMs" : 138.586,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was summoned, no further effort made, and reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020@pink-snr-20",
+      "latencyMs" : 150.275375,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was summoned, no further effort made, and reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020@pink-snr-10",
+      "latencyMs" : 133.408666,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was summoned, no further effort made, and reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020@pink-snr-5",
+      "latencyMs" : 116.850958,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "The incident was not violent, nor even dramatic, no posse was summoned, no further effort made, and reader, fearing personal violence, soon fled in disguise.",
+      "id" : "7729-102255-0020@pink-snr-0",
+      "latencyMs" : 141.857833,
+      "referenceWords" : 25,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Have mercy, Lord, on me I pray, for men would me devour.",
+      "id" : "8224-274384-0007",
+      "latencyMs" : 82.530084,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Have mercy, Lord, on me, I pray, for men would me devour.",
+      "id" : "8224-274384-0007@babble-snr-20",
+      "latencyMs" : 89.292041,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Have mercy, Lord, on me, I pray, whom he had, for men would me devour.",
+      "id" : "8224-274384-0007@babble-snr-10",
+      "latencyMs" : 89.352791,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 7,
+      "hypothesis" : "But for me, I prayed for men would be devouring.",
+      "id" : "8224-274384-0007@babble-snr-5",
+      "latencyMs" : 88.546792,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 12,
+      "hypothesis" : "",
+      "id" : "8224-274384-0007@babble-snr-0",
+      "latencyMs" : 401.112958,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Have mercy, Lord, on me I pray, for men would me devour.",
+      "id" : "8224-274384-0007@pink-snr-20",
+      "latencyMs" : 104.602167,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Have mercy, Lord, on me I pray, for men would me devour.",
+      "id" : "8224-274384-0007@pink-snr-10",
+      "latencyMs" : 77.839916,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Have mercy, Lord, on me I pray, for men would me devour.",
+      "id" : "8224-274384-0007@pink-snr-5",
+      "latencyMs" : 76.983625,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "Have mercy, Lord, on me, I pray, for men would be devour.",
+      "id" : "8224-274384-0007@pink-snr-0",
+      "latencyMs" : 86.213416,
+      "referenceWords" : 12,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "On arriving at home at my own residence, I found that our salon was filled with a brilliant company.",
+      "id" : "8455-210777-0002",
+      "latencyMs" : 96.496792,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "On arriving at home at my own residence, I found that our salon was filled with a brilliant company.",
+      "id" : "8455-210777-0002@babble-snr-20",
+      "latencyMs" : 99.238,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "But on arriving at home at my own residence, I found that our salon was filled with a brilliant company.",
+      "id" : "8455-210777-0002@babble-snr-10",
+      "latencyMs" : 115.867042,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "On arriving at home at my own residence, I found that our salon was filled with brilliant company.",
+      "id" : "8455-210777-0002@babble-snr-5",
+      "latencyMs" : 97.838209,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 19,
+      "hypothesis" : "I'm not sure if you're not getting out of the way.",
+      "id" : "8455-210777-0002@babble-snr-0",
+      "latencyMs" : 104.8165,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "On arriving at home at my own residence, I found that our salon was filled with a brilliant company.",
+      "id" : "8455-210777-0002@pink-snr-20",
+      "latencyMs" : 138.669667,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "On arriving at home at my own residence, I found that our salon was filled with a brilliant company.",
+      "id" : "8455-210777-0002@pink-snr-10",
+      "latencyMs" : 90.708667,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "On arriving at home at my own residence, I found that our salon was filled with a brilliant company.",
+      "id" : "8455-210777-0002@pink-snr-5",
+      "latencyMs" : 91.763,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 1,
+      "hypothesis" : "On arriving at home at my own residence, I found that our salon was filled with brilliant company.",
+      "id" : "8455-210777-0002@pink-snr-0",
+      "latencyMs" : 91.269958,
+      "referenceWords" : 19,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows",
+      "id" : "8455-210777-0054",
+      "latencyMs" : 62.723083,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows.",
+      "id" : "8455-210777-0054@babble-snr-20",
+      "latencyMs" : 70.616,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows.",
+      "id" : "8455-210777-0054@babble-snr-10",
+      "latencyMs" : 66.197333,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows.",
+      "id" : "8455-210777-0054@babble-snr-5",
+      "latencyMs" : 323.097958,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 5,
+      "hypothesis" : "But with all your",
+      "id" : "8455-210777-0054@babble-snr-0",
+      "latencyMs" : 239.316834,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows.",
+      "id" : "8455-210777-0054@pink-snr-20",
+      "latencyMs" : 61.751958,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows.",
+      "id" : "8455-210777-0054@pink-snr-10",
+      "latencyMs" : 62.450666,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows.",
+      "id" : "8455-210777-0054@pink-snr-5",
+      "latencyMs" : 61.787333,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "The letter ran as follows.",
+      "id" : "8455-210777-0054@pink-snr-0",
+      "latencyMs" : 65.837666,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "CHAPTER three. AS Master WISHES",
+      "id" : "8463-294828-0000",
+      "latencyMs" : 79.439417,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "Chapter three As Master Wishes.",
+      "id" : "8463-294828-0000@babble-snr-20",
+      "latencyMs" : 66.96475,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "Chapter Three Wishes.",
+      "id" : "8463-294828-0000@babble-snr-10",
+      "latencyMs" : 71.715167,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Chapter three.",
+      "id" : "8463-294828-0000@babble-snr-5",
+      "latencyMs" : 70.87125,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 5,
+      "hypothesis" : "",
+      "id" : "8463-294828-0000@babble-snr-0",
+      "latencyMs" : 380.150875,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "CHAPTER three. AS Master WISHES",
+      "id" : "8463-294828-0000@pink-snr-20",
+      "latencyMs" : 69.712542,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "CHAPTER three. AS Master WISHES",
+      "id" : "8463-294828-0000@pink-snr-10",
+      "latencyMs" : 80.877959,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "CHAPTER three AS Master Wishes",
+      "id" : "8463-294828-0000@pink-snr-5",
+      "latencyMs" : 76.459458,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 0,
+      "hypothesis" : "CHAPTER three AS Master Wishes",
+      "id" : "8463-294828-0000@pink-snr-0",
+      "latencyMs" : 68.862458,
+      "referenceWords" : 5,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The idea of patching Captain Bill to a goat was vastly amusing to him, and the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014",
+      "latencyMs" : 107.595291,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The idea of patching Captain Bill to a goat was vastly amusing to him, and the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014@babble-snr-20",
+      "latencyMs" : 92.673125,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "The idea of attaching Captain Bill to a goat was vastly amusing to him, and the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014@babble-snr-10",
+      "latencyMs" : 107.575875,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 5,
+      "hypothesis" : "The idea of patching Cat and Bill to a ghost was vastly amazing for him. And the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014@babble-snr-5",
+      "latencyMs" : 102.308666,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 24,
+      "hypothesis" : "But the eye draw though, was it fast when he scratched the cannot get out of the way?",
+      "id" : "8555-284447-0014@babble-snr-0",
+      "latencyMs" : 103.683541,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The idea of patching Captain Bill to a goat was vastly amusing to him, and the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014@pink-snr-20",
+      "latencyMs" : 131.69225,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The idea of patching Captain Bill to a goat was vastly amusing to him, and the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014@pink-snr-10",
+      "latencyMs" : 112.359875,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 2,
+      "hypothesis" : "The idea of patching Captain Bill to a goat was vastly amusing to him, and the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014@pink-snr-5",
+      "latencyMs" : 105.186667,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 6,
+      "hypothesis" : "The idea of catching Captain Bill to a boat was a vastly amusement to him, and the more he thought of it, the more he roared with laughter.",
+      "id" : "8555-284447-0014@pink-snr-0",
+      "latencyMs" : 111.516458,
+      "referenceWords" : 28,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Thel is like a watery bow and like a parting cloud, like a reflection in a glass, like shadows in the water, like dreams of infants, like a smile upon an infant's face.",
+      "id" : "908-157963-0004",
+      "latencyMs" : 128.989417,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-clean"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Thel is like a watery bow and like a parting cloud, like a reflection in a glass, like shadows in the water, like dreams of infants, like a smile upon an infant's face.",
+      "id" : "908-157963-0004@babble-snr-20",
+      "latencyMs" : 135.794708,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 8,
+      "hypothesis" : "Fell is like a watery bug and like a parting cloud, like a reflection in a glass, like shadows in the water, like dreams of infant to you, like a smile upon an infant's face.",
+      "id" : "908-157963-0004@babble-snr-10",
+      "latencyMs" : 126.088125,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 5,
+      "hypothesis" : "Fell is like a watery bug and like a parting cloud, like a reflection in a glass, like shadows in the water, like dreams of infants, like a smile upon an infant's face.",
+      "id" : "908-157963-0004@babble-snr-5",
+      "latencyMs" : 117.383208,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 31,
+      "hypothesis" : "He has to be like a lottery book.",
+      "id" : "908-157963-0004@babble-snr-0",
+      "latencyMs" : 277.151042,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-babble"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Thel is like a watery bow and like a parting cloud, like a reflection in a glass, like shadows in the water, like dreams of infants, like a smile upon an infant's face",
+      "id" : "908-157963-0004@pink-snr-20",
+      "latencyMs" : 241.476916,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-20",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Thel is like a watery bow and like a parting cloud, like a reflection in a glass, like shadows in the water, like dreams of infants, like a smile upon an infant's face",
+      "id" : "908-157963-0004@pink-snr-10",
+      "latencyMs" : 263.898709,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-10",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 3,
+      "hypothesis" : "Thel is like a watery bow and like a parting cloud, like a reflection in a glass, like shadows in the water, like dreams of infants, like a smile upon an infant's face.",
+      "id" : "908-157963-0004@pink-snr-5",
+      "latencyMs" : 291.91025,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-5",
+        "noise-pink"
+      ]
+    },
+    {
+      "errors" : 5,
+      "hypothesis" : "Hell is like a watery bow and like a parking cloud, like a reflection in a glass, like shadows in the water, like dreams of infants, like a smile upon an infant's face.",
+      "id" : "908-157963-0004@pink-snr-0",
+      "latencyMs" : 225.711417,
+      "referenceWords" : 33,
+      "tags" : [
+        "clean-read",
+        "snr-0",
+        "noise-pink"
+      ]
+    }
+  ],
+  "model" : "parakeet-tdt-v3",
+  "normalizer" : "normalized",
+  "notes" : [
+
+  ],
+  "set" : "librispeech-test-clean-noisy",
+  "stage" : "asr",
+  "summary" : {
+    "cer" : 9.397055858035895,
+    "items" : 450,
+    "latencyP50Ms" : 101.450209,
+    "latencyP95Ms" : 322.315292,
+    "peakRSSMB" : 591.9375,
+    "referenceWords" : 7632,
+    "wer" : 12.670335429769391
+  }
+}

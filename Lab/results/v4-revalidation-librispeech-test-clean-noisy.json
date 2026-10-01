@@ -1,0 +1,173 @@
+{
+  "conditions" : [
+    {
+      "analyzerSNRMedian" : 42.82493591308594,
+      "condition" : "clean",
+      "finalWER" : 1.650943396226415,
+      "n" : 50,
+      "previewEOUWER" : 8.372641509433961,
+      "previewPollingWER" : 4.834905660377358,
+      "verdicts" : {
+        "good" : 50
+      }
+    },
+    {
+      "analyzerSNRMedian" : 33.985591888427734,
+      "condition" : "babble@snr-20",
+      "finalWER" : 3.0660377358490565,
+      "n" : 50,
+      "previewEOUWER" : 10.141509433962264,
+      "previewPollingWER" : 5.89622641509434,
+      "verdicts" : {
+        "good" : 50
+      }
+    },
+    {
+      "analyzerSNRMedian" : 31.36467742919922,
+      "condition" : "babble@snr-10",
+      "finalWER" : 9.90566037735849,
+      "n" : 50,
+      "previewEOUWER" : 25.70754716981132,
+      "previewPollingWER" : 14.268867924528301,
+      "verdicts" : {
+        "good" : 50
+      }
+    },
+    {
+      "analyzerSNRMedian" : 30.638277053833008,
+      "condition" : "babble@snr-5",
+      "finalWER" : 17.21698113207547,
+      "n" : 50,
+      "previewEOUWER" : 56.014150943396224,
+      "previewPollingWER" : 22.05188679245283,
+      "verdicts" : {
+        "good" : 49,
+        "none" : 1
+      }
+    },
+    {
+      "analyzerSNRMedian" : 27.525463104248047,
+      "condition" : "babble@snr-0",
+      "finalWER" : 69.92924528301887,
+      "n" : 50,
+      "previewEOUWER" : 89.85849056603773,
+      "previewPollingWER" : 69.10377358490567,
+      "verdicts" : {
+        "good" : 44,
+        "none" : 6
+      }
+    },
+    {
+      "analyzerSNRMedian" : 29.198501586914062,
+      "condition" : "pink@snr-20",
+      "finalWER" : 1.650943396226415,
+      "n" : 50,
+      "previewEOUWER" : 9.19811320754717,
+      "previewPollingWER" : 4.363207547169812,
+      "verdicts" : {
+        "good" : 50
+      }
+    },
+    {
+      "analyzerSNRMedian" : 19.83929443359375,
+      "condition" : "pink@snr-10",
+      "finalWER" : 1.650943396226415,
+      "n" : 50,
+      "previewEOUWER" : 10.141509433962264,
+      "previewPollingWER" : 4.834905660377358,
+      "verdicts" : {
+        "good" : 49,
+        "none" : 1
+      }
+    },
+    {
+      "analyzerSNRMedian" : 15.228155136108398,
+      "condition" : "pink@snr-5",
+      "finalWER" : 2.94811320754717,
+      "n" : 50,
+      "previewEOUWER" : 19.221698113207548,
+      "previewPollingWER" : 5.4245283018867925,
+      "verdicts" : {
+        "good" : 39,
+        "none" : 11
+      }
+    },
+    {
+      "analyzerSNRMedian" : 13.860067367553711,
+      "condition" : "pink@snr-0",
+      "finalWER" : 6.014150943396227,
+      "n" : 50,
+      "previewEOUWER" : 34.31603773584906,
+      "previewPollingWER" : 9.55188679245283,
+      "verdicts" : {
+        "good" : 1,
+        "none" : 49
+      }
+    }
+  ],
+  "date" : "2026-10-01",
+  "hardware" : "Apple M2 Pro \/ Version 26.6.2 (Build 25G83) \/ 16 GB",
+  "micQualityFinding" : "WER ≥ 2× clean (1.65%) in 4\/8 noisy conditions; current bounds flag 0% of those utterances poor\/bad and 0% of the conditions that stay near clean. Analyzer SNR median: degraded max 31.4 dB, near-clean min 15.2 dB.",
+  "notes" : [
+    "SNR = whole-utterance power ratio of the V3 mix (Kaldi convention); the analyzer estimates p90 speech frames over p10 floor, so its dB read higher.",
+    "qwenRefinement not re-measured: Qwen3-ASR 0.6B int8 weights (1.2 GB) are not on disk and the disk budget forbids the download → T1."
+  ],
+  "preview" : [
+    {
+      "cpuSecondsPerAudioSecond" : 0.1643189835207043,
+      "firstWordP50Ms" : 533.7120485305787,
+      "firstWordP95Ms" : 1575.3699731826782,
+      "model" : "preview-eou",
+      "neverProducedWord" : 58,
+      "wer" : 29.21907756813417
+    },
+    {
+      "cpuSecondsPerAudioSecond" : 0.07932045569023374,
+      "firstWordP50Ms" : 817.2940111160278,
+      "firstWordP95Ms" : 2091.5260314941406,
+      "model" : "preview-polling",
+      "neverProducedWord" : 3,
+      "wer" : 15.59224318658281
+    },
+    {
+      "firstWordP50Ms" : 0,
+      "firstWordP95Ms" : 0,
+      "model" : "parakeet-tdt-v3 (final, reference)",
+      "neverProducedWord" : 0,
+      "wer" : 12.670335429769391
+    }
+  ],
+  "segmentClasses" : [
+    {
+      "n" : 26,
+      "segmentClass" : "< 5 s",
+      "wer" : 1.2605042016806722
+    },
+    {
+      "n" : 11,
+      "segmentClass" : "5–7 s",
+      "wer" : 1.5957446808510638
+    },
+    {
+      "n" : 13,
+      "segmentClass" : "≥ 7 s",
+      "wer" : 1.8957345971563981
+    },
+    {
+      "n" : 50,
+      "segmentClass" : "entities",
+      "wer" : 1.650943396226415
+    },
+    {
+      "n" : 5,
+      "segmentClass" : "number words",
+      "wer" : 0
+    },
+    {
+      "n" : 1,
+      "segmentClass" : "technical",
+      "wer" : 0
+    }
+  ],
+  "set" : "librispeech-test-clean-noisy"
+}
