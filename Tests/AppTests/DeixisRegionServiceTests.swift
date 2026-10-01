@@ -87,7 +87,10 @@ struct DeixisRegionServiceTests {
     }
 
     /// Poll (bounded) for a timer-driven change, so a loaded parallel run does not flake.
-    static func waitUntil(_ timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
+    /// Polls; returns as soon as `condition` holds. V5 J1: the turn end runs on a `.utility` global
+    /// queue, which a loaded parallel `swift test` starved for > 5 s — the ceiling is generous on
+    /// purpose (it only costs time when the test is failing anyway).
+    static func waitUntil(_ timeout: TimeInterval = 60, _ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition(), Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
     }

@@ -853,10 +853,15 @@ struct OnboardingViewModelTests {
         let deps = OnboardingDependencies.mock(pretendRealMicCapture: true)
         let vm = OnboardingViewModel(dependencies: deps)
         vm.send(.next)
+        let allowed = Date()
         vm.send(.allow(.microphone))
         try await waitUntil { vm.machine.statuses[.microphone] == .granted }
         #expect(vm.step == .microphone)
-        #expect(vm.machine.micVerdict == .waiting)
+        // V5 J1: "still waiting" is only a fact while the 2.5 s grace has not run out — a loaded
+        // parallel run can take that long just to observe the grant.
+        if Date().timeIntervalSince(allowed) < OnboardingViewModel.noAudioGrace / 2 {
+            #expect(vm.machine.micVerdict == .waiting)
+        }
         try await waitUntil(timeoutMs: 6000) { vm.machine.micVerdict == .noAudio }
         vm.teardown()
     }
