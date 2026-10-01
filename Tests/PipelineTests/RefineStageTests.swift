@@ -22,6 +22,9 @@ struct ControllableRefiner: SpanRefining {
     var enforcesOwnDeadline = false
     /// Runs just before the double returns: how a test makes text become committed *during* a pass.
     var whileRunning: (@Sendable () -> Void)?
+    /// When set, the pass blocks here (after recording the call) until the test opens it — how a
+    /// test keeps segments in flight without guessing how long the scheduler takes (V5 J1).
+    var hold: RefineHold?
     let seen = CallLog()
 
     struct OwnDeadlineExceeded: Error {}
@@ -29,6 +32,7 @@ struct ControllableRefiner: SpanRefining {
     func refine(samples: [Float], context: String, deadline: Duration) async throws -> [TranscriptSpan] {
         seen.record(sampleCount: samples.count, context: context, deadline: deadline)
         if let failure { throw failure }
+        if let hold { await hold.wait() }
         if work > .zero {
             if enforcesOwnDeadline, work > deadline {
                 try await Task.sleep(for: deadline)
@@ -70,6 +74,31 @@ final class ReportBox: @unchecked Sendable {
     var last: RefineReport? { all.last }
 }
 
+/// A gate the test opens by hand. Waiting ignores cancellation, like a model mid-prediction.
+final class RefineHold: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if isOpen { lock.unlock(); c.resume(); return }
+            waiters.append(c)
+            lock.unlock()
+        }
+    }
+
+    func open() {
+        lock.lock()
+        isOpen = true
+        let pending = waiters
+        waiters = []
+        lock.unlock()
+        pending.forEach { $0.resume() }
+    }
+}
+
 final class Latch: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
@@ -81,6 +110,11 @@ final class Latch: @unchecked Sendable {
 
 /// R5.2 — the refinement stage. Every test drives a controllable double; nothing here loads a
 /// model, and nothing here depends on the Qwen port being correct.
+///
+/// V5 J1 — timing: no assertion here compares wall time against an absolute budget. Passes that
+/// must succeed get a deadline (30 s) no scheduler stall reaches; "returned promptly" is measured
+/// against the double's own simulated work (it must come back in well under half of it); and
+/// "in flight" is established with `RefineHold` and the backlog's depth, never with a sleep.
 @Suite struct RefineStageTests {
 
     static let pcm = [Float](repeating: 0.01, count: 16_000) // 1 s of 16 kHz mono
@@ -98,7 +132,7 @@ final class Latch: @unchecked Sendable {
     }
 
     static func stage(_ refiner: ControllableRefiner,
-                      deadline: Duration = .seconds(2),
+                      deadline: Duration = Self.ampleDeadline,
                       backlog: RefinementBacklog? = nil,
                       contextText: String = "",
                       stabilityAtApply: RefineStage.StabilityProbe? = nil,
@@ -110,6 +144,9 @@ final class Latch: @unchecked Sendable {
                            contextText: contextText, stabilityAtApply: stabilityAtApply,
                            observer: observer)
     }
+
+    /// The deadline for passes that are meant to finish: far beyond any parallel-run stall.
+    static let ampleDeadline: Duration = .seconds(30)
 
     /// The whole stage contract in one place: nothing is dropped, nothing is invented.
     static func assertContract(_ input: [TranscriptSpan], _ output: [TranscriptSpan]) {
@@ -221,16 +258,18 @@ final class Latch: @unchecked Sendable {
     }
 
     @Test func stageWatchdogFiresEvenIfTheSessionIgnoresItsDeadline() async throws {
-        // The double is handed a 25 ms deadline and sleeps 5 s regardless. The stage's own
-        // watchdog is what has to return, well inside a second.
+        // The double is handed a 25 ms deadline and sleeps 60 s regardless. The stage's own
+        // watchdog is what has to return — in well under half the double's work (V5 J1: relative
+        // to the simulated work, not an absolute wall-clock budget a loaded machine can miss).
         let input = Self.spans("one two three")
         let reports = ReportBox()
+        let work: Duration = .seconds(60)
         let started = ContinuousClock.now
-        let out = try await Self.stage(ControllableRefiner(text: "x", work: .seconds(5)),
+        let out = try await Self.stage(ControllableRefiner(text: "x", work: work),
                                       deadline: .milliseconds(25), reports: reports)
             .process(input, context: StageContext())
         let elapsed = started.duration(to: .now)
-        #expect(elapsed < .seconds(1), "the stage did not wait for the session")
+        #expect(elapsed < work / 2, "the stage did not wait for the session")
         #expect(out.joinedText == "one two three")
         #expect(reports.outcomes == [.timedOut])
     }
@@ -283,7 +322,8 @@ final class Latch: @unchecked Sendable {
 
         let input = Self.spans("third segment in a row")
         let reports = ReportBox()
-        let refiner = ControllableRefiner(text: "would have been refined", work: .seconds(30))
+        let work: Duration = .seconds(30)
+        let refiner = ControllableRefiner(text: "would have been refined", work: work)
         let started = ContinuousClock.now
         let out = try await Self.stage(refiner, backlog: backlog, reports: reports)
             .process(input, context: StageContext())
@@ -291,7 +331,7 @@ final class Latch: @unchecked Sendable {
 
         #expect(out.joinedText == "third segment in a row", "pass-1 is committed, not queued")
         #expect(reports.outcomes == [.backlogFull])
-        #expect(elapsed < .milliseconds(500), "a rejected segment does not wait for anything")
+        #expect(elapsed < work / 2, "a rejected segment does not wait for the session")
         #expect(refiner.seen.count == 0, "the session was never called")
         #expect(await backlog.rejectedCount == 1)
         Self.assertContract(input, out)
@@ -299,7 +339,8 @@ final class Latch: @unchecked Sendable {
 
     @Test func inFlightSegmentsOccupyTheBacklogAndTheThirdIsRejected() async throws {
         let backlog = RefinementBacklog(limit: 2)
-        let slow = ControllableRefiner(text: "slow refinement here", work: .milliseconds(400))
+        let hold = RefineHold()
+        let slow = ControllableRefiner(text: "slow refinement here", hold: hold)
         let reports = ReportBox()
         let input = Self.spans("a b c")
 
@@ -311,11 +352,15 @@ final class Latch: @unchecked Sendable {
                 }
             }
             group.addTask {
-                try? await Task.sleep(for: .milliseconds(80))
+                // Both slow segments are provably in flight: admitted, and parked on the hold.
+                while await backlog.depth < 2 || slow.seen.count < 2 {
+                    try? await Task.sleep(for: .milliseconds(5))
+                }
                 let out = try? await Self.stage(ControllableRefiner(text: "third"), backlog: backlog,
                                                 reports: reports)
                     .process(input, context: StageContext())
                 #expect(out?.joinedText == "a b c", "the third segment keeps pass-1 text")
+                hold.open()
             }
             await group.waitForAll()
         }

@@ -43,7 +43,10 @@ final class MockVoiceCapture: VoiceTestCapturing, @unchecked Sendable {
 }
 
 @MainActor
-@Suite("S7e — Voice: microphone test, Spool, enrollment, language, benchmarks")
+// V5 J1: `.serialized` — every test here drives the main actor through many hops; run one at a
+// time so they don't starve each other under a parallel `swift test` (the hang guard already
+// counts checks, not wall time).
+@Suite("S7e — Voice: microphone test, Spool, enrollment, language, benchmarks", .serialized)
 struct VoiceSectionS7eTests {
     /// The hang guard gave up: the condition never held in `checks` looks at it.
     struct WaitGaveUp: Error, CustomStringConvertible {

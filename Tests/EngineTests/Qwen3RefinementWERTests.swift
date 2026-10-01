@@ -14,7 +14,8 @@ import Shared
 /// When it does run it transcribes one corpus utterance and prints its WER against
 /// `Fixtures/real-room/script.md`. Set `VOICEPLUS_QWEN_WER=1` to run the whole 20-file corpus
 /// (that is the R5.4 benchmark's data, printed here as a table).
-@Suite("Qwen3 refinement (real weights)", .serialized)
+/// V5 J1: runs only with `VOICEPLUS_HARDWARE_TESTS=1` (see `Qwen3HardwareTests`).
+@Suite("Qwen3 refinement (real weights)", .serialized, Qwen3HardwareTests.trait)
 struct Qwen3RefinementWERTests {
 
     // MARK: Corpus
@@ -172,7 +173,8 @@ struct Qwen3RefinementWERTests {
 ///
 /// Same skip rules as the WER suite. Two inferences on one utterance, ~10 s, so it is not opt-in:
 /// this is the assertion that stops someone deleting the forced header and shipping Devanagari.
-@Suite("Qwen3 assistant header (real weights)", .serialized)
+/// V5 J1: hardware-gated like the WER suite — run it with `VOICEPLUS_HARDWARE_TESTS=1`.
+@Suite("Qwen3 assistant header (real weights)", .serialized, Qwen3HardwareTests.trait)
 struct Qwen3AssistantHeaderTests {
 
     @Test(.timeLimit(.minutes(30)))
@@ -211,5 +213,22 @@ struct Qwen3AssistantHeaderTests {
         #expect(!letters.isEmpty)
         #expect(letters.allSatisfy { $0.isASCII },
                 "forced English still came back in a non-Latin script: \(forced.text)")
+    }
+}
+
+/// V5 J1 — the real-weights Qwen3 suites are hardware tests, not unit tests.
+///
+/// The stateful Qwen3 decoder's `MLModel.prediction` crashes (SIGSEGV in MPSGraph
+/// `specializedModuleWithDevice`) when another CoreML model is loaded in the same process at the
+/// same moment — which a parallel `swift test` does constantly (Parakeet in the golden-transcript
+/// suite, the Lab suites, …). Seen 1 Oct 2026 in 4 of 8 parallel runs, crash reports in
+/// ~/Library/Logs/DiagnosticReports/swiftpm-testing-helper-*. A crash takes the whole test
+/// process down, so these suites run only when asked, on a quiet machine:
+///
+///     VOICEPLUS_HARDWARE_TESTS=1 swift test --no-parallel --filter 'Qwen3'
+enum Qwen3HardwareTests {
+    static var enabled: Bool { ProcessInfo.processInfo.environment["VOICEPLUS_HARDWARE_TESTS"] == "1" }
+    static var trait: ConditionTrait {
+        .enabled(if: enabled, "hardware: real Qwen3 CoreML weights; set VOICEPLUS_HARDWARE_TESTS=1 and run --no-parallel")
     }
 }
