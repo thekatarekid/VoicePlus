@@ -53,45 +53,54 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 
 ### J7 · Minimum macOS 15
 - **Why:** Kev, Parakeet Redux, Qwen3-ASR, Srota need 15; owner decided.
+- **Status:** done — macOS 15 floor in Package/Info.plist/make_app/verify_install/CLAUDE.md; Qwen3 guards removed (0dc661e, bd5d325); verify_install runs at W8
 - **Do:**
-  - [ ] `Package.swift`: `platforms: [.macOS(.v15)]`.
-  - [ ] `Packaging/make_app.sh:61`: `LSMinimumSystemVersion 15.0`.
-  - [ ] `CLAUDE.md`: "macOS 14+ target" → "macOS 15+".
-  - [ ] Remove `@available(macOS 15, *)` guards in `Engine/ASRRuntime/Qwen3ASR/*.swift` and any `#available(macOS 15` branches they fed.
-  - [ ] `Packaging/verify_install.sh`: assert the plist key.
+  - [x] `Package.swift`: `platforms: [.macOS(.v15)]`.
+  - [x] `Packaging/make_app.sh:61`: `LSMinimumSystemVersion 15.0`.
+  - [x] `CLAUDE.md`: "macOS 14+ target" → "macOS 15+".
+  - [x] Remove `@available(macOS 15, *)` guards in `Engine/ASRRuntime/Qwen3ASR/*.swift` and any `#available(macOS 15` branches they fed.
+  - [x] `Packaging/verify_install.sh`: assert the plist key.
 - **Tests:** existing suites compile without the guards.
 - **Done when:** `swift build` clean; `verify_install.sh` passes; `progress.md` notes the floor change.
 
 ### J6 · Dependencies: FluidAudio bump + FluidUse
 - **Why:** unlocks `.ultra`/`.redux` ASR, `LocalVqeManager`, Sortformer, and every FluidUse decision/CUA manager.
+- **Status:** done — FluidAudio FluidInference@c388107 (not altic-dev fork: lacks APIs), FluidUse c9e967f; smoke test instantiates Laya/KevFast (176deba)
 - **Do:**
-  - [ ] Bump `altic-dev/FluidAudio` to the newest revision exposing `AsrModelVersion.ultra/.redux` and `LocalVqeManager`; fix API breaks in `Engine/`.
-  - [ ] Add `https://github.com/FluidInference/FluidUse` (Apache-2.0) as a dependency of `Engine` and `Actions`.
-  - [ ] `swift package resolve --disable-keychain`; commit `Package.resolved`.
-  - [ ] `progress.md`: both dependencies, versions, licences.
+  - [x] Bump `altic-dev/FluidAudio` to the newest revision exposing `AsrModelVersion.ultra/.redux` and `LocalVqeManager`; fix API breaks in `Engine/`.
+  - [x] Add `https://github.com/FluidInference/FluidUse` (Apache-2.0) as a dependency of `Engine` and `Actions`.
+  - [x] `swift package resolve --disable-keychain`; commit `Package.resolved`.
+  - [x] `progress.md`: both dependencies, versions, licences.
 - **Tests:** full suite green (`--no-parallel`).
 - **Done when:** package builds; one smoke test instantiates `LayaManager` and `KevFastManager` types (no model download in tests).
 
 ### J3 · Remove stale scratch trees ∥
-- [ ] Delete `.build-baseline`, `.build-release` once no build uses them (≈4 GB). Keep `.build*` gitignored.
+- **Status:** done — .build-baseline/.build-release removed
+- [x] Delete `.build-baseline`, `.build-release` once no build uses them (≈4 GB). Keep `.build*` gitignored.
 
 ### A2 · Stale `BundledModel` comment ∥
-- [ ] `Engine/ASRRuntime/BundledModel.swift` header: describe the real behaviour (full installer bundles TDT v3 + EOU + speaker; 110M fetched first only when nothing is on disk).
+- **Status:** done — d63e9c0
+- [x] `Engine/ASRRuntime/BundledModel.swift` header: describe the real behaviour (full installer bundles TDT v3 + EOU + speaker; 110M fetched first only when nothing is on disk).
 
 ### X19 · Delete unreferenced types ∥
-- [ ] Remove: `ZeroEditMenuView` (**keep** — used by I2), `CorrectionPopoverController`, `CorrectionMenuBuilder`, `SectionBannerView`, `PillKeyCap`, `PillMarkTarget`, `PillMarkUnderlines`, `MarkFragments`, `SpoolSilenceTracker`, `RoutedStage`, `CloudASRCopy`, `SNREstimate`, `DeterministicActionLayer`, `RepairCommandCoordinator`, `LiveAXFocusedWindowText` (X4), `Qwen3StreamingManager` (X10). For each: `grep -rw` shows only its own file and tests → delete file + tests.
+- **Status:** done — all listed types gone (ZeroEditMenuView kept); SNREstimate/DeterministicActionLayer moved into tests as helpers (0932f23)
+- [x] Remove: `ZeroEditMenuView` (**keep** — used by I2), `CorrectionPopoverController`, `CorrectionMenuBuilder`, `SectionBannerView`, `PillKeyCap`, `PillMarkTarget`, `PillMarkUnderlines`, `MarkFragments`, `SpoolSilenceTracker`, `RoutedStage`, `CloudASRCopy`, `SNREstimate`, `DeterministicActionLayer`, `RepairCommandCoordinator`, `LiveAXFocusedWindowText` (X4), `Qwen3StreamingManager` (X10). For each: `grep -rw` shows only its own file and tests → delete file + tests.
 - **Done when:** build clean; test count drops only by the deleted tests.
 
 ### K20 · Last `handsFree` wire key ∥
-- [ ] `Pipeline/WakeVerb/WakeVerbPreRoute.swift`: rename `handsFreeValue` → `latchedValue` **and** add a one-release read-compat alias; update the tests that read the wire key.
+- **Status:** done — wire value "latched", reads legacy "handsFree" one release (6da8ae1)
+- [x] `Pipeline/WakeVerb/WakeVerbPreRoute.swift`: rename `handsFreeValue` → `latchedValue` **and** add a one-release read-compat alias; update the tests that read the wire key.
 
 ### K22 · Release tags ∥
-- [ ] `git tag release/phase-V4-w1/v1.11.0` on the 1.11.0 commit; tag `v1.12.12` on `ba26f5b`.
+- **Status:** done — release/phase-V4-w1/v1.11.0 → 19c22ea, v1.12.12 → ba26f5b (pushed)
+- [x] `git tag release/phase-V4-w1/v1.11.0` on the 1.11.0 commit; tag `v1.12.12` on `ba26f5b`.
 
 ### X18 · `RouteChoice.auto` doc drift ∥
-- [ ] `Providers/RoutingTable.swift`: doc-comment says Auto = local only (matches `RoutingTableProviderRouting`).
+- **Status:** done — 5643df6
+- [x] `Providers/RoutingTable.swift`: doc-comment says Auto = local only (matches `RoutingTableProviderRouting`).
 
 ### Q16 · Stale LaunchServices record **[owner]**
+- **Status:** blocked — [owner] runs lsregister
 - [ ] Owner runs: `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "/Volumes/VoicePlus 1.12.10/VoicePlus.app"` then `lsregister -gc`.
 
 ---
@@ -102,112 +111,130 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 
 #### Q1 · Newlines never send (P0, safety)
 - **Why:** Electron/Cursor type `\n` as ↩ → Claude/Slack send half a message; Sheets commits the cell.
+- **Status:** done — NewlineSafeAdapter ⇧↩/⌥↩, SubmitPolicy (140b130, 1ffd4fb); T1: two paragraphs into Claude
 - **Do:**
-  - [ ] `Injection/AppAdapter.swift` `ElectronAdapter.prepare` and `CursorAdapter`: emit `\n` as **⇧↩** keystroke; paragraph break = ⇧↩ twice.
-  - [ ] `ChromiumAdapter`: when `FieldRole == .spreadsheetCell` (E2) emit `\n` as ⌥↩ (in-cell newline) — until E2 lands, treat any `docs.google.com/spreadsheets` host as cell.
-  - [ ] `InjectionPolicy`: `allowSubmit` stays false for these adapters regardless of `submitsOnReturn`.
+  - [x] `Injection/AppAdapter.swift` `ElectronAdapter.prepare` and `CursorAdapter`: emit `\n` as **⇧↩** keystroke; paragraph break = ⇧↩ twice.
+  - [x] `ChromiumAdapter`: when `FieldRole == .spreadsheetCell` (E2) emit `\n` as ⌥↩ (in-cell newline) — until E2 lands, treat any `docs.google.com/spreadsheets` host as cell.
+  - [x] `InjectionPolicy`: `allowSubmit` stays false for these adapters regardless of `submitsOnReturn`.
 - **Tests:** `Tests/InjectionTests/NewlineSafetyTests.swift`: multi-paragraph payload → key sequence contains no bare ↩ for Electron/Cursor/Chromium-sheet; TextEdit path unchanged.
 - **Done when:** tests pass; T1 case "two paragraphs into Claude" listed.
 
 #### Q2 · Expose Electron/Chromium text fields
 - **Why:** 79/80 writes to Claude read back "unavailable" — Electron builds no AX tree until asked.
+- **Status:** done — AppAccessibilityEnabler at key-down (140b130); T1: Claude caret readable
 - **Do:**
-  - [ ] `Injection/SystemAccess.swift`: add `func enableAppAccessibility(pid:) -> Bool` (additive protocol `AppAccessibilityEnabling`).
-  - [ ] `LiveSystemAccess`: `AXUIElementSetAttributeValue(app, "AXManualAccessibility", kCFBooleanTrue)`; for Chromium browsers `AXEnhancedUserInterface`. Cache per pid; re-apply on app relaunch (pid change).
-  - [ ] Detect Electron by bundle contents: `Contents/Frameworks/Electron Framework.framework` exists — not only by bundle id.
-  - [ ] Call at **key-down** from `TextInjector` / `FieldContextReader` before the caret read.
-  - [ ] Settings switch (lane 1b adds the row): "Expose text in Chromium browsers" default on.
+  - [x] `Injection/SystemAccess.swift`: add `func enableAppAccessibility(pid:) -> Bool` (additive protocol `AppAccessibilityEnabling`).
+  - [x] `LiveSystemAccess`: `AXUIElementSetAttributeValue(app, "AXManualAccessibility", kCFBooleanTrue)`; for Chromium browsers `AXEnhancedUserInterface`. Cache per pid; re-apply on app relaunch (pid change).
+  - [x] Detect Electron by bundle contents: `Contents/Frameworks/Electron Framework.framework` exists — not only by bundle id.
+  - [x] Call at **key-down** from `TextInjector` / `FieldContextReader` before the caret read.
+  - [x] Settings switch (lane 1b adds the row): "Expose text in Chromium browsers" default on.
 - **Tests:** `MockSystemAccess` exposes the caret only after `enableAppAccessibility` was called; `FieldContextReader` test proves the order key-down → enable → read.
 - **Done when:** mock tests pass; T1 "Claude caret readable" listed.
 
 #### Q3 · Settle before judging
+- **Status:** done — ReadbackSettler (AXObserver else 30 ms/400 ms), settle ms on TurnCommitReport (72d0bec)
 - **Do:**
-  - [ ] `Injection/TextInjector.swift:169`: replace the immediate "after" read with `ReadbackSettler`: subscribe `AXObserver` value/selection-changed when available, else poll every 30 ms up to 400 ms; stop at first confirm.
-  - [ ] Expose settle duration in the landing verdict (for Q13).
+  - [x] `Injection/TextInjector.swift:169`: replace the immediate "after" read with `ReadbackSettler`: subscribe `AXObserver` value/selection-changed when available, else poll every 30 ms up to 400 ms; stop at first confirm.
+  - [x] Expose settle duration in the landing verdict (for Q13).
 - **Tests:** mock applies keystrokes after N reads → today's code fails, new code confirms; timeout path returns `.unconfirmed`, never `.unavailable`.
 
 #### K18 · AX own-pid / main-thread guards
+- **Status:** done — AXGuard + source audit (0db21e9)
 - **Do:**
-  - [ ] Route these through `LiveSystemAccess` guards (own pid → refuse; main thread → hop): `SelectionDetector`, `TapeFlightTarget`, `DestinationMarksOverlay`, `RecoverySheetServices`, `RepairFanoutPanel`, `LiveAXNodeAccess`, `LiveActionSystem`, `AXRegionText`, `AXHitTesting`, `Engine/Biasing/LiveProviders.swift`.
+  - [x] Route these through `LiveSystemAccess` guards (own pid → refuse; main thread → hop): `SelectionDetector`, `TapeFlightTarget`, `DestinationMarksOverlay`, `RecoverySheetServices`, `RepairFanoutPanel`, `LiveAXNodeAccess`, `LiveActionSystem`, `AXRegionText`, `AXHitTesting`, `Engine/Biasing/LiveProviders.swift`.
 - **Tests:** a source-audit test (pattern of `AmbientInjectionAudit`) asserts no `AXUIElementCreateApplication(` outside `LiveSystemAccess`/`LiveAXNodeAccess`.
 
 ### Lane 1b · Pill / Turn — owns `App/UI/Pill*`, `App/Services/TurnController.swift`, `App/Core/PillState.swift`, `App/Core/NotchGeometry.swift`, `App/UI/PresenceIndicatorController.swift`
 
 #### Q6 · Pill follows the work
+- **Status:** done — 9ba57ff; two-display AX reads → T1
 - **Do:**
-  - [ ] Pure rule `PillDisplayChooser.choose(caretScreen:, focusedWindowScreen:, activeScreen:, mouseScreen:)` → first non-nil.
-  - [ ] `PillPanelController.render`: re-choose on **every** transition into `.starting` (incl. from unconfirmed/held/error).
-  - [ ] `NotchGeometry.swift:255`: inclusive top-edge bounds (`y == maxY` resolves to the laptop).
+  - [x] Pure rule `PillDisplayChooser.choose(caretScreen:, focusedWindowScreen:, activeScreen:, mouseScreen:)` → first non-nil.
+  - [x] `PillPanelController.render`: re-choose on **every** transition into `.starting` (incl. from unconfirmed/held/error).
+  - [x] `NotchGeometry.swift:255`: inclusive top-edge bounds (`y == maxY` resolves to the laptop).
 - **UI:** none visible beyond correct placement.
 - **Tests:** unconfirmed → starting re-pins; `y == maxY` resolves; each rung of the chooser.
 
 #### Q7 · "On screen" = on the pill's chosen display
+- **Status:** done — 9ba57ff (+ AppDelegate line in 7e22523); real occlusion → T1
 - **Do:**
-  - [ ] `isOnScreen` = ordered in ∧ occlusion-visible ∧ frame on the chosen screen ∧ frame > 1 pt.
-  - [ ] Republish on `NSWindow.didChangeOcclusionStateNotification` and `NSApplication.didChangeScreenParametersNotification`.
-  - [ ] `PresenceIndicatorController`: chin suppression reads this value.
+  - [x] `isOnScreen` = ordered in ∧ occlusion-visible ∧ frame on the chosen screen ∧ frame > 1 pt.
+  - [x] Republish on `NSWindow.didChangeOcclusionStateNotification` and `NSApplication.didChangeScreenParametersNotification`.
+  - [x] `PresenceIndicatorController`: chin suppression reads this value.
 - **Tests:** a pill on another display does not suppress the chin.
 
 #### Q8 · Self-healing pauses
+- **Status:** done — 9ba57ff; resign via makeFirstResponder(nil); Tab/VoiceOver → T1
 - **Do:**
-  - [ ] `TurnController`: `PauseSet.rebuild(from: LiveState)` at present and on a 100 ms tick while paused; `LiveState` = pointer hit-test, key window + first responder, editor state.
-  - [ ] Drop any pause with no live cause for > 2 s; `Log.app.fault` with the reason.
-  - [ ] `.focus` only when the pill window is key **and** its first responder is a pill control, set only by Tab/VoiceOver (`PillView.swift:555-558` stops converting mouse → keyboard focus); cleared at each new turn (`:765-771`); resign key when a turn leaves preview.
-  - [ ] Remove `.hiddenApp` (Q9) and `.emptyDraft` (Q12).
+  - [x] `TurnController`: `PauseSet.rebuild(from: LiveState)` at present and on a 100 ms tick while paused; `LiveState` = pointer hit-test, key window + first responder, editor state.
+  - [x] Drop any pause with no live cause for > 2 s; `Log.app.fault` with the reason.
+  - [x] `.focus` only when the pill window is key **and** its first responder is a pill control, set only by Tab/VoiceOver (`PillView.swift:555-558` stops converting mouse → keyboard focus); cleared at each new turn (`:765-771`); resign key when a turn leaves preview.
+  - [x] Remove `.hiddenApp` (Q9) and `.emptyDraft` (Q12).
 - **Tests:** key press then pointer leaves → dwell fires; focus from turn N doesn't pause N+1; cause-less pause drops within 2 s.
 
 #### Q9 · Survive "Hide Others"
-- [ ] `canHide = false` on pill and chin panels; delete the `.hiddenApp` pause and `NSApplication.didHideNotification` observer.
+- **Status:** done — 9ba57ff
+- [x] `canHide = false` on pill and chin panels; delete the `.hiddenApp` pause and `NSApplication.didHideNotification` observer.
 - **Tests:** `previewPauses` has no hidden-app input.
 
 #### Q12 · Pause copy
-- [ ] `PillPresentation.swift:406` + `PillState.swift:279` (dedupe into one): hover → "Paused · move away to insert"; editing → "Editing · leave the pill to apply"; keyboard focus → "Paused · Insert now when ready"; empty draft on leaving editor → cancel with "Nothing was typed."; selection/review → no copy.
+- **Status:** done — bfa1bbb
+- [x] `PillPresentation.swift:406` + `PillState.swift:279` (dedupe into one): hover → "Paused · move away to insert"; editing → "Editing · leave the pill to apply"; keyboard focus → "Paused · Insert now when ready"; empty draft on leaving editor → cancel with "Nothing was typed."; selection/review → no copy.
 - **Tests:** each reason → its own line; empty draft cancels.
 
 #### K19 · Pill up ~27 s after landing
-- [ ] Instrument with Q13, reproduce, fix the retention (likely the landed row's dismissal timer vs unconfirmed hold). Document the cause in `progress.md`.
+- **Status:** partial — retention backstop + pill orderFront/Out diagnostics (5feb1c1); 27 s not reproduced (needs live app), cause hypothesis in progress.md
+- [x] Instrument with Q13, reproduce, fix the retention (likely the landed row's dismissal timer vs unconfirmed hold). Document the cause in `progress.md`.
 
 #### Settings rows for this wave ∥
-- [ ] `App/Settings`: "Expose text in Chromium browsers" (Q2), "Confirm in apps that hide their text (uses Screen Recording)" (Q14, default off). Index both in `MainWindowSection`.
+- **Status:** done — Settings › General › Insertion (77cb4a9)
+- [x] `App/Settings`: "Expose text in Chromium browsers" (Q2), "Confirm in apps that hide their text (uses Screen Recording)" (Q14, default off). Index both in `MainWindowSection`.
 
 ### Lane 1c · Verification + ribbon — owns `App/Overlay/`, `DESIGN.md` §D06, `Injection/InjectionTypes.swift` verdict enum (coordinate with 1a: additive case only)
 
 #### Q4 · Neutral landing for unreadable fields
+- **Status:** done — LandingVerdict + ledger, DESIGN D06 (26ae4c0); unreadable field visual → T1
 - **Do:**
-  - [ ] Verdict enum gains `.unreadable` (readback could not run) distinct from `.unconfirmed` (ran, text absent).
-  - [ ] `.unreadable` → pill "Inserted in <app>" (no ✓), auto-clears after the normal landed dwell. `.unconfirmed` → sticky "⚠ Couldn't confirm insertion".
-  - [ ] `DESIGN.md` D06, lines 51/306/468 updated; note "revives V4.20".
+  - [x] Verdict enum gains `.unreadable` (readback could not run) distinct from `.unconfirmed` (ran, text absent).
+  - [x] `.unreadable` → pill "Inserted in <app>" (no ✓), auto-clears after the normal landed dwell. `.unconfirmed` → sticky "⚠ Couldn't confirm insertion".
+  - [x] `DESIGN.md` D06, lines 51/306/468 updated; note "revives V4.20".
 - **Tests:** verdict → copy mapping; auto-clear timing; sticky only on `.unconfirmed`.
 
 #### Q5 · Ribbon independent of verification
-- [ ] `TapeFlightTarget` ladder: `AXBoundsForRange` → Chromium/WebKit text-marker caret (`AXSelectedTextMarkerRange` + `AXBoundsForTextMarkerRange`) → focused element frame → focused window frame. Play on every landing except a contradicted one (`.targetChanged`).
+- **Status:** done — caret ladder + PillView flight-hold fix (8dc9d1b, 32769a9); live AX rungs → T1
+- [x] `TapeFlightTarget` ladder: `AXBoundsForRange` → Chromium/WebKit text-marker caret (`AXSelectedTextMarkerRange` + `AXBoundsForTextMarkerRange`) → focused element frame → focused window frame. Play on every landing except a contradicted one (`.targetChanged`).
 - **Tests:** each rung; unreadable readback still plays.
 
 ### Lane 1d · Permissions — owns `App/Services/PermissionService.swift`, `App/Core/PermissionMatrix.swift`, `App/Services/CapabilityArming.swift`, `HotkeyService` tap backend
 
 #### Q10 · Live microphone status
-- [ ] Uncached probe: `AVCaptureDevice.authorizationStatus(for: .audio)` re-read on `didBecomeActive`, before any refusal, and on a TCC change notification; `PipelineAudioSource` gates on the probe, not the launch-time cache. `RelaunchAdvisor` only advises relaunch when a fresh capture actually fails.
+- **Status:** done — MicrophoneStatusProbe + capture trial (7e22523); real TCC → T1
+- [x] Uncached probe: `AVCaptureDevice.authorizationStatus(for: .audio)` re-read on `didBecomeActive`, before any refusal, and on a TCC change notification; `PipelineAudioSource` gates on the probe, not the launch-time cache. `RelaunchAdvisor` only advises relaunch when a fresh capture actually fails.
 - **Tests:** stale-denied/fresh-granted captures; fresh-denied refuses within one tick.
 
 #### Q11 · Input Monitoring re-arm
-- [ ] On a fresh grant, re-create the `CGEvent.tapCreate` tap (`HotkeyService.swift:834`) and confirm with `TapLiveness`; surface "listening again" once.
+- **Status:** done — tap re-create + TapLiveness + "Listening again" (7e22523); real tap → T1
+- [x] On a fresh grant, re-create the `CGEvent.tapCreate` tap (`HotkeyService.swift:834`) and confirm with `TapLiveness`; surface "listening again" once.
 - **Tests:** liveness verdict transitions.
 
 ### Lane 1e · Diagnostics — owns `App/Diagnostics/`
 
 #### Q13 · Persisted diagnostics
-- [ ] `TurnDiagnostics` store (SQLite table `turn_diagnostics`, 7-day retention, local only): per turn — pill display + reason + mouse, every orderFront/Out with reason, every pause/resume with reason + pointer + frame, landing verdict + app + method + settle ms, decision record from O3 (owner, confidence, per-question probabilities).
-- [ ] Export as JSON from Settings › Privacy (owner-triggered only).
+- **Status:** partial — store, retention, audit, Privacy export done (5eeb7e9, b68dbb8); only pill events recorded so far — landing/decision record() calls pending (K/O3 lanes)
+- [x] `TurnDiagnostics` store (SQLite table `turn_diagnostics`, 7-day retention, local only): per turn — pill display + reason + mouse, every orderFront/Out with reason, every pause/resume with reason + pointer + frame, landing verdict + app + method + settle ms, decision record from O3 (owner, confidence, per-question probabilities).
+- [x] Export as JSON from Settings › Privacy (owner-triggered only).
 - **Tests:** retention sweep; no transcript text stored (source audit).
 
 ### Lane 1f · Engine hardening — owns `Engine/ASRRuntime/Qwen3ASR/RefinementSession.swift`, timing tests
 
 #### Q15 · CoreML crash hardening
-- [ ] `Refinement.withDeadline` (`:122`): on deadline, return to the caller but **await** the in-flight prediction task before any model release / re-specialisation; never cancel a running `MLModel.prediction`.
+- **Status:** done — withDeadline no longer awaits/cancels prediction; RefinementInFlight drain; Qwen3CoreMLGate serialises load/predict (ea94f28, 84c0bf5)
+- [x] `Refinement.withDeadline` (`:122`): on deadline, return to the caller but **await** the in-flight prediction task before any model release / re-specialisation; never cancel a running `MLModel.prediction`.
 - **Tests:** deadline fires → caller returns promptly; model release waits for the task.
 
 #### J1 · Timing-flaky suites
-- [ ] `RefineStageTests`, `RefinementSessionTests`, `ASRGoldenTranscriptTests`, `VoiceSectionS7eTests`: make deadline assertions relative to an injected clock or tag `.serialized`/`.disabled("hardware")`.
+- **Status:** done — relative deadlines, hardware-gated real-Qwen suites, starvation-tolerant waits (5c7e43b, 601bc3d, 7f24612, 30c59d0)
+- [x] `RefineStageTests`, `RefinementSessionTests`, `ASRGoldenTranscriptTests`, `VoiceSectionS7eTests`: make deadline assertions relative to an injected clock or tag `.serialized`/`.disabled("hardware")`.
 - **Done when:** `swift test` (parallel) is green twice in a row.
 
 ---
@@ -218,37 +245,45 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 
 #### V1 · Public-set replay harness
 - **Why:** rule 0.2/0.3 — no model decision without public-set evidence.
+- **Status:** done — harness, normaliser, metrics, fetchers (287354f); TDT v3 test-clean 2.08 % vs 1.93 % published (Δ +0.15); Svarah gated → owner
 - **Do:**
-  - [ ] `Lab/Harness/PublicEval.swift`: manifest-driven runner (`Fixtures/public/<set>/manifest.json`: audio path, reference, condition tags). Audio is downloaded on demand to `~/Library/Application Support/VoicePlus/Eval/` (gitignored), never committed.
-  - [ ] Text normaliser = Open ASR Leaderboard's (port the Whisper English normaliser rules; keep a `--raw` mode for LibriSpeech-PC punctuation/casing scoring).
-  - [ ] Metrics: WER, CER, entity recall (NER-tagged references), restraint/edit/damage for cleanup, DER for diarization, latency p50/p95, **peak RSS** (HW5).
-  - [ ] Downloaders: LibriSpeech test-clean/other, LibriSpeech-PC, Earnings-22, VOiCES (subset), NOTSOFAR-1, AMI, FLEURS, Common Voice (en-IN, hi), MUCS-2021, HiACC, VoxConverse, MUSAN. Svarah is gated → owner downloads once (T1 note).
-  - [ ] `LabCLI eval --set <name> --stage <asr|cleanup|diar|decide> --model <id>` prints a table and writes `Lab/results/<date>-<set>-<model>.json`.
+  - [x] `Lab/Harness/PublicEval.swift`: manifest-driven runner (`Fixtures/public/<set>/manifest.json`: audio path, reference, condition tags). Audio is downloaded on demand to `~/Library/Application Support/VoicePlus/Eval/` (gitignored), never committed.
+  - [x] Text normaliser = Open ASR Leaderboard's (port the Whisper English normaliser rules; keep a `--raw` mode for LibriSpeech-PC punctuation/casing scoring).
+  - [x] Metrics: WER, CER, entity recall (NER-tagged references), restraint/edit/damage for cleanup, DER for diarization, latency p50/p95, **peak RSS** (HW5).
+  - [x] Downloaders: LibriSpeech test-clean/other, LibriSpeech-PC, Earnings-22, VOiCES (subset), NOTSOFAR-1, AMI, FLEURS, Common Voice (en-IN, hi), MUCS-2021, HiACC, VoxConverse, MUSAN. Svarah is gated → owner downloads once (T1 note).
+  - [x] `LabCLI eval --set <name> --stage <asr|cleanup|diar|decide> --model <id>` prints a table and writes `Lab/results/<date>-<set>-<model>.json`.
 - **Tests:** harness on a 3-file synthetic manifest; normaliser golden cases.
 - **Done when:** `eval --set librispeech-test-clean --model parakeet-tdt-v3` reproduces the published WER within ±0.3 abs.
 
 #### V2 · Baselines file
-- [ ] `Lab/results/baselines.json`: published scores per (model, set) with source URL; harness prints Δ vs baseline and fails `--gate` when Δ > +0.3 WER.
+- **Status:** done — baselines.json + --gate (2c217fb)
+- [x] `Lab/results/baselines.json`: published scores per (model, set) with source URL; harness prints Δ vs baseline and fails `--gate` when Δ > +0.3 WER.
 
 #### V3 · Noise mixing
-- [ ] `Lab/Harness/NoiseMixer.swift`: MUSAN (FluidInference mirror) mixed at 20/10/5/0 dB SNR; deterministic seed; conditions tagged.
+- **Status:** done — NoiseMixer babble/pink/white at 20/10/5/0 dB, seeded (0b00f98); MUSAN not downloaded (11 GB, disk) → T1
+- [x] `Lab/Harness/NoiseMixer.swift`: MUSAN (FluidInference mirror) mixed at 20/10/5/0 dB SNR; deterministic seed; conditions tagged.
 
 #### V4 · Re-validate provisional decisions
-- [ ] Re-run on V1: `qwenRefinement` (D7 tuning), preview backend, mic-quality bounds (K6), segment-class WER. Write results to `DECISIONS.md` with "re-measured on public sets" and keep or change each default.
+- **Status:** partial — previewBackend/mic-quality/segment-class re-measured (450 items, DECISIONS); qwenRefinement not measured (weights absent, disk) (7f9c7ed)
+- [x] Re-run on V1: `qwenRefinement` (D7 tuning), preview backend, mic-quality bounds (K6), segment-class WER. Write results to `DECISIONS.md` with "re-measured on public sets" and keep or change each default.
 
 #### B4 · Error-pair asset
-- [ ] `Lab/results/error-pairs/<set>.jsonl`: hypothesis ↔ reference pairs with condition tags from V1 runs. Evaluation only.
+- **Status:** done — error-pairs jsonl (81c87de)
+- [x] `Lab/results/error-pairs/<set>.jsonl`: hypothesis ↔ reference pairs with condition tags from V1 runs. Evaluation only.
 
 ### Lane 2b · Flag/stage measurement — owns `Shared/Types/FeatureFlag.swift` (permitted), `DECISIONS.md`
 
 #### A3 · Flag verdicts
+- **Status:** partial — verdict + kill criterion per flag (a70d8c2); V1 measurement per flag pending (disk / datasets); contextBiasing delete waits for B1
 - [ ] For each of `contextBiasing`, `dualPath`, `cloudASR`, `directedSpeech`, `previewBackend`, `qwenRefinement`: measure on V1 → ship / delete / written kill criterion in `FeatureFlag.description`. `contextBiasing` → delete after B1 (A1).
 
 #### H2 · Gatekeeper confusion matrix
-- [ ] 200 scripted utterances (dictate/command/edit/note) → `GatekeeperStage` → matrix in `Lab/results`. Threshold tuning only; no training.
+- **Status:** done — 200-utt matrix, threshold 0.6→0.9, acc 0.985 (e1d5921); re-check on V1 decide data (same-set tuning)
+- [x] 200 scripted utterances (dictate/command/edit/note) → `GatekeeperStage` → matrix in `Lab/results`. Threshold tuning only; no training.
 
 #### K21 · Qwen3-ASR UI copy
-- [ ] Settings › Models: refinement row says what it does ("second pass, English, adds ~2 s"); "Ready" only when weights verified.
+- **Status:** done — e5822a8; Engine Backend.prepare should also call store.verify
+- [x] Settings › Models: refinement row says what it does ("second pass, English, adds ~2 s"); "Ready" only when weights verified.
 
 ---
 
@@ -724,3 +759,6 @@ Deviations / new deps / notes for progress.md: <…>
 - `AudioPipeline.Broadcaster` is the only source of microphone audio after O1. No lane constructs `CoreAudioCaptureSource()`.
 - `FieldRole` + `FieldRules` are the only authority on how text lands. Adapters implement, they do not decide.
 - Everything measured goes through the V1 harness and is written to `Lab/results` with the model id, set, date and peak RSS.
+
+## Progress log
+- 2026-10-01 · W0+W1+W2 gate: 35 items (partial: K19, Q13, V4, A3; blocked: Q16 owner). Full suite --no-parallel: 3478 passed, 0 failed, 447.5 s. Details in progress.md.

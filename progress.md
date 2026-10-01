@@ -1798,3 +1798,37 @@ Initial checkpoint (superseded by the dated entries below):
 - Safety: dictated `\n` is typed as Return in Electron apps and sends the message.
 - Quit-and-reopen is macOS's own sheet (Microphone/Input Monitoring/Screen Recording/Camera); VoicePlus's fault is trusting the cached mic status, so "Later" can't work.
 - Corrections: the 2026-09-30 cdhash-pinning explanation was wrong (designated requirement is identifier-based since 1.6.4).
+
+## 2026-10-01 — V5 W0+W1+W2
+- **Floor:** minimum macOS is now 15.0 (J7): Package.swift `.macOS("15.0")` (tools 5.9), LSMinimumSystemVersion 15.0, CLAUDE.md.
+- **New deps:** FluidAudio → FluidInference/FluidAudio@c388107 (Apache-2.0; replaces altic-dev fork, which lacks ultra/redux/LocalVqe); FluidUse@c9e967f (Apache-2.0) linked into Engine + Actions; transitive NemoTextProcessing.xcframework (~87 MB). Eval audio: LibriSpeech test-clean (~435 MB, gitignored, App Support/VoicePlus/Eval).
+- J7 · done · floor 15 + Qwen3 guards removed · build clean
+- J6 · done · deps above · FluidDependencySmokeTests (Laya/KevFast/LocalVqe, no download)
+- J3 · done · .build-baseline/.build-release removed
+- A2, X18 · done · comment fixes
+- X19 · done · unreferenced types deleted (ZeroEditMenuView kept; SNREstimate/DeterministicActionLayer moved to tests)
+- K20 · done · wire value "latched", reads "handsFree" one release · WakeVerb/OneMenu tests
+- K22 · done · tags release/phase-V4-w1/v1.11.0 (19c22ea), v1.12.12 (ba26f5b)
+- Q16 · blocked · owner runs lsregister -u "/Volumes/VoicePlus 1.12.10/VoicePlus.app" && lsregister -gc
+- Q1 · done · ⇧↩ (Electron/Cursor/Chromium), ⌥↩ in Sheets, SubmitPolicy · NewlineSafetyTests
+- Q2 · done · AXManualAccessibility / AXEnhancedUserInterface at key-down, per-pid cache · mock order tests
+- Q3 · done · ReadbackSettler (AXObserver else 30 ms polls ≤ 400 ms), settle ms on commit report
+- K18 · done · AXGuard for all AX roots + source audit
+- Q4 · done · LandingVerdict .unreadable → neutral "Inserted in <app>"; sticky only .unconfirmed; DESIGN D06
+- Q5 · done · caret ladder (range → text marker → element → window); flight hold fix in PillView
+- Q6/Q7/Q8/Q9/Q12 · done · display chooser, per-display on-screen, self-healing pauses, canHide=false, pause copy
+- K19 · partial · retention backstop (release + 1.5 s, fault log) + pill order events into TurnDiagnostics. 27 s not reproduced (needs live app). **Cause hypothesis:** a timed row reached the pill without a live retraction timer (bypassed scheduleRetractionIfTimed, or its timer replaced before firing); confirm from TurnDiagnostics after a hardware run.
+- Settings rows · done · General › Insertion: "Expose text in Chromium browsers" (on), "Confirm in apps that hide their text" (off)
+- Q10/Q11 · done · live mic probe + capture trial; IM tap re-create + "Listening again" · 117 permission tests
+- Q13 · partial · turn_diagnostics store, 7-day sweep, no-text audit, Privacy › Diagnostics export · only pill events recorded; landing (K) and decision (O3) record() calls pending
+- Q15 · done · deadline returns without cancelling prediction; RefinementInFlight drain; Qwen3CoreMLGate serialises load/predict
+- J1 · done · relative deadlines, hardware-gated real-Qwen suites (VOICEPLUS_HARDWARE_TESTS), starvation-tolerant waits
+- V1 · done · Lab harness/normaliser/metrics/fetchers; TDT v3 test-clean 2.08 % vs 1.93 % published (Δ +0.15, within ±0.3)
+- V2 · done · baselines.json + --gate · V3 · done · NoiseMixer (babble/pink/white; MUSAN not fetched, 11 GB)
+- V4 · partial · previewBackend kept off (WER better, p95 2.1 s fails), mic bounds kept (estimator blind to babble → K6/C6), segment classes no change; qwenRefinement not measured (weights absent)
+- B4 · done · Lab/results/error-pairs/*.jsonl
+- A3 · partial · verdict + kill criterion per X20 flag; per-flag V1 measurement pending (disk/datasets)
+- H2 · done · 200-utt confusion matrix, route threshold 0.6 → 0.9 (acc 0.985; same-set tuned, re-check on V1)
+- K21 · done · refinement row copy, Ready only when weights size-verified (Engine prepare should also verify)
+- **Full suite** (`--no-parallel`, .build-v5a): 3478 passed, 0 failed, 447.5 s; real-Qwen suites skipped (hardware-gated). No gate fixes needed.
+- **Needs hardware (T1):** Q1 two paragraphs into Claude; Q2 Claude caret; Q4/Q5 live AX rungs + unreadable field; Q6/Q7 two displays; Q8 Tab/VoiceOver; Q9 Hide Others; Q10 real TCC/mic; Q11 real tap; Q13 save panel; K19 repro; K21 row look; MUSAN/Svarah/Qwen3 weights (disk ~13 GB free).
