@@ -1,3 +1,5 @@
+import Foundation
+import Shared
 import Testing
 @testable import Pipeline
 
@@ -34,5 +36,47 @@ struct WakeVerbNoteTests {
         #expect(grammar.parse("in slack hi team")?.kind == .app)
         #expect(WakeVerbGrammar.noteVerbs.contains("note"))
         #expect(WakeVerbGrammar.typeVerbs.isDisjoint(with: WakeVerbGrammar.noteVerbs))
+    }
+
+    static let latched = StageContext(extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.latchedValue])
+
+    static func spans(_ text: String) -> [TranscriptSpan] {
+        text.split(separator: " ").enumerated().map { i, w in
+            TranscriptSpan(text: String(w), confidence: 0.9, audioRange: Double(i) * 0.3...Double(i) * 0.3 + 0.3, provenance: [.asr])
+        }
+    }
+
+    static func words(_ spans: [TranscriptSpan]) -> String {
+        spans.map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    final class Sink: @unchecked Sendable { var payloads: [String] = []; var accept = true }
+
+    @Test("latched 'note …' with a sink: stored, claimed once, route none, nothing stripped by the stage")
+    func noteClaimed() async throws {
+        let sink = Sink()
+        let pre = WakeVerbPreRoute()
+        pre.noteSink = { p in sink.payloads.append(p.payload); return sink.accept }
+        let d = try #require(pre.preRoute("take a note buy oat milk", context: Self.latched))
+        #expect(d.route == .none && sink.payloads == ["buy oat milk"])
+        #expect(pre.consumeNoteClaim() && !pre.consumeNoteClaim())
+        // Not latched: never a note, no claim.
+        #expect(pre.preRoute("note buy milk", context: StageContext()) == nil && !pre.consumeNoteClaim())
+    }
+
+    @Test("no sink / sink declines: a note phrase is not a wake verb — typed verbatim, never stripped")
+    func noSinkVerbatim() async throws {
+        let pre = WakeVerbPreRoute()
+        #expect(pre.preRoute("note that the meeting moved", context: Self.latched) == nil)
+        #expect(!pre.consumeNoteClaim())
+        let out = try await WakeVerbStage(preRoute: pre).process(Self.spans("note that the meeting moved"), context: Self.latched)
+        #expect(Self.words(out) == "note that the meeting moved")
+        let sink = Sink(); sink.accept = false
+        pre.noteSink = { _ in sink.accept }
+        #expect(pre.preRoute("note buy milk", context: Self.latched) == nil && !pre.consumeNoteClaim())
+        // type … still strips.
+        _ = pre.preRoute("type hello there", context: Self.latched)
+        let typed = try await WakeVerbStage(preRoute: pre).process(Self.spans("type hello there"), context: Self.latched)
+        #expect(Self.words(typed) == "hello there")
     }
 }

@@ -255,3 +255,22 @@ struct NotesSectionTests {
         #expect(ids.firstIndex(of: StatusMenuSpec.ID.notes)! < ids.firstIndex(of: StatusMenuSpec.ID.openWindow)!)
     }
 }
+
+/// V5 N2 verify — the live wake-verb route: a latched "note …" reaches the store and is claimed.
+@Suite("Notes wake-verb live route (V5 N2 verify)")
+struct NotesWakeVerbRouteTests {
+    @Test("NotesWiring.noteSink stores the payload with source .wakeVerb; the pre-route claims it")
+    func sinkStores() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("n2-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NotesStore(root: root, database: try AppDatabase.inMemory())
+        let pre = WakeVerbPreRoute()
+        pre.noteSink = NotesWiring.noteSink(NotesRouter(store: store))
+        let ctx = StageContext(extra: [WakeVerbPreRoute.modeKey: WakeVerbPreRoute.latchedValue])
+        let d = try #require(pre.preRoute("jot down renew passport", context: ctx))
+        #expect(d.route == .none && pre.consumeNoteClaim())
+        let notes = store.notes()
+        #expect(notes.map(\.text) == ["renew passport"])
+        #expect(notes.first?.source == .wakeVerb)
+    }
+}

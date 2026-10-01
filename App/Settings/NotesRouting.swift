@@ -169,4 +169,25 @@ public enum NotesWiring {
         self.router = router
         self.feed = feed
     }
+
+    /// N2 live route #1: a latched "note …" is stored by the router (source `.wakeVerb`) and claimed,
+    /// so the lander never types it. The lander's existing claim consumer (act / "not you") is kept;
+    /// both claims are always consumed so neither leaks into the next utterance.
+    public static func wireWakeVerb(_ preRoute: WakeVerbPreRoute, lander: UtteranceLander) {
+        guard let router else { return }
+        preRoute.noteSink = Self.noteSink(router)
+        let prior = lander.actClaimConsumer
+        lander.actClaimConsumer = { [weak preRoute] in
+            let other = prior?() ?? false
+            let note = preRoute?.consumeNoteClaim() ?? false
+            return other || note
+        }
+    }
+
+    /// The sink the wake-verb pre-route calls: true when the payload was stored.
+    nonisolated static func noteSink(_ router: NotesRouter) -> @Sendable (WakeVerbParse) -> Bool {
+        { [router] parse in
+            router.route(parse.payload, signals: NotesRouteSignals(wakeVerb: parse, latched: true)).source != nil
+        }
+    }
 }

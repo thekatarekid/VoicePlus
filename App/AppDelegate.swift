@@ -580,6 +580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 try? await Task.sleep(nanoseconds: 300_000_000)
                                 return container.injector.inject(.init(text: text)).succeeded
                             })
+        NotesWiring.wireWakeVerb(container.wakeVerb, lander: container.lander)
         // R2.4 — "Recover text" carries the same three actions as the held pill row, off the same
         // queue, and Quit warns while anything is still held (V3 §6). Both are invisible until
         // something is actually held.

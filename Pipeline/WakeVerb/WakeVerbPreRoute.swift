@@ -21,6 +21,16 @@ public final class WakeVerbPreRoute: GatekeeperPreRouting, @unchecked Sendable {
     public let hints: WakeVerbHintModel
     private let lock = NSLock()
     private var parses: [String: WakeVerbParse] = [:]
+    private var noteClaimed = false
+    /// V5 N2 — where a latched "note …" goes. Returns true when the payload was stored; the
+    /// utterance is then claimed (route `.none`, never typed — `consumeNoteClaim`). With no sink, or
+    /// when the sink declines, a note phrase is not a wake verb at all: the words are typed verbatim
+    /// (never stripped), exactly as before N2 ("note that the meeting moved" stays a sentence).
+    public var noteSink: (@Sendable (WakeVerbParse) -> Bool)? {
+        get { lock.lock(); defer { lock.unlock() }; return _noteSink }
+        set { lock.lock(); _noteSink = newValue; lock.unlock() }
+    }
+    private var _noteSink: (@Sendable (WakeVerbParse) -> Bool)?
 
     public init(grammar: WakeVerbGrammar = WakeVerbGrammar(), hints: WakeVerbHintModel = WakeVerbHintModel()) {
         self.grammar = grammar; self.hints = hints
@@ -33,11 +43,27 @@ public final class WakeVerbPreRoute: GatekeeperPreRouting, @unchecked Sendable {
 
     public func preRoute(_ text: String, context: StageContext) -> GatekeeperDecision? {
         guard Self.isLatched(context), let p = grammar.parse(text) else { return nil }
+        if p.kind == .note {
+            guard let sink = noteSink, sink(p) else { return nil }
+            lock.lock(); noteClaimed = true; lock.unlock()
+            hints.recordUse()
+            return GatekeeperDecision(route: .none, register: context.register, routeConfidence: 1, registerConfidence: 0,
+                                      routeSource: .rules, registerSource: .fallback)
+        }
         lock.lock(); parses[text] = p; lock.unlock()
         hints.recordUse()
         let register = p.kind == .app ? Utterance.Register.chat : context.register
         return GatekeeperDecision(route: .dictate, register: register, routeConfidence: 1, registerConfidence: p.kind == .app ? 0.6 : 0,
                                   routeSource: .rules, registerSource: p.kind == .app ? .rules : .fallback)
+    }
+
+    /// V5 N2 — true once after `preRoute` stored a "note …" utterance in Notes (the lander's claim
+    /// consumer: the words are never typed).
+    public func consumeNoteClaim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let was = noteClaimed
+        noteClaimed = false
+        return was
     }
 
     /// Parse recorded by `preRoute` for this exact text (consumed once).
@@ -62,7 +88,9 @@ public struct WakeVerbStage: PipelineStage {
     public init(preRoute: WakeVerbPreRoute) { self.preRoute = preRoute }
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
-        guard WakeVerbPreRoute.isLatched(context), let p = preRoute.takeParse(for: spans.joinedText) ?? preRoute.grammar.parse(spans.joinedText) else { return spans.map { $0.touched(by: id) } }
+        guard WakeVerbPreRoute.isLatched(context), let p = preRoute.takeParse(for: spans.joinedText) ?? preRoute.grammar.parse(spans.joinedText),
+              p.kind != .note   // V5 N2: a note phrase is claimed by the pre-route or typed verbatim, never stripped
+        else { return spans.map { $0.touched(by: id) } }
         var remaining = p.verbTokenCount
         return spans.map { span in
             let words = WakeVerbGrammar.tokens(span.text).count
