@@ -216,38 +216,6 @@ struct SpoolMotionTests {
         #expect(returned == unchanged && clamped.value == unchanged)
     }
 
-    /// Rule 2: silence parks the reels — listening shows as quiet after 1.5 s of VAD silence, quiet
-    /// accumulates no angle, and speech resumes listening from the same angle.
-    @Test func silenceParksTheReelsAndSpeechResumesFromTheSameAngle() {
-        var tracker = SpoolSilenceTracker()
-        var reel = SpoolReelIntegrator()
-        var time = 0.0
-        func frame(_ speech: Bool) {
-            tracker.note(speech: speech, at: time)
-            let key = tracker.displayedKey(.listening, at: time)
-            reel.advance(key, t: time, dt: 1.0 / 60, level: speech ? 1 : 0)
-            time += 1.0 / 60
-        }
-        for _ in 0..<60 { frame(true) }
-        let afterSpeech = reel.angle
-        #expect(afterSpeech < 0)
-        for _ in 0..<89 { frame(false) }
-        #expect(tracker.displayedKey(.listening, at: time - 1.0 / 60) == .listening)
-        let beforeQuiet = reel.angle
-        #expect(beforeQuiet == afterSpeech, "no speech energy parks reels immediately")
-        for _ in 0..<180 { frame(false) }
-        #expect(tracker.displayedKey(.listening, at: time) == .quiet)
-        let parked = reel.angle
-        for _ in 0..<120 { frame(false) }
-        #expect(reel.angle == parked, "quiet must not accumulate")
-        frame(true)
-        #expect(tracker.displayedKey(.listening, at: time) == .listening)
-        #expect(reel.angle < parked && reel.angle > parked - 3, "speech resumes from the parked angle")
-        #expect(SpoolSilenceTracker.displayedKey(.latched, silence: 10) == .latched)
-        #expect(SpoolSilenceTracker.displayedKey(.listening, silence: 1.49) == .listening)
-        #expect(SpoolSilenceTracker.displayedKey(.listening, silence: 1.5) == .quiet)
-    }
-
     /// Listening transport follows real capture energy, including zero speed during silence.
     @Test func listeningSpeedIsModulatedBySpeechActivity() {
         #expect(SpoolReelIntegrator.liveSpeed(level: nil) == 150)

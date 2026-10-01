@@ -183,20 +183,3 @@ public final class ActionExecutor {
         return URL(string: t)
     }
 }
-
-/// Front door: phrase → catalogue → executor.
-public final class DeterministicActionLayer {
-    public let catalog: ActionCatalog
-    public let executor: ActionExecutor
-    public init(catalog: ActionCatalog, system: ActionSystem) { self.catalog = catalog; executor = ActionExecutor(system: system) }
-
-    public func resolve(_ phrase: String, appKind: ActionCategory? = nil) -> (CatalogMatch, ActionRequest)? {
-        guard let m = catalog.match(phrase, appKind: appKind) else { return nil }
-        return (m, ActionRequest(m.entry, argument: m.argument))
-    }
-
-    public func perform(_ phrase: String, appKind: ActionCategory? = nil) -> ActionResult? {
-        guard let (_, req) = resolve(phrase, appKind: appKind) else { return nil }
-        return executor.run(req)
-    }
-}

@@ -112,16 +112,6 @@ public final class RoutingTable: @unchecked Sendable {
     }
 }
 
-/// Wraps a routed stage as a `PipelineStage` so the pipeline can call providers uniformly.
-public struct RoutedStage: PipelineStage {
-    public let id: StageID
-    public let table: RoutingTable
-    public init(id: StageID, table: RoutingTable) { self.id = id; self.table = table }
-    public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
-        try await table.complete(stage: id, spans: spans, context: context).completion.spans
-    }
-}
-
 /// Builds the default provider set from what is installed/configured on this machine.
 public enum ProviderDiscovery {
     public static func discover(secrets: SecretStore, session: URLSession = .shared, flags: FeatureFlagService? = nil) async -> [any Provider] {

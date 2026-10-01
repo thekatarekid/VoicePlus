@@ -3,11 +3,7 @@ import Shared
 
 /// T7. Cloud ASR slot. Hidden behind `FeatureFlag.cloudASR` (default off, post-v1).
 /// No transport is wired in Phase 1; the slot exists so the routing table, Data Panel and
-/// settings can reason about it, and so the honest copy ships with the flag.
-public enum CloudASRCopy {
-    public static let warning = "Cloud ASR sends your audio off-device and disables repair & context features (alternates, confidence-aware formatting, voice repair, on-screen biasing)."
-}
-
+/// settings can reason about it.
 public struct CloudASRProvider: Provider {
     public let secrets: SecretStore
     public let session: URLSession

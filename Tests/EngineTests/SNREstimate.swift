@@ -1,11 +1,11 @@
 import Foundation
 
-/// Energy-based SNR estimate used by the robustness tests and the Lab: 90th-percentile frame RMS
+/// Test-only (V5 X19: no production caller). Energy-based SNR estimate used by the robustness tests: 90th-percentile frame RMS
 /// over 10th-percentile frame RMS (20 ms frames), in dB, over a whole clip, with an optional
 /// speech/noise split when a reference is known. `MicQualityAnalyzer` v2 (V4.18) no longer uses this
 /// statistic: its floor comes from the pre-speech window and its signal from the first second of speech.
-public enum SNREstimate {
-    public static func percentileSNR(_ samples: [Float], sampleRate: Int = 16_000, frameMs: Int = 20) -> Float {
+enum SNREstimate {
+    static func percentileSNR(_ samples: [Float], sampleRate: Int = 16_000, frameMs: Int = 20) -> Float {
         let frame = max(1, sampleRate * frameMs / 1000)
         var rms: [Float] = []
         var i = 0
@@ -23,7 +23,7 @@ public enum SNREstimate {
     }
 
     /// True SNR against a clean reference (same length / alignment): 10 log10(Σref² / Σ(x-ref)²).
-    public static func referenceSNR(_ processed: [Float], reference: [Float]) -> Float {
+    static func referenceSNR(_ processed: [Float], reference: [Float]) -> Float {
         let n = min(processed.count, reference.count)
         guard n > 0 else { return 0 }
         var sig: Float = 0, err: Float = 0

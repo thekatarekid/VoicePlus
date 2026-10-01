@@ -310,14 +310,6 @@ struct SectionStateView: View {
     }
 }
 
-/// A failure beside content, as the R7 panes call it: the design's `ScopedBanner`.
-struct SectionBannerView: View {
-    let banner: SectionBanner
-    var onAction: (() -> Void)?
-
-    var body: some View { ScopedBanner(banner, onAction: onAction) }
-}
-
 /// One pasteboard write, so no view needs to import AppKit for it.
 enum Pasteboard {
     static func copy(_ text: String) {

@@ -153,12 +153,6 @@ func stubBinary(_ name: String, script: String) throws -> URL {
         #expect(try db.bytesEgressed(since: .distantPast) == 30)
     }
 
-    @Test func routedStageIsAPipelineStage() async throws {
-        let stage = RoutedStage(id: .style, table: RoutingTable(providers: [], logger: InMemoryNetworkLogger()))
-        let out = try await stage.process(sampleSpans, context: StageContext())
-        #expect(out.allSatisfy { $0.provenance.last == .style })
-    }
-
     @Test func discoveryAlwaysIncludesRulesAndRespectsCloudASRFlag() async {
         StubURLProtocol.register(host: "*") { _ in (404, Data(), [:]) }
         let a = await ProviderDiscovery.discover(secrets: InMemorySecretStore(), session: StubURLProtocol.session(), flags: .inMemory())

@@ -90,40 +90,6 @@ struct SpoolLevelSmoother: Equatable, Sendable {
     }
 }
 
-/// S1.6 rule 2 — "silence parks the reels" (design §6 C2): `listening` shows as `quiet` after 1.5 s of
-/// VAD silence, and speech returns it to `listening`. `quiet` is not a live state, so the reels hold
-/// their angle while it lasts and resume from it.
-struct SpoolSilenceTracker: Equatable, Sendable {
-    static let quietAfter = 1.5
-
-    /// When the current silence began, or `nil` while speech is present.
-    private(set) var silentSince: TimeInterval?
-
-    init() {}
-
-    /// Feed every VAD decision (`speech`) with its timestamp in seconds.
-    mutating func note(speech: Bool, at time: TimeInterval) {
-        if speech {
-            silentSince = nil
-        } else if silentSince == nil {
-            silentSince = time
-        }
-    }
-
-    /// Forget the silence (a new turn or a key other than listening).
-    mutating func reset() { silentSince = nil }
-
-    /// The key Spool should draw for `key` at `time`: `listening` becomes `quiet` once the silence has
-    /// lasted 1.5 s; every other key passes through.
-    func displayedKey(_ key: SpoolStateKey, at time: TimeInterval) -> SpoolStateKey {
-        Self.displayedKey(key, silence: silentSince.map { time - $0 } ?? 0)
-    }
-
-    static func displayedKey(_ key: SpoolStateKey, silence: TimeInterval) -> SpoolStateKey {
-        key == .listening && silence >= quietAfter ? .quiet : key
-    }
-}
-
 /// V3 `drawWave()`'s continuous expression state. Kept with the reel angle across semantic
 /// transitions and transcript updates; presentation never advances a delivery clock.
 struct SpoolMotionState: Equatable, Sendable, Codable {

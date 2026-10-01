@@ -137,7 +137,6 @@ func assertConformance(_ p: any Provider, stage: StageID = .style) async throws 
         #expect(p.capabilities == [.asr] && !p.capabilities.contains(.pipeline))
         #expect(await p.isAvailable() == false)
         await #expect(throws: ProviderError.flagDisabled("cloudASR")) { _ = try await p.complete(stage: .asr, spans: [], context: StageContext()) }
-        #expect(CloudASRCopy.warning.contains("disables repair & context features"))
         #expect(OAuthCopy.subscriptionsDoNotHelpASR.contains("does not improve speech recognition"))
         #expect(CLICopy.usesExistingSubscription == "Uses your existing subscription")
     }

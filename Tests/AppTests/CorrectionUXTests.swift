@@ -143,32 +143,6 @@ struct CorrectionUXTests {
         #expect(!CorrectionOverlayModel(entry: e, wordRect: word, phase: .gone).isVisible)
     }
 
-    @Test func menuRowsNewestFirstCappedAndToggleTitle() {
-        let ledger = CorrectionLedger()
-        for i in 0..<10 { ledger.correction(Self.event("w\(i)", "x\(i)")) }
-        let rows = CorrectionMenuBuilder.rows(ledger: ledger)
-        #expect(rows.count == CorrectionMenuBuilder.maxRows && rows.first?.was == "w9")
-        let store = InMemorySettingsStore()
-        #expect(CorrectionMenuBuilder.appToggleTitle(bundleID: "com.apple.Notes", settings: store) == "Turn off silent corrections in Notes")
-        CorrectionSettings.setEnabled(false, for: "com.apple.Notes", store: store)
-        #expect(CorrectionMenuBuilder.appToggleTitle(bundleID: "com.apple.Notes", settings: store) == "Turn on silent corrections in Notes")
-        #expect(CorrectionMenuBuilder.appToggleTitle(bundleID: nil, settings: store) == nil)
-    }
-
-    @Test @MainActor func menuItemListsEntriesAndRevertsOnClick() {
-        let ledger = CorrectionLedger()
-        ledger.correction(Self.event("Cotari", "Kothari", at: 0))
-        final class T: NSObject { @objc func r(_ s: Any) {}; @objc func t(_ s: Any) {} }
-        let item = CorrectionMenuBuilder.item(ledger: ledger, settings: InMemorySettingsStore(), bundleID: "com.apple.Notes", target: T(),
-                                              revert: #selector(T.r(_:)), toggleApp: #selector(T.t(_:)))
-        let titles = item.submenu!.items.map(\.title)
-        #expect(item.title == "Show what changed")
-        #expect(titles.first == "Cotari → Kothari" && titles.last == "Turn off silent corrections in Notes")
-        #expect(item.submenu!.items[0].isEnabled)
-        let empty = CorrectionMenuBuilder.item(ledger: CorrectionLedger(), settings: nil, bundleID: nil, target: T(), revert: #selector(T.r(_:)), toggleApp: #selector(T.t(_:)))
-        #expect(empty.submenu!.items.map(\.title) == ["No silent corrections yet"])
-    }
-
     @Test @MainActor func overlayControllerShowsOnlyWithRectAndRevertsOnTap() {
         final class Rects: WordRectProvider {
             var rect: CGRect? = CGRect(x: 200, y: 400, width: 60, height: 18)

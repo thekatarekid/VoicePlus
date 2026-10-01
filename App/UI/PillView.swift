@@ -1146,19 +1146,6 @@ struct PillActionRow: View {
     }
 }
 
-/// A key cap ("Esc", "fn / 🌐") in the `key` type.
-struct PillKeyCap: View {
-    let label: String
-
-    var body: some View {
-        Text(label)
-            .font(Tokens.Typography.key.font())
-            .padding(.horizontal, 4)
-            .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.keyCap)
-                .strokeBorder(Tokens.Pill.Token.controlBorder.color, lineWidth: 1))
-    }
-}
-
 // MARK: - W3H · transform before / after rows (S12 R1 / R2; design §4, §6, §8.8)
 //
 // S12's `TransformPreviewRows` drawn in the pill's own anatomy: R1 while the edit runs (the instruction,

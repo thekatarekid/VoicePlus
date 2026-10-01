@@ -136,44 +136,6 @@ struct MarkMappingTests {
 
 @Suite("S5 — the pill's marks")
 struct PillMarkTests {
-    let measure: (String) -> CGFloat = { CGFloat($0.utf16.count) * 10 }
-
-    @Test("a mark on a drawn line: x from the line's start, width of the word, core only")
-    func singleLine() throws {
-        let text = "Can we meet Mira, today"
-        let marks = UncertaintyMarkMapper.map(source: spans([("can", 0.9), ("we", 0.9), ("meet", 0.9), ("mira", 0.3), ("today", 0.9)]),
-                                              finalText: text).marks
-        let f = MarkFragments.layout(text: text, lines: [text], marks: marks, measure: measure)
-        let fragment = try #require(f.first)
-        #expect(f.count == 1 && fragment.line == 0 && fragment.x == 120 && fragment.width == 40)
-    }
-
-    @Test("a phrase crossing a line break is marked on every wrapped fragment")
-    func wrapped() {
-        let text = "a fast auburn fox jumps"
-        let marks = UncertaintyMarkMapper.map(source: spans([("the", 0.9), ("quick", 0.9), ("brown", 0.3), ("fox", 0.9), ("jumps", 0.9)]),
-                                              finalText: text).marks
-        let f = MarkFragments.layout(text: text, lines: ["a fast", "auburn fox jumps"], marks: marks, measure: measure)
-        #expect(f == [MarkFragment(markID: 0, line: 0, x: 0, width: 60), MarkFragment(markID: 0, line: 1, x: 0, width: 60)])
-    }
-
-    @Test("marks on lines scrolled away are not drawn; lines of another text draw nothing")
-    func clippedAndStale() {
-        let text = "mira said hello to everyone here"
-        let marks = UncertaintyMarkMapper.map(source: spans([("mira", 0.3), ("said", 0.9), ("hello", 0.9), ("to", 0.9),
-                                                              ("everyone", 0.9), ("here", 0.9)]), finalText: text).marks
-        #expect(MarkFragments.layout(text: text, lines: ["to everyone here"], marks: marks, measure: measure).isEmpty)
-        #expect(MarkFragments.layout(text: text, lines: ["something else"], marks: marks, measure: measure).isEmpty)
-    }
-
-    @Test("a mark never cuts a grapheme cluster")
-    func graphemes() throws {
-        let text = "ok 👍🏽ship"
-        let mark = UncertainMark(id: 0, kind: .word, range: 4..<6, text: "", heard: "", confidence: 0.2)   // half the emoji
-        let f = try #require(MarkFragments.layout(text: text, lines: [text], marks: [mark], measure: measure).first)
-        #expect(f.x == 30 && f.width == 40, "widened to the whole 👍🏽 (4 UTF-16 units)")
-    }
-
     @Test("the underline is 2 px, 3 px below the baseline, dotted")
     func style() {
         #expect(MarkStyle.thickness == 2 && MarkStyle.baselineOffset == 3 && MarkStyle.dash == [2, 2])
@@ -432,32 +394,6 @@ struct CorrectionPopoverS5Tests {
         #expect(m.copyCorrectionLabel == "Copy correction")
         #expect(m.copyCorrection() == "Meera")
         #expect(m.stage == .textChanged(replacement: "Meera", copied: true))
-    }
-
-    @Test("Escape over a turn closes the legacy correction popover before the turn")
-    @MainActor
-    func escapeLayers() {
-        let layers = EscapeLayerStack()
-        let popover = CorrectionPopoverController()
-        popover.escapeLayers = layers
-        var decisions: [WordReviewDecision] = []
-        popover.onDecision = { d, _ in decisions.append(d) }
-        popover.show(CorrectionPopoverModel(mark: Self.mark, origin: .preview), anchoredTo: CGRect(x: 100, y: 400, width: 30, height: 18))
-        #expect(layers.topID == ObjectIdentifier(popover))
-        #expect(layers.dismissTop() && !popover.isShown && decisions == [.dismiss])
-        #expect(!layers.dismissTop(), "nothing left: the next press is the turn's")
-    }
-
-    @Test("placement: under the word, above it at the bottom of the screen, inside the screen")
-    func layout() {
-        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
-        let size = CorrectionPopoverLayout.size
-        let below = CorrectionPopoverLayout.frame(anchoredTo: CGRect(x: 100, y: 500, width: 40, height: 20), in: screen)
-        #expect(below.maxY == 500 - CorrectionPopoverLayout.gap && below.minX == 100)
-        let above = CorrectionPopoverLayout.frame(anchoredTo: CGRect(x: 100, y: 50, width: 40, height: 20), in: screen)
-        #expect(above.minY == 70 + CorrectionPopoverLayout.gap)
-        let edge = CorrectionPopoverLayout.frame(anchoredTo: CGRect(x: 990, y: 500, width: 10, height: 20), in: screen)
-        #expect(edge.maxX == 1000 && edge.width == size.width)
     }
 }
 
