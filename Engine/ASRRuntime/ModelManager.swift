@@ -107,13 +107,23 @@ public actor ModelManager {
     private let maintenanceMode: Maintenance
     private let maintenancePass: ModelMaintenancePass
 
+    /// V5 HW1 — the shared memory budget this manager's models are loaded through (§10: the only
+    /// way a model is loaded). `nil` bypasses it (only for tests that need a bare manager).
+    public nonisolated let residency: ModelResidency?
+    /// Separates this manager's residency keys from another manager's copies of the same model.
+    public nonisolated let residencyScope: String = String(UUID().uuidString.prefix(8))
+    private var registered: Set<ModelID> = []
+
     public init(root: URL = ModelCatalog.modelsRoot(),
                 fetchers: [ModelKind: ModelFetcher]? = nil,
                 externalCaches: [ModelID: [URL]]? = nil,
                 loader: ModelLoader? = nil,
                 maintenance: Maintenance = .run,
-                rootLock: RootLock? = nil) {
+                rootLock: RootLock? = nil,
+                residency: ModelResidency? = .shared) {
         self.root = root
+        self.residency = residency
+        if let residency, residency === ModelResidency.shared { MemoryPressureMonitor.startSharedServices() }
         self.fetchers = fetchers ?? [.finalTDT: FluidAudioFetcher(), .streamingEOU: FluidAudioFetcher(), .whisper: ManifestFetcher()]
         self.externalCaches = externalCaches ?? Self.defaultExternalCaches()
         self.loader = loader ?? Self.coreMLLoader
@@ -349,6 +359,32 @@ public actor ModelManager {
     /// caller that made it reachable.
     @discardableResult
     public func load(_ id: ModelID) async throws -> LoadedModel {
+        guard let residency else { return try await performLoad(id) }
+        let key = id.residencyKey(scope: residencyScope)
+        if let m = loaded[id] { await residency.touch(key); return m }
+        await registerWithResidency(id, residency)
+        // The residency evicts what the tier rules require, then calls back into `performLoad`.
+        try await residency.acquire(key)
+        if let m = loaded[id] { return m }
+        return try await performLoad(id)
+    }
+
+    deinit {
+        if let residency { let scope = residencyScope; Task { await residency.unregisterAll(owner: scope) } }
+    }
+
+    private func registerWithResidency(_ id: ModelID, _ residency: ModelResidency) async {
+        guard !registered.contains(id) else { return }
+        // Inserted only after the await: a concurrent caller re-registers (harmless) rather than
+        // racing ahead to `acquire` an unregistered key.
+        await residency.register(id.residencyKey(scope: residencyScope), tier: id.residencyTier,
+                                 estimatedBytes: ModelCatalog.descriptor(id).approxBytes, owner: residencyScope,
+                                 load: { [weak self] in _ = try await self?.performLoad(id) },
+                                 unload: { [weak self] in await self?.performUnload(id) })
+        registered.insert(id)
+    }
+
+    private func performLoad(_ id: ModelID) async throws -> LoadedModel {
         if let m = loaded[id] { return m }
         // V4.8 — the pass that used to finish inside `init` is awaited here instead, so a migration
         // can still never move a folder CoreML is reading.
@@ -398,6 +434,13 @@ public actor ModelManager {
     }
 
     public func unload(_ id: ModelID) async {
+        if let residency, registered.contains(id) {
+            await residency.unload(id.residencyKey(scope: residencyScope), reason: .explicit)
+        }
+        await performUnload(id)
+    }
+
+    private func performUnload(_ id: ModelID) async {
         if case .eou(let m)? = loaded[id] { await m.cleanup() }
         loaded[id] = nil
     }
