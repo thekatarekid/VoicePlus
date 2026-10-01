@@ -107,7 +107,7 @@ public enum MeetingRetrieval {
         text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { !stopwords.contains($0) }
     }
 
-    static func normalised(_ v: [Float]) -> [Float] {
+    public static func normalised(_ v: [Float]) -> [Float] {
         let n = v.reduce(0) { $0 + $1 * $1 }.squareRoot()
         return n > 0 ? v.map { $0 / n } : v
     }
@@ -168,13 +168,18 @@ public actor MeetingAskIndex {
     public func top(_ question: String, k: Int = MeetingRetrieval.topK) async -> [MeetingTextWindow] {
         guard !windows.isEmpty else { return [] }
         let q = MeetingRetrieval.normalised(await embedder.embed([question]).first ?? [])
-        let qTokens = Set(MeetingRetrieval.tokens(question))
+        return scored(query: q, tokens: Set(MeetingRetrieval.tokens(question))).prefix(k).map(\.window)
+    }
+
+    /// Every window scored against an already embedded, normalised question, best first (V5 M19
+    /// ranks windows of many meetings with one question embedding).
+    public func scored(query q: [Float], tokens qTokens: Set<String>) -> [(window: MeetingTextWindow, score: Float)] {
         let scored = windows.indices.map { i -> (Int, Float) in
             let words = Set(MeetingRetrieval.tokens(windows[i].text))
             let lexical = qTokens.isEmpty ? 0 : Float(qTokens.intersection(words).count) / Float(qTokens.count)
             return (i, MeetingRetrieval.cosine(q, vectors[i]) + 0.15 * lexical)
         }
-        return scored.sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 > $1.1 }.prefix(k).map { windows[$0.0] }
+        return scored.sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 > $1.1 }.map { (windows[$0.0], $0.1) }
     }
 }
 

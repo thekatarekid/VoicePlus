@@ -81,7 +81,8 @@ struct MeetingsDetailView: View {
                                    refreshLive: { await MeetingIntelligence.shared.refreshLive(record) },
                                    onCitation: { time in
                                        if let seek { seek(time) } else { model.detailTab = .transcript }
-                                   })
+                                   },
+                                   onBackendChanged: { model.objectWillChange.send() })   // V5 M22
                     .id(record.id)
                 }
             }

@@ -320,8 +320,8 @@ public enum ProviderRoute {
     public static func rows(routing: [StageID: ProviderChoice]) -> [Row] {
         var out = [
             Row(id: "speech", title: ProvidersCopy.speechTitle, detail: ProvidersCopy.speechDetail, isLocal: true),
-            // Meeting notes are extractive and made on this Mac (`MeetingNotes`, provider
-            // `extractive-local`); Ask stays disabled until a service route exists (S7c).
+            // V5 M17/M16/M22: notes and Ask run on the on-device model by default; the Meetings
+            // picker pins both meeting stages (listed below) to another backend.
             Row(id: "meetings", title: ProvidersCopy.meetingsTitle, detail: ProvidersCopy.meetingsDetail, isLocal: true),
         ]
         for stage in RoutableStage.all where stage.acceptsProviders {
@@ -353,7 +353,7 @@ public enum ProvidersCopy {
     public static let speechTitle = "Speech recognition"
     public static let speechDetail = "Current route is on device."
     public static let meetingsTitle = "Meeting notes / Ask"
-    public static let meetingsDetail = "Notes are made on this Mac. Ask needs a configured service and stays off until one exists."
+    public static let meetingsDetail = "Notes and Ask use the on-device model unless you choose another backend in Meetings › Ask."
     public static let local = "Local"
     public static let service = "Service"
     public static let staysLocal = "On this Mac. Auto never sends this stage anywhere."

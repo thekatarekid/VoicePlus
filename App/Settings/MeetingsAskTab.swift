@@ -40,13 +40,16 @@ struct MeetingsAskTab: View {
     var ask: (String) async throws -> MeetingAnswer
     var refreshLive: () async -> Void
     var onCitation: (TimeInterval) -> Void
+    /// V5 M22 — the provider picker changed the route; the owner re-reads it.
+    var onBackendChanged: () -> Void
 
     @StateObject private var model: MeetingAskModel
 
     init(route: MeetingAskRoute?, isLive: Bool, onOpenProviders: @escaping () -> Void,
          ask: @escaping (String) async throws -> MeetingAnswer, refreshLive: @escaping () async -> Void,
-         onCitation: @escaping (TimeInterval) -> Void) {
+         onCitation: @escaping (TimeInterval) -> Void, onBackendChanged: @escaping () -> Void = {}) {
         self.route = route
+        self.onBackendChanged = onBackendChanged
         self.isLive = isLive
         self.onOpenProviders = onOpenProviders
         self.ask = ask
@@ -56,6 +59,13 @@ struct MeetingsAskTab: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.m) {
+            MeetingsBackendPicker(onChange: onBackendChanged)   // V5 M22
+            askBody
+        }
+    }
+
+    @ViewBuilder private var askBody: some View {
         if route == nil {
             // No local model and nothing pinned: the existing "Choose how to ask." state.
             MeetingAskView(route: nil, onOpenProviders: onOpenProviders, dark: false)

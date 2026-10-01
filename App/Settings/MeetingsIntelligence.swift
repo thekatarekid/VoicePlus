@@ -121,6 +121,7 @@ public final class MeetingIntelligence: @unchecked Sendable {
     private var routing: RoutingTable?
     private var settings: SettingsStore?
     private var asker: MeetingAsker?
+    private var libraryAsker: MeetingLibraryAsker?
     private var local: MeetingLocalLLMProvider?
     public var names: any MeetingSpeakerNameSource = FileMeetingSpeakerNames()
 
@@ -131,17 +132,23 @@ public final class MeetingIntelligence: @unchecked Sendable {
                         local: MeetingLocalLLMProvider = MeetingLocalLLMProvider(),
                         embedder: any SentenceEmbedding = NLSentenceEmbedder()) {
         routing.register(local)
-        let asker = MeetingAsker(generator: RoutingMeetingGenerator(table: routing, settings: settings, stage: .meetingAsk),
-                                 embedder: embedder)
+        let generator = RoutingMeetingGenerator(table: routing, settings: settings, stage: .meetingAsk)
+        let asker = MeetingAsker(generator: generator, embedder: embedder)
+        let libraryAsker = MeetingLibraryAsker(generator: generator, embedder: embedder)   // V5 M19
         lock.withLock {
             self.routing = routing
             self.settings = settings
             self.local = local
             self.asker = asker
+            self.libraryAsker = libraryAsker
         }
     }
 
     public var isInstalled: Bool { lock.withLock { routing != nil } }
+
+    /// The routing table and settings installed at launch (V5 M22 picker, M23 MCP).
+    public var routingTable: RoutingTable? { lock.withLock { routing } }
+    public var settingsStore: SettingsStore? { lock.withLock { settings } }
 
     /// M17 — LLM notes over `meeting.notes` with the chosen template; extractive until installed.
     public func notesProvider(store: MeetingStore = MeetingStore()) -> any MeetingNotesProvider {
@@ -180,6 +187,28 @@ public final class MeetingIntelligence: @unchecked Sendable {
         guard let asker = lock.withLock({ asker }) else { throw MeetingAskError.generation(.notConfigured) }
         return try await asker.ask(question, about: record, names: names.names(for: record.id), live: live)
     }
+
+    /// V5 M19 — Ask across every meeting in `records` (the library as listed, live one included).
+    public func askAcross(_ question: String, over records: [MeetingRecord], liveID: String?) async throws -> MeetingLibraryAnswer {
+        guard let asker = lock.withLock({ libraryAsker }) else { throw MeetingAskError.generation(.notConfigured) }
+        let source = names
+        var byID: [String: MeetingSpeakerNames] = [:]
+        for r in records { byID[r.id] = source.names(for: r.id) }
+        return try await asker.ask(question, over: records, names: byID, liveID: liveID)
+    }
+
+    /// V5 M19/M23 — the library ranking without a model (MCP `search`).
+    public func search(_ query: String, over records: [MeetingRecord], k: Int = MeetingRetrieval.topK) async -> [MeetingLibraryExcerpt] {
+        let index = lock.withLock({ libraryAsker?.index }) ?? fallbackIndex
+        let source = names
+        var byID: [String: MeetingSpeakerNames] = [:]
+        for r in records { byID[r.id] = source.names(for: r.id) }
+        await index.refresh(records, names: byID)
+        return await index.search(query, k: k)
+    }
+
+    /// Used by `search` before `install` (the MCP stdio process never installs a model).
+    private let fallbackIndex = MeetingLibraryIndex(embedder: NLSentenceEmbedder())
 
     public func refreshLive(_ record: MeetingRecord) async {
         guard let asker = lock.withLock({ asker }) else { return }

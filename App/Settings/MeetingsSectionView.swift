@@ -94,6 +94,14 @@ struct MeetingsSectionView: View {
                     }
                     .accessibilityIdentifier("meetings.captureProblem")
             }
+            if !model.libraryRecords.isEmpty {
+                // V5 M19 — Ask across meetings (library header).
+                MeetingsAskAcrossPanel(route: model.askRoute,
+                                       onOpenProviders: { open(.settings(.providers)) },
+                                       ask: { try await model.askAcross($0) },
+                                       onCitation: { model.open($0) },
+                                       onBackendChanged: { model.objectWillChange.send() })
+            }
             ForEach(model.unfinished) { recording in
                 UnfinishedRecordingBanner(recording: recording,
                                           showsTitle: model.unfinished.count > 1,
