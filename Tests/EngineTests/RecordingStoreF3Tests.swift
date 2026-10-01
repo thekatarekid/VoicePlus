@@ -168,6 +168,24 @@ struct RecordingStoreF3Tests {
         #expect(try Self.manifest(third, dir).finalText == nil)
     }
 
+    @Test func secureFieldRefusalDeletesThatTurnsRecording() throws {
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = Clock()
+        let recorder = UtteranceRecorder(directory: dir, defaults: Self.defaults(), now: { clock.now })
+        let first = try Self.record(recorder)
+        #expect(UtteranceRecorder.annotateLatest(in: dir, now: clock.now, transcript: "a", finalText: "A.", appBundleID: nil) == first)
+        clock.now.addTimeInterval(30)
+        let secret = try Self.record(recorder)
+        #expect(UtteranceRecorder.discardLatest(in: dir, now: clock.now.addingTimeInterval(1)) == secret)
+        #expect(Self.stamps(dir) == [first], "raw, processed and sidecar of the refused turn are gone; older kept")
+        // An already-annotated newest recording is a landed turn, never deleted.
+        #expect(UtteranceRecorder.discardLatest(in: dir, now: clock.now) == nil)
+        #expect(Self.stamps(dir) == [first])
+        #expect(UtteranceRecorder.onSecureRefusal == nil, "tests and mock engines never delete")
+        UtteranceRecorder.noteSecureRefusal()   // no-op, no crash
+    }
+
     @Test func landingHookIsOffUntilTheRealStackInstallsIt() throws {
         #expect(UtteranceRecorder.onLanded == nil, "tests and mock engines never write")
         UtteranceRecorder.noteLanded(transcript: "a", finalText: "b", appBundleID: nil)   // no-op, no crash

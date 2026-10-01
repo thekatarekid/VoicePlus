@@ -212,6 +212,32 @@ public final class UtteranceRecorder: @unchecked Sendable {
         return nil
     }
 
+    /// V5 F3 — a turn refused for a secure (password) field keeps nothing: deletes the newest
+    /// recording that has no final text yet and was saved within `window` of `now` (that turn's raw +
+    /// processed WAV and sidecar). Returns its stamp, or nil when none qualifies.
+    @discardableResult
+    public static func discardLatest(in directory: URL = UtteranceRecorder.directory(), now: Date = Date(),
+                                     window: TimeInterval = 300) -> String? {
+        let files = recordingFiles(in: directory)
+        let stamps = Set(files.filter { $0.pathExtension == "json" }.map { stamp(of: $0) })
+        guard let s = stamps.sorted(by: >).first else { return nil }
+        let url = directory.appendingPathComponent("\(s).json")
+        guard let data = try? Data(contentsOf: url), let m = try? decoder.decode(Manifest.self, from: data),
+              m.finalText == nil, abs(now.timeIntervalSince(m.recordedAt)) <= window else { return nil }
+        for u in files where stamp(of: u) == s { try? FileManager.default.removeItem(at: u) }
+        return s
+    }
+
+    /// Where a secure-field refusal goes: installed with `installLandingAnnotator`; nil in tests.
+    public static var onSecureRefusal: (@Sendable () -> Void)? {
+        get { landedLock.withLock { _onSecureRefusal } }
+        set { landedLock.withLock { _onSecureRefusal = newValue } }
+    }
+    nonisolated(unsafe) private static var _onSecureRefusal: (@Sendable () -> Void)?
+
+    /// Called by the lander when a turn is refused for a secure field: its recording is deleted.
+    public static func noteSecureRefusal() { onSecureRefusal?() }
+
     /// Where a landed turn's text goes: installed by `EngineFactory` for the real dictation stack
     /// (`annotateLatest` on the Recordings folder, off the caller's thread); nil — tests, mock
     /// engines — means nothing is written.
@@ -233,6 +259,9 @@ public final class UtteranceRecorder: @unchecked Sendable {
             DispatchQueue.global(qos: .utility).async {
                 annotateLatest(in: directory, transcript: transcript, finalText: finalText, appBundleID: app)
             }
+        }
+        onSecureRefusal = {
+            DispatchQueue.global(qos: .utility).async { discardLatest(in: directory) }
         }
     }
 

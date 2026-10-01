@@ -324,6 +324,7 @@ public final class UtteranceLander: @unchecked Sendable {
                 result.injection = .refused(.secureField)
                 result.totalMs = ms(since: t0)
                 Log.app.notice("refused to dictate into a secure field (role \(plan.role.rawValue))")
+                UtteranceRecorder.noteSecureRefusal()   // V5 F3 — the turn's audio is not kept either
                 return result
             }
             if !text.isEmpty { text = plan.continuation.leading + text + plan.continuation.trailing }
