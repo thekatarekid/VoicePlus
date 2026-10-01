@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 #if canImport(ApplicationServices)
 import ApplicationServices
+import Shared
 #endif
 
 /// Hit-testing the accessibility tree at a global point. Live impl wraps
@@ -38,8 +39,8 @@ public final class LiveAXHitTester: AXHitTesting {
     public func element(at point: GlobalPoint) -> ElementReference? {
         guard Self.isAvailable else { return nil }
         let q = normalizer().quartzPoint(fromCocoa: point.cgPoint)
-        var el: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(q.x), Float(q.y), &el) == .success, let e = el else { return nil }
+        // K18 — hit-test through the guard (an element of ours off-main → refuse).
+        guard let e = AXGuard.element(atX: Float(q.x), y: Float(q.y)) else { return nil }
         return describe(e, displayID: point.displayID)
     }
 

@@ -1,5 +1,6 @@
 import ApplicationServices
 import Foundation
+import Shared
 
 /// `AXNodeAccess` over real `AXUIElement`s. Every call is guarded by `AXIsProcessTrusted()` and returns `nil`
 /// rather than throwing when an app does not implement an attribute (Electron, Java, canvases).
@@ -9,14 +10,13 @@ public final class LiveAXNodeAccess: AXNodeAccess {
     public var isTrusted: Bool { AXIsProcessTrusted() }
 
     public func windows(pid: Int32) -> [AXNodeRef] {
-        guard isTrusted else { return [] }
-        let app = AXUIElementCreateApplication(pid)
+        guard isTrusted, let app = AXGuard.application(pid: pid) else { return [] }   // K18: own pid → refuse
         let list = copy(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
         return list.map(ref)
     }
 
     public func focusedWindow(pid: Int32) -> AXNodeRef? {
-        guard isTrusted, let w = copy(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute) else { return nil }
+        guard isTrusted, let app = AXGuard.application(pid: pid), let w = copy(app, kAXFocusedWindowAttribute) else { return nil }
         // swiftlint:disable:next force_cast
         return ref(w as! AXUIElement)
     }
@@ -104,7 +104,8 @@ final class LiveObservation: AXObservationToken {
     init?(window: AXWindowID, handler: @escaping (AXChangeEvent) -> Void) {
         self.window = window
         self.handler = handler
-        self.app = AXUIElementCreateApplication(window.pid)
+        guard let app = AXGuard.application(pid: window.pid) else { return nil }   // K18
+        self.app = app
         var obs: AXObserver?
         let callback: AXObserverCallback = { _, _, name, refcon in
             guard let refcon else { return }

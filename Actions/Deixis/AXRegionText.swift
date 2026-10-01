@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 #if canImport(ApplicationServices)
 import ApplicationServices
+import Shared
 #endif
 
 /// G3 — text inside a drawn box, read from the accessibility tree (V4.29).
@@ -58,9 +59,8 @@ public final class LiveAXRegionTextReader: AXRegionTextReading {
         guard AXIsProcessTrusted(), rect.width > 0, rect.height > 0 else { return nil }
         let n = normalizer()
         let centre = n.quartzPoint(fromCocoa: CGPoint(x: rect.midX, y: rect.midY))
-        var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(centre.x), Float(centre.y), &hit) == .success,
-              var element = hit else { return nil }
+        // K18 — hit-test through the guard (an element of ours off-main → refuse).
+        guard var element = AXGuard.element(atX: Float(centre.x), y: Float(centre.y)) else { return nil }
         var visible = Self.range(element, kAXVisibleCharacterRangeAttribute)
         var depth = 0
         while visible == nil, depth < ancestorDepth, let parent: AXUIElement = Self.attribute(element, kAXParentAttribute) {

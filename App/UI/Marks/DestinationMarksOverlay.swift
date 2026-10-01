@@ -24,7 +24,8 @@ public final class AXElementMarkGeometry: MarkGeometrySource {
     public static func focused(in pid: pid_t) -> AXElementMarkGeometry? {
         guard AXIsProcessTrusted() else { return nil }
         var focused: CFTypeRef?
-        let app = AXUIElementCreateApplication(pid)
+        // K18 — own pid → refuse; an element of ours is admitted only on the main thread.
+        guard let app = AXGuard.application(pid: pid) else { return nil }
         guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
               let value = focused, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return AXElementMarkGeometry(element: value as! AXUIElement, pid: pid)
@@ -306,10 +307,11 @@ public final class DestinationMarksTracker {
         for name in [kAXValueChangedNotification, kAXUIElementDestroyedNotification, kAXMovedNotification, kAXResizedNotification] {
             AXObserverAddNotification(observer, geometry.element, name as CFString, refcon)
         }
-        let app = AXUIElementCreateApplication(geometry.pid)
+        if let app = AXGuard.application(pid: geometry.pid) {   // K18
         for name in [kAXWindowMovedNotification, kAXWindowResizedNotification, kAXFocusedWindowChangedNotification,
                      kAXWindowMiniaturizedNotification] {
             AXObserverAddNotification(observer, app, name as CFString, refcon)
+        }
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
         self.observer = observer

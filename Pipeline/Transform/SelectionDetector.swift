@@ -72,12 +72,8 @@ public struct AXSelectionDetector: SelectionDetecting {
     public init() {}
 
     public func currentSelection() -> SelectionSnapshot? {
-        guard AXIsProcessTrusted() else { return nil }
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let focused = focusedRef else { return nil }
-        let element = focused as! AXUIElement
+        // K18 — own pid off-main → refuse; the guard owns the system-wide root.
+        guard let element = AXGuard.focusedElement() else { return nil }
         var rangeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
               let rangeValue = rangeRef else { return nil }

@@ -64,10 +64,9 @@ enum PillWorkLocator {
     static func workRects() -> (caret: CGRect?, window: CGRect?) {
         guard AXIsProcessTrusted(),
               let app = NSWorkspace.shared.frontmostApplication,
-              app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              let axApp = AXGuard.application(pid: app.processIdentifier),   // K18: own pid → refuse
               let primary = NSScreen.screens.first else { return (nil, nil) }
         let height = primary.frame.maxY
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(axApp, messagingTimeout)
         var caret: CGRect?
         if let element: AXUIElement = copy(axApp, kAXFocusedUIElementAttribute) {

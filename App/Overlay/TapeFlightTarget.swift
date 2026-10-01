@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Foundation
 import Injection
+import Shared
 
 // S4 — the flight's reads of the destination. They run off the main thread (a slow app can never stall
 // the pill) and never write anything: the flight subscribes to the turn, it does not take part in it.
@@ -175,7 +176,7 @@ enum TapeFlightAX {
 
     static func focusedElement() -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
-        let system = AXUIElementCreateSystemWide()
+        let system = AXGuard.systemWide()   // K18
         AXUIElementSetMessagingTimeout(system, messagingTimeout)
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,

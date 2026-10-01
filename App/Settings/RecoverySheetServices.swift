@@ -153,8 +153,8 @@ public final class LiveRecoveryDestinations: RecoveryDestinations {
         let pid = app.processIdentifier
         var target = RecoveryTarget(pid: pid, bundleID: app.bundleIdentifier ?? "",
                                     appName: app.localizedName ?? "", isEditable: false)
-        guard AXIsProcessTrusted() else { return target }
-        let root = AXUIElementCreateApplication(pid)
+        // K18 — own pid → refuse (never a recovery target).
+        guard AXIsProcessTrusted(), let root = AXGuard.application(pid: pid) else { return target }
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
               let value = focused, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }

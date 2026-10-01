@@ -16,14 +16,12 @@ public final class AXWordRectProvider: WordRectProvider {
     public init() {}
 
     public func wordRect(utf16Range: Range<Int>) -> CGRect? {
-        guard AXIsProcessTrusted() else { return nil }
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let element = focused else { return nil }
+        // K18 — system-wide focus through the guard (own pid off-main → refuse).
+        guard let element = AXGuard.focusedElement() else { return nil }
         var cfRange = CFRange(location: utf16Range.lowerBound, length: utf16Range.count)
         guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return nil }
         var bounds: CFTypeRef?
-        let err = AXUIElementCopyParameterizedAttributeValue(element as! AXUIElement, kAXBoundsForRangeParameterizedAttribute as CFString, rangeValue, &bounds)
+        let err = AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, rangeValue, &bounds)
         guard err == .success, let b = bounds else { return nil }
         var rect = CGRect.zero
         guard AXValueGetValue(b as! AXValue, .cgRect, &rect), rect.width > 0 else { return nil }

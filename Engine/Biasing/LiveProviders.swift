@@ -2,13 +2,15 @@ import Foundation
 import ApplicationServices
 import AppKit
 import Contacts
+import Shared
 
 /// Open document names via AXDocument / window titles of the focused app.
 public struct LiveAXOpenDocuments: OpenDocumentProvider {
     public init() {}
     public func openDocumentNames() -> [String] {
-        guard AXIsProcessTrusted(), let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return [] }
-        let appEl = AXUIElementCreateApplication(pid)
+        // K18 — own pid → refuse (VoicePlus's own windows are not "open documents").
+        guard AXIsProcessTrusted(), let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              let appEl = AXGuard.application(pid: pid) else { return [] }
         var wins: AnyObject?
         guard AXUIElementCopyAttributeValue(appEl, kAXWindowsAttribute as CFString, &wins) == .success,
               let windows = wins as? [AXUIElement] else { return [] }

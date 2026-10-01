@@ -23,7 +23,8 @@ public final class LiveActionSystem: ActionSystem {
         let k = nextID; nextID += 1; table[k] = el; return k
     }
     private func appElement(_ bundleID: String) -> AXUIElement? {
-        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first.map { AXUIElementCreateApplication($0.processIdentifier) }
+        // K18 — own pid → refuse.
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first.flatMap { AXGuard.application(pid: $0.processIdentifier) }
     }
     private func ref(_ app: NSRunningApplication) -> AppRef { AppRef(name: app.localizedName ?? "", bundleID: app.bundleIdentifier ?? "") }
 
