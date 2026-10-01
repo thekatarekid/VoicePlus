@@ -13,6 +13,15 @@ import Shared
 /// M11 — something that suggests names for a finished meeting's speakers.
 public protocol SpeakerNameHinting: Sendable {
     func candidates(for record: MeetingRecord, directory: URL) async -> [MeetingSpeaker: [SpeakerNameCandidate]]
+    /// Called with every labelled batch while the meeting runs (start live samplers here).
+    func meetingProgressed()
+    /// The call app the hints saw ("Zoom"), for "on the call (Zoom)".
+    var callApp: String? { get }
+}
+
+extension SpeakerNameHinting {
+    public func meetingProgressed() {}
+    public var callApp: String? { nil }
 }
 
 public final class DescribingLabeler: SpeakerLabeler, FinalSpeakerRelabeling, @unchecked Sendable {
@@ -41,6 +50,7 @@ public final class DescribingLabeler: SpeakerLabeler, FinalSpeakerRelabeling, @u
 
     public func label(_ batch: [MeetingChunk]) async throws -> [LabeledChunk] {
         let out = try await inner.label(batch)
+        hints?.meetingProgressed()
         var ready = lock.withLock { voicesReady }
         if ready == nil, let voices {
             ready = (try? await voices.prepare()) != nil
@@ -95,6 +105,7 @@ public final class DescribingLabeler: SpeakerLabeler, FinalSpeakerRelabeling, @u
             }
         }
         var ctx = context(record)
+        if ctx.app == nil { ctx.app = hints?.callApp }
         for (s, cs) in candidates { ctx.candidates[s, default: []] += cs }
         let descriptors = SpeakerDescriptorBuilder.describe(record.transcript, chunks: chunks, context: ctx)
         try? descriptors.save(to: directory)

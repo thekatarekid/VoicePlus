@@ -366,7 +366,11 @@ public final class AppContainer {
                                   labeler: DiarizationFactory.make(enrolledUserEmbedding: self?.latchController.profiles.meetingEmbedding(),
                                                                    modelManager: self?.modelManager,
                                                                    embeddingChoice: .current(),   // V5 M9
-                                                                   describe: .init()),            // V5 M10/M13
+                                                                   describe: .init(hints: MeetingNameHints(   // V5 M10/M13/M11
+                                                                       attendees: EventKitMeetingAttendees(),
+                                                                       activeSpeaker: AXActiveSpeakerSource(),
+                                                                       typer: LazyPersonTyper(),
+                                                                       knownNames: { (try? VoiceprintStore())?.people().map(\.name) ?? [] }))),
                                   notesProvider: MeetingIntelligence.shared.notesProvider(store: meetingStore),   // V5 M17
                                   store: meetingStore)
         }
