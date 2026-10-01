@@ -23,6 +23,13 @@ public final class CuaS1SingleStep: SingleStepChoosing, @unchecked Sendable {
         try await chooser.choose(goal: goal, observation: observation)
     }
 
+    /// Act key down: the kept-warm 4B loads now, so the first decision does not wait for it. On the
+    /// 16 GB plan nothing loads until a goal actually needs the chooser.
+    public func beginTurn() async {
+        guard keepWarm else { return }
+        try? await resident?.prewarm()
+    }
+
     public func endTurn() async {
         guard !keepWarm else { return }
         await resident?.release()

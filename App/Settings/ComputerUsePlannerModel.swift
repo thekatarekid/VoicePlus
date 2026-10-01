@@ -32,6 +32,15 @@ extension ComputerUseSettings {
     public static func residencyKey(for model: LocalLLMModel) -> String {
         model.id == LocalLLMCatalog.qwen35_4B.id ? ResidencyKey.localLLM4B : ResidencyKey.localLLM2B
     }
+
+    /// V5 CU9 — one 4B at a time. Where the plan runs CUA-S1-4B `.exclusive` (16 GB), a 4B planner the
+    /// user picked is `.exclusive` too, so the two are never resident together (`ModelResidency`
+    /// refuses the second; CUA-S1 queues behind the planner, `ResidentCuaS1`). Otherwise the plan's
+    /// shared-LLM tier.
+    public static func plannerTier(for model: LocalLLMModel, plan: ResidencyPlan) -> ResidencyTier {
+        if model.id == LocalLLMCatalog.qwen35_4B.id, plan.tier(for: .computerUse) == .exclusive { return .exclusive }
+        return plan.tier(for: .localLLM) ?? .onDemand
+    }
 }
 
 /// The shared model as a routable provider. The model is resolved per call (the planner-model pick
@@ -75,7 +84,7 @@ public final class SharedLocalLLMProvider: TextGenerator, @unchecked Sendable {
                 let key = ComputerUseSettings.residencyKey(for: model)
                 return LlamaCppProvider(
                     config: LlamaCppConfig(modelPath: model.localURL(), residencyKey: key,
-                                           tier: plan.tier(for: .localLLM) ?? .onDemand,
+                                           tier: ComputerUseSettings.plannerTier(for: model, plan: plan),
                                            estimatedBytes: model.residentBytes, maxTokens: maxTokens,
                                            deadline: deadline, lighterAlternative: plan.lighterAlternative(for: key)),
                     displayName: "\(model.displayName) on this Mac", residency: residency)

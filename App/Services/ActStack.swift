@@ -214,6 +214,8 @@ public final class ActSessionController: @unchecked Sendable {
             Task {
                 do { try await engine.start(prewarm: true) } catch { Log.app.error("act: engine start failed: \(error)") }
             }
+            // CU9: a kept-warm CUA-S1 (≥ 24 GB) loads while the user speaks; 16 GB loads on demand.
+            Task.detached(priority: .utility) { [router] in await router.beginActTurn() }
         case .finalize:
             Task { await self.finalizeCapture() }
         // R3.1: `.enterLatch`. The act key never latches — a second tap on

@@ -15,7 +15,13 @@ public enum ActDispatch: Equatable, Sendable {
 /// utterance; `endTurn` after it (CU9: the 4B unloads unless the memory plan keeps it warm).
 public protocol SingleStepChoosing: AnyObject, Sendable {
     func choose(goal: String, observation: AXSummary) async throws -> CuaS1Choice
+    /// Act key down (CU9: a kept-warm model may load now). Default: nothing.
+    func beginTurn() async
     func endTurn() async
+}
+
+extension SingleStepChoosing {
+    public func beginTurn() async {}
 }
 
 /// Front door for the second key: parse → consent → deterministic executor, or hand the goal to the agent.
@@ -66,6 +72,11 @@ public final class ActRouter: @unchecked Sendable {
     public func handle(_ text: String, appBundleID: String? = nil) async throws -> ActDispatch {
         guard let route = parser.preRoute(text, appBundleID: appBundleID) else { return .ignored(reason: "act domain inactive") }
         return try await dispatch(await refine(route, appBundleID: appBundleID))
+    }
+
+    /// CU9: the act key went down — let the chooser get ready (resolves the lazy chooser once).
+    public func beginActTurn() async {
+        await resolveChooser()?.beginTurn()
     }
 
     /// CU4: catalogue retrieval over an `.agentic` route (other routes unchanged).

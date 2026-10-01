@@ -55,16 +55,32 @@ public enum CuaS1Catalog {
 /// A `CuaS1Deciding` that lives in `ModelResidency`: every decision runs inside `withModel`, so the
 /// weights load on first use, count against the one budget, and (as `.exclusive`) evict on-demand
 /// models first and are refused while another exclusive model is resident (§10, HW1).
+///
+/// V5 CU9 — one 4B at a time, queued rather than failed. When the load is refused because another
+/// `.exclusive` model (the 4B planner, a refinement pass) is resident, the decision waits: while that
+/// model is in use (pinned) it polls; once it is idle it is unloaded (`ResidencyReason.exclusive`) and
+/// CUA-S1 loads. A refusal for budget (something pinned is holding memory) waits the same way. After
+/// `queueTimeout` the refusal is thrown and the act router hands the goal to the planner.
 public final class ResidentCuaS1: CuaS1Deciding, @unchecked Sendable {
     public let residencyKey: String
     private let residency: ModelResidency
     private let backend: any CuaS1Backend
+    /// Longest wait for another exclusive model to finish (CU9).
+    public let queueTimeout: TimeInterval
+    /// Poll interval while queued.
+    public let pollInterval: TimeInterval
+    private let now: @Sendable () -> Date
 
     public init(backend: any CuaS1Backend, residency: ModelResidency = .shared,
-                residencyKey: String = CuaS1Catalog.residencyKey) {
+                residencyKey: String = CuaS1Catalog.residencyKey,
+                queueTimeout: TimeInterval = 30, pollInterval: TimeInterval = 0.1,
+                now: @escaping @Sendable () -> Date = Date.init) {
         self.backend = backend
         self.residency = residency
         self.residencyKey = residencyKey
+        self.queueTimeout = max(0, queueTimeout)
+        self.pollInterval = max(0.001, pollInterval)
+        self.now = now
     }
 
     /// Register under the HW2 plan's tier (`.exclusive` on 16 GB, `.onDemand` + warm on ≥ 24 GB).
@@ -81,11 +97,49 @@ public final class ResidentCuaS1: CuaS1Deciding, @unchecked Sendable {
     public func decide(_ state: CuaS1State) async throws -> CuaS1Decision {
         await register()
         let backend = self.backend
-        return try await residency.withModel(residencyKey) { try await backend.decide(state) }
+        return try await queued { try await self.residency.withModel(self.residencyKey) { try await backend.decide(state) } }
+    }
+
+    /// ≥ 24 GB plan (kept warm): load ahead of the first decision of an act turn.
+    public func prewarm() async throws {
+        await register()
+        try await queued { try await self.residency.acquire(self.residencyKey) }
     }
 
     /// CU9: unload after the act turn.
     public func release() async { await residency.unload(residencyKey) }
+
+    /// Run `body`; on an exclusive / budget refusal wait for the turn (see the type comment).
+    private func queued<T>(_ body: () async throws -> T) async throws -> T {
+        let deadline = now().addingTimeInterval(queueTimeout)
+        while true {
+            do {
+                return try await body()
+            } catch let refusal as ResidencyError {
+                guard now() < deadline, try await waitTurn(after: refusal) else { throw refusal }
+            }
+        }
+    }
+
+    /// True → try again. Unloads the other exclusive model once it is idle.
+    private func waitTurn(after refusal: ResidencyError) async throws -> Bool {
+        switch refusal {
+        case .exclusiveConflict(_, let other):
+            let entry = await residency.snapshot().entries.first { $0.key == other }
+            guard let entry, entry.resident else { return true }   // already gone
+            if entry.pinned {
+                try await Task.sleep(nanoseconds: UInt64(pollInterval * 1e9))
+            } else {
+                await residency.unload(other, reason: .exclusive)
+            }
+            return true
+        case .overBudget:
+            try await Task.sleep(nanoseconds: UInt64(pollInterval * 1e9))
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// The backend this build ships for the 4B chooser: FluidUse at the J6 pin has no
