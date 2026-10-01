@@ -31,6 +31,8 @@ public struct CatalogMatch: Equatable, Sendable {
     public let phrasing: String
     public let argument: String?
     public let score: Double
+    /// The utterance this match was made from (V5 CU4: a low-score match is re-confirmed by retrieval).
+    public var utterance: String? = nil
 }
 
 /// The 200-action catalogue (`Actions/Deterministic/catalog.json`).
@@ -65,16 +67,18 @@ public struct ActionCatalog: Sendable {
     public func entry(id: String) -> CatalogEntry? { entries.first { $0.id == id } }
 
     /// Resolve a spoken phrase to a catalogue entry. Exact/prefix/token/Levenshtein over every phrasing; `{arg}` templates capture the tail.
-    public func match(_ phrase: String, appKind: ActionCategory? = nil, threshold: Double = FuzzyMatch.defaultThreshold) -> CatalogMatch? {
+    /// `among` restricts the search to those entry ids (V5 CU4: the fuzzy confirm of retrieved candidates).
+    public func match(_ phrase: String, appKind: ActionCategory? = nil, threshold: Double = FuzzyMatch.defaultThreshold,
+                      among ids: Set<String>? = nil) -> CatalogMatch? {
         let q = FuzzyMatch.normalize(phrase)
         var best: CatalogMatch?
         let qTokens = q.split(separator: " ").map(String.init)
         let rawTokens = phrase.split(whereSeparator: \.isWhitespace).map(String.init)
-        for i in index where appKind.map(i.entry.applies(to:)) ?? true {
+        for i in index where (appKind.map(i.entry.applies(to:)) ?? true) && (ids.map { $0.contains(i.entry.id) } ?? true) {
             let candidate: CatalogMatch?
             if i.isTemplate {
                 guard let split = Self.splitArgument(tokens: qTokens, head: i.normalized, headTokens: i.headTokens, threshold: threshold) else { continue }
-                candidate = CatalogMatch(entry: i.entry, phrasing: i.phrasing, argument: Self.rawArgument(rawTokens, after: i.headTokens) ?? split.arg, score: split.score)
+                candidate = CatalogMatch(entry: i.entry, phrasing: i.phrasing, argument: Self.rawArgument(rawTokens, after: split.consumed) ?? split.arg, score: split.score)
             } else {
                 let s = FuzzyMatch.score(query: q, candidate: i.normalized)
                 candidate = s >= threshold ? CatalogMatch(entry: i.entry, phrasing: i.phrasing, argument: nil, score: s) : nil
@@ -94,10 +98,25 @@ public struct ActionCatalog: Sendable {
 
     /// "open url example dot com" vs head "open url": fuzzy-match the first N query tokens to the head, rest is the argument.
     /// Templates score slightly below exact full phrasings; longer heads beat shorter ones ("open url {arg}" over "open {arg}").
-    private static func splitArgument(tokens qt: [String], head: String, headTokens n: Int, threshold: Double) -> (arg: String, score: Double)? {
+    /// V5 CU6: determiners inside the head are skipped ("open the url x" → head "open url", argument "x"),
+    /// so a longer template is not beaten by "open {arg}" swallowing "the url x" as an app name.
+    private static func splitArgument(tokens qt: [String], head: String, headTokens n: Int, threshold: Double) -> (arg: String, score: Double, consumed: Int)? {
         guard qt.count > n else { return nil }
-        let s = FuzzyMatch.score(query: qt.prefix(n).joined(separator: " "), candidate: head)
-        guard s >= threshold else { return nil }
-        return (qt.dropFirst(n).joined(separator: " "), s * 0.96 + 0.004 * Double(min(n, 5)))
+        var best: (arg: String, score: Double, consumed: Int)?
+        for skipDeterminers in [false, true] {
+            var picked: [String] = [], consumed = 0
+            while consumed < qt.count, picked.count < n {
+                let t = qt[consumed]; consumed += 1
+                if skipDeterminers, !picked.isEmpty, headDeterminers.contains(t) { continue }
+                picked.append(t)
+            }
+            guard picked.count == n, consumed < qt.count else { continue }
+            let s = FuzzyMatch.score(query: picked.joined(separator: " "), candidate: head)
+            guard s >= threshold else { continue }
+            let scored = s * 0.96 + 0.004 * Double(min(n, 5))
+            if scored > (best?.score ?? -1) { best = (qt.dropFirst(consumed).joined(separator: " "), scored, consumed) }
+        }
+        return best
     }
+    static let headDeterminers: Set<String> = ["the", "a", "an", "this", "that", "my"]
 }

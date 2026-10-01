@@ -244,7 +244,8 @@
   "id": "mac.close_window",
   "phrasings": [
    "close window",
-   "close this window"
+   "close this window",
+   "shut window"
   ],
   "category": "mac",
   "reversibility": "semi",
@@ -379,7 +380,8 @@
    "open url {arg}",
    "open website {arg}",
    "go to url {arg}",
-   "browse to {arg}"
+   "browse to {arg}",
+   "navigate to url {arg}"
   ],
   "category": "mac",
   "reversibility": "reversible",
@@ -769,7 +771,8 @@
   "phrasings": [
    "quit",
    "quit app",
-   "quit this app"
+   "quit this app",
+   "exit app"
   ],
   "category": "mac",
   "reversibility": "semi",
@@ -869,7 +872,8 @@
   "phrasings": [
    "press enter",
    "hit enter",
-   "press return"
+   "press return",
+   "hit return"
   ],
   "category": "mac",
   "reversibility": "reversible",
@@ -884,7 +888,8 @@
   "phrasings": [
    "press escape",
    "escape",
-   "cancel"
+   "cancel",
+   "hit escape"
   ],
   "category": "mac",
   "reversibility": "reversible",
@@ -898,7 +903,8 @@
   "id": "mac.press_tab",
   "phrasings": [
    "press tab",
-   "next field"
+   "next field",
+   "hit tab"
   ],
   "category": "mac",
   "reversibility": "reversible",
@@ -912,7 +918,8 @@
   "id": "mac.press_delete",
   "phrasings": [
    "press delete",
-   "backspace"
+   "backspace",
+   "hit delete"
   ],
   "category": "mac",
   "reversibility": "semi",
@@ -1282,7 +1289,8 @@
   "id": "browser.close_tab",
   "phrasings": [
    "close tab",
-   "close this tab"
+   "close this tab",
+   "shut tab"
   ],
   "category": "browser",
   "reversibility": "semi",
@@ -2567,7 +2575,8 @@
   "id": "mail.reply_key",
   "phrasings": [
    "reply",
-   "reply to this"
+   "reply to this",
+   "respond"
   ],
   "category": "mail",
   "reversibility": "reversible",

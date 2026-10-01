@@ -197,10 +197,13 @@ public final class ActSessionController: @unchecked Sendable {
     /// default reads the same values the page writes; tests inject an in-memory store.
     public var settings: SettingsStore? = UserDefaultsSettingsStore()
 
-    public init(engine: any EngineProtocol, router: ActRouter, state: ActDomainState) {
+    /// `installLayer2` (V5 CU4): give the router catalogue retrieval + the CUA-S1 chooser source
+    /// unless it already has them (`ComputerUseLayer2.install`).
+    public init(engine: any EngineProtocol, router: ActRouter, state: ActDomainState, installLayer2: Bool = true) {
         self.engine = engine
         self.router = router
         self.state = state
+        if installLayer2 { ComputerUseLayer2.install(on: router) }
     }
 
     public func handle(_ action: HotkeyStateMachine.Action) {
@@ -251,7 +254,8 @@ public final class ActSessionController: @unchecked Sendable {
 
     public func route(_ parsed: ActRoute) async {
         applySettings()
-        var parsed = parsed
+        // CU4: catalogue retrieval runs on the words as spoken, before deixis context is appended.
+        var parsed = await router.refine(parsed, appBundleID: appBundleID())
         if case .agentic(let goal) = parsed, let lines = contextLines?(), !lines.isEmpty {
             parsed = .agentic(goal: "\(goal) [\(lines.joined(separator: "; "))]")
         }

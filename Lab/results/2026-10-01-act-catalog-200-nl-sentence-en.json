@@ -1,0 +1,688 @@
+{
+  "date" : "2026-10-01",
+  "failures" : [
+    {
+      "entry" : "mac.open_app",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "files.quick_look",
+      "text" : "bring up Preview"
+    },
+    {
+      "entry" : "mac.open_app",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "files.quick_look",
+      "text" : "change to Preview"
+    },
+    {
+      "entry" : "mac.open_app",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "files.quick_look",
+      "text" : "navigate to Preview"
+    },
+    {
+      "entry" : "mac.app.finder",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up finder"
+    },
+    {
+      "entry" : "mac.app.finder",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display finder"
+    },
+    {
+      "entry" : "mac.app.safari",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up safari"
+    },
+    {
+      "entry" : "mac.app.safari",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display safari"
+    },
+    {
+      "entry" : "mac.app.chrome",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up chrome"
+    },
+    {
+      "entry" : "mac.app.slack",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up slack"
+    },
+    {
+      "entry" : "mac.app.slack",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display slack"
+    },
+    {
+      "entry" : "mac.app.mail",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up mail"
+    },
+    {
+      "entry" : "mac.app.notes",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up notes"
+    },
+    {
+      "entry" : "mac.app.notes",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display notes"
+    },
+    {
+      "entry" : "mac.app.terminal",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up terminal"
+    },
+    {
+      "entry" : "mac.app.terminal",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display terminal"
+    },
+    {
+      "entry" : "mac.app.messages",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up messages"
+    },
+    {
+      "entry" : "mac.app.messages",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display messages"
+    },
+    {
+      "entry" : "mac.app.calendar",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up calendar"
+    },
+    {
+      "entry" : "mac.app.xcode",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up xcode"
+    },
+    {
+      "entry" : "mac.app.xcode",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display xcode"
+    },
+    {
+      "entry" : "mac.focus_window",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "change to window Second"
+    },
+    {
+      "entry" : "mac.focus_window",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display window Second"
+    },
+    {
+      "entry" : "mac.minimize",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "shrink"
+    },
+    {
+      "entry" : "mac.minimize",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "put away this window"
+    },
+    {
+      "entry" : "mac.zoom_window",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "make bigger"
+    },
+    {
+      "entry" : "mac.open_url",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up url github dot com slash pulls"
+    },
+    {
+      "entry" : "mac.open_url",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up website github dot com slash pulls"
+    },
+    {
+      "entry" : "mac.open_file",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up file ~\/Documents"
+    },
+    {
+      "entry" : "mac.open_file",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up path ~\/Documents"
+    },
+    {
+      "entry" : "mac.open_downloads",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "browser.downloads",
+      "text" : "bring up downloads"
+    },
+    {
+      "entry" : "mac.open_downloads",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "files.go_downloads",
+      "text" : "bring up downloads folder"
+    },
+    {
+      "entry" : "mac.open_documents",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up documents"
+    },
+    {
+      "entry" : "mac.open_documents",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up documents folder"
+    },
+    {
+      "entry" : "mac.scroll_up",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "editor.move_line_up",
+      "text" : "move up"
+    },
+    {
+      "entry" : "mac.scroll_down",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "editor.move_line_down",
+      "text" : "move down"
+    },
+    {
+      "entry" : "mac.scroll_left",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.space_left",
+      "text" : "move left"
+    },
+    {
+      "entry" : "mac.scroll_right",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.space_right",
+      "text" : "move right"
+    },
+    {
+      "entry" : "mac.scroll_top",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "navigate to top"
+    },
+    {
+      "entry" : "mac.scroll_up_lot",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "move up a lot"
+    },
+    {
+      "entry" : "mac.type_text",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "enter hello world"
+    },
+    {
+      "entry" : "mac.fill_field",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "change field hello world"
+    },
+    {
+      "entry" : "mac.fill_search",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for for hello world"
+    },
+    {
+      "entry" : "mac.fill_search",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for hello world"
+    },
+    {
+      "entry" : "mac.focus_tab",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "change to tab Overview"
+    },
+    {
+      "entry" : "mac.focus_tab",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "navigate to tab Overview"
+    },
+    {
+      "entry" : "mac.hide_app",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "put away app"
+    },
+    {
+      "entry" : "mac.hide_app",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "put away this app"
+    },
+    {
+      "entry" : "mac.spotlight",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for mac"
+    },
+    {
+      "entry" : "mac.press_escape",
+      "outcome" : "fellThrough",
+      "paraphrase" : false,
+      "text" : "cancel"
+    },
+    {
+      "entry" : "mac.select_all",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "highlight all"
+    },
+    {
+      "entry" : "mac.select_all",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "highlight everything"
+    },
+    {
+      "entry" : "browser.open_github",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up github"
+    },
+    {
+      "entry" : "browser.open_gmail",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up gmail"
+    },
+    {
+      "entry" : "browser.google",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for google for github dot com slash pulls"
+    },
+    {
+      "entry" : "browser.click_checks",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up checks"
+    },
+    {
+      "entry" : "browser.click_checks",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display checks"
+    },
+    {
+      "entry" : "browser.click_merge",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.click",
+      "text" : "press merge"
+    },
+    {
+      "entry" : "browser.click_comment",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "create comment"
+    },
+    {
+      "entry" : "browser.search_site",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for site for hello world"
+    },
+    {
+      "entry" : "browser.pr_tab",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up the pr tab"
+    },
+    {
+      "entry" : "browser.pr_tab",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.open_url",
+      "text" : "navigate to the pull request tab"
+    },
+    {
+      "entry" : "editor.click_sync",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.click",
+      "text" : "press sync"
+    },
+    {
+      "entry" : "editor.search_files",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for files for hello world"
+    },
+    {
+      "entry" : "editor.search_files",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for in project hello world"
+    },
+    {
+      "entry" : "editor.quick_open",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "navigate to file"
+    },
+    {
+      "entry" : "editor.go_to_line",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "navigate to line"
+    },
+    {
+      "entry" : "editor.go_to_symbol",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "navigate to symbol"
+    },
+    {
+      "entry" : "editor.find_references",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for references"
+    },
+    {
+      "entry" : "editor.find_references",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display references"
+    },
+    {
+      "entry" : "editor.toggle_sidebar",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "flip sidebar"
+    },
+    {
+      "entry" : "editor.toggle_sidebar",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "put away sidebar"
+    },
+    {
+      "entry" : "editor.toggle_sidebar",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display sidebar"
+    },
+    {
+      "entry" : "editor.toggle_terminal",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "flip terminal"
+    },
+    {
+      "entry" : "editor.toggle_terminal",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up terminal panel"
+    },
+    {
+      "entry" : "editor.toggle_panel",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display problems"
+    },
+    {
+      "entry" : "editor.close_editor",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "shut editor"
+    },
+    {
+      "entry" : "editor.close_editor",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "shut file"
+    },
+    {
+      "entry" : "editor.multi_cursor_next",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.click_next",
+      "text" : "highlight next occurrence"
+    },
+    {
+      "entry" : "editor.multi_cursor_next",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.click_next",
+      "text" : "create next match"
+    },
+    {
+      "entry" : "editor.search_project",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for project"
+    },
+    {
+      "entry" : "editor.search_project",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for in files"
+    },
+    {
+      "entry" : "editor.search_project",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for everywhere"
+    },
+    {
+      "entry" : "editor.run",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "execute"
+    },
+    {
+      "entry" : "editor.toggle_breakpoint",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "change breakpoint"
+    },
+    {
+      "entry" : "chat.click_send",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.click",
+      "text" : "hit send button"
+    },
+    {
+      "entry" : "chat.click_reply_thread",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up thread"
+    },
+    {
+      "entry" : "chat.click_general",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "navigate to general"
+    },
+    {
+      "entry" : "chat.click_general",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up general"
+    },
+    {
+      "entry" : "chat.search_people",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for person hello world"
+    },
+    {
+      "entry" : "chat.search_people",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up dm with hello world"
+    },
+    {
+      "entry" : "chat.unread",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display unreads"
+    },
+    {
+      "entry" : "chat.dms",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display dms"
+    },
+    {
+      "entry" : "chat.search_chat",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for messages"
+    },
+    {
+      "entry" : "chat.search_chat",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for chat"
+    },
+    {
+      "entry" : "mail.click_send",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.click",
+      "text" : "press send email"
+    },
+    {
+      "entry" : "mail.fill_subject",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "change subject hello world"
+    },
+    {
+      "entry" : "mail.fill_search",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for my mail for hello world"
+    },
+    {
+      "entry" : "mail.fill_search",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for emails hello world"
+    },
+    {
+      "entry" : "mail.inbox_tab",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mail.inbox",
+      "text" : "bring up inbox tab"
+    },
+    {
+      "entry" : "mail.compose",
+      "layer" : "fuzzy",
+      "outcome" : "misfire",
+      "paraphrase" : true,
+      "routedTo" : "mac.type_text",
+      "text" : "type email"
+    },
+    {
+      "entry" : "mail.mark_unread",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "set unread"
+    },
+    {
+      "entry" : "files.click_open",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "bring up button"
+    },
+    {
+      "entry" : "files.fill_search",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for file hello world"
+    },
+    {
+      "entry" : "files.fill_search",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "look for finder for hello world"
+    },
+    {
+      "entry" : "files.get_info",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "display info"
+    },
+    {
+      "entry" : "files.go_applications",
+      "outcome" : "fellThrough",
+      "paraphrase" : true,
+      "text" : "navigate to applications"
+    }
+  ],
+  "model" : "catalog+nl-sentence-en",
+  "peakRSSBytes" : 283361280,
+  "set" : "act-catalog-200",
+  "stage" : "act",
+  "summary" : {
+    "cases" : 1848,
+    "exact" : 0.9978354978354979,
+    "meetsTargets" : true,
+    "misfires" : 18,
+    "paraphrased" : 0.9242424242424242
+  }
+}
