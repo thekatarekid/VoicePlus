@@ -23,6 +23,7 @@ struct SettingsScreen: SectionScreen {
     @StateObject private var credentials: ProviderCredentialsModel
     @StateObject private var updates: UpdatesPageModel
     @StateObject private var computerUse: ComputerUseSettingsModel   // V5 CU1
+    @StateObject private var languages: LanguagesSettingsModel       // V5 LANG1
 
     init(context: SectionContext) {
         self.init(context: context, credentials: ProviderCredentialsModel(), inventory: LiveModelInventory())
@@ -44,6 +45,7 @@ struct SettingsScreen: SectionScreen {
         _updates = StateObject(wrappedValue: UpdatesPageModel.live(deps: window.deps))
         _computerUse = StateObject(wrappedValue: ComputerUseSettingsModel(store: window.deps.settingsStore,
                                                                           general: window.general, models: window.models))
+        _languages = StateObject(wrappedValue: LanguagesSettingsModel(store: window.deps.settingsStore))
     }
 
     var body: some View {
@@ -70,6 +72,8 @@ struct SettingsScreen: SectionScreen {
                                   hotkey: hotkey)
         case .computerUse:
             ComputerUseSettingsPage(model: computerUse, general: general, hotkey: hotkey)
+        case .languages:
+            LanguagesSettingsPage(model: languages, hotkey: hotkey)
         case .sync:
             SyncSettingsPage(sync: window.sync, database: window.deps.database, hotkey: hotkey)
         case .updates:

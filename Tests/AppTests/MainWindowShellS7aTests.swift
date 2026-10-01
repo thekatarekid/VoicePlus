@@ -182,8 +182,8 @@ struct MainWindowShellS7aTests {
 
     @Test("Settings has exactly the design's seven subpages, in order, and no other")
     func sevenSubpages() {
-        // V5 CU1 adds Computer use after Providers — the one page past the design's seven.
-        #expect(SettingsSubpage.allCases.map(\.title) == ["General", "Shortcuts", "Appearance", "Models", "Providers", "Computer use", "Sync", "Updates"])
+        // V5 CU1 adds Computer use after Providers; V5 LANG1 adds Languages after Appearance.
+        #expect(SettingsSubpage.allCases.map(\.title) == ["General", "Shortcuts", "Appearance", "Languages", "Models", "Providers", "Computer use", "Sync", "Updates"])
         // The retired tabs never become a subpage.
         for retired in ["benchmark", "flags", "data", "snippets", "personas", "voice", "dictionary", "connectors", "advanced"] {
             #expect(SettingsSubpage(rawValue: retired) == nil)

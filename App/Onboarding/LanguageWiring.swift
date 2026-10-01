@@ -10,6 +10,11 @@ import Shared
 /// - `ScriptOutputStage`'s romanised-Hindi word test (Engine's detector, same constraint);
 /// - the turn's output script (`ScriptChoiceModel.augment`) on the lander's context chain.
 ///
+/// - per turn (`languageContext`): the app's remembered language (`AppLanguageMemory`) and the
+///   language heard in this turn narrow the turn's languages → ITN locale, cleanup model
+///   (`LanguageCleanup.swift`); the heard language is recorded for the app;
+/// - the P-series word lists per language (`LanguageDictionaryPlan`).
+///
 /// With LANG1 unanswered nothing changes: no locale override, no constraint, the script stage inert.
 public final class LanguageRuntime: @unchecked Sendable {
     public let settings: SettingsStore?
@@ -17,6 +22,12 @@ public final class LanguageRuntime: @unchecked Sendable {
     private let environment: [String: String]
     private let lock = NSLock()
     private var constraint: Set<SpokenLanguage>?
+    private var cleanupChoice: CleanupModelChoice?
+    private var dictionaryPlan: LanguageDictionaryPlan?
+    private let dictionaryQueue = DispatchQueue(label: "voiceplus.lang.dictionaries", qos: .utility)
+    /// Only the shipped app (a `.app` bundle) rewrites the process-wide word lists; a test runner
+    /// never does (other suites read them in parallel).
+    public var appliesDictionaries = Bundle.main.bundlePath.hasSuffix(".app")
     private var observer: NSObjectProtocol?
     /// Called with the new constraint (the code-switch service's detector).
     public var onConstraintChange: ((Set<SpokenLanguage>?) -> Void)?
@@ -70,6 +81,7 @@ public final class LanguageRuntime: @unchecked Sendable {
         lock.lock(); constraint = prefs?.detectorConstraint; lock.unlock()
         if let locale = Self.itnLocale(prefs, environment: environment) { ITNStage.defaultLocale = locale }
         onConstraintChange?(prefs?.detectorConstraint)
+        applyDictionaries(prefs)
         // G1/G2 — the engine may have been built before the answers were readable.
         LanguageASRRouting.shared.fetchNeededModels()
     }
@@ -80,8 +92,58 @@ public final class LanguageRuntime: @unchecked Sendable {
         return prefs.itnLocale
     }
 
-    /// Chains the turn's script onto an existing context augmenter.
+    /// Chains the turn's languages and script onto an existing context augmenter.
     public func augmenter(after base: (([TranscriptSpan], StageContext) -> StageContext)?) -> ([TranscriptSpan], StageContext) -> StageContext {
-        { [scriptChoice] spans, ctx in scriptChoice.augment(base?(spans, ctx) ?? ctx) }
+        { [weak self, scriptChoice] spans, ctx in
+            let ctx = base?(spans, ctx) ?? ctx
+            return scriptChoice.augment(self?.languageContext(spans, ctx) ?? ctx)
+        }
+    }
+
+    // MARK: Per turn (per-app memory, cleanup model, ITN locale)
+
+    /// The cleanup model the current turn asked for (nil = LANG1 unanswered → English path).
+    public var turnCleanupChoice: CleanupModelChoice? { lock.lock(); defer { lock.unlock() }; return cleanupChoice }
+
+    /// Writes the turn's languages into the context and learns the app's language.
+    public func languageContext(_ spans: [TranscriptSpan], _ ctx: StageContext) -> StageContext {
+        guard let prefs = LanguagePreferences.load(settings) else {
+            lock.lock(); cleanupChoice = nil; lock.unlock()
+            return ctx
+        }
+        let memory = AppLanguageMemory(store: settings)
+        let appLanguage = memory.language(for: ctx.appBundleID, chosen: prefs.languages)
+        let heard = TurnLanguageClassifier.classify(spans.map(\.text).joined(separator: " "), chosen: prefs.languages)
+        if let heard { memory.record(heard, for: ctx.appBundleID) }
+        let turnLanguage = heard ?? appLanguage
+        let turn = turnLanguage.map(prefs.narrowed(to:)) ?? prefs
+        var ctx = ctx
+        ctx.extra[LanguageTurnKeys.languages] = turn.languages.joined(separator: ",")
+        if let appLanguage { ctx.extra[LanguageTurnKeys.appLanguage] = appLanguage }
+        if turnLanguage != nil, ctx.extra[ITNStage.Keys.locale] == nil,
+           let locale = Self.itnLocale(turn, environment: environment) {
+            ctx.extra[ITNStage.Keys.locale] = locale.rawValue
+        }
+        let choice = prefs.cleanupModel(turnLanguage: turnLanguage)
+        ctx.extra[LanguageTurnKeys.cleanupModel] = choice.rawValue
+        lock.lock(); cleanupChoice = choice; lock.unlock()
+        return ctx
+    }
+
+    // MARK: P-series per language
+
+    /// Re-applies the word lists when the plan changed (off the main thread: it reads files).
+    func applyDictionaries(_ prefs: LanguagePreferences?) {
+        guard appliesDictionaries, let prefs else { return }
+        let plan = LanguageDictionaryPlan(prefs)
+        lock.lock(); let changed = plan != dictionaryPlan; dictionaryPlan = plan; lock.unlock()
+        guard changed else { return }
+        dictionaryQueue.async { plan.apply() }
+    }
+
+    /// Re-applies the current plan (a variant list was just downloaded).
+    public func reapplyDictionaries() {
+        lock.lock(); dictionaryPlan = nil; lock.unlock()
+        applyDictionaries(LanguagePreferences.load(settings))
     }
 }

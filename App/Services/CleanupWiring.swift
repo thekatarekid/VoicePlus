@@ -65,8 +65,11 @@ public enum CleanupWiring {
         let llama = provider(model: model, residency: residency)
         routing.register(llama)
         if mode(settings: settings) != .off { Task { await syncResidency(llama, mode: mode(settings: settings), residency: residency) } }
-        let generator = RoutingCleanupGenerator(table: routing, settings: settings,
-                                                promptStyle: CleanupPromptStyle(rawValue: model.promptStyle) ?? .delimited)
+        // V5 LANG1 — a non-English turn routes to CU8's multilingual model (LanguageCleanup.swift).
+        let generator = LanguageCleanupWiring.wrap(
+            RoutingCleanupGenerator(table: routing, settings: settings,
+                                    promptStyle: CleanupPromptStyle(rawValue: model.promptStyle) ?? .delimited),
+            routing: routing, settings: settings)
         return CleanupStage(generator: generator, mode: { [weak settings] in
             settings.map(CleanupWiring.mode(settings:)) ?? .default
         })

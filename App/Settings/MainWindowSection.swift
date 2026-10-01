@@ -109,8 +109,9 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
 /// other sections (`LegacySettingsTab.route`), never given a page of their own.
 public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// V5 CU1 adds `computerUse` after Providers: the act key, where the planner runs, its model,
-    /// timeout and consent defaults (it is the one page past the design's seven).
-    case general, shortcuts, appearance, models, providers, computerUse, sync, updates
+    /// timeout and consent defaults (it is the one page past the design's seven). V5 LANG1 adds
+    /// `languages` after Appearance: the onboarding Languages answers, changed later.
+    case general, shortcuts, appearance, languages, models, providers, computerUse, sync, updates
 
     public var id: String { rawValue }
 
@@ -124,6 +125,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
         case .models: return "Models"
         case .providers: return "Providers"
         case .computerUse: return ComputerUseCopy.title
+        case .languages: return LanguagesCopy.title
         case .sync: return "Sync"
         case .updates: return "Updates"
         }
@@ -135,7 +137,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// screen), so they use the Settings screen's copy.
     public var screen: DesignScreen {
         switch self {
-        case .general, .appearance, .updates, .computerUse: return .settings
+        case .general, .appearance, .updates, .computerUse, .languages: return .settings
         case .shortcuts: return .shortcuts
         case .models: return .models
         case .providers, .sync: return .services
@@ -146,12 +148,18 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// screen's subtitle but must not repeat its title over different rows.
     public var pageTitle: String {
         switch self {
-        case .appearance, .updates, .computerUse: return title
+        case .appearance, .updates, .computerUse, .languages: return title
         default: return screen.page?.title ?? title
         }
     }
 
-    public var pageSubtitle: String { self == .computerUse ? ComputerUseCopy.subtitle : (screen.page?.subtitle ?? "") }
+    public var pageSubtitle: String {
+        switch self {
+        case .computerUse: return ComputerUseCopy.subtitle
+        case .languages: return LanguagesCopy.subtitle
+        default: return screen.page?.subtitle ?? ""
+        }
+    }
 
     /// Remembered like the section, so `⌘,` reopens the subpage the user left.
     public static let selectionKey = "window.settings.subpage"
@@ -434,6 +442,8 @@ public enum SettingsReachability {
               "settings.insertion.confirmHiddenText", .settings, .general),
         // V5 CU1 — Settings › Computer use (enable/key mirror Shortcuts' Actions key).
         .init(.general, "Computer use page (V5 CU1)", "ComputerUseSettingsPage(", .settings, .computerUse),
+        // V5 LANG1 — Settings › Languages (the onboarding Languages step, changed later).
+        .init(.general, "Languages page (V5 LANG1)", "LanguagesSettingsPage(", .settings, .languages),
     ]
 
     /// Source files that make up each section's detail pane: the section's `SectionScreen` entry
