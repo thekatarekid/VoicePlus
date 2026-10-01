@@ -44,16 +44,20 @@ public struct ScriptOutputStage: PipelineStage {
 
     public let backends: [any ScriptTransliterator]
     private let classifier: WordClassifier?
+    private let englishClassifier: WordClassifier?
 
     /// - Parameters:
     ///   - backends: P6's transliterators, first available wins (IndicXlit, then rule-based).
     ///   - isHindiWord: whether a Latin word is romanised Hindi. Nil = the process-wide classifier
     ///     the App installs (`Engine.LanguageDetector`); with neither, every Latin word counts as
     ///     English, so Mixed / Devanagari never invent Devanagari for an English word.
+    ///   - isEnglishWord: G3 — whether a romanised word is English (Mixed turns a Devanagari-written
+    ///     English word back to Latin). Nil = the installed public word list (SCOWL / system words).
     public init(backends: [any ScriptTransliterator] = [IndicXlitTransliterator(), RuleBasedDevanagari()],
-                isHindiWord: WordClassifier? = nil) {
+                isHindiWord: WordClassifier? = nil, isEnglishWord: WordClassifier? = nil) {
         self.backends = backends
         self.classifier = isHindiWord
+        self.englishClassifier = isEnglishWord
     }
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
@@ -62,21 +66,29 @@ public struct ScriptOutputStage: PipelineStage {
         }
         let backend = backends.first(where: \.isAvailable)
         let isHindi = classifier ?? Self.hindiWordClassifier ?? { _ in false }
+        let isEnglish = englishClassifier ?? { PublicDictionaries.shared.vocabulary.contains($0) }
         return spans.map { span in
-            let converted = Self.apply(script, to: span.text, backend: backend, isHindiWord: isHindi)
+            let converted = Self.apply(script, to: span.text, backend: backend, isHindiWord: isHindi, isEnglishWord: isEnglish)
             guard converted != span.text else { return span.touched(by: id) }
             return span.isLowConfidence ? span.flaggedForRepair(by: id) : span.rewritten(converted, by: id)
         }
     }
 
     /// The rewrite over one span's text. Pure; tests call it directly.
+    ///
+    /// G3 policy: Roman writes every word in Latin (the default); Mixed writes Hindi in Devanagari and
+    /// keeps English Latin — including an English word the ASR wrote in Devanagari (Srota does:
+    /// "ऑफिस"), recognised when its romanisation is an English word and not a Hindi one;
+    /// Devanagari writes Hindi in Devanagari (English too only with a real transliteration model).
     public static func apply(_ script: OutputScript, to text: String, backend: (any ScriptTransliterator)?,
-                             isHindiWord: (String) -> Bool) -> String {
+                             isHindiWord: (String) -> Bool, isEnglishWord: (String) -> Bool = { _ in false }) -> String {
         // A real model (IndicXlit) can write English words in Devanagari; the rule-based fallback
         // cannot do that legibly ("meeting" → "मेएतिन्ग"), so then English words stay Latin.
         let modelBacked = backend.map { !($0 is RuleBasedDevanagari) } ?? false
         return text.split(separator: " ", omittingEmptySubsequences: false).map { raw -> String in
-            let (lead, core, trail) = TokenEdges.split(String(raw))
+            var (lead, core, trail) = TokenEdges.split(String(raw))
+            // `TokenEdges` keeps a danda inside the word ("है।"); it is sentence punctuation here (G3).
+            while let last = core.last, last == "।" || last == "॥" { trail = String(last) + trail; core.removeLast() }
             guard !core.isEmpty else { return String(raw).replacingOccurrences(of: "।", with: script == .devanagari ? "।" : ".") }
             var word = core
             let devanagari = isDevanagari(core)
@@ -85,6 +97,8 @@ public struct ScriptOutputStage: PipelineStage {
                 if devanagari, let out = backend?.transliterate(core, to: .latin) { word = out }
             case .mixed:
                 if !devanagari, isHindiWord(core), let out = backend?.transliterate(core, to: .devanagari) { word = out }
+                if devanagari, let latin = backend?.transliterate(core, to: .latin),
+                   isEnglishWord(latin), !isHindiWord(latin) { word = latin }
             case .devanagari:
                 if !devanagari, isHindiWord(core) || modelBacked, let out = backend?.transliterate(core, to: .devanagari) { word = out }
             }

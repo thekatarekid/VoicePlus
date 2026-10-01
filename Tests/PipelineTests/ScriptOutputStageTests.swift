@@ -71,4 +71,48 @@ import Shared
         #expect(ITNLocale.from(languages: ["en", "hi"], hindiScript: .roman, spelling: "en-US") == .hiEn)
         #expect(ITNLocale.from(languages: ["hi-IN"], hindiScript: .devanagari, spelling: nil) == .hi)
     }
+
+    // MARK: G3 — script policy over Hinglish ASR output (Srota writes Hindi in Devanagari, English in Latin)
+
+    static let srota = "इस tutorial में हम यह सीखेंगे।"
+    static let xlit = IndicXlitTransliterator(model: { word, script in
+        guard script == .latin else { return nil }
+        return ["ऑफिस": "office", "कल": "kal", "है": "hai", "में": "mein"][word]
+    })
+    static func isEnglish(_ w: String) -> Bool { ["office", "meeting", "tutorial"].contains(w.lowercased()) }
+
+    @Test func g3RomanIsTheDefaultAndLeavesNoDevanagari() {
+        #expect(OutputScript.default == .roman)
+        let out = ScriptOutputStage.apply(.roman, to: Self.srota, backend: Self.rules, isHindiWord: Self.isHindi, isEnglishWord: Self.isEnglish)
+        #expect(!out.unicodeScalars.contains { (0x0900...0x097F).contains($0.value) })
+        #expect(out.contains("tutorial") && out.hasSuffix(".") && !out.contains("।"))
+    }
+
+    @Test func g3MixedKeepsEnglishLatinEvenWhenTheASRWroteItInDevanagari() {
+        let out = ScriptOutputStage.apply(.mixed, to: "कल ऑफिस में meeting है।", backend: Self.xlit,
+                                          isHindiWord: Self.isHindi, isEnglishWord: Self.isEnglish)
+        #expect(out == "कल office में meeting है.")
+        // Hindi that happens to romanise to an English word stays Devanagari when it is Hindi.
+        let hindi = ScriptOutputStage.apply(.mixed, to: "है", backend: Self.xlit, isHindiWord: { $0 == "hai" },
+                                            isEnglishWord: { _ in true })
+        #expect(hindi == "है")
+        // Srota's own mixed output is already the policy: unchanged but for the danda.
+        let srota = ScriptOutputStage.apply(.mixed, to: Self.srota, backend: Self.rules, isHindiWord: Self.isHindi,
+                                            isEnglishWord: { _ in false })
+        #expect(srota == "इस tutorial में हम यह सीखेंगे.")
+    }
+
+    @Test func g3DevanagariKeepsTheDevanagariWordAndTheDanda() {
+        let out = ScriptOutputStage.apply(.devanagari, to: "कल ऑफिस है।", backend: Self.xlit,
+                                          isHindiWord: Self.isHindi, isEnglishWord: Self.isEnglish)
+        #expect(out == "कल ऑफिस है।")
+    }
+
+    @Test func g3StageUsesTheInjectedEnglishTest() async throws {
+        var ctx = StageContext()
+        ctx.extra[ScriptOutputStage.Keys.script] = OutputScript.mixed.rawValue
+        let stage = ScriptOutputStage(backends: [Self.xlit], isHindiWord: Self.isHindi, isEnglishWord: Self.isEnglish)
+        let out = try await stage.process([TranscriptSpan(text: "ऑफिस", confidence: 0.9, audioRange: 0...1)], context: ctx)
+        #expect(out.map(\.text) == ["office"])
+    }
 }
