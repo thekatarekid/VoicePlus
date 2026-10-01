@@ -58,11 +58,17 @@ public enum BrowserMeetingClassifier {
     public static let meetingHosts = ["zoom.us", "meet.google.com", "teams.microsoft.com", "teams.live.com",
                                       "webex.com", "whereby.com", "around.co"]
 
-    public static let browserBundleIDs: Set<String> = [
-        "com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.google.Chrome", "com.google.Chrome.canary",
-        "company.thebrowser.Browser", "com.microsoft.edgemac", "org.mozilla.firefox", "com.brave.Browser",
-        "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "org.chromium.Chromium",
+    /// Every browser the tab signal recognises, with its display name (Settings › Meetings'
+    /// "Don't notify" list offers exactly these).
+    public static let browserNames: [String: String] = [
+        "com.apple.Safari": "Safari", "com.apple.SafariTechnologyPreview": "Safari Technology Preview",
+        "com.google.Chrome": "Google Chrome", "com.google.Chrome.canary": "Google Chrome Canary",
+        "company.thebrowser.Browser": "Arc", "com.microsoft.edgemac": "Microsoft Edge",
+        "org.mozilla.firefox": "Firefox", "com.brave.Browser": "Brave",
+        "com.vivaldi.Vivaldi": "Vivaldi", "com.operasoftware.Opera": "Opera", "org.chromium.Chromium": "Chromium",
     ]
+
+    public static let browserBundleIDs: Set<String> = Set(browserNames.keys)
 
     public static func isBrowser(_ bundleID: String?) -> Bool { bundleID.map(browserBundleIDs.contains) ?? false }
 

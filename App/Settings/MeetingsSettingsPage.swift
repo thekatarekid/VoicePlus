@@ -42,9 +42,9 @@ public final class MeetingsSettingsModel: ObservableObject {
     public static let notifiableApps: [(id: String, name: String)] = {
         var seen = Set<String>()
         let calls = CallAppCatalog.all.filter { seen.insert($0.name).inserted }.map { (id: $0.bundleID, name: $0.name) }
-        let browsers: [(id: String, name: String)] = [("com.apple.Safari", "Safari"), ("com.google.Chrome", "Google Chrome"),
-                                                      ("company.thebrowser.Browser", "Arc"), ("com.microsoft.edgemac", "Microsoft Edge"),
-                                                      ("org.mozilla.firefox", "Firefox"), ("com.brave.Browser", "Brave")]
+        // Every browser the tab signal recognises (one source: `BrowserMeetingClassifier`).
+        let browsers = BrowserMeetingClassifier.browserNames.map { (id: $0.key, name: $0.value) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         return calls + browsers
     }()
 

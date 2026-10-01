@@ -128,15 +128,16 @@ public enum MeetingPostProcessing {
 
     public static func run(_ record: MeetingRecord, settings: SettingsStore?) async -> Outcome {
         var outcome = Outcome()
+        // V5 M18 — the same Markdown as Export… (speaker names from speaker-names.json / M13 labels),
+        // rendered once for both the exported file and the hook payload.
+        let markdown = MeetingIntelligence.shared.markdown(for: record, completed: [])
         if let export = MeetingSettings.autoExport(settings) {
-            // V5 M18 — the same Markdown as Export… (speaker names from speaker-names.json / M13 labels).
-            let markdown = MeetingIntelligence.shared.markdown(for: record, completed: [])
             do { outcome.exported = try MeetingAutoExporter.export(record, to: export, markdown: markdown) } catch {
                 Log.app.error("meeting auto-export failed: \(error)")
             }
         }
         if let hook = MeetingSettings.hook(settings) {
-            let result = await PostMeetingHook.run(hook, payload: PostMeetingHookPayload(record: record, exportedFile: outcome.exported))
+            let result = await PostMeetingHook.run(hook, payload: PostMeetingHookPayload(record: record, exportedFile: outcome.exported, markdown: markdown))
             Log.app.info("meeting post hook: \(String(describing: result))")
             outcome.hook = result
         }

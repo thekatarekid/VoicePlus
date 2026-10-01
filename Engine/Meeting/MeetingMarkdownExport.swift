@@ -6,7 +6,7 @@ import Foundation
 // notes with ticked action items, then the transcript with M13 names and timestamps. The store's
 // own `meeting.md` (the recovery text copy, `MeetingTextRecovery`) is untouched: it keeps the
 // speaker labels the recovery parser reads back. Auto-export after each meeting is lane 6c's
-// `MeetingAutoExporter` (Settings › Meetings folder + format); it can render with this too.
+// `MeetingAutoExporter` (Settings › Meetings folder + format); it writes this rendering too.
 
 public enum MeetingMarkdownExport {
     public static func markdown(_ record: MeetingRecord, names: MeetingSpeakerNames = .init(),

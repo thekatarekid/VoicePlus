@@ -2,8 +2,9 @@ import Foundation
 
 // V5 M-d — what happens after a meeting ends, per Settings › Meetings: auto-export the record to a
 // folder (Markdown or JSON) and run the user's post-meeting hook with a JSON record on stdin.
-// Lives beside the detector because the settings page owns both; M20 (export UI) reuses
-// `MeetingAutoExporter` for its "Export" button.
+// Lives beside the detector because the settings page owns both. Markdown has one renderer:
+// `MeetingMarkdownExport` (M18/M20, Export…); this type only names and writes the file, and the
+// hook payload carries that same rendering — never the store's recovery `record.markdown`.
 
 public enum MeetingExportFormat: String, Codable, Sendable, CaseIterable {
     case markdown, json
@@ -21,7 +22,7 @@ public enum MeetingAutoExporter {
     /// (adds " 2", " 3"…). Returns the file written.
     @discardableResult
     /// `markdown`: the Markdown to write (V5 M18 — Export…'s rendering with speaker names);
-    /// nil writes the store's own `record.markdown`.
+    /// nil renders `MeetingMarkdownExport.markdown(record)` (default speaker names).
     public static func export(_ record: MeetingRecord, to config: MeetingAutoExport, markdown: String? = nil,
                               fileManager: FileManager = .default) throws -> URL {
         try fileManager.createDirectory(at: config.folder, withIntermediateDirectories: true)
@@ -33,7 +34,7 @@ public enum MeetingAutoExporter {
         }
         let data: Data
         switch config.format {
-        case .markdown: data = Data((markdown ?? record.markdown).utf8)
+        case .markdown: data = Data((markdown ?? MeetingMarkdownExport.markdown(record)).utf8)
         case .json: data = try PostMeetingHookPayload.encoder.encode(record)
         }
         try data.write(to: url, options: .atomic)
@@ -59,8 +60,10 @@ public struct PostMeetingHookPayload: Codable, Equatable, Sendable {
     /// The auto-exported file, when auto-export ran first.
     public var exportedFile: String?
 
-    public init(record: MeetingRecord, exportedFile: URL? = nil) {
-        self.schema = Self.schemaID; self.record = record; self.markdown = record.markdown
+    /// `markdown`: the export rendering (nil → `MeetingMarkdownExport.markdown(record)`).
+    public init(record: MeetingRecord, exportedFile: URL? = nil, markdown: String? = nil) {
+        self.schema = Self.schemaID; self.record = record
+        self.markdown = markdown ?? MeetingMarkdownExport.markdown(record)
         self.exportedFile = exportedFile?.path
     }
 
