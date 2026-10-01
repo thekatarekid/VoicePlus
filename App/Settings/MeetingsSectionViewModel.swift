@@ -115,6 +115,9 @@ public final class MeetingsSectionViewModel: ObservableObject {
 
     public var isCalendarAuthorized: Bool { calendarAuthorized() }
 
+    /// V5 M-d — the store the Settings › Meetings page reads and writes.
+    var settingsStore: (any SettingsStore)? { settings }
+
     /// The prototype's footnote when Calendar is not connected; nothing when it is.
     public var calendarNote: String? { isCalendarAuthorized ? nil : MeetingsCopy.calendarNotConnected }
 

@@ -73,8 +73,16 @@ struct MeetingsDetailView: View {
             case .notes: notes
             case .transcript: transcript
             case .ask:
+                // V5 M16/M21 — enabled Ask: route disclosed, answers cite timestamps that seek.
                 MeetingPaper {
-                    MeetingAskView(route: model.askRoute, onOpenProviders: { open(.settings(.providers)) }, dark: false)
+                    MeetingsAskTab(route: model.askRoute, isLive: model.isSelectedLive,
+                                   onOpenProviders: { open(.settings(.providers)) },
+                                   ask: { try await model.ask($0) },
+                                   refreshLive: { await MeetingIntelligence.shared.refreshLive(record) },
+                                   onCitation: { time in
+                                       if let seek { seek(time) } else { model.detailTab = .transcript }
+                                   })
+                    .id(record.id)
                 }
             }
         }
@@ -88,6 +96,7 @@ struct MeetingsDetailView: View {
                 ScopedBanner(banner, isRetrying: model.retryingNotes) { Task { await model.retryNotes() } }
                     .accessibilityIdentifier("meetings.detail.notesBanner")
             }
+            templatePicker
             if let notes = model.notes {
                 MeetingPaper {
                     MeetingNotesSections(notes: notes, completed: model.completedActionItems,
@@ -100,6 +109,23 @@ struct MeetingsDetailView: View {
                     .foregroundStyle(WindowColor.secondaryInk)
                     .accessibilityIdentifier("meetings.detail.notesPending")
             }
+        }
+    }
+
+    /// V5 M17 — the notes template; choosing one prepares the notes again with it.
+    @ViewBuilder private var templatePicker: some View {
+        if record.endedAt != nil, model.live?.meetingID != record.id {
+            Menu {
+                ForEach(MeetingNoteTemplate.allCases, id: \.self) { template in
+                    Button(template.title) { Task { await model.regenerateNotes(template: template) } }
+                }
+            } label: {
+                Text("\(MeetingsAskCopy.template): \(model.noteTemplate.title)")
+            }
+            .fixedSize()
+            .disabled(model.retryingNotes)
+            .help(MeetingsAskCopy.regenerate)
+            .accessibilityIdentifier("meetings.notes.template")
         }
     }
 

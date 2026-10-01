@@ -346,6 +346,10 @@ public struct RoutableStage: Identifiable, Hashable, Sendable {
         .init(id: .formatterCode, title: "Code formatting", acceptsProviders: true),
         .init(id: .formatterProse, title: "Prose formatting", acceptsProviders: true),
         .init(id: .style, title: "Style", acceptsProviders: true),
+        // V5 M17/M16 — meeting notes and Ask. Local = the on-device llama.cpp model; a pinned
+        // provider (Ollama, LM Studio, claude/codex CLI, ChatGPT OAuth, a key) is tried first.
+        .init(id: .meetingNotes, title: "Meeting notes", acceptsProviders: true),
+        .init(id: .meetingAsk, title: "Ask about meetings", acceptsProviders: true),
         // 1.7.11 — the act planner was routable in every sense except the one that mattered: the
         // pill told users to set a model for Actions "in Settings" and there was no such row, so
         // the only way to configure it was a `defaults write` of this exact key. It reads

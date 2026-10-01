@@ -356,7 +356,9 @@ public final class AppContainer {
                 ProviderMeetingTranscriber(resolve: { try await p.resolve().final })
             } ?? SilentMeetingTranscriber()
             return MeetingSession(title: prompt.title, event: prompt.event, transcriber: transcriber,
-                                  labeler: DiarizationFactory.make(enrolledUserEmbedding: nil), store: meetingStore)
+                                  labeler: DiarizationFactory.make(enrolledUserEmbedding: nil),
+                                  notesProvider: MeetingIntelligence.shared.notesProvider(store: meetingStore),   // V5 M17
+                                  store: meetingStore)
         }
         meetingCoordinator.makeCapture = { [weak self] in
             guard let self, case .real = self.engineKind else { return nil }

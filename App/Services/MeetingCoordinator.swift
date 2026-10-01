@@ -61,6 +61,9 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
     public private(set) var session: MeetingSession?
     private var captureTask: Task<Void, Never>?
     private let camera = CameraInUseMonitor()
+    /// V5 M-d — mic-in-use-elsewhere, call apps, browser meeting tab (`MeetingDetectionWiring`).
+    /// Started and stopped with the camera monitor; nil = camera + calendar only.
+    public var detectionSources: MeetingSignalSources?
     private let calendar: any MeetingCalendarAuthorizing
     private let notifications: any MeetingNotificationAuthorizing
     private let settings: (any SettingsStore)?
@@ -110,11 +113,13 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
         guard tickTimer == nil else { return }
         camera.onChange = { [weak self] inUse in self?.apply(inUse ? .cameraStarted : .cameraStopped) }
         camera.start()
+        detectionSources?.start { [weak self] signal in self?.apply(signal) }
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             guard let self else { return }
             // Status-only: an unauthorized calendar contributes an empty list, and the detector
             // falls back to the camera signal. Nothing here can raise a dialog.
             self.apply(.calendar(self.calendar.isAuthorized ? self.calendar.meetings(around: self.clock()) : []))
+            self.detectionSources?.refresh()
             self.apply(.tick)
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -123,6 +128,7 @@ public final class MeetingCoordinator: UtteranceTagRecording, @unchecked Sendabl
 
     public func stopMonitoring() {
         camera.stop()
+        detectionSources?.stop()
         tickTimer?.invalidate()
         tickTimer = nil
     }

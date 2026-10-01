@@ -118,7 +118,9 @@ public enum MainWindowController {
                                           heldProvider: environment.heldItems,
                                           heldAction: environment.heldAction)
         let meetings = MeetingsSectionViewModel(settings: deps.settingsStore,
-                                                setCaptureEnabled: environment.setMeetingCapture)
+                                                setCaptureEnabled: environment.setMeetingCapture,
+                                                notesProvider: MeetingIntelligence.shared.notesProvider(),   // V5 M17
+                                                askRoute: { MeetingIntelligence.shared.askRoute() })          // V5 M16/M21
         let snippetStore: any SnippetStoring = deps.database.map { DatabaseSnippetStore(database: $0) as any SnippetStoring } ?? InMemorySnippetStore()
         let dictionaryApps = DictionaryAppsSectionViewModel(
             dictionary: DictionaryViewModel(database: deps.database),

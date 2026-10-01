@@ -19,6 +19,8 @@ struct MeetingsSectionView: View {
 
     /// The removal waiting for confirmation: every one deletes the only saved copy.
     @State private var pending: MeetingRemoval?
+    /// V5 M-d — the Settings › Meetings page, shown as a sheet from the detection footer.
+    @State private var settingsPage: MeetingsSettingsModel?
 
     init(model: MeetingsSectionViewModel, hotkey: String, open: @escaping (WindowRoute) -> Void,
          expandPanel: @escaping () -> Void) {
@@ -46,6 +48,9 @@ struct MeetingsSectionView: View {
             Button(MeetingsCopy.cancel, role: .cancel) {}
         } message: { removal in
             Text(removal.message)
+        }
+        .sheet(isPresented: Binding(get: { settingsPage != nil }, set: { if !$0 { settingsPage = nil } })) {
+            if let page = settingsPage { MeetingsSettingsPage(model: page) { settingsPage = nil } }
         }
     }
 
@@ -224,6 +229,8 @@ struct MeetingsSectionView: View {
                 set: { model.isCaptureEnabled = $0 }
             ))
             .accessibilityIdentifier("meetings.captureEnabled")
+            Button("Meeting settings…") { settingsPage = MeetingsSettingsModel(settings: model.settingsStore) }
+                .accessibilityIdentifier("meetings.settings.open")
             Text(MeetingsCopy.detectionDetail)
                 .windowFont(Tokens.Typography.meta)
                 .foregroundStyle(WindowColor.secondaryInk)
