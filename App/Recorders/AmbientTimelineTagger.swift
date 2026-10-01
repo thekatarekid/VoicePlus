@@ -2,7 +2,9 @@ import Engine
 import Foundation
 import Shared
 
-/// V5 O2 — the ambient timeline as a recorder. When a capability claims an utterance the ambient
+/// V5 O2 — the ambient timeline as a recorder. Lives in `App/Recorders`, not `App/Services`: the
+/// V3 §8 audit (`AmbientInjectionAudit`) keeps ambient-capture types out of every injection path, and
+/// this file only labels stored spans — it never delivers text. When a capability claims an utterance the ambient
 /// timeline also kept (the user dictated while ambient listening was on), the stored day record's
 /// matching span is labelled with its owner (`MeetingUtterance.tag`), so the timeline shows it once,
 /// as "dictated" / "command" / "note", instead of as stray conversation.
