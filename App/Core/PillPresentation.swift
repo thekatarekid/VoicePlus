@@ -45,7 +45,8 @@ public enum PillDwell {
              .finishing, .finalPreview, .inserting, .correcting, .editing, .meeting, .warning:
             return .none
         case .landing: return .minimum(acknowledgement)
-        case .landed(let info): return info.verified ? .minimum(inserted) : .untilAction
+        // Q4 — verified and unreadable rows clear after the landed dwell; only unconfirmed is sticky.
+        case .landed(let info): return info.clearsOnItsOwn ? .minimum(inserted) : .untilAction
         case .cancelled: return .minimum(cancelled)
         case .undoAvailable: return .minimum(undoWindow)
         case .held, .landedPartial, .unavailable, .muted: return .untilAction
@@ -157,7 +158,7 @@ public struct PillPresenter: Equatable, Sendable {
         switch state {
         case .inserting:
             if case .inserting = displayed {} else { insertionStartedAt = now }
-        case .landed(let info) where info.verified:
+        case .landed(let info) where info.clearsOnItsOwn:   // Q5 — unreadable landings fly too
             if !reducedMotion, let insertionStartedAt {
                 // Acknowledgement stays immediate; only source retraction waits for the finite feed
                 // and its 650 ms verified hold. Slow acknowledgements still get their full hold.
@@ -417,6 +418,14 @@ public struct PillContent: Equatable, Sendable {
                                    trailing: destinationTrailing(c), words: .final(info.text),
                                    helper: PillDeck.insertedHelper(uncertain: c.uncertainCount,
                                                                                    phrase: c.needsPhraseReview))
+            }
+            if info.unreadable {
+                // Q4 — readback could not run: neutral "Inserted in <app>", no ✓, no buttons, timed.
+                return PillContent(designKey: "inserted",
+                                   status: PillDeck.insertedUnreadableStatus(destination: c.destinationName),
+                                   trailing: destinationTrailing(c), words: .final(info.text),
+                                   helper: PillDeck.insertedHelper(uncertain: c.uncertainCount,
+                                                                   phrase: c.needsPhraseReview))
             }
             return PillContent(designKey: "unconfirmed", status: PillDeck.unconfirmedStatus, tone: .warn,
                                trailing: destinationTrailing(c), words: .final(info.text),

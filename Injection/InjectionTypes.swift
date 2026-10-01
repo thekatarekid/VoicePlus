@@ -120,3 +120,77 @@ public final class DatabaseOutcomeStore: InjectionOutcomeStore {
         (try? db.injectionOutcomes(appBundleID: appBundleID, limit: limit)) ?? []
     }
 }
+
+// MARK: - Q4 · Landing verdict (what the pill may claim about a write that posted)
+
+/// Q4 — the three things readback can say about a write that posted, as the pill speaks them.
+///
+/// `ReadbackVerdict` is the adapter's vocabulary; this is the surface's. The split that matters is
+/// between *unconfirmed* (a settled readback ran and the text is absent → sticky D06 "⚠ Couldn’t
+/// confirm insertion") and *unreadable* (the field exposes nothing to read back — an Electron
+/// canvas, a terminal → a neutral "Inserted in <app>" with no ✓ that clears after the normal
+/// landed dwell). Revives V4.20. `DeliveryOutcome.delivered(verified: false)` covers both; the
+/// distinction travels beside it through `LandingVerdictLedger`.
+public enum LandingVerdict: String, Codable, Sendable, Equatable, CaseIterable {
+    /// Readback showed the text: "✓ Inserted in <app>".
+    case confirmed
+    /// Readback ran and the text is absent: sticky "⚠ Couldn’t confirm insertion".
+    case unconfirmed
+    /// Readback could not run: "Inserted in <app>", no ✓, auto-clears.
+    case unreadable
+
+    public init(readback: ReadbackVerdict) {
+        switch readback {
+        case .confirmed: self = .confirmed
+        case .unconfirmed: self = .unconfirmed
+        case .unavailable: self = .unreadable
+        }
+    }
+
+    public var isConfirmed: Bool { self == .confirmed }
+    /// Only a readback that ran and contradicted the write is a warning the user must act on.
+    public var isSticky: Bool { self == .unconfirmed }
+}
+
+/// Q4 — the injector's most recent landing verdicts, so the pill can tell *unreadable* from
+/// *unconfirmed* without widening `DeliveryOutcome` (Shared). Keyed by the request's text (what the
+/// pill row is drawn from) and, when present, its utterance id. Bounded; thread-safe. A lookup that
+/// finds nothing answers `nil`, and callers fall back to the conservative D06 sticky warning.
+public final class LandingVerdictLedger: @unchecked Sendable {
+    public static let shared = LandingVerdictLedger()
+
+    /// How many recent landings are remembered (a turn's pill row reads its verdict within a second).
+    public let capacity: Int
+    /// How long an entry may answer. A stale verdict never decides a later row.
+    public let lifetime: TimeInterval
+    private let clock: () -> Date
+    private let lock = NSLock()
+    private var entries: [(text: String, utteranceID: String?, verdict: LandingVerdict, at: Date)] = []
+
+    public init(capacity: Int = 16, lifetime: TimeInterval = 30, clock: @escaping () -> Date = Date.init) {
+        self.capacity = max(1, capacity)
+        self.lifetime = lifetime
+        self.clock = clock
+    }
+
+    public func record(_ verdict: LandingVerdict, text: String, utteranceID: String? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        entries.append((text, utteranceID, verdict, clock()))
+        if entries.count > capacity { entries.removeFirst(entries.count - capacity) }
+    }
+
+    /// The newest live verdict recorded for this text (or utterance id).
+    public func verdict(forText text: String? = nil, utteranceID: String? = nil) -> LandingVerdict? {
+        lock.lock(); defer { lock.unlock() }
+        let now = clock()
+        return entries.last { entry in
+            now.timeIntervalSince(entry.at) <= lifetime
+                && ((utteranceID != nil && entry.utteranceID == utteranceID) || (text != nil && entry.text == text))
+        }?.verdict
+    }
+
+    public func removeAll() {
+        lock.lock(); defer { lock.unlock() }
+        entries.removeAll()
+    }
+}

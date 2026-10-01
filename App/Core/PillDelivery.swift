@@ -1,4 +1,5 @@
 import Foundation
+import Injection
 import Shared
 
 /// R2.4 — the delivery surface of the pill and the menu: one row per `DeliveryOutcome`, the three
@@ -135,7 +136,12 @@ public enum PillDeck {
         uncertain > 0 ? PillCopy.reviewLine(uncertain, phrase: phrase) + " in the field" : ""
     }
 
-    // D2 unconfirmed (readback did not confirm, or could not run)
+    /// Q4 — readback could not run: neutral, no ✓ ("✓" means *verified*), auto-clears. Revives V4.20.
+    public static func insertedUnreadableStatus(destination: String?) -> String {
+        destination.map { "Inserted in \($0)" } ?? "Inserted"
+    }
+
+    // D2 unconfirmed (a settled readback ran and the text is absent)
     public static let unconfirmedStatus = "⚠ Couldn’t confirm insertion"
     public static let unconfirmedHelper = "Check the field before trying again"
     public static let unconfirmedButtons = [PillButton("Check destination", .check, primary: true), PillButton("Dismiss", .dismiss)]
@@ -219,16 +225,32 @@ public enum PillDeck {
 public struct LandedPillInfo: Equatable, Sendable {
     public var text: String
     public var verified: Bool
+    /// Q4 — readback could not run at all (the field exposes nothing to read back). Not a warning:
+    /// the row is the neutral "Inserted in <app>" (no ✓) and clears after the normal landed dwell.
+    /// Only meaningful when `verified` is false.
+    public var unreadable: Bool
 
-    public init(text: String, verified: Bool) {
+    public init(text: String, verified: Bool, unreadable: Bool = false) {
         self.text = text
         self.verified = verified
+        self.unreadable = !verified && unreadable
     }
 
-    /// Verified: the committed text itself, in the `preview` row's style. Unverified: the fixed
-    /// D06 "Couldn’t confirm insertion" headline (S11), with the committed text in the subtitle slot.
-    public var headline: String { verified ? text : DeliveryCopy.landedUnverified }
-    public var subtitle: String? { verified ? nil : text }
+    /// Q4 — one row from the injector's landing verdict.
+    public init(text: String, verdict: LandingVerdict) {
+        self.init(text: text, verified: verdict == .confirmed, unreadable: verdict == .unreadable)
+    }
+
+    public var verdict: LandingVerdict { verified ? .confirmed : unreadable ? .unreadable : .unconfirmed }
+
+    /// Q4 — the row retracts on its own (verified, or unreadable); only `.unconfirmed` is sticky.
+    public var clearsOnItsOwn: Bool { verdict != .unconfirmed }
+
+    /// Verified or unreadable: the committed text itself, in the `preview` row's style. Unconfirmed:
+    /// the fixed D06 "Couldn’t confirm insertion" headline (S11), with the committed text in the
+    /// subtitle slot.
+    public var headline: String { clearsOnItsOwn ? text : DeliveryCopy.landedUnverified }
+    public var subtitle: String? { clearsOnItsOwn ? nil : text }
 }
 
 /// The held row (DESIGN §8.4 (3)): destination in the headline, the first words of the held text in
@@ -407,10 +429,13 @@ public final class HeldTextStore: @unchecked Sendable {
 /// R2.4's acceptance criterion.
 public enum PillDeliveryRouter {
     public static func state(for outcome: DeliveryOutcome, text: String, destination: String = "",
-                             heldID: UUID = UUID()) -> PillState {
+                             heldID: UUID = UUID(), verdicts: LandingVerdictLedger = .shared) -> PillState {
         switch outcome {
         case .delivered(let verified, _):
-            return .landed(LandedPillInfo(text: text, verified: verified))
+            // Q4 — an unconfirmed delivery is sticky D06 only when a readback *ran*; when it could
+            // not run the row is neutral. No ledger entry → the conservative D06 warning.
+            let unreadable = !verified && verdicts.verdict(forText: text) == .unreadable
+            return .landed(LandedPillInfo(text: text, verified: verified, unreadable: unreadable))
         case .partial:
             // G0.1 — some of the text may be in the destination: never a success claim, never
             // "nothing was typed". The design's partial row (G0.4, D3).

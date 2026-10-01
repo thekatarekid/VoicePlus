@@ -107,7 +107,7 @@ public enum PillState: Equatable, Sendable {
         // The committed text is deliberately absent for the same reason `.preview` is: it is
         // variable-length and head-truncated at two lines, so sizing the panel to it buys nothing.
         // The fixed strings a landed/held row can draw *are* listed, so neither can be clipped.
-        case .landed(let info): return info.verified ? [] : [DeliveryCopy.landedUnverified]
+        case .landed(let info): return info.clearsOnItsOwn ? [] : [DeliveryCopy.landedUnverified]
         case .held(let info): return [info.headline, info.subtitle, HeldPillInfo.actionsLine]
         // S11 — the catalogue's words (M01 for no recognizer; the message's own entry, or X08), never
         // the reason string or a message the catalogue does not know.
@@ -203,7 +203,7 @@ public enum PillState: Equatable, Sendable {
         case .idle, .starting: return "starting"
         case .listening, .preview: return "listening"
         case .landing, .finishing: return "finishing"
-        case .landed(let info): return info.verified ? "inserted" : "unconfirmed"
+        case .landed(let info): return info.clearsOnItsOwn ? "inserted" : "unconfirmed"
         case .held: return "held"
         case .warning: return "warning"
         case .unavailable: return "unavailable"

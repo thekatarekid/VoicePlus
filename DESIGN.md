@@ -48,8 +48,9 @@ with the prototype's CSS, `design_v1.md` §3/§3.1 and `spool_spec.json` on ever
 | V4 settings (latch pause, spacing, unknown-caret style, draw-without-key, recordings retention, screen text) | not in the design | required by V4 Wave 1 | Added as ordinary rows in the design's existing subpages with the design's row, toggle and select components; no new subpage (§9.6). |
 
 Everything else follows the design exactly. In particular: hold lands once on release; Escape cancels
-during a turn; readback that cannot confirm is always **⚠ Couldn’t confirm insertion** (V4.20 is
-withdrawn); error and held notices stay until the user acts (no timed dismissal); the latch pill shows
+during a turn; a settled readback that ran and does not show the text is **⚠ Couldn’t confirm
+insertion** (sticky), while a field whose readback cannot run at all lands as a neutral **Inserted in
+<app>** (no ✓) that clears after the normal landed dwell (V5 Q4 / D06 — revives V4.20); error and held notices stay until the user acts (no timed dismissal); the latch pill shows
 the design's timer only (the V4.38 countdown ring is withdrawn); the Settings subnav has exactly the
 design's seven subpages.
 
@@ -303,7 +304,8 @@ Delivery outcomes read as the design's pill statuses:
 | Outcome | Pill status | Today tag |
 |---|---|---|
 | `delivered(verified: true)` | ✓ Inserted in <app> | Inserted |
-| `delivered(verified: false)` — readback showed nothing *or could not run* | ⚠ Couldn’t confirm insertion | Unconfirmed |
+| `delivered(verified: false)`, verdict `.unconfirmed` — a settled readback ran and the text is absent (sticky) | ⚠ Couldn’t confirm insertion | Unconfirmed |
+| verdict `.unreadable` of `delivered(verified: false)` — readback could not run (V5 Q4, revives V4.20) | Inserted in <app> (no ✓, auto-clears after the landed dwell) | Unconfirmed |
 | `partial` | ⚠ Only part may have been inserted | Unconfirmed |
 | `held` | ⚠ Destination changed · text held | Held |
 | `failed` | ⚠ Couldn’t finish this dictation | — (recovery row) |
@@ -466,6 +468,8 @@ one owner substitution (§0.1). The three canonical V3 strings map to catalogue 
 Further rules from design §10: "Nothing was typed" is only valid when no write attempt could have
 changed the field. Unconfirmed and partial writes never auto-retry and never offer a universal Retry.
 Error, held and blocking notices stay until the user acts; dismissed retained text remains in Today.
+D06 (V5 Q4): the sticky "⚠ Couldn’t confirm insertion" is only for `.unconfirmed`; an `.unreadable`
+landing is the neutral, timed "Inserted in <app>" — never a ✓, never a warning (revives V4.20).
 Only transient cancellation / too-short hints fade, after 800–1600 ms. Error strings never masquerade
 as transcript text.
 

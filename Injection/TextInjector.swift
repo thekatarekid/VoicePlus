@@ -167,6 +167,8 @@ public final class TextInjector: Injector {
 
             // Posted, or claimed success: possibly landed. No second method may run — that is the rule.
             let verdict = adapter.verifyReadback(text: text, before: before, after: readFocused(own: own))
+            // Q4 — unreadable (could not run) vs unconfirmed (ran, text absent): the pill's neutral vs sticky row.
+            LandingVerdictLedger.shared.record(LandingVerdict(readback: verdict), text: request.text, utteranceID: request.utteranceID)
             let detail = thrown.map { "posted, then threw: \($0) — \(verdict.detail)" } ?? verdict.detail
             // `succeeded` is the router's signal, not the delivery verdict: it means "worth trying
             // first again". Confirmed counts, and so does *unavailable* — an app that exposes
