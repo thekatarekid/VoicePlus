@@ -116,13 +116,19 @@ public enum EngineFactory {
                                              voiceProcessing: { VoiceProcessingCaptureSource() },
                                              neuralStage: localVQE)
         Log.engine.info("\(plan.logLine)")
-        let pipeline = AudioPipeline(source: capture, vad: vad, options: plan.apply(to: AudioPipeline.Options()))
+        var options = plan.apply(to: AudioPipeline.Options())
+        // V5 C4 — Smart Turn ends a latched segment at a finished sentence (≥ 400 ms pause) instead of
+        // waiting out the whole pause setting. Off when the CoreML export is not installed.
+        options.turnPredictor = await SmartTurnModel.loadIfAvailable()
+        let pipeline = AudioPipeline(source: capture, vad: vad, options: options)
         let audio = PipelineAudioSource(pipeline: pipeline)
         let provider = BiasingRecognizerProvider(inner: ModelManagerRecognizerProvider(manager: manager))
         let engine = RealEngine(audio: audio, provider: provider)
         let name: String
         switch choice {
+        case .ultra: name = "Parakeet Ultra"              // V5 B5
         case .tdtV3: name = "Parakeet TDT 0.6B v3"
+        case .redux: name = "Parakeet Redux"              // V5 B5
         case .tiny: name = "Parakeet TDT-CTC 110M"
         case .appleSpeech: name = "Apple Speech (on-device)"
         }

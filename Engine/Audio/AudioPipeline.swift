@@ -56,6 +56,10 @@ public final class AudioPipeline: @unchecked Sendable {
         public var levelWarmup: TimeInterval = 0
         /// V5 C1 — log the AGC's adaptation time once per capture (`AGCAdaptationTracker`).
         public var tracksAGC = false
+        /// V5 C4 — Smart Turn: asked by the latched endpointer once per pause of ≥ 400 ms whether the
+        /// speaker has finished, so a finished sentence closes before the full pause setting. nil
+        /// (model not installed) → endpointing on trailing silence only.
+        public var turnPredictor: (any TurnCompletionPredicting)?
         public init() {}
     }
 
@@ -127,6 +131,8 @@ public final class AudioPipeline: @unchecked Sendable {
     /// A `.noSpeech` was reported; the endpointer re-arms when speech is next heard (worker only).
     private var endpointAwaitingSpeech = false
     private let micQuality = MicQualityAnalyzer()
+    /// V5 C4 — the last 8 s of audio for Smart Turn (worker only; nil without a predictor).
+    private var smartTurn: SmartTurnGate?
     /// Worker-only, like `chunker`: blocks are processed strictly in order, so it needs no lock.
     private var silence: CaptureSilenceWatchdog
     /// V5 C1 — worker-only, like `silence`. Fed only when `Options.tracksAGC`.
@@ -153,6 +159,7 @@ public final class AudioPipeline: @unchecked Sendable {
         self.endpointerConfig = options.endpointer
         self.silence = CaptureSilenceWatchdog(timeout: options.digitalSilenceTimeout)
         self.micQuality.warmup = options.levelWarmup
+        self.smartTurn = options.turnPredictor.map { SmartTurnGate(predictor: $0) }
     }
 
     /// Fresh stream per call; every event after subscribing is delivered in order.
@@ -355,7 +362,7 @@ public final class AudioPipeline: @unchecked Sendable {
     // MARK: processing (worker task, strictly ordered)
 
     private func resetProcessing() {
-        chunker.reset(); endpointer.reset(); micQuality.reset(); silence.reset(); agc.reset(); lastAGCOutcome = nil
+        chunker.reset(); endpointer.reset(); smartTurn?.reset(); micQuality.reset(); silence.reset(); agc.reset(); lastAGCOutcome = nil
         vadPending.removeAll(); position = 0; vadPosition = 0; totalSamples = 0; lastMicQuality = nil; lastMicMeasurement = nil; lastOverruns = 0
         stateLock.lock(); sawAudio = false; stateLock.unlock()
     }
@@ -392,6 +399,7 @@ public final class AudioPipeline: @unchecked Sendable {
         }
 
         for chunk in chunker.feed(samples) { broadcaster.send(.chunk(chunk)) }
+        smartTurn?.append(samples)
 
         vadPending.append(contentsOf: samples)
         while vadPending.count >= vad.frameSize {
@@ -426,13 +434,22 @@ public final class AudioPipeline: @unchecked Sendable {
             rearmEndpointer(config, at: now)
         } else if reconfigure {
             endpointer.trailingSilence = config.trailingSilence
+            endpointer.turnCheckSilence = config.turnCheckSilence
             endpointer.noSpeechTimeout = endpointArmedAt + config.noSpeechTimeout
             endpointer.maxUtterance = endpointArmedAt + config.maxUtterance
         }
         if endpointAwaitingSpeech, endpointer.speechHeard {
             rearmEndpointer(config, at: now, continuingSpeech: endpointer.inSpeech)
         }
-        guard on, let decision = endpointer.tick(now: now) else { return nil }
+        let turnCheck: (() -> Bool?)? = smartTurn == nil ? nil : { [self] in
+            let complete = smartTurn?.isComplete()
+            if let p = smartTurn?.lastProbability {
+                Log.engine.debug("smart-turn: p(complete)=\(String(format: "%.2f", p)) at \(String(format: "%.2f", now))s")
+            }
+            return complete
+        }
+        guard on, let decision = endpointer.tick(now: now, turnComplete: turnCheck) else { return nil }
+        if endpointer.endedByTurnModel { Log.engine.info("endpoint: smart-turn ended the segment early") }
         switch decision {
         case .endpoint: rearmEndpointer(config, at: now)
         case .maxDuration: rearmEndpointer(config, at: now, continuingSpeech: endpointer.inSpeech)

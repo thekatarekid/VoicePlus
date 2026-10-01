@@ -13,6 +13,14 @@ public struct Endpointer: Sendable {
     private(set) public var inSpeech = false
     private var lastSpeechEnd: TimeInterval = 0
     private var decided = false
+    /// V5 C4 — trailing silence after which a turn-completion model (Smart Turn) may be asked to end
+    /// the segment early. Asked once per pause; "not complete" or "can't tell" falls back to
+    /// `trailingSilence`. Never asked when `trailingSilence` is not longer than this.
+    public var turnCheckSilence: TimeInterval = 0.4
+    /// The pause (by its speech-end time) the model was already asked about.
+    private var turnCheckedFor: TimeInterval?
+    /// True when the last `.endpoint` came from the turn-completion model, not the silence timeout.
+    private(set) public var endedByTurnModel = false
 
     public init(trailingSilence: TimeInterval = 1.2, noSpeechTimeout: TimeInterval = 8.0, maxUtterance: TimeInterval = 120) {
         self.trailingSilence = trailingSilence
@@ -24,18 +32,31 @@ public struct Endpointer: Sendable {
     public mutating func speechEnded(at t: TimeInterval) { inSpeech = false; lastSpeechEnd = t }
 
     /// Call on every audio tick with the current stream position. Returns at most one decision, once.
-    public mutating func tick(now: TimeInterval) -> Decision? {
+    ///
+    /// V5 C4 — `turnComplete`, when given, is asked at most once per pause, once the pause reaches
+    /// `turnCheckSilence`: `true` ends the segment there (`.endpoint(at:)` the speech end, as the
+    /// timeout would have), `false`/`nil` leaves it to `trailingSilence`.
+    public mutating func tick(now: TimeInterval, turnComplete: (() -> Bool?)? = nil) -> Decision? {
         guard !decided else { return nil }
         if now >= maxUtterance { decided = true; return .maxDuration }
         if !speechHeard {
             if now >= noSpeechTimeout { decided = true; return .noSpeech }
             return nil
         }
-        if !inSpeech, now - lastSpeechEnd >= trailingSilence { decided = true; return .endpoint(at: lastSpeechEnd) }
+        guard !inSpeech else { return nil }
+        let silence = now - lastSpeechEnd
+        if silence >= trailingSilence { decided = true; endedByTurnModel = false; return .endpoint(at: lastSpeechEnd) }
+        if let turnComplete, trailingSilence > turnCheckSilence, silence >= turnCheckSilence, turnCheckedFor != lastSpeechEnd {
+            turnCheckedFor = lastSpeechEnd
+            if turnComplete() == true { decided = true; endedByTurnModel = true; return .endpoint(at: lastSpeechEnd) }
+        }
         return nil
     }
 
-    public mutating func reset() { speechHeard = false; inSpeech = false; lastSpeechEnd = 0; decided = false }
+    public mutating func reset() {
+        speechHeard = false; inSpeech = false; lastSpeechEnd = 0; decided = false
+        turnCheckedFor = nil; endedByTurnModel = false
+    }
 }
 
 /// V4.21 — how much speech the VAD heard, and where, on one capture stream's clock.
