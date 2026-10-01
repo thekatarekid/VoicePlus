@@ -18,23 +18,21 @@ struct PreviewFormatterTests {
                 == "She said the report is ready but I doubt it")
     }
 
-    @Test func writesSpokenNumbersAsDigits() {
-        #expect(PreviewFormatter.format("the invoice total is two thousand three hundred forty rupees")
-                == "The invoice total is 2340 rupees")
-        #expect(PreviewFormatter.format("their new address is fourteen carter road")
-                == "Their new address is 14 carter road")
-        #expect(PreviewFormatter.format("mumbai four hundred thousand fifty") == "Mumbai 400050")
-        #expect(PreviewFormatter.format("twenty five people") == "25 people")
-        // Two numbers in a row that do not compose stay two numbers.
-        #expect(PreviewFormatter.format("my flight lands at eleven forty five") == "My flight lands at 11 45")
+    /// V5 K7 — numbers are the installed normaliser's job (in the app, `Pipeline.ITNStage`; the
+    /// digit goldens live in `Tests/AppTests/ITNAgreementTests.swift`). The preview only capitalises.
+    @Test func numbersComeFromTheInjectedNormalizer() {
+        let stub: @Sendable (String) -> String = { $0.replacingOccurrences(of: "twenty five", with: "25") }
+        #expect(PreviewFormatter.format("i think twenty five people", normalizer: stub) == "I think 25 people")
+        #expect(PreviewFormatter.format("twenty five people", normalizer: stub) == "25 people")
+        #expect(PreviewFormatter.format("twenty five people", normalizer: nil) == "Twenty five people")
+        // The normaliser runs before capitalisation, so a sentence-initial number word it leaves alone is capitalised.
+        #expect(PreviewFormatter.format("four of us", normalizer: stub) == "Four of us")
     }
 
-    @Test func leavesSmallCountWordsAlone() {
-        // The final text writes these as words too, so digits here would be a change, not a fix.
-        #expect(PreviewFormatter.format("order two of the large ones and one of the small ones")
-                == "Order two of the large ones and one of the small ones")
-        #expect(PreviewFormatter.format("meet at the gate at four") == "Meet at the gate at four")
-        #expect(PreviewFormatter.format("we have three options") == "We have three options")
+    @Test func numberWrittenFormsAreNotPunctuationClaims() {
+        #expect(PreviewFormatter.addsNoPunctuation(input: "at three thirty", output: "At 3:30"))
+        #expect(PreviewFormatter.addsNoPunctuation(input: "twelve lakh", output: "12,00,000"))
+        #expect(!PreviewFormatter.addsNoPunctuation(input: "hello there", output: "Hello, there"))
     }
 
     @Test func neverClaimsPunctuation() {
@@ -77,7 +75,7 @@ struct PreviewFormatterTests {
     /// nothing else changed.
     @Test func decoratorFormatsWhatTheRecognizerEmits() async throws {
         final class Fake: PreviewRecognizer, @unchecked Sendable {
-            var texts = ["", "i think", "i think twenty five"]
+            var texts = ["", "i think", "i think so"]
             var index = 0
             var resets = 0
             func feed(_ samples: [Float]) async throws -> String {
@@ -90,7 +88,7 @@ struct PreviewFormatterTests {
         let formatted = FormattedPreviewRecognizer(fake)
         #expect(try await formatted.feed([0]) == "")
         #expect(try await formatted.feed([0]) == "I think")
-        #expect(try await formatted.feed([0]) == "I think 25")
+        #expect(try await formatted.feed([0]) == "I think so")
         await formatted.reset()
         #expect(fake.resets == 1)
     }

@@ -27,17 +27,21 @@ public struct ProseListFormatter: PipelineStage {
     public init(options: Options = Options()) { self.options = options }
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
-        format(spans, register: context.register)
+        format(spans, register: context.register, itn: ITNStage.config(for: context))
     }
 
-    /// Synchronous entry point (tests, Lab).
-    public func format(_ spans: [TranscriptSpan], register: Utterance.Register = .prose) -> [TranscriptSpan] {
+    /// Synchronous entry point (tests, Lab). `itn` defaults to the process locale and prose rules.
+    public func format(_ spans: [TranscriptSpan], register: Utterance.Register = .prose,
+                       itn: ITNStage.Config? = nil) -> [TranscriptSpan] {
         guard !spans.isEmpty else { return [] }
         var toks = Tokenizer.tokens(from: spans)
         Fillers.remove(&toks)
         SpokenPunctuation.apply(&toks)
         SelfCorrection.resolve(&toks)
-        Numbers.normalize(&toks, spellOutSmall: options.spellOutSmallNumbers, spans: spans)
+        // V5 D1 + K7 — the one ITN implementation (the preview runs the same `ITNStage`).
+        var itn = itn ?? ITNStage.Config(locale: ITNStage.defaultLocale)
+        if !options.spellOutSmallNumbers, itn.policy == .prose { itn.policy = .always }
+        ITNStage.apply(&toks, spans: spans, config: itn)
         ListDetector.apply(&toks, forceList: register == .list)
         Capitalizer.apply(&toks, addTerminalPeriod: options.addTerminalPeriod)
         return Assembler.assemble(toks, into: spans, stage: id)
@@ -340,6 +344,9 @@ enum Numbers {
     /// Parses a run of number words starting at `i`.
     static func parse(_ toks: [Tok], at i: Int) -> Parsed? {
         var total = 0, current = 0, j = i, sawAny = false, mark = ""
+        // V5 D1 — "a hundred and fifty", "a thousand two hundred": the article counts as one when a
+        // number follows the magnitude. "a hundred people" stays words.
+        if countsAsOne(toks, at: i) { current = 1; sawAny = true; j += 1 }
         while j < toks.count, toks[j].isWord, !toks[j].locked {
             let (l, m) = split(toks[j].lower)
             if let u = units[l], l != "oh" {
@@ -362,6 +369,18 @@ enum Numbers {
         }
         guard sawAny else { return nil }
         return Parsed(value: total + current, consumed: j - i, mark: mark)
+    }
+
+    static func countsAsOne(_ toks: [Tok], at i: Int) -> Bool {
+        func word(_ k: Int) -> String? {
+            k < toks.count && toks[k].isWord && !toks[k].locked && split(toks[k].text).mark.isEmpty ? core(toks[k]) : nil
+        }
+        func isNumber(_ k: Int) -> Bool {
+            guard k < toks.count, toks[k].isWord, !toks[k].locked else { return false }
+            let c = core(toks[k]); return (units[c] != nil && c != "oh") || tens[c] != nil
+        }
+        guard word(i) == "a", let scale = word(i + 1), scale == "hundred" || scale == "thousand" else { return false }
+        return isNumber(i + 2) || (word(i + 2) == "and" && isNumber(i + 3))
     }
 
     /// The `and` of "one hundred and fifty": only after a hundreds value, and only when the word
@@ -392,7 +411,8 @@ enum Numbers {
         while i < toks.count {
             let t = toks[i]
             guard t.isWord, !t.locked else { out.append(t); i += 1; continue }
-            let prevIsMonth = out.last.map { SelfCorrection.months.contains($0.lower) && $0.isWord } ?? false
+            // V5 D1: a lowercase "may" is the verb ("you may first ask"); the recogniser cases the month.
+            let prevIsMonth = out.last.map { SelfCorrection.months.contains($0.lower) && $0.isWord && $0.text != "may" } ?? false
             let (tCore, tMark) = split(t.lower)
 
             // Ordinal after month: "March fifth" -> "March 5"; "fifth of March" -> "5th of March".
@@ -425,7 +445,7 @@ enum Numbers {
                 continue
             }
 
-            if let y = parseYear(toks, at: i), prevIsMonth || isYearContext(out) {
+            if let y = parseYear(toks, at: i), prevIsMonth || isYearContext(out) || isSpokenYear(toks, at: i, y) {
                 out.append(Tok(text: "\(y.value)" + y.mark, span: t.span)); i += y.consumed; continue
             }
 
@@ -488,9 +508,20 @@ enum Numbers {
     static func parseYear(_ toks: [Tok], at i: Int) -> Parsed? {
         guard let a = parse(toks, at: i) else { return nil }
         if (1900...2099).contains(a.value) { return a }
-        guard a.mark.isEmpty, (19...20).contains(a.value), let b = parse(toks, at: i + a.consumed), b.value < 100,
+        guard a.mark.isEmpty, (13...20).contains(a.value), let b = parse(toks, at: i + a.consumed), b.value < 100,
               b.value >= 1 else { return nil }
         return Parsed(value: a.value * 100 + b.value, consumed: a.consumed + b.consumed, mark: b.mark)
+    }
+
+    /// V5 D1 — "eighteen thirty seven" is a year wherever it is said: a teen 13–19 then 10–99, and no
+    /// time word after it. ("eleven forty five" and "twelve thirty" stay times / two numbers.)
+    static func isSpokenYear(_ toks: [Tok], at i: Int, _ y: Parsed) -> Bool {
+        guard let a = parse(toks, at: i), a.consumed == 1, a.mark.isEmpty, (13...19).contains(a.value),
+              y.consumed > 1, (10...99).contains(y.value % 100) else { return false }
+        let end = i + y.consumed
+        guard y.mark.isEmpty, end < toks.count else { return true }
+        let next = core(toks[end])
+        return !isTimeWord(toks[end]) && unitsAfter[next] == nil && currencyAfter[next] == nil
     }
 
     static func isYearContext(_ out: [Tok]) -> Bool {

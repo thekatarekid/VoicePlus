@@ -130,6 +130,7 @@ public final class AppContainer {
         self.flags = flags
         self.settings = settings
         self.environment = environment
+        ITNWiring.install(environment: environment)   // V5 D1 + K7 — NeMo ITN, LANG locale, preview == final
         let swappable = SwappableEngine(built.engine)
         self.swappableEngine = swappable
         self.engine = swappable
