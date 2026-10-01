@@ -1908,3 +1908,21 @@ Initial checkpoint (superseded by the dated entries below):
 - **New deps/downloads:** none new SwiftPM deps. New on-demand catalog entries (not downloaded here): Nemotron-3.5 multilingual 664 MB (OpenMDW-1.1), Qwen3-ASR Hinglish ~1.29 GB int8 (Apache-2.0, unpublished), Sortformer 255 MB, CAM++ 16.6 MB (licence to verify), Qwen3.5-2B/4B Q4_K_M GGUF (Apache-2.0), CUA-S1 4B ~4.0 GB + forms, Auto-AVSR (non-commercial, NOTICE). Disk ~7 GB free during lanes blocked conversions.
 - **Full suite:** `--no-parallel`, .build-v5a: first run 4344 tests, 7 issues in 4 tests (719 s); gate fixes a4fca5a (AXGuard root in ActiveSpeakerAX; meeting weight boxes per ModelResidency; withDeadline cancelled-timer race; AudioPipeline.drain ordering); rerun 4344 passed, 0 failed, 636 s (hardware/dataset suites skipped).
 - **Needs hardware/owner (T1):** live meeting + dictation on one graph; arbiter accuracy with Kev; ambient CPU in-app; Notes UI + Insert here; CoreAudio/AX/EventKit detection; Sortformer/CAM++/voiceprints on real meetings; real planner + CUA-S1 runs; Hinglish/Nemotron/AVSR models; IndicXlit; camera signals; AirPods mic modes.
+
+## 2026-10-02 — V5 W8 + follow-ups
+- Q13 · done · landing/decision/pause-resume events recorded (df2cbbf); verify fix: pause/resume carry the pill frame via PillPanelController provider (156c057) · TurnEventDiagnosticsQ13Tests, TurnDiagnosticsQ13Tests pass
+- HW3 · done · LighterModelsChip wired via TurnWiring to ModelResidency lighter-mode observer (5cffc02, df2cbbf) · LighterModelsChipHW3Tests 3
+- D5 · done · prewarm time-boxed 30 s (ecced4d); verify fix: timeout ends the pass instead of re-joining the stuck load (9883bb2) · ModelPrewarmerTests 9; ModelResidency still cannot cancel a stuck load
+- M-d · done · one Markdown renderer for auto-export + hook payload, single 11-browser list for Don't-notify (c6b4d39) · MeetingExportOneRendererTests, MeetingsDontNotifyBrowsersTests
+- K21 · done · Qwen3 Backend.prepare calls store.verify before load (0bc07a5) · Qwen3PrepareVerifyK21Tests
+- O1 · done · MeetingSessionWiring start/stop(.meeting), voice test/onboarding meter/MicSelfTest on the shared graph (e7e471c) · MeetingSessionWiringTests, VoiceTestSharedGraphTests; --mic-selftest uses makeStandalone (own process)
+- N2 · done · all 8 Notes routes live via UtteranceLander.notesClaim + LatchRuntime.notesRoute (d126fcb) · NotesLiveRoutesTests 11; app-switch/other-voice notes not O3-logged
+- LANG1 · done · multilingual cleanup route, SCOWL per-language lists, per-app language memory, frontmost-app ASR routing, Settings › Languages (ce9d26f) · LanguageFollowUpTests; Qwen3AsrLanguageHint has no live consumer until refinement is wired (R5.2)
+- T1 · done · VoicePlus_HumanTest.md: 470 cases + 26 owner actions (0c1b495) · structural check script; build-doc "DESIGN.md §10" recovery ref should read §7
+- J5 · partial · AppcastUpdater (feed, channel, min-OS, delta/full, sha256, hdiutil + codesign check, swap + rollback), Settings › Updates, release.sh sha256 (92484fd) · AppcastUpdaterJ5Tests 24; feed host updates.adityakatare.in not live, no delta DMG produced, ad-hoc signing → TCC re-grant per update
+- J2 · partial · workflow_dispatch ci.yml + Scripts/ci-test.sh (f9e5ca3) · CIWorkflowJ2Tests 5; never run on GitHub (owner: account restriction or self-hosted runner)
+- J4 · blocked · owner: Developer ID cert + `notarytool store-credentials`; then make_app `--timestamp`, release.sh notarize + staple before shasum, drop disable-library-validation
+- I4 · done · EgressReview + NoTelemetryAuditI4Tests (1dd59f3) · 8 tests; EgressGate is allow-all + kill switch, list enforced at source level
+- **New deps/downloads:** none.
+- **Full suite:** `--no-parallel`, .build-v5a: 4434 tests passed, 0 failed, 688 s (11:45 wall). No gate fixes needed.
+- **Needs hardware/owner (T1):** real AX landings + pill frames; kernel memory pressure; llama.cpp prewarm latency; one HAL client + mic indicator, lock/sleep in meeting; Notes routes in live apps; multilingual cleanup quality/latency, SCOWL GBs download; end-to-end update (host appcast, Developer ID); CI run on GitHub; the 26 OA owner actions in VoicePlus_HumanTest.md.

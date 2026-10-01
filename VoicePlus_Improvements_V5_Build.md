@@ -220,7 +220,7 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 1e · Diagnostics — owns `App/Diagnostics/`
 
 #### Q13 · Persisted diagnostics
-- **Status:** partial — store, retention, audit, Privacy export done (5eeb7e9, b68dbb8); only pill events recorded so far — landing/decision record() calls pending (K/O3 lanes)
+- **Status:** done — landing/decision/pause-resume events recorded (df2cbbf); pause/resume carry pill frame (156c057); real AX landings → T1
 - [x] `TurnDiagnostics` store (SQLite table `turn_diagnostics`, 7-day retention, local only): per turn — pill display + reason + mouse, every orderFront/Out with reason, every pause/resume with reason + pointer + frame, landing verdict + app + method + settle ms, decision record from O3 (owner, confidence, per-question probabilities).
 - [x] Export as JSON from Settings › Privacy (owner-triggered only).
 - **Tests:** retention sweep; no transcript text stored (source audit).
@@ -282,7 +282,7 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 - [x] 200 scripted utterances (dictate/command/edit/note) → `GatekeeperStage` → matrix in `Lab/results`. Threshold tuning only; no training.
 
 #### K21 · Qwen3-ASR UI copy
-- **Status:** done — e5822a8; Engine Backend.prepare should also call store.verify
+- **Status:** done — e5822a8; Backend.prepare calls store.verify before load (0bc07a5); real weights → T1
 - [x] Settings › Models: refinement row says what it does ("second pass, English, adds ~2 s"); "Ready" only when weights verified.
 
 ---
@@ -394,15 +394,15 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 - **Tests:** budget arithmetic; eviction order; exclusive refusal.
 
 #### HW3 · Memory pressure
-- **Status:** partial — MemoryPressureMonitor, lighter-alternative swap + lighterModelsMessage (35b94b7); pill chip hookup (lane 1b) pending; real pressure events T1
-- [ ] `DispatchSource.makeMemoryPressureSource`: `.warning` → unload idle on-demand; `.critical` → swap to the smaller option (Kev → Laya e8, 4B → 2B) and show pill chip "Running lighter models — memory is low".
+- **Status:** done — MemoryPressureMonitor + lighter swap (35b94b7), LighterModelsChip wired via TurnWiring (5cffc02, df2cbbf); real kernel pressure + chip look → T1
+- [x] `DispatchSource.makeMemoryPressureSource`: `.warning` → unload idle on-demand; `.critical` → swap to the smaller option (Kev → Laya e8, 4B → 2B) and show pill chip "Running lighter models — memory is low".
 
 #### HW2 · RAM-aware defaults
 - **Status:** done — MemoryClass + ResidencyPlan per class, first-launch store, Settings › Models tier override (d82c820); real 8/24 GB Macs → T1; consumers (CU2/O4/M7) register later
 - [x] First launch sets: 16 GB → Qwen3.5-2B, Kev on demand, CUA-S1 exclusive; ≥ 24 GB → Qwen3.5-4B, Kev resident, CUA-S1 warm; 8 GB → dictation + cleanup + Laya, ambient-act/lips/4B hidden with an explanation. Settings › Models shows the tier and lets the user override.
 
 #### D5 · Idle unloader + prewarm
-- **Status:** done — ModelPrewarmer on hotkey-down via ModelResidency, idle unload via HW1 (e2e4ee3); D2 now registers cleanup.llm so prewarm is live; real latency → T1
+- **Status:** done — e2e4ee3; prewarm attempts time-boxed 30 s (ecced4d), timeout ends the pass (9883bb2); stuck load not cancellable in ModelResidency; real latency → T1
 - [x] Prewarm on hotkey-down (`prewarmDictation` pattern) for the cleanup LLM; unload per HW1 idle policy.
 
 ---
@@ -517,7 +517,7 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 5a · Capture + arbiter — owns `App/Services/SessionCoordinator.swift`, `App/Services/PipelineAudioSource.swift`, `Engine/Audio/AudioPipeline.swift` (Broadcaster), `App/Services/MeetingCoordinator.swift` capture seam, `App/Services/AppContainer.swift` wiring
 
 #### O1 · One capture graph, many subscribers
-- **Status:** done — Broadcaster subscriptions, recorders, SharedMicrophoneSource into DualCapture (b466986); one-HAL-client + live mic indicator → T1; AppDelegate start/stop(.meeting) wiring still open
+- **Status:** done — b466986; MeetingSessionWiring start/stop(.meeting) + voice test/meter/self-test on the shared graph (e7e471c); one HAL client + mic indicator → T1
 - **Why:** meeting and dictation open two uncoordinated mic graphs today.
 - **Do:**
   - [x] `AudioPipeline` becomes the single mic owner; `Broadcaster.subscribe()` hands `AudioPipelineEvent` streams to: engine (dictation), meeting mic leg, ambient, directed-speech features, speaker gate.
@@ -582,8 +582,8 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 - **UI:** sidebar entry "Notes" with unread count; row swipe actions; keyboard: ↩ insert, ⌘C copy, ⌫ discard.
 
 #### N2 · Routes into Notes
-- **Status:** partial — wake verb 'note …' (be02b49) + ambient band / Listen & note wired; no-field, app switch, latch-in-meeting, agent running, K4 routeToNotes decided but not called from live speech
-- [ ] From `IntentArbiter`: no focused field · app switch mid-segment · wake verb `note …` (add to `WakeVerbGrammar.typeVerbs` family as `noteVerbs`) · lower-middle band · declined ask · Listen & note mode · latch during a meeting · utterance during a running agent action.
+- **Status:** done — all 8 routes live via UtteranceLander.notesClaim + LatchRuntime.notesRoute (d126fcb); app-switch/other-voice notes not O3-logged; real apps → T1
+- [x] From `IntentArbiter`: no focused field · app switch mid-segment · wake verb `note …` (add to `WakeVerbGrammar.typeVerbs` family as `noteVerbs`) · lower-middle band · declined ask · Listen & note mode · latch during a meeting · utterance during a running agent action.
 
 #### N3 · Pill state
 - **Status:** done — pill '📝 notes · N' chip + menu row (9bc301b); look → T1
@@ -655,7 +655,7 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 6c · Detection + settings — owns `Engine/Meeting/MeetingDetector.swift`, `App/Settings/Meetings*` settings page
 
 #### M-d · Detection signals + settings
-- **Status:** done — mic-elsewhere / call app / browser tab signals + Settings › Meetings page + hook (028fb08, 4888c63); tab-switch + own-capture fixes 88c603c; CoreAudio/AX/EventKit → T1
+- **Status:** done — 028fb08, 4888c63, 88c603c; one Markdown renderer for export+hook, single 11-browser list (c6b4d39); CoreAudio/AX/EventKit → T1
 - [x] Signals: calendar (exists), camera (exists), mic in use by another process (`kAudioDevicePropertyDeviceIsRunningSomewhere` on the input device), call app running (Zoom, Teams, FaceTime, Slack huddle, WhatsApp), browser tab URL/title (meet.google.com, teams.microsoft.com, zoom.us/wc, whereby…).
 - [x] Settings › Meetings: detected-meeting notifications · per-app "don't notify" list · reminder timing (at start / 5 min before) · calendars to include · auto-record calendar meetings (off) · save recording (M5) · auto-export folder + format · post-meeting hook (path, timeout; JSON record on stdin).
 - **Tests:** detector state machine with the new signals; hook invocation with a fake script.
@@ -735,9 +735,9 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 7b · Languages — owns `App/Onboarding/` language step, `Engine/CodeSwitch/`, `Pipeline/Formatters` locale plumbing, notch script menu in `App/UI/Pill*` (coordinate with 1b: new file `PillScriptMenu.swift`)
 
 #### LANG1 · Onboarding languages + scripts
-- **Status:** partial — Languages step, settings, detector/ITN/script/route consumers (27670ec); cleanup model switch, per-language P-series, per-app language memory, Settings › Languages page not done
+- **Status:** done — 27670ec + ce9d26f: multilingual cleanup route, SCOWL per-language lists, per-app language memory, Settings › Languages; Qwen3 hint has no live consumer until R5.2; real models → T1
 - [x] New `OnboardingStateMachine` step `languages` after `firstDictation`: multi-select languages (prefilled from `Locale.preferredLanguages` + enabled input sources), per-language script (Roman default; Devanagari/mixed for hi), spelling variant (en-US/GB/IN). Stored in `SettingsKeys.languages`, `.scriptByLanguage`, `.spellingVariant`.
-- [ ] Consumers: model routing (G1/G2 download only what is needed), `LanguageDetector` constrained to chosen languages, `Qwen3AsrLanguageHint`, ITN locale (D1), cleanup model choice (English-only vs CU8), P-series per language, per-app language memory.
+- [x] Consumers: model routing (G1/G2 download only what is needed), `LanguageDetector` constrained to chosen languages, `Qwen3AsrLanguageHint`, ITN locale (D1), cleanup model choice (English-only vs CU8), P-series per language, per-app language memory.
 - **UI:** step card with flags-free plain names; "You can change this in Settings › Languages".
 - **Tests:** state machine step order + resume; settings round-trip; detector constraint.
 
@@ -793,36 +793,41 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 ### Lane 8a · Human test document
 
 #### T1 · `VoicePlus_HumanTest.md`
+- **Status:** done — VoicePlus_HumanTest.md, 470 cases + 26 owner actions (0c1b495); build doc recovery ref is DESIGN.md §7 (design_copy.json errors), not §10
 - **Do:** write the document (not code). Per case: **ID · Area · Preconditions · Steps · Desired outcome · Pass/Fail · Notes · Evidence (screenshot/log id)**. Group:
-  - [ ] Install & permissions: fresh DMG, `/Applications`, upgrade; Microphone / Accessibility / Screen Recording / Camera / Calendar / Contacts / Notifications / Input Monitoring — grant, deny, "Later" (Q10/Q11), revoke mid-session.
-  - [ ] Onboarding: every `OnboardingStateMachine` step incl. LANG1, resume, recovery, model download, practice dictation, contacts import, fn system-action prompt, enrollment.
-  - [ ] Inputs: hold, double-tap latch, menu start, wake verbs (`type`, `send`, `note`, `<app>`), voice repair, edit selection, deixis box, act key, ambient Off / Listen & note / Listen & act, lips-only, fused.
-  - [ ] Destinations: TextEdit, Notes, Mail, Slack, WhatsApp, Claude (Q1/Q2/Q4), VS Code editor + integrated terminal, Terminal, Google Docs, Google Sheets (cell newline), Excel, Numbers, Figma, web forms, password field (refused).
-  - [ ] Conditions: quiet, TV on, person 2–3 ft away, whisper, loud, AirPods session (**K16**: 10 built-in + 10 AirPods dictations, switch mid-utterance, HFP narrowband, 10-min idle cold graph), device change between turns, external display + AirPlay (Q6/Q7).
-  - [ ] Hardware-unverified surfaces carried from 1.11–1.12 (**K23**): tape flight and marks on real carets, notch placement, VoiceOver cursor on the pill, high contrast, onboarding on a clean account and an external monitor, the fn system-action prompt, physical global Escape, destination-change / partial-write recovery.
-  - [ ] §O concurrency matrix: every cell.
-  - [ ] Meetings: each mode, each detection signal, live transcript, dictation during a meeting, labels + mapping, Ask (each backend), export, hook, recording retention.
-  - [ ] Notes: each route; Insert all.
-  - [ ] Computer use: 20 catalogue actions, one multi-step goal per planner backend, consent at each tier, stop mid-flight.
-  - [ ] Settings: every row indexed in `MainWindowSection` has a visible effect.
-  - [ ] Recovery catalogue: every state in `DESIGN.md` §10.
-  - [ ] Accessibility: VoiceOver on the pill and window, keyboard-only, Increase Contrast, Reduce Motion, notch / no-notch, external monitor.
-  - [ ] The 16 §Q fixes, each as its own case.
+  - [x] Install & permissions: fresh DMG, `/Applications`, upgrade; Microphone / Accessibility / Screen Recording / Camera / Calendar / Contacts / Notifications / Input Monitoring — grant, deny, "Later" (Q10/Q11), revoke mid-session.
+  - [x] Onboarding: every `OnboardingStateMachine` step incl. LANG1, resume, recovery, model download, practice dictation, contacts import, fn system-action prompt, enrollment.
+  - [x] Inputs: hold, double-tap latch, menu start, wake verbs (`type`, `send`, `note`, `<app>`), voice repair, edit selection, deixis box, act key, ambient Off / Listen & note / Listen & act, lips-only, fused.
+  - [x] Destinations: TextEdit, Notes, Mail, Slack, WhatsApp, Claude (Q1/Q2/Q4), VS Code editor + integrated terminal, Terminal, Google Docs, Google Sheets (cell newline), Excel, Numbers, Figma, web forms, password field (refused).
+  - [x] Conditions: quiet, TV on, person 2–3 ft away, whisper, loud, AirPods session (**K16**: 10 built-in + 10 AirPods dictations, switch mid-utterance, HFP narrowband, 10-min idle cold graph), device change between turns, external display + AirPlay (Q6/Q7).
+  - [x] Hardware-unverified surfaces carried from 1.11–1.12 (**K23**): tape flight and marks on real carets, notch placement, VoiceOver cursor on the pill, high contrast, onboarding on a clean account and an external monitor, the fn system-action prompt, physical global Escape, destination-change / partial-write recovery.
+  - [x] §O concurrency matrix: every cell.
+  - [x] Meetings: each mode, each detection signal, live transcript, dictation during a meeting, labels + mapping, Ask (each backend), export, hook, recording retention.
+  - [x] Notes: each route; Insert all.
+  - [x] Computer use: 20 catalogue actions, one multi-step goal per planner backend, consent at each tier, stop mid-flight.
+  - [x] Settings: every row indexed in `MainWindowSection` has a visible effect.
+  - [x] Recovery catalogue: every state in `DESIGN.md` §10.
+  - [x] Accessibility: VoiceOver on the pill and window, keyboard-only, Increase Contrast, Reduce Motion, notch / no-notch, external monitor.
+  - [x] The 16 §Q fixes, each as its own case.
 - **Done when:** the document exists with ≥ 200 cases, each with a desired outcome; the owner can run it without reading code.
 
 ### Lane 8b · Release
 
 #### J5 · Updater
+- **Status:** partial — AppcastUpdater (feed, channel, min-OS, delta/full, sha256, hdiutil+codesign check, swap+rollback), Settings › Updates (92484fd); feed host not live, release.sh emits no delta DMG, ad-hoc signing loses TCC grants → J4/T1
 - [ ] Replace `NoopUpdater` with an appcast-based updater (Sparkle-compatible feed already published as `Packaging/appcast`); delta = small DMG; full = self-contained. Settings › Updates shows channel and "check now".
 
 #### J2 · CI
+- **Status:** partial — workflow_dispatch ci.yml + Scripts/ci-test.sh (f9e5ca3); never run on GitHub (account restriction / self-hosted runner = owner)
 - [ ] GitHub Actions macOS runner: `bootstrap-toolchain`, `swift build`, `swift test --no-parallel --filter` the non-hardware suites; artifacts: test log. Fix the account restriction or move to a self-hosted runner (owner).
 
 #### J4 · Developer ID + notarization **[owner]**
+- **Status:** blocked — owner: Developer ID cert + notarytool keychain profile; then make_app --timestamp, release.sh notarize+staple before shasum
 - [ ] Owner obtains a Developer ID certificate; `Packaging/release.sh` signs with it and runs `notarytool submit --wait` (already in CLT) + `stapler`.
 
 #### I4 · No telemetry **[keep]**
-- [ ] Source audit test: no `posthog`, `sentry`, analytics hosts; `EgressGate` default-deny list reviewed.
+- **Status:** done — EgressReview + NoTelemetryAuditI4Tests (1dd59f3); EgressGate is allow-all + kill switch (BYO endpoints), list enforced at source level
+- [x] Source audit test: no `posthog`, `sentry`, analytics hosts; `EgressGate` default-deny list reviewed.
 
 ### Deferred (**[later]**, not scheduled)
 - F5 LoRA on the user's audio · L9/O6 trained directed-speech model · D6 speculative decoding · N5 note → reminder/draft · CU3/CU5 beyond the spike.
@@ -852,3 +857,4 @@ Deviations / new deps / notes for progress.md: <…>
 - 2026-10-01 · W3+W4 gate: done D1+K7, C6, B2+E1, E2, E3, E4, F1, F4, I1, I2; partial HW1, HW3, P1–P7, F2 (committed) and C1, C1b, B1, HW2, D5, E5, E6, K10, Q14 (uncommitted, no lane report); not started lane 4a (D2/D3/D4/I3), C3–C5, K2, K4, K6, F3, B3, B5. Gate fixes 815241f. Full suite --no-parallel on the working tree: 3712/3713 passed, 478 s; only failure is the uncommitted B1 live fixture gate. Details in progress.md.
 - 2026-10-01 · W3+W4 completion gate: done C3, K2, K4, K6, F3, B3, HW2, D5, D3, D4, I3, E5, E6, K10, Q14, F2; partial C1, C1b, C4, C5, B1, B5, D2, P1–P7 (all need V1 datasets/models/hardware). Gate fixes e4f4033 (lane 4c leftovers), 60c877a (Q14 switch). Full suite --no-parallel: 3860 passed, 0 failed, 515 s. Details in progress.md.
 - 2026-10-02 · W5+W6+W7 gate: done O1–O3, O4+O5+L4, L1–L3, L5, K3, N1, N3, N4, M1–M4, M5, M14, M12, M6, M7, M8, M10, M13, M-d, M17, M16+M21, M18+M20, M19, M22, M23, CU1, CU8, CU4, CU9, CU6, CU7, H4, LANG2, G2, G3, LR1, LR3, LR5, K5; partial L6, N2, M9, M11, CU2, LANG1, G1, LR2, K8 (models/datasets/owner). Gate fixes a4fca5a. Full suite --no-parallel: 4344 passed, 0 failed, 636 s. Details in progress.md.
+- 2026-10-02 · W8 + follow-ups gate: done Q13, HW3, D5, M-d, K21, O1, N2, LANG1, T1, I4; partial J5 (feed host/delta DMG/signing), J2 (not run on GitHub); blocked J4 (owner). Full suite --no-parallel: 4434 passed, 0 failed, 688 s; no gate fixes needed. Details in progress.md.
