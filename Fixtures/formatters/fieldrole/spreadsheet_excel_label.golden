@@ -1,0 +1,20 @@
+# spreadsheet_excel_label — V5 E2: a short label typed into an Excel cell. No invented capital,
+# no trailing period, never submits (Return would commit the cell and move down a row).
+app: com.microsoft.Excel
+role: AXTextArea
+before: ""
+after: ""
+words: total revenue
+---
+fieldRole: spreadsheetCell
+formatter: prose
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: false
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "total revenue"
+text: "total revenue"

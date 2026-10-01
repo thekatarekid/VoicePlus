@@ -153,7 +153,7 @@ public struct TextRecognitionOptions: Equatable, Sendable {
         let correction: Bool
         switch role {
         case .terminal, .codeEditor, .secure: correction = false
-        case .singleLineText, .multilineText, .unknown: correction = true
+        case .singleLineText, .multilineText, .spreadsheetCell, .unknown: correction = true
         }
         var seen = Set<String>()
         let words = customWords.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

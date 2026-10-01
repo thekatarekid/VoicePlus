@@ -18,8 +18,22 @@ public struct FieldRoleFormatterStage: PipelineStage {
     /// Inner formatter lookup. Injectable so tests can substitute stubs.
     public var formatter: @Sendable (Utterance.Register) -> (any PipelineStage)?
 
-    public init(formatter: @escaping @Sendable (Utterance.Register) -> (any PipelineStage)? = { StageRegistry.formatter(for: $0) }) {
+    /// V5 E2/E3 — the formatter for a field whose numbers are always digits (a spreadsheet cell, a
+    /// phone / email / URL box): prose rules with every number as digits and no added period.
+    public var valueFormatter: @Sendable () -> any PipelineStage
+
+    public init(formatter: @escaping @Sendable (Utterance.Register) -> (any PipelineStage)? = { StageRegistry.formatter(for: $0) },
+                valueFormatter: @escaping @Sendable () -> any PipelineStage = { FieldRoleFormatterStage.digitsFormatter }) {
         self.formatter = formatter
+        self.valueFormatter = valueFormatter
+    }
+
+    /// Prose formatting with "ITN always on": 0–9 become digits, nothing appends a period.
+    public static var digitsFormatter: ProseListFormatter {
+        var options = ProseListFormatter.Options()
+        options.spellOutSmallNumbers = false
+        options.addTerminalPeriod = false
+        return ProseListFormatter(options: options)
     }
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
@@ -38,19 +52,51 @@ public struct FieldRoleFormatterStage: PipelineStage {
         var inner = context
         inner.register = rules.register
         var out = spans
-        if let stage = formatter(rules.register) {
+        let digitsOnly = rules.alwaysNormalizeNumbers && rules.category != .code && rules.category != .terminal
+        if let stage = digitsOnly ? valueFormatter() : formatter(rules.register) {
             out = try await stage.process(out, context: inner)
+        }
+        // V5 E3 — an email / URL box: "jo at example dot com" → "jo@example.com".
+        if let kind = rules.inputKind, kind == .email || kind == .url {
+            out = FieldValueCompactor.compact(out, kind: kind)
         }
         if rules.preserveIdentifiers {
             out = CodeIdentifier.restore(CodeIdentifier.spellings(in: spans), in: out)
         }
         // D2 — which marks the user dictated; those are never stripped below.
         out = PunctuationProvenance.annotate(out, original: spans)
-        let decision = plan.resolved(wordCount: Self.wordCount(out), textRole: rules.autoCapitalize)
+        // A cell entry that starts with a number ("5 units") is a value, never a sentence.
+        let startsWithNumber = out.renderedText.first(where: { !$0.isWhitespace })?.isNumber ?? false
+        let decision = Self.decision(plan: plan, rules: rules, field: field,
+                                     wordCount: startsWithNumber && rules.role == .spreadsheetCell ? 0 : Self.wordCount(out))
         out = Self.applyTerminalPeriod(out, original: spans, keepModel: decision.keepModelPeriod,
                                        keepAdded: decision.keepAddedPeriod && rules.trailingPeriod)
         out = Self.applyFirstWordCase(out, original: spans, action: decision.firstWord)
         return out.map { $0.touched(by: id) }
+    }
+
+    /// The continuation decision, with the V5 E2/E3 value-field overrides: a spreadsheet cell or a
+    /// value box never keeps a period it did not hear, and a short cell label gets no invented
+    /// capital (a longer, sentence-like cell entry is capitalised like any sentence).
+    static func decision(plan: ContinuationPlan, rules: FieldRules, field: FieldContext,
+                         wordCount: Int) -> ContinuationPlan.Resolved {
+        if rules.role == .spreadsheetCell {
+            let sentence = wordCount > FieldRules.shortLabelMaxWords
+            var sentenceRules = rules
+            sentenceRules.autoCapitalize = true
+            let sentencePlan = sentence ? ContinuationPlanner.plan(for: field, rules: sentenceRules) : plan
+            var resolved = sentencePlan.resolved(wordCount: wordCount, textRole: sentence)
+            if !sentence { resolved.firstWord = .lowercaseAddedOnly }
+            resolved.keepModelPeriod = false
+            resolved.keepAddedPeriod = false
+            return resolved
+        }
+        var resolved = plan.resolved(wordCount: wordCount, textRole: rules.autoCapitalize)
+        if rules.alwaysNormalizeNumbers {
+            resolved.keepModelPeriod = false
+            resolved.keepAddedPeriod = false
+        }
+        return resolved
     }
 
     /// Words in the insertion (tokens with a letter or digit), after fillers were removed.

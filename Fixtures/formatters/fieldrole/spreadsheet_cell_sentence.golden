@@ -1,0 +1,21 @@
+# spreadsheet_cell_sentence — V5 E2: a longer, sentence-like note in a cell (role description
+# "cell") keeps a sentence capital but still gets no period it did not hear.
+app: com.example.grid
+role: AXTextArea
+hints: cell
+before: ""
+after: ""
+words: follow up with the vendor about the second invoice
+---
+fieldRole: spreadsheetCell
+formatter: prose
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: false
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "Follow up with the vendor about the second invoice"
+text: "Follow up with the vendor about the second invoice"

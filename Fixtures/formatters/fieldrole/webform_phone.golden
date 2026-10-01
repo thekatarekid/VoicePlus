@@ -1,0 +1,20 @@
+# webform_phone — V5 E3: a field labelled "Phone". Numbers are digits; no period.
+app: com.apple.Safari
+role: AXTextField
+hints: Phone
+before: ""
+after: ""
+words: four one five five five five one two one two
+---
+fieldRole: singleLineText
+formatter: prose
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: false
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "4155551212"
+text: "4155551212"

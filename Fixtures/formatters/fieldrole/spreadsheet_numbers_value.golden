@@ -1,0 +1,20 @@
+# spreadsheet_numbers_value — V5 E2: a value in a Numbers cell. ITN always on: small numbers are
+# digits, not words; no trailing period.
+app: com.apple.iWork.Numbers
+role: AXCell
+before: ""
+after: ""
+words: five units at three dollars
+---
+fieldRole: spreadsheetCell
+formatter: prose
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: false
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "5 units at $3"
+text: "5 units at $3"

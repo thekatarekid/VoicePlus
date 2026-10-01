@@ -1,3 +1,4 @@
+import ApplicationServices
 import Foundation
 import Injection
 import Pipeline
@@ -52,13 +53,24 @@ public final class FieldContextReader: @unchecked Sendable {
     /// The last caret reading, for diagnostics and tests.
     public var lastReading: CaretReading? { lock.withLock { _lastReading } }
 
+    /// V5 E2/E3 — form labels and the spreadsheet column header. Live: `LiveFocusedFieldDetails`
+    /// when `system` is the live one; tests inject a mock; `nil` reads nothing extra.
+    public var details: FocusedFieldDetailsReading?
+    /// V5 E4 — where bundle IDs the category table had to guess for are noted.
+    public var unknownApps: UnknownApps = .shared
+
     public init(system: SystemAccess, window: Int = CaretWindow.defaultWindow,
                 landingMemory: LandingMemory? = nil,
-                capabilities: CaretCapabilityMemory = CaretCapabilityMemory()) {
+                capabilities: CaretCapabilityMemory = CaretCapabilityMemory(),
+                unknownApps: UnknownApps = .shared,
+                details: FocusedFieldDetailsReading? = nil) {
         self.system = system
         self.window = window
         self.landingMemory = landingMemory ?? LandingMemory.attached(to: system)
         self.capabilities = capabilities
+        self.unknownApps = unknownApps
+        self.details = details ?? (system as? FocusedFieldDetailsReading)
+            ?? (system is LiveSystemAccess ? LiveFocusedFieldDetails() : nil)
     }
 
     /// `nil` only when there is no readable focused element at all (no accessibility permission,
@@ -71,7 +83,46 @@ public final class FieldContextReader: @unchecked Sendable {
         }
         guard let info = try? system.focusedElement() else { return nil }
         let reading = readCaret(info: info, bundleID: bundleID)
-        return Self.fieldContext(from: info, bundleID: bundleID, caret: reading.caret)
+        var field = Self.fieldContext(from: info, bundleID: bundleID, caret: reading.caret)
+        enrich(&field, info: info)
+        return field
+    }
+
+    /// V5 E2/E3/E4 — what the role and the four hint attributes do not say.
+    ///
+    /// * E3: a web form field's label (`AXTitleUIElement`), placeholder and help join `hints`,
+    ///   so `FieldRules` sees "Email", "Phone", "Search", "Password" however the page labels it.
+    /// * E2: the browser document's URL (a Google Sheets cell) and, for a cell, its column header.
+    /// * E4: a bundle ID the category table only guessed for is noted for the next revision.
+    /// Nothing is read from our own process, and a password field gets no extra reads at all.
+    public func enrich(_ field: inout FieldContext, info: FocusedElementInfo) {
+        let frontmost = system.frontmostApp()
+        let bundle = field.appBundleID ?? frontmost?.bundleID
+        if let bundle, !bundle.isEmpty { _ = AppCategoryTable.categoryNotingUnknown(for: bundle, log: unknownApps) }
+        guard !info.isSecure, !OwnProcess.owns(frontmost) else { return }
+        let pid = frontmost?.pid
+        if FieldRole.textEntryRoles.contains(info.role), let details, let pid {
+            let labels = details.focusedFieldLabels(pid: pid)
+            if !labels.isEmpty { field.hints = FocusedElementInfo.hints(from: (field.hints + labels).map { Optional($0) }) }
+        }
+        if Self.isBrowser(bundle), let reader = system as? FocusedDocumentURLReading {
+            field.documentURL = reader.focusedDocumentURL()
+        }
+        if FieldRole.classify(field) == .spreadsheetCell, let details, let pid {
+            field.columnHeader = details.focusedCellColumnHeader(pid: pid).map { String($0.prefix(80)) }
+        }
+    }
+
+    /// Browsers whose web area carries the document URL (release-channel suffixes included).
+    public static let browserBundleIDs: Set<String> = [
+        "com.google.Chrome", "com.apple.Safari", "company.thebrowser.Browser", "com.brave.Browser",
+        "com.microsoft.edgemac", "org.mozilla.firefox", "com.operasoftware.Opera", "com.vivaldi.Vivaldi",
+        "com.kagi.kagimacOS", "app.zen-browser.zen", "com.apple.SafariTechnologyPreview", "org.chromium.Chromium",
+    ]
+
+    public static func isBrowser(_ bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return browserBundleIDs.contains(bundleID) || browserBundleIDs.contains { bundleID.hasPrefix($0 + ".") }
     }
 
     /// The caret rungs for the element `info` describes.
@@ -156,5 +207,106 @@ public final class CaretCapabilityMemory: @unchecked Sendable {
 
     public func misses(for bundleID: String) -> Int {
         lock.withLock { misses[bundleID] ?? 0 }
+    }
+}
+
+// MARK: - V5 E2/E3 · labels and column headers
+
+/// The two reads `FocusedElementInfo` does not carry. Additive: `SystemAccess` is unchanged.
+public protocol FocusedFieldDetailsReading: AnyObject {
+    /// The focused element's label (`AXTitleUIElement` → its title / value / description), its
+    /// placeholder (`AXPlaceholderValue`) and help (`AXHelp`). `[]` when none.
+    func focusedFieldLabels(pid: Int32) -> [String]
+    /// The column header over the focused cell (`AXColumnHeaderUIElements`), when there is one.
+    func focusedCellColumnHeader(pid: Int32) -> String?
+}
+
+/// Live AX reads, addressed through the app element for `pid` (never the system-wide element,
+/// so a call can never land in our own process — `FieldContextReader` skips our pid as well).
+/// Every element gets a short messaging timeout: a hung app costs at most a fraction of a second.
+public final class LiveFocusedFieldDetails: FocusedFieldDetailsReading, @unchecked Sendable {
+    public var timeout: Float = 0.15
+    public init() {}
+
+    public func focusedFieldLabels(pid: Int32) -> [String] {
+        guard let element = focused(pid: pid) else { return [] }
+        var out: [String?] = []
+        if let label = child(element, "AXTitleUIElement") {
+            out.append(string(label, kAXTitleAttribute))
+            out.append(string(label, kAXValueAttribute))
+            out.append(string(label, kAXDescriptionAttribute))
+        }
+        out.append(string(element, "AXPlaceholderValue"))
+        out.append(string(element, kAXHelpAttribute))
+        return FocusedElementInfo.hints(from: out.map { $0.map { String($0.prefix(120)) } })
+    }
+
+    public func focusedCellColumnHeader(pid: Int32) -> String? {
+        guard let element = focused(pid: pid) else { return nil }
+        // The cell itself, or the in-cell editor's nearest AXCell ancestor.
+        var cell: AXUIElement? = element
+        var hops = 0
+        while let current = cell, string(current, kAXRoleAttribute) != "AXCell", hops < 6 {
+            cell = child(current, kAXParentAttribute); hops += 1
+        }
+        guard let cell, string(cell, kAXRoleAttribute) == "AXCell" else { return nil }
+        if let header = children(cell, "AXColumnHeaderUIElements").lazy.compactMap(title(of:)).first { return header }
+        guard let column = range(cell, "AXColumnIndexRange")?.location else { return nil }
+        var table: AXUIElement? = child(cell, kAXParentAttribute)
+        hops = 0
+        while let current = table, !["AXTable", "AXGrid", "AXOutline"].contains(string(current, kAXRoleAttribute) ?? ""), hops < 6 {
+            table = child(current, kAXParentAttribute); hops += 1
+        }
+        guard let table else { return nil }
+        let headers = children(table, "AXColumnHeaderUIElements")
+        guard column >= 0, column < headers.count else { return nil }
+        return title(of: headers[column])
+    }
+
+    // MARK: AX plumbing
+
+    private func focused(pid: Int32) -> AXUIElement? {
+        guard pid != getpid() else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, timeout)
+        let element = child(app, kAXFocusedUIElementAttribute)
+        if let element { AXUIElementSetMessagingTimeout(element, timeout) }
+        return element
+    }
+
+    private func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+        var out: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &out) == .success else { return nil }
+        return out
+    }
+
+    private func string(_ element: AXUIElement, _ attribute: String) -> String? {
+        let text = (value(element, attribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (text?.isEmpty ?? true) ? nil : text
+    }
+
+    private func child(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+        guard let raw = value(element, attribute), CFGetTypeID(raw) == AXUIElementGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast
+        return (raw as! AXUIElement)
+    }
+
+    private func children(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
+        guard let raw = value(element, attribute) as? [AnyObject] else { return [] }
+        return raw.compactMap { item in
+            CFGetTypeID(item) == AXUIElementGetTypeID() ? (item as! AXUIElement) : nil // swiftlint:disable:this force_cast
+        }
+    }
+
+    private func range(_ element: AXUIElement, _ attribute: String) -> CFRange? {
+        guard let raw = value(element, attribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var out = CFRange()
+        // swiftlint:disable:next force_cast
+        return AXValueGetValue(raw as! AXValue, .cfRange, &out) ? out : nil
+    }
+
+    private func title(of element: AXUIElement) -> String? {
+        (string(element, kAXTitleAttribute) ?? string(element, kAXValueAttribute) ?? string(element, kAXDescriptionAttribute))
+            .map { String($0.prefix(80)) }
     }
 }

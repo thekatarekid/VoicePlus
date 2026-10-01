@@ -1,0 +1,21 @@
+# webform_email — V5 E3: a web form field labelled "Email address" (its <label> via
+# AXTitleUIElement). The spoken address is compacted; no capital, no period, no submit.
+app: com.google.Chrome
+role: AXTextField
+hints: Email address
+before: ""
+after: ""
+words: jo dot smith at example dot com
+---
+fieldRole: singleLineText
+formatter: prose
+autoCapitalize: false
+trailingPeriod: false
+allowSubmit: false
+preserveIdentifiers: false
+leading: ""
+trailing: ""
+capitalizeFirstWord: false
+paragraphBreak: false
+words: "jo.smith@example.com"
+text: "jo.smith@example.com"
