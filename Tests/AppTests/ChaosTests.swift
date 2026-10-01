@@ -183,8 +183,9 @@ struct ChaosTests {
         #expect(installer.isStackInstalled)
         #expect(await manager.isPresent(.parakeetTDTv3))
         #expect(await manager.isPresent(.parakeetEOU160))
-        // One retry of the torn model, plus the rest of the stack (EOU, and since H3 the speaker weights).
-        #expect(fetcher.calls == 4)
+        // One retry of the torn model, plus the rest of the stack (EOU, since H3 the speaker weights,
+        // and since V5 C6 Silero VAD).
+        #expect(fetcher.calls == 5)
         #expect(progress.last == 1)
         // P3: progress now carries bytes and the model's real name, not a bare fraction — that is
         // what lets the screen say "412 MB of 900 MB" instead of an unanchored percentage.

@@ -420,8 +420,13 @@ struct RecognizerReadinessTests {
         await installer.refresh()
         #expect(installer.stackReadiness == .fallback(name: "Parakeet TDT 0.6B v3", awaiting: "WeSpeaker v2 speaker embedding"))
 
-        // The stack lands: it is now genuinely ready and named as itself.
+        // V5 C6: Silero VAD is the stack's last piece now.
         try stubModel(.speakerEmbedding, under: root)
+        await installer.refresh()
+        #expect(installer.stackReadiness == .fallback(name: "Parakeet TDT 0.6B v3", awaiting: "Silero voice activity detection"))
+
+        // The stack lands: it is now genuinely ready and named as itself.
+        try stubModel(.sileroVAD, under: root)
         await installer.refresh()
         #expect(installer.stackReadiness == .ready(name: "Parakeet TDT 0.6B v3"))
     }

@@ -208,4 +208,14 @@ struct ITNStageTests {
         #expect(Self.final("a hundred people", gap: 0.4) == "A hundred people.")
         #expect(Self.final("my flight lands at eleven forty five", gap: 0.4) == "My flight lands at 11 45.")
     }
+
+    /// Verify fix: "may"/"march" as ordinary words are not capitalised as months.
+    @Test func ambiguousMonthsStayWordsOutsideDates() {
+        #expect(Self.final("you may first ask") == "You may first ask.")
+        #expect(Self.final("we march on") == "We march on.")
+        #expect(Self.final("meet me on may fifth") == "Meet me on May fifth.")
+        #expect(Self.final("due on march fifth") == "Due on March 5.")
+        #expect(Self.final("due on the fifth of march", ITNStage.Config(locale: .enIN)) == "Due on the 5 March.")
+        #expect(Self.final("see you in june") == "See you in June.")
+    }
 }

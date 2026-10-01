@@ -763,6 +763,33 @@ enum Capitalizer {
     static let always: Set<String> = SelfCorrection.weekdays.union(SelfCorrection.months)
     static let iForms: Set<String> = ["i", "i'm", "i'll", "i've", "i'd"]
 
+    /// V5 D1 verify — month names that are also ordinary words ("you may ask", "we march on"): only
+    /// capitalised next to a day or year ("may 5", "may fifth", "fifth of march", "march 2024").
+    static let ambiguousMonths: Set<String> = ["may", "march"]
+
+    static func isDateContext(_ toks: [Tok], at i: Int) -> Bool {
+        func isDay(_ k: Int) -> Bool {
+            guard toks.indices.contains(k), toks[k].isWord else { return false }
+            let c = Numbers.core(toks[k])
+            return c.first?.isNumber == true || Numbers.ordinalValue(c) != nil
+        }
+        func word(_ k: Int) -> String? {
+            guard toks.indices.contains(k), toks[k].isWord else { return nil }
+            return Numbers.core(toks[k])
+        }
+        // "in march", "since may", "last march": a month after a time preposition.
+        if let prev = word(i - 1), monthPrepositions.contains(prev) { return true }
+        // "you may first ask" is a modal, not "May 1st": a subject right before it wins.
+        if let prev = word(i - 1), subjects.contains(prev) { return false }
+        if isDay(i + 1) || isDay(i - 1) { return true }
+        return i >= 2 && word(i - 1) == "of" && isDay(i - 2)
+    }
+
+    static let monthPrepositions: Set<String> = ["in", "since", "until", "till", "during", "from", "through",
+                                                  "last", "next", "early", "late", "mid", "before", "after", "by"]
+    static let subjects: Set<String> = ["i", "you", "we", "they", "he", "she", "it", "who", "that", "which",
+                                        "there", "this", "one", "us"]
+
     static func apply(_ toks: inout [Tok], addTerminalPeriod: Bool) {
         var capNext = true
         for i in toks.indices {
@@ -773,7 +800,9 @@ enum Capitalizer {
                 var text = t.text
                 let l = t.lower
                 if iForms.contains(l) { text = "I" + text.dropFirst() }
-                else if always.contains(l) { text = text.prefix(1).uppercased() + text.dropFirst() }
+                else if always.contains(l), !ambiguousMonths.contains(l) || isDateContext(toks, at: i) {
+                    text = text.prefix(1).uppercased() + text.dropFirst()
+                }
                 if capNext, let f = text.first, f.isLetter { text = f.uppercased() + text.dropFirst() }
                 toks[i].text = text
                 capNext = t.endsSentence

@@ -267,7 +267,7 @@ public final class LiveFocusedFieldDetails: FocusedFieldDetailsReading, @uncheck
 
     private func focused(pid: Int32) -> AXUIElement? {
         guard pid != getpid() else { return nil }
-        let app = AXUIElementCreateApplication(pid)
+        guard let app = AXGuard.application(pid: pid) else { return nil }
         AXUIElementSetMessagingTimeout(app, timeout)
         let element = child(app, kAXFocusedUIElementAttribute)
         if let element { AXUIElementSetMessagingTimeout(element, timeout) }
