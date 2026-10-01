@@ -1832,3 +1832,21 @@ Initial checkpoint (superseded by the dated entries below):
 - K21 · done · refinement row copy, Ready only when weights size-verified (Engine prepare should also verify)
 - **Full suite** (`--no-parallel`, .build-v5a): 3478 passed, 0 failed, 447.5 s; real-Qwen suites skipped (hardware-gated). No gate fixes needed.
 - **Needs hardware (T1):** Q1 two paragraphs into Claude; Q2 Claude caret; Q4/Q5 live AX rungs + unreadable field; Q6/Q7 two displays; Q8 Tab/VoiceOver; Q9 Hide Others; Q10 real TCC/mic; Q11 real tap; Q13 save panel; K19 repro; K21 row look; MUSAN/Svarah/Qwen3 weights (disk ~13 GB free).
+
+## 2026-10-01 — V5 W3+W4
+- C6 (+K17) · done · Silero VAD in the stack, bundled + verify_install, ModelManager.locate, loads via ModelResidency (1c45812, dd46e18) · K17 in-process fixture, mic gate on Silero + Energy
+- D1+K7 · done · ITNStage (NeMo single-token currency/decimal/percent only, en-IN lakh/₹/day-first, 250 ms digit rule, AM/PM), preview == final via ITNWiring (d85c72b) · 62 targeted; LibriSpeech numeric 2.13 → 2.29 % (< 0.5 pp gate); gate fix: may/march as words
+- HW1 · partial · ModelResidency actor in Shared (tiers, LRU, exclusive refusal, 5 min idle) + ASR/EOU/CTC/Silero registered (35b94b7) · 37 tests; D2/O4/CU2/M7/LR must register when built
+- HW3 · partial · memory-pressure source, critical → lighter alternative · tests vs mocks; pill chip hookup (lane 1b) pending
+- B2+E1 · done · ContextPromptSession → extra[context.prompt]; 2k doc tail (eb1debd) · 13 + 27 tests
+- E2 / E3 / E4 · done · spreadsheetCell role + column header; web-form label hints, email/url compaction, password refusal; AppCategoryTable 38 → 108 (f92fe05, 5f61420) · 158 tests
+- P1/P2/P3/P5 · done · Text Replacements, local names, 13.5k casing list (Wikidata CC0 + casks), likely-entity guard; P4 partial (phoneme path unused by ContextGate), P6 partial (rule-based, IndicXlit not converted), P7 partial (GLiNER2 weights absent; load bypasses ModelResidency) (265d4ed, 936c6e9)
+- F1 / F4 / I1 / I2 · done · persona learning loop, personas in sync, What-to-expect card, zero-edit counter (40e102a, 473ce47, ad34bbb, f4c1b81) · 113/113 batch
+- F2 · partial · personal.dictionary/personal.style + promptBlock (a91f4e3, c13c1e4); no reader until D2/CU8
+- **Uncommitted in the working tree, no lane report** (left for lane/owner to review + commit): C1/C1b (VP-IO + LocalVQE capture enhancement), B1 (CTC boosting; old shallow-fusion biasers deleted), HW2 (ResidencyPlan, memory tier settings), D5 (ModelPrewarmer), E5/E6/K10/Q14 (browser sub-app, thread participants, context ladder, OCR caret band). Gate routed their AX roots through AXGuard in place (uncommitted).
+- **B1 fixture gate fails:** recall 0.46 → 0.85, WER 10.96 → 5.42 %, but false insertions +0.93 pp > 0.5 ("stores" → "Postgres"); higher rescue similarity floor / rescue off did not change it — needs the lane.
+- Not started: lane 4a (D2, D3, D4, I3), C3, C4, C5, K2, K4, K6, F3, B3, B5.
+- Gate fixes (815241f): Chaos/OnboardingDictation expect Silero in the stack; FieldContextReader AX root via AXGuard (K18 audit); D1 month capitalisation fix completed.
+- New deps/downloads: none new (NeMo ships with FluidAudio; parakeet-ctc-110m ~103 MB on disk for B1 live test; GLiNER2/IndicXlit/CMUdict full/LibriSpeech-PC not fetched).
+- **Full suite** (`--no-parallel`, .build-v5a, working tree incl. uncommitted lanes): 3712/3713 passed, 478 s; sole failure B1 live gate. First run also showed AudioSourceOwnershipTests flake (passes alone and in rerun).
+- **Needs hardware (T1):** real Excel/Numbers/Sheets cells + column header, Chrome/Safari form labels, Electron context (Claude/Slack/VS Code), live Text Replacements, EventKit names, GLiNER2 typing, CoreML memory/pressure events, VP-IO/LocalVQE V1 gate, ITN pill vs landed, fresh-install "vad: using silero".
