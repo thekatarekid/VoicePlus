@@ -94,6 +94,18 @@ struct SileroVADShippingTests {
         #expect(await VADFactory.make(preferSilero: false).name == "energy")
     }
 
+    /// §10 — the load goes through `ModelResidency` (one budget), and leaves it when the VAD goes.
+    @Test func loadsThroughModelResidency() async throws {
+        let residency = ModelResidency(budgetBytes: 1 << 30)
+        var vad: SileroVAD? = try #require(await SileroVAD.loadIfAvailable(residency: residency))
+        let keys = await residency.snapshot().residentKeys
+        #expect(keys.count == 1 && keys[0].hasPrefix("vad.silero#"))
+        #expect(vad?.name == "silero")
+        vad = nil
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(await residency.snapshot().entries.isEmpty, "unregistered with the VAD")
+    }
+
     @Test func aFailingLoaderFallsBackInsteadOfThrowing() async throws {
         struct Boom: Error {}
         let checkedIn = try Self.checkedIn

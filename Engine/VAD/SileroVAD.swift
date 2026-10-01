@@ -12,6 +12,13 @@ public final class SileroVAD: VADProtocol, @unchecked Sendable {
     private let config: VadSegmentationConfig
     private var state: VadStreamState
     private var processedSamples = 0
+    /// §10 — the `ModelResidency` entry this instance's weights were loaded through (nil when loaded
+    /// without one). Unregistered when the VAD goes away.
+    private var residencyEntry: (residency: ModelResidency, key: String)?
+
+    deinit {
+        if let (residency, key) = residencyEntry { Task { await residency.unregister(key) } }
+    }
 
     public init(manager: VadManager, segmentation: VadSegmentationConfig = SileroVAD.defaultSegmentation) async {
         self.manager = manager
@@ -30,9 +37,9 @@ public final class SileroVAD: VADProtocol, @unchecked Sendable {
     /// True when any resolvable copy exists (ours, the bundle's, FluidAudio's cache, or the checked-in one).
     public static var isModelDownloaded: Bool { SileroModelLocator.resolve() != nil }
 
-    /// V5 C6 — the seam every Silero load goes through. Default: compile-free `MLModel(contentsOf:)`
-    /// on the located `.mlmodelc`. **HW1 integration point:** once `ModelResidency` lands, swap this
-    /// for its loader so the VAD is accounted like every other model.
+    /// V5 C6 — how the located `.mlmodelc` becomes an `MLModel`. Default: compile-free
+    /// `MLModel(contentsOf:)`. Always called *through* `ModelResidency` (§10) unless the caller
+    /// passes `residency: nil` (tests that need a bare load).
     public typealias ModelLoader = @Sendable (_ modelFile: URL, _ computeUnits: MLComputeUnits) throws -> MLModel
     public static let coreMLLoader: ModelLoader = { url, units in
         let config = MLModelConfiguration()
@@ -50,15 +57,35 @@ public final class SileroVAD: VADProtocol, @unchecked Sendable {
     /// pinned file is missing.
     public static func loadIfAvailable(threshold: Float = 0.5, manager: ModelManager? = nil,
                                        locator: SileroModelLocator = SileroModelLocator(),
-                                       loader: ModelLoader = SileroVAD.coreMLLoader) async -> SileroVAD? {
+                                       loader: @escaping ModelLoader = SileroVAD.coreMLLoader,
+                                       residency: ModelResidency? = .shared) async -> SileroVAD? {
         var located: URL?
         if let manager, let folder = await manager.locate(.sileroVAD) { located = locator.modelFile(in: folder) }
         guard let file = located ?? locator.resolve() else { return nil }
         do {
             let config = VadConfig(defaultThreshold: threshold, computeUnits: .cpuAndNeuralEngine)
-            let model = try loader(file, config.computeUnits)
+            let units = config.computeUnits
+            var entry: (ModelResidency, String)?
+            let model: MLModel
+            if let residency {
+                // §10: one memory budget. `.always` like dictation ASR — the VAD runs on every turn.
+                let key = "vad.silero#\(UUID().uuidString.prefix(8))"
+                let box = ModelBox()
+                await residency.register(key, tier: .always,
+                                         estimatedBytes: ModelCatalog.descriptor(.sileroVAD).approxBytes * 2,
+                                         owner: "vad.silero",
+                                         load: { box.model = try loader(file, units) }, unload: { box.model = nil })
+                try await residency.acquire(key)
+                guard let loaded = box.model else { throw VadError.modelLoadingFailed }
+                model = loaded
+                entry = (residency, key)
+            } else {
+                model = try loader(file, units)
+            }
             Log.engine.info("vad: silero model \(file.lastPathComponent) from \(file.deletingLastPathComponent().path)")
-            return await SileroVAD(manager: VadManager(config: config, vadModel: model))
+            let vad = await SileroVAD(manager: VadManager(config: config, vadModel: model))
+            vad.residencyEntry = entry.map { (residency: $0.0, key: $0.1) }
+            return vad
         } catch {
             Log.engine.warning("vad: silero load failed, using energy VAD: \(error)")
             return nil
@@ -94,4 +121,9 @@ public enum VADFactory {
         Log.engine.info("vad: using energy fallback (silero model not found)")
         return EnergyVAD()
     }
+}
+
+/// Holds the model a residency `load` closure produced (the closures are `@Sendable`).
+private final class ModelBox: @unchecked Sendable {
+    var model: MLModel?
 }
