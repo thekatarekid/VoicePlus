@@ -57,6 +57,16 @@ if CommandLine.arguments.contains("--bundled-model-selftest") {
     exit(result)
 }
 
+// V5 M23 — `VoicePlusApp --mcp-stdio`: the meetings MCP server on stdin/stdout, launched by Claude
+// Code / Codex. Refuses (exit 2) unless Settings › Providers "Expose meetings to agents" is on.
+if MeetingsMCPStdio.requested(CommandLine.arguments) {
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var result: Int32 = 1
+    Task.detached { result = await MeetingsMCPStdio.run(); done.signal() }
+    done.wait()
+    exit(result)
+}
+
 // Explicit native visual QA; fully isolated from the live capture/insertion composition root.
 if CommandLine.arguments.contains("--design-v3-review") {
     let app = NSApplication.shared

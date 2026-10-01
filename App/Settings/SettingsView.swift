@@ -490,6 +490,8 @@ struct ProvidersSettingsPage: View {
                     }
                 }
                 SettingsFootnote(ProvidersCopy.keysFootnote)
+                // V5 M23 — meetings over MCP (off by default).
+                GroupBox(MeetingsMCPCopy.groupTitle, layout: .rows) { MeetingsMCPSection() }
                 ConnectorsSettingsTab(model: connectors)
             }
         }
