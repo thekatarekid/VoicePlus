@@ -186,6 +186,11 @@ public actor MeetingSession {
     @discardableResult
     public func finish(at now: Date = Date()) async throws -> MeetingRecord {
         record.endedAt = now
+        // V5 M8 — final re-diarization (offline over the saved recording, else the settled live labels).
+        if let final = labeler as? any FinalSpeakerRelabeling,
+           let relabelled = await final.finalTranscript(for: record, recordingIn: store.directory(for: record.id)) {
+            record.transcript = relabelled
+        }
         record.notes = try await notesProvider.notes(for: record.transcript)
         try store.save(record)
         onFinished?(record)

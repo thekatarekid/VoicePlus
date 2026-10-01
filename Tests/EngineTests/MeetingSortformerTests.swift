@@ -141,4 +141,98 @@ struct MeetingSortformerTests {
         #expect((wrapped as? SortformerLabeler)?.fallback.name == "embedding")
         #expect(DiarizationFactory.make(enrolledUserEmbedding: nil, locate: { nil }, sortformer: { nil }, residency: residency).name == "channel")
     }
+
+    // MARK: M8 — final re-diarization
+
+    static func transcript() -> MeetingTranscript {
+        MeetingTranscript(utterances: [
+            MeetingUtterance(speaker: .you, text: "hello all", range: 0...2, confidence: 1),
+            MeetingUtterance(speaker: .others(1), text: "hi", range: 3...5, confidence: 1, tag: nil),
+            MeetingUtterance(speaker: .you, text: "note this", range: 6...8, confidence: 1, tag: .dictate),
+            MeetingUtterance(speaker: .others(1), text: "and me", range: 9...11, confidence: 1),
+        ])
+    }
+
+    final class FakeOffline: OfflineSpeakerDiarizing, @unchecked Sendable {
+        func diarize(_ samples: [Float]) async throws -> [SpeakerTurn] { FakeStreaming.segments(samples) }
+    }
+
+    /// A "file" is its name: `voices` per second, 12 s.
+    struct ScriptedReader: MeetingAudioReading {
+        let voices: [String: [Float]]
+        func samples(of url: URL) throws -> [Float] {
+            (voices[url.lastPathComponent] ?? []).flatMap { [Float](repeating: $0, count: 16_000) }
+        }
+    }
+
+    @Test("recording locator: per-leg files or one mix")
+    func locator() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("m8-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        #expect(MeetingRecordingAudio.locate(in: dir) == nil)
+        try Data().write(to: dir.appendingPathComponent("meeting.json"))
+        try Data().write(to: dir.appendingPathComponent("recording.m4a"))
+        #expect(MeetingRecordingAudio.locate(in: dir)?.mixed?.lastPathComponent == "recording.m4a")
+        try Data().write(to: dir.appendingPathComponent("mic.wav"))
+        try Data().write(to: dir.appendingPathComponent("system.wav"))
+        let r = try #require(MeetingRecordingAudio.locate(in: dir))
+        #expect(r.mixed == nil)
+        #expect(r.legs[.mic]?.lastPathComponent == "mic.wav" && r.legs[.system]?.lastPathComponent == "system.wav")
+    }
+
+    @Test("offline pass relabels every utterance; the user's slot by voice; tags survive")
+    func offlineRelabel() async throws {
+        // Mixed recording: 0–3 s the user (voice 0), 3–6 s voice 2, 6–9 s the user, 9–12 s voice 3.
+        let voices: [Float] = [0, 0, 0, 2, 2, 2, 0, 0, 0, 3, 3, 3]
+        let r = FinalRediarizer(diarizer: FakeOffline(), reader: ScriptedReader(voices: ["mix.wav": voices]),
+                                voice: (backend: VoiceEmbedding(), enrolled: [1, 0, 0, 0]))
+        let out = try await r.relabel(Self.transcript(), recording: MeetingRecordingAudio(mixed: URL(fileURLWithPath: "/x/mix.wav")))
+        #expect(out.utterances.map(\.speaker) == [.you, .others(1), .you, .others(2)], "live merged two people as Others; final splits them")
+        #expect(out.utterances.map(\.text) == Self.transcript().utterances.map(\.text))
+        #expect(out.utterances[2].tag == .dictate)
+    }
+
+    @Test("without a voice the user's slot comes from the live labels' vote")
+    func offlineRelabelByVote() async throws {
+        let r = FinalRediarizer(diarizer: FakeOffline(),
+                                reader: ScriptedReader(voices: ["mic.wav": [1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0],
+                                                                "system.wav": [0, 0, 0, 2, 2, 2, 0, 0, 0, 3, 3, 3]]))
+        // Per-leg: silence on a leg is "voice 0" in this script; the mic's slot 1 is the user.
+        let rec = MeetingRecordingAudio(legs: [.mic: URL(fileURLWithPath: "/x/mic.wav"), .system: URL(fileURLWithPath: "/x/system.wav")])
+        let out = try await r.relabel(Self.transcript(), recording: rec)
+        #expect(out.utterances[0].speaker == .you)
+        #expect(out.utterances[2].speaker == .you)
+        #expect(out.utterances[1].speaker != .you && out.utterances[3].speaker != .you)
+    }
+
+    @Test("finish without a recording keeps (settles) the live labels; with one, the offline pass wins")
+    func finalTranscriptPaths() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("m8-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let labeler = SortformerLabeler(diarizer: StreamingDiarizer(backend: FakeStreaming(latency: 30), legs: [.mic, .system]),
+                                        fallback: ChannelLabeler())
+        let live = try await labeler.label([Self.chunk(.mic, voice: 0, at: 0), Self.chunk(.system, voice: 2, at: 3, seconds: 2),
+                                            Self.chunk(.mic, voice: 0, at: 6), Self.chunk(.system, voice: 3, at: 9)])
+        #expect(live.allSatisfy { $0.confidence == 0.5 }, "all provisional under the 30 s lookahead")
+        var record = MeetingRecord(title: "t", transcript: Self.transcript())
+
+        // No recording → live diarizer flushed → Others split into two people.
+        let settled = await labeler.finalTranscript(for: record, recordingIn: dir)
+        #expect(settled?.utterances.map(\.speaker) == [.you, .others(1), .you, .others(2)])
+
+        // With a recording → the offline pass.
+        try Data().write(to: dir.appendingPathComponent("recording.wav"))
+        labeler.offlineOverride = FinalRediarizer(diarizer: FakeOffline(),
+                                                  reader: ScriptedReader(voices: ["recording.wav": [0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2]]))
+        record.transcript = Self.transcript()
+        let offline = await labeler.finalTranscript(for: record, recordingIn: dir)
+        #expect(offline?.utterances.map(\.speaker) == [.you, .others(1), .others(1), .others(1)])
+    }
+
+    @Test("relabel keeps uncovered utterances apart from re-numbered speakers")
+    func uncoveredKept() {
+        let turns: [MeetingChannel: [SpeakerTurn]] = [.system: [SpeakerTurn(speaker: 0, range: 3...5)]]
+        let out = TranscriptRelabeler.relabel(Self.transcript(), turns: turns, youSlots: [])
+        #expect(out.utterances.map(\.speaker) == [.you, .others(1), .you, .others(2)])
+    }
 }

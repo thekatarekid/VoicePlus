@@ -148,6 +148,8 @@ public final class SortformerLabeler: SpeakerLabeler, @unchecked Sendable {
     private var slots = SpeakerSlotMap()
     private var youVotes: [SpeakerSlotMap.Slot: (you: Int, other: Int)] = [:]
     private var unavailable = false
+    /// M8 — tests inject the offline pass (`makeOffline()`).
+    var offlineOverride: FinalRediarizer?
 
     public init(diarizer: StreamingDiarizer, fallback: any SpeakerLabeler) {
         self.diarizer = diarizer; self.fallback = fallback
