@@ -1,0 +1,47 @@
+{
+  "date" : "2026-10-01",
+  "hardware" : "Apple M2 Pro \/ Version 26.6.2 (Build 25G83) \/ 16 GB",
+  "name" : "ambient",
+  "notes" : [
+    "offline replay at full speed; % of one core = CPU s \/ audio s (ANE\/GPU time is not CPU time)",
+    "the in-app number (live mic, AudioPipeline resampling + mic-quality) needs the owner's Mac → T1"
+  ],
+  "peakRSSMB" : 270.859375,
+  "phases" : [
+    {
+      "audioSeconds" : 30,
+      "cpuSeconds" : 0,
+      "detail" : "no capture graph: nothing runs (by construction)",
+      "name" : "off",
+      "wallSeconds" : 0
+    },
+    {
+      "audioSeconds" : 30,
+      "cpuSeconds" : 0.033836999999999895,
+      "detail" : "silero vad · 0 ASR runs",
+      "name" : "listening · silence",
+      "wallSeconds" : 0.0335168750025332
+    },
+    {
+      "audioSeconds" : 27.379125,
+      "cpuSeconds" : 0.5440529999999999,
+      "detail" : "silero vad · 5 segments · 5 × tdtV3",
+      "name" : "listening · speech",
+      "wallSeconds" : 0.721319833304733
+    },
+    {
+      "audioSeconds" : 30,
+      "cpuSeconds" : 0.28255200000000014,
+      "detail" : "8 × tdtV3, no VAD gate",
+      "name" : "counterfactual · ASR every 4 s · silence",
+      "wallSeconds" : 0.5158454165793955
+    },
+    {
+      "audioSeconds" : 27.379125,
+      "cpuSeconds" : 0.6598520000000003,
+      "detail" : "7 × tdtV3, no VAD gate",
+      "name" : "counterfactual · ASR every 4 s · speech",
+      "wallSeconds" : 0.990602208301425
+    }
+  ]
+}
