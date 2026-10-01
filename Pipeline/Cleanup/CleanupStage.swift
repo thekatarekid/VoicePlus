@@ -181,14 +181,14 @@ public struct CleanupStage: PipelineStage {
             }
         }
         var segments: [String] = []
-        var rest = Substring(text)
+        var from = text.startIndex
         for a in anchors {
             let needle = spans[a].text.trimmingCharacters(in: .whitespaces)
-            guard let r = rest.range(of: needle) else { return nil }
-            segments.append(String(rest[rest.startIndex..<r.lowerBound]))
-            rest = rest[r.upperBound...]
+            guard let r = CleanupGuard.rangeOfWord(needle, in: text, from: from) else { return nil }
+            segments.append(String(text[from..<r.lowerBound]))
+            from = r.upperBound
         }
-        segments.append(String(rest))
+        segments.append(String(text[from...]))
 
         var out = spans.map { $0.touched(by: stage) }
         for (run, segment) in zip(runs, segments) {

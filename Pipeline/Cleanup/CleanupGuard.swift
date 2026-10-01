@@ -139,16 +139,33 @@ public struct CleanupGuard: Sendable {
         return false
     }
 
-    /// Every locked phrase appears verbatim, in order.
+    /// Every locked phrase appears verbatim, in order, as whole words ("in" is not kept by "Join").
     static func keepsLocked(_ phrases: [String], in output: String) -> Bool {
         var from = output.startIndex
         for p in phrases {
             let t = p.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !t.isEmpty else { continue }
-            guard let r = output.range(of: t, range: from..<output.endIndex) else { return false }
+            guard let r = rangeOfWord(t, in: output, from: from) else { return false }
             from = r.upperBound
         }
         return true
+    }
+
+    /// First occurrence of `needle` in `hay` at or after `from` that does not start or end inside a
+    /// word: a letter/number edge of the needle must not touch a letter/number in `hay`.
+    static func rangeOfWord(_ needle: String, in hay: String, from: String.Index) -> Range<String.Index>? {
+        guard !needle.isEmpty else { return nil }
+        let wordy: (Character) -> Bool = { $0.isLetter || $0.isNumber }
+        let checkStart = needle.first.map(wordy) ?? false
+        let checkEnd = needle.last.map(wordy) ?? false
+        var start = from
+        while start < hay.endIndex, let r = hay.range(of: needle, range: start..<hay.endIndex) {
+            let beforeOK = !checkStart || r.lowerBound == hay.startIndex || !wordy(hay[hay.index(before: r.lowerBound)])
+            let afterOK = !checkEnd || r.upperBound == hay.endIndex || !wordy(hay[r.upperBound])
+            if beforeOK && afterOK { return r }
+            start = hay.index(after: r.lowerBound)
+        }
+        return nil
     }
 
     /// The uncertainty markers the delimited prompt uses; never part of the text.

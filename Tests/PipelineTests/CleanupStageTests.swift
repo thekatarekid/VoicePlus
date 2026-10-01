@@ -123,6 +123,25 @@ private func stage(_ gen: ScriptedCleanup?, mode: CleanupMode = .automatic, dead
         #expect(gen.prompts.first?.user.contains("⟦Kothari⟧") == true)
     }
 
+    @Test func anchorMatchesWholeWordsOnly() async throws {
+        // "in" (low confidence) must not be found inside "Join".
+        let gen = ScriptedCleanup { _ in "Join us in Paris on Friday." }
+        let input = spans([("join", 0.9), ("us", 0.9), ("in", 0.3), ("paris", 0.9), ("on", 0.9), ("thursday", 0.9), ("no", 0.9), ("friday", 0.9)])
+        let out = try await stage(gen).process(input, context: StageContext())
+        #expect(out[2].text == "in")
+        #expect(out.renderedText == "Join us in Paris on Friday.")
+        #expect(ConfidenceContract.verify(input: input, output: out).isEmpty)
+    }
+
+    @Test func anchorOnlyInsideAnotherWordIsRejected() async throws {
+        let log = OutcomeLog()
+        let gen = ScriptedCleanup { _ in "Join us at Paris on Friday." }
+        let input = spans([("join", 0.9), ("us", 0.9), ("in", 0.3), ("paris", 0.9), ("on", 0.9), ("thursday", 0.9), ("no", 0.9), ("friday", 0.9)])
+        let out = try await stage(gen, log: log).process(input, context: StageContext())
+        #expect(out.map(\.text) == input.map(\.text))
+        #expect(log.all.first?.code == "rejected:lowConfidenceChanged")
+    }
+
     @Test func changedLowConfidenceSpanIsRejected() async throws {
         let log = OutcomeLog()
         let gen = ScriptedCleanup { _ in "Send it to Kotari on Friday." }
