@@ -145,4 +145,40 @@ struct PublicDictionaryContextTests {
         let term = RankedContextTerm(text: "Zzlinear-test", tier: .screen, score: 1, sources: [.axTree])
         #expect(term.entityType == .product)
     }
+
+    // MARK: Verify fixes
+
+    final class CountingAttendees: CalendarAttendeesProvider, @unchecked Sendable {
+        var calls = 0
+        func attendeeNames(around date: Date) -> [String] { calls += 1; return ["Meera Iyer"] }
+    }
+
+    @Test func calendarAttendeesAreCachedBetweenHarvests() {
+        let attendees = CountingAttendees()
+        let source = LocalNamesSource(apps: StaticAppNames([]), attendees: attendees)
+        let now = Date()
+        _ = source.harvest(now: now)
+        _ = source.harvest(now: now.addingTimeInterval(30))
+        #expect(attendees.calls == 1)
+        let later = source.harvest(now: now.addingTimeInterval(LocalNamesSource.attendeesTTL + 1))
+        #expect(attendees.calls == 2 && later.contains { $0.text == "Meera Iyer" })
+    }
+
+    @Test func gliner2RegistersWithResidencyOnlyWhenWeightsArePresent() async {
+        let residency = ModelResidency(budgetBytes: 1 << 30)
+        let empty = FileManager.default.temporaryDirectory.appendingPathComponent("gliner2-absent-\(UUID().uuidString)")
+        let typer = await GLiNER2EntityTyper.load(from: empty, residency: residency)
+        #expect(typer == nil)
+        let registered = await residency.isRegistered(GLiNER2EntityTyper.residencyKey)
+        #expect(!registered)
+    }
+
+    @Test func contextGateUsesThePhonemePathWhenALexiconIsGiven() throws {
+        let lexicon = try Self.sampleLexicon()
+        let context = Self.context(["Sean"])
+        let metaphoneOnly = ContextGate.nearMisses(hypothesis: "call shawn now", context: context, lexicon: nil)
+        let withPhonemes = ContextGate.nearMisses(hypothesis: "call shawn now", context: context, lexicon: lexicon)
+        #expect(withPhonemes.contains { $0.candidate == "Sean" })
+        #expect(withPhonemes.count >= metaphoneOnly.count)
+    }
 }

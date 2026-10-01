@@ -125,7 +125,7 @@ public enum PublicDictionaryCatalog {
         licence: "SCOWL licence (permissive, notice required)",
         attribution: "Copyright 2000-2026 by Kevin Atkinson. Permission to use, copy, modify, distribute, and sell any part of the English Speller Database (ESDB, previously known as SCOWLv2), or word lists created from it, is hereby granted without fee, provided that the above copyright notice appears in all copies and that both the above copyright notice and this notice appear in supporting documentation. Kevin Atkinson makes no representations about the suitability of this database for any purpose. It is provided \"as is\" without express or implied warranty.",
         source: "https://wordlist.aspell.net", delivery: .download,
-        downloadURL: URL(string: "http://app.aspell.net/create?max_size=50&spelling=US&max_variant=0&diacritic=strip&special=hacker&download=wordlist&encoding=utf-8&format=inline"),
+        downloadURL: URL(string: "https://app.aspell.net/create?max_size=50&spelling=US&max_variant=0&diacritic=strip&special=hacker&download=wordlist&encoding=utf-8&format=inline"),
         fileName: "scowl-en-50.txt", approximateBytes: 815_819)
 
     public static let systemWords = PublicDictionaryEntry(

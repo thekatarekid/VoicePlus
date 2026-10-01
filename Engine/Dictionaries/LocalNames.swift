@@ -58,6 +58,10 @@ public final class LocalNamesSource: ContextSource, @unchecked Sendable {
     private let appsTTL: TimeInterval
     private let lock = NSLock()
     private var appsCache: (names: [String], at: Date)?
+    /// Attendees are re-read at most every `attendeesTTL`: harvest runs per utterance and an
+    /// `EKEventStore` query is too heavy for that.
+    private var attendeesCache: (names: [String], at: Date)?
+    public static let attendeesTTL: TimeInterval = 5 * 60
     /// File / repo name → last seen. Remembered for `recentWindow` after the document closes.
     private var recent: [String: Date] = [:]
     public let recentWindow: TimeInterval
@@ -78,7 +82,7 @@ public final class LocalNamesSource: ContextSource, @unchecked Sendable {
         for name in appNames(now: now) {
             out.append(ContextEntry(text: name, source: .contacts, observedAt: now, salience: 0.4))
         }
-        for name in attendees?.attendeeNames(around: now) ?? [] where name.count >= 2 {
+        for name in attendeeNames(now: now) where name.count >= 2 {
             out.append(ContextEntry(text: name, source: .participants, observedAt: now, salience: 0.8))
         }
         for (name, seen) in recentNames(now: now) {
@@ -91,6 +95,15 @@ public final class LocalNamesSource: ContextSource, @unchecked Sendable {
         if let cached = lock.withLock({ appsCache }), now.timeIntervalSince(cached.at) < appsTTL { return cached.names }
         let names = Self.cleanAppNames(apps.installedAppNames())
         lock.withLock { appsCache = (names, now) }
+        return names
+    }
+
+    func attendeeNames(now: Date) -> [String] {
+        guard let attendees else { return [] }
+        if let cached = lock.withLock({ attendeesCache }), now.timeIntervalSince(cached.at) < Self.attendeesTTL,
+           now >= cached.at { return cached.names }
+        let names = attendees.attendeeNames(around: now)
+        lock.withLock { attendeesCache = (names, now) }
         return names
     }
 

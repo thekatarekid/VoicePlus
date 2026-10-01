@@ -61,9 +61,13 @@ public final class SystemTextReplacements: TextReplacementSource, @unchecked Sen
     }
 
     /// `NSUserDictionaryReplacementItems`: `[{replace, with, on}]` in the global domain.
+    /// `UserDefaults(suiteName: UserDefaults.globalDomain)` is not a valid suite (Foundation refuses
+    /// it), so read the global domain's persistent dictionary, then `standard` (whose search list
+    /// includes the global domain).
     static func readDefaults() -> [String: String] {
-        let items = UserDefaults(suiteName: UserDefaults.globalDomain)?
-            .array(forKey: "NSUserDictionaryReplacementItems") as? [[String: Any]] ?? []
+        let key = "NSUserDictionaryReplacementItems"
+        let items = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?[key] as? [[String: Any]]
+            ?? UserDefaults.standard.array(forKey: key) as? [[String: Any]] ?? []
         return parse(items)
     }
 

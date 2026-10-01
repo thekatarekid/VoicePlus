@@ -107,8 +107,9 @@ public struct LayeredEntityTyper: EntityTypeClassifier {
 /// extractors, so candidates come from the extractor and the model decides the type.
 ///
 /// Loads only from weights already on disk (never downloads on its own) and only once asked;
-/// until then `isAvailable` is false and the heuristic answers. §10: when `ModelResidency` (HW1)
-/// lands, `load` moves behind it — it is the single place this file touches Core ML.
+/// until then `isAvailable` is false and the heuristic answers. §10: the weights are loaded and
+/// released only by `ModelResidency` (HW1) — `load` registers an `.onDemand` entry and every
+/// classification runs inside `withModel`, so the residency may evict it under budget or idle.
 public final class GLiNER2EntityTyper: EntityTypeClassifier, @unchecked Sendable {
     public typealias Classify = @Sendable (_ text: String, _ labels: [String]) async throws -> (label: String, probability: Float)
 
@@ -134,14 +135,36 @@ public final class GLiNER2EntityTyper: EntityTypeClassifier, @unchecked Sendable
                 GLiNER2Variant.small.packageName.replacingOccurrences(of: ".mlpackage", with: ".mlmodelc")).path)
     }
 
-    /// Loads GLiNER2-small from `directory` when its weights are there; nil otherwise.
-    public static func load(from directory: URL = defaultDirectory()) async -> GLiNER2EntityTyper? {
-        guard weightsPresent(at: directory),
-              let manager = try? await GLiNER2Manager.load(from: directory, variant: .small) else { return nil }
+    /// `ModelResidency` key for GLiNER2-small.
+    public static let residencyKey = "context.gliner2-small"
+    /// Rough resident size of the small Core ML package (weights + runtime overhead).
+    public static let estimatedBytes: Int64 = 450_000_000
+
+    /// Registers GLiNER2-small with `residency` when its weights are on disk; nil otherwise. Nothing
+    /// is loaded here — the residency loads on first classification and may unload it any time.
+    public static func load(from directory: URL = defaultDirectory(),
+                            residency: ModelResidency = .shared) async -> GLiNER2EntityTyper? {
+        guard weightsPresent(at: directory) else { return nil }
+        let slot = ManagerSlot()
+        await residency.register(residencyKey, tier: .onDemand, estimatedBytes: estimatedBytes, owner: "dictionary.entities",
+                                 load: { try await slot.load(from: directory) },
+                                 unload: { await slot.unload() })
         return GLiNER2EntityTyper(classify: { text, labels in
-            let answer = try await manager.classify(text: text, task: "entity type", labels: labels)
-            return (answer.selectedLabel, answer.probabilities[answer.selectedIndex])
+            try await residency.withModel(residencyKey) {
+                guard let manager = await slot.manager else { throw ResidencyError.notRegistered(residencyKey) }
+                let answer = try await manager.classify(text: text, task: "entity type", labels: labels)
+                return (answer.selectedLabel, answer.probabilities[answer.selectedIndex])
+            }
         })
+    }
+
+    /// The loaded manager, owned by the residency's load/unload closures.
+    actor ManagerSlot {
+        private(set) var manager: GLiNER2Manager?
+        func load(from directory: URL) async throws {
+            if manager == nil { manager = try await GLiNER2Manager.load(from: directory, variant: .small) }
+        }
+        func unload() { manager = nil }
     }
 
     public var isAvailable: Bool { lock.withLock { classify != nil } }

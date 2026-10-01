@@ -10,7 +10,7 @@ public enum StageRegistry {
         ChatFormatter(),
         CodeFormatter(),
         TerminalFormatter(),
-        TextReplacementStage(), CasingStage(), // V5 P1/P3 — after ITN (formatters), before cleanup/style
+        TextReplacementStage(), CasingStage(), TransliterationStage(), // V5 P1/P3/P6 — after ITN (formatters), before cleanup/style; P6 is inert until LANG sets its target
         EntityProtectingStage(StyleStage()), // P1.7 T7 — runs after formatters (style is the last pass, Bet 8); V5 P5 never lowercases a likely entity
     ]
 

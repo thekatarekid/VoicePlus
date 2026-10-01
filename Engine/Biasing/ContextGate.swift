@@ -76,7 +76,9 @@ public struct ContextGate: Sendable {
             return Decision(shouldRefine: false, reason: .noContext, promptTerms: 0,
                             nearMisses: 0, confidence: confidence)
         }
-        let misses = Self.nearMisses(hypothesis: hypothesis, context: context, thresholds: thresholds)
+        // V5 P4 — phoneme path (CMUdict) beside Double Metaphone once the user downloaded it; nil → metaphone only.
+        let misses = Self.nearMisses(hypothesis: hypothesis, context: context, thresholds: thresholds,
+                                     lexicon: PhonemeLexicon.installed())
         if confidence <= thresholds.lowConfidence {
             return Decision(shouldRefine: true, reason: .lowConfidence, promptTerms: terms,
                             nearMisses: misses.count, confidence: confidence)

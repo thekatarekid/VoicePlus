@@ -206,4 +206,26 @@ import Shared
         #expect(Set(PublicDictionaryCatalog.all.map(\.item)) == ["P1", "P3", "P4", "P5", "P6", "P7"])
         #expect(PublicDictionaryCatalog.all.filter { $0.delivery == .download }.allSatisfy { $0.approximateBytes < PublicDictionaryFetcher.maxBytes })
     }
+
+    // MARK: Verify fixes
+
+    @Test func transliterationIsRegisteredAndInertByDefault() async throws {
+        let ids = StageRegistry.allStages().map(\.id)
+        let casing = try #require(ids.firstIndex(of: .casing))
+        let translit = try #require(ids.firstIndex(of: .transliteration))
+        let style = try #require(ids.firstIndex(of: .style))
+        #expect(casing < translit && translit < style)
+        let stage = try #require(StageRegistry.stage(for: .transliteration))
+        let out = try await Self.run(stage, "namaste काम")
+        #expect(out.text == "namaste काम")
+    }
+
+    @Test func scowlDownloadIsHTTPS() {
+        #expect(PublicDictionaryCatalog.all.compactMap(\.downloadURL).allSatisfy { $0.scheme == "https" })
+    }
+
+    @Test func systemReplacementsReadDoesNotUseTheInvalidGlobalSuite() {
+        // Must not crash or hang; returns whatever the user has (possibly nothing).
+        _ = SystemTextReplacements.readDefaults()
+    }
 }
