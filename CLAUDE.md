@@ -7,7 +7,7 @@ Source of truth: `PRODUCT-SPEC.md` (why), `VoicePlus_Build.md` (what/how). Your 
 - The CLT install is partially broken (stale files from older versions). **Run `eval "$(Scripts/bootstrap-toolchain.sh)"` once per shell** (or rely on `.claude/settings.json`, which exports the same env vars) before any `swift build`/`swift test`. Without it every build fails with `Undefined symbols ... Package.__allocating_init` or `redefinition of module 'SwiftBridging'`.
 - Add `--disable-keychain` to `swift build`/`swift test`/`swift package resolve` when SwiftPM needs to download a binary artifact (FluidAudio pulls one); the keychain prompt can't be answered non-interactively. Once cached it is not needed.
 - App bundle is assembled by `Packaging/make_app.sh`; DMG by `Packaging/release.sh <phase> <version>` (hdiutil). Ad-hoc codesign only (no Developer ID identity available; notarization skipped — documented deviation).
-- macOS 14+ target, Swift 5 language mode in Package.swift (`swiftLanguageVersions: [.v5]`) to avoid Swift 6 strict-concurrency churn.
+- macOS 15+ target, Swift 5 language mode in Package.swift (`swiftLanguageVersions: [.v5]`) to avoid Swift 6 strict-concurrency churn.
 - Third-party deps via SwiftPM only: GRDB (SQLite), FluidAudio (ASR/VAD, Apache-2.0). Do not add deps without noting it in progress.md.
 
 ## Repo layout (SwiftPM, one package, one target per module)

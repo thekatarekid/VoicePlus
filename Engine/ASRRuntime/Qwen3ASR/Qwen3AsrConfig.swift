@@ -15,7 +15,6 @@ import Foundation
 /// Architecture: audio_encoder -> embedding + merge -> 28 decoder layers -> lm_head
 /// The audio encoder processes mel spectrograms in fixed-size windows.
 /// The LLM decoder generates text autoregressively with KV-cache.
-@available(macOS 15, *)
 public enum Qwen3AsrConfig {
     // MARK: Audio
 

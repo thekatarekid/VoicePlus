@@ -80,7 +80,6 @@ struct Qwen3RefinementWERTests {
     func transcribesOneRealRoomUtterance() async throws {
         let store = Qwen3WeightsStore()
         if let reason = try Self.skipReason(store: store) { print(reason); return }
-        guard #available(macOS 15, *) else { print("SKIPPED: macOS 15+ only."); return }
 
         let folder = try #require(store.locate())
         let (dir, names) = try Self.corpusFiles()
@@ -141,7 +140,6 @@ struct Qwen3RefinementWERTests {
         }
         let store = Qwen3WeightsStore()
         if let reason = try Self.skipReason(store: store) { print(reason); return }
-        guard #available(macOS 15, *) else { print("SKIPPED: macOS 15+ only."); return }
 
         let (dir, names) = try Self.corpusFiles()
         let script = try Self.scriptLines()
@@ -181,7 +179,6 @@ struct Qwen3AssistantHeaderTests {
     func theModelNamesItsOwnLanguageUnlessTheHeaderIsForced() async throws {
         let store = Qwen3WeightsStore()
         if let reason = try Qwen3RefinementWERTests.skipReason(store: store) { print(reason); return }
-        guard #available(macOS 15, *) else { print("SKIPPED: macOS 15+ only."); return }
 
         let folder = try #require(store.locate())
         let (dir, names) = try Qwen3RefinementWERTests.corpusFiles()

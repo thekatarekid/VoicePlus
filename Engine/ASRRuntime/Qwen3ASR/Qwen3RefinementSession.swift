@@ -9,7 +9,7 @@ import Foundation
 import OSLog
 import Shared
 
-// MARK: - Availability (not gated — must answer on macOS 14)
+// MARK: - Availability
 
 public enum RefinementAvailability: Sendable {
     /// Why refinement cannot run here, or nil if it can.
@@ -17,8 +17,7 @@ public enum RefinementAvailability: Sendable {
         #if !arch(arm64)
         return "it needs an Apple Silicon Mac"
         #else
-        if #available(macOS 15, *) { return nil }
-        return "it needs macOS 15 or later"
+        return nil  // macOS 15 is the deployment floor (V5 J7).
         #endif
     }
 
@@ -26,22 +25,18 @@ public enum RefinementAvailability: Sendable {
 
     /// Build the real session, or throw `RefinementError.unavailableOnThisSystem`.
     ///
-    /// This is what app code calls: it keeps every `@available(macOS 15, *)` type behind one
-    /// runtime check instead of spreading `if #available` through the pipeline.
+    /// This is what app code calls: it keeps the hardware check (Apple Silicon) in one place.
     public static func makeQwen3Session(
         store: Qwen3WeightsStore = Qwen3WeightsStore(),
         language: Qwen3AsrLanguageHint = .automatic,
         downloadIfMissing: Bool = false
     ) throws -> any RefinementSession {
         if let reason = unavailableReason { throw RefinementError.unavailableOnThisSystem(reason) }
-        guard #available(macOS 15, *) else {
-            throw RefinementError.unavailableOnThisSystem("it needs macOS 15 or later")
-        }
         return Qwen3RefinementSession(store: store, language: language, downloadIfMissing: downloadIfMissing)
     }
 }
 
-/// A language hint that can be named on macOS 14, where `Qwen3AsrConfig.Language` is unavailable.
+/// A language hint that app code can name without importing `Qwen3AsrConfig.Language`.
 public enum Qwen3AsrLanguageHint: Sendable, Equatable {
     case automatic
     /// ISO code ("en") or English name ("English"); unknown values fall back to automatic.
@@ -49,7 +44,6 @@ public enum Qwen3AsrLanguageHint: Sendable, Equatable {
 
     public static let english = Qwen3AsrLanguageHint.named("en")
 
-    @available(macOS 15, *)
     var resolved: Qwen3AsrConfig.Language? {
         switch self {
         case .automatic: return nil
@@ -60,7 +54,6 @@ public enum Qwen3AsrLanguageHint: Sendable, Equatable {
 
 // MARK: - Session
 
-@available(macOS 15, *)
 public final class Qwen3RefinementSession: RefinementSession {
     private let backend: Backend
 
@@ -106,7 +99,6 @@ public final class Qwen3RefinementSession: RefinementSession {
 /// Serializes load and inference. Separate from `Qwen3RefinementSession` on purpose: the deadline
 /// race in `refine` has to live *outside* the actor, or the timeout task would queue behind the
 /// inference it is supposed to interrupt.
-@available(macOS 15, *)
 private actor Backend {
     private let store: Qwen3WeightsStore
     private let language: Qwen3AsrConfig.Language?
@@ -199,7 +191,6 @@ private actor Backend {
 ///
 /// The stateful decoder's cache is `Qwen3AsrConfig.maxCacheSeqLen` long and audio tokens are not
 /// negotiable, so the context prompt is what gets cut when a segment is long.
-@available(macOS 15, *)
 enum Qwen3RefinementBudget {
     static let maxNewTokens = 256
     /// Chat-template scaffolding plus the forced assistant header, in tokens.
@@ -233,7 +224,6 @@ enum Qwen3RefinementBudget {
 /// The two prompt pieces Qwen3-ASR actually reads. Its own type so both can be tested without
 /// weights: getting the assistant header wrong is invisible until a transcription comes back in
 /// the wrong script, which is exactly how this was found.
-@available(macOS 15, *)
 enum Qwen3RefinementPrompt {
     /// The header the model writes for itself at the start of the assistant turn, as plain text:
     /// the literal word `language`, then the language's English name. Prefilling it is what forces

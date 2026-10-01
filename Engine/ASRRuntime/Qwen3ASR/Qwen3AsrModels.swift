@@ -23,7 +23,6 @@ private enum Qwen3ModelFiles {
 private let logger = Logger(subsystem: "in.adityakatare.voiceplus", category: "Qwen3AsrModels")
 
 /// Qwen3-ASR model variant (precision).
-@available(macOS 15, *)
 public enum Qwen3AsrVariant: String, CaseIterable, Sendable {
     /// Full precision (FP16 weights). Best speed, ~1.75 GB.
     case f32
@@ -50,7 +49,6 @@ public enum Qwen3AsrVariant: String, CaseIterable, Sendable {
 /// - `audioEncoder`: mel spectrogram -> 1024-dim audio features (single window)
 /// - `decoderStateful`: stateful decoder with fused lmHead (outputs logits directly)
 /// - `embeddingWeights`: [151936, 1024] float16 matrix for Swift-side embedding lookup
-@available(macOS 15, *)
 public struct Qwen3AsrModels: Sendable {
     public let audioEncoder: MLModel
     public let decoderStateful: MLModel
@@ -237,7 +235,6 @@ public struct Qwen3AsrModels: Sendable {
 
 /// Preloaded embedding weights for Swift-side token embedding lookup.
 /// Eliminates the need for a separate embedding CoreML model.
-@available(macOS 15, *)
 public final class Qwen3EmbeddingWeights: Sendable {
     public let vocabSize: Int
     public let hiddenSize: Int
@@ -318,7 +315,6 @@ public final class Qwen3EmbeddingWeights: Sendable {
 
 // MARK: - Errors
 
-@available(macOS 15, *)
 public enum Qwen3AsrError: Error, LocalizedError {
     case modelNotFound(String)
     case invalidVocabulary

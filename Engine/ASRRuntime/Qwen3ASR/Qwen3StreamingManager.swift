@@ -14,7 +14,6 @@ private let logger = Logger(subsystem: "in.adityakatare.voiceplus", category: "Q
 // MARK: - Streaming Configuration
 
 /// Configuration for Qwen3 streaming transcription.
-@available(macOS 15, *)
 public struct Qwen3StreamingConfig: Sendable {
     /// Minimum audio duration (seconds) before first transcription.
     public let minAudioSeconds: Double
@@ -46,7 +45,6 @@ public struct Qwen3StreamingConfig: Sendable {
 // MARK: - Streaming Result
 
 /// Result from a streaming transcription update.
-@available(macOS 15, *)
 public struct Qwen3StreamingResult: Sendable {
     /// Current transcript (may change with more audio).
     public let transcript: String
@@ -81,7 +79,6 @@ public struct Qwen3StreamingResult: Sendable {
 /// let final = try await streaming.finish()
 /// print("Final: \(final.transcript)")
 /// ```
-@available(macOS 15, *)
 public actor Qwen3StreamingManager {
     private let asrManager: Qwen3AsrManager
     private var config: Qwen3StreamingConfig

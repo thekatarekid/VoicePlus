@@ -306,10 +306,6 @@ struct Qwen3RefinementAvailabilityTests {
     }
 
     @Test func languageHintResolves() {
-        guard #available(macOS 15, *) else {
-            print("SKIPPED languageHintResolves: Qwen3AsrConfig is macOS 15+.")
-            return
-        }
         #expect(Qwen3AsrLanguageHint.automatic.resolved == nil)
         #expect(Qwen3AsrLanguageHint.english.resolved == .english)
         #expect(Qwen3AsrLanguageHint.named("German").resolved == .german)
@@ -319,10 +315,6 @@ struct Qwen3RefinementAvailabilityTests {
     /// Greedy longest match over the byte-escaped vocabulary. "Ġ" (U+0120) is how the vocabulary
     /// spells a leading space — the same escape the port's decoder undoes.
     @Test func contextTokenizerEncodesAgainstTheVocabulary() {
-        guard #available(macOS 15, *) else {
-            print("SKIPPED contextTokenizerEncodesAgainstTheVocabulary: macOS 15+ only.")
-            return
-        }
         let vocab: [Int: String] = [1: "hello", 2: "\u{0120}world", 3: "\u{0120}wor", 4: "ld"]
         let tokenizer = Qwen3ContextTokenizer(vocabulary: vocab)
         #expect(tokenizer.encode("hello world", limit: 16) == [1, 2])       // longest match wins
@@ -340,10 +332,6 @@ struct Qwen3RefinementAvailabilityTests {
     /// measurement). Wrong header text = a transcription in the wrong language, which no
     /// weights-free test would otherwise catch.
     @Test func assistantHeaderNamesTheOutputLanguage() {
-        guard #available(macOS 15, *) else {
-            print("SKIPPED assistantHeaderNamesTheOutputLanguage: macOS 15+ only.")
-            return
-        }
         #expect(Qwen3RefinementPrompt.assistantHeader(language: .english) == "language English")
         #expect(Qwen3RefinementPrompt.assistantHeader(language: .german) == "language German")
         // Automatic means "no header": the model detects the language, which is the port's default.
@@ -354,10 +342,6 @@ struct Qwen3RefinementAvailabilityTests {
     /// are the ones the real `vocab.json` gives (`language` = 11528, `ĠEnglish` = 6364); the mock
     /// vocabulary here only has to prove the shape.
     @Test func assistantHeaderTokensEndWithTheAsrTextToken() {
-        guard #available(macOS 15, *) else {
-            print("SKIPPED assistantHeaderTokensEndWithTheAsrTextToken: macOS 15+ only.")
-            return
-        }
         let asrText = Int32(Qwen3AsrConfig.asrTextTokenId)
         let tokenizer = Qwen3ContextTokenizer(vocabulary: [11_528: "language", 6_364: "\u{0120}English"])
         #expect(Qwen3RefinementPrompt.assistantHeaderTokens(language: .english, tokenizer: tokenizer)
@@ -371,10 +355,6 @@ struct Qwen3RefinementAvailabilityTests {
     }
 
     @Test func contextBudgetShrinksAsAudioGrows() {
-        guard #available(macOS 15, *) else {
-            print("SKIPPED contextBudgetShrinksAsAudioGrows: macOS 15+ only.")
-            return
-        }
         // 13 audio tokens per second of audio (100 mel frames per window, 8x conv downsample).
         #expect(Qwen3RefinementBudget.audioTokenCount(sampleCount: 16_000) == 13)
         #expect(Qwen3RefinementBudget.audioTokenCount(sampleCount: 0) == 0)

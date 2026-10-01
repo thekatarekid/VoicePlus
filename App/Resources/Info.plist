@@ -13,7 +13,7 @@
 	<!-- make_app.sh substitutes both __VERSION__/__BUILD__ and ${VERSION}/${BUILD}. -->
 	<key>CFBundleShortVersionString</key><string>__VERSION__</string>
 	<key>CFBundleVersion</key><string>__BUILD__</string>
-	<key>LSMinimumSystemVersion</key><string>14.0</string>
+	<key>LSMinimumSystemVersion</key><string>15.0</string>
 	<key>LSUIElement</key><true/>
 	<key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
 	<key>NSHighResolutionCapable</key><true/>

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "VoicePlus",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("15.0")],  // V5 J7 floor. `.v15` needs tools-version 6.0; the string form keeps 5.9.
     products: [
         .executable(name: "VoicePlusApp", targets: ["VoicePlusApp"]),
         .library(name: "Shared", targets: ["Shared"]),

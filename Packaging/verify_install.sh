@@ -88,7 +88,7 @@ echo "[verify] version $VER"
 case "$VER" in ''|*'__'*|*'${'*) fail "version placeholder was not substituted: '$VER'" ;; esac
 grep -qE '^[0-9]' <<<"$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")" || fail "CFBundleVersion"
 grep -qx true <<<"$(/usr/libexec/PlistBuddy -c "Print :LSUIElement" "$APP/Contents/Info.plist")" || fail "LSUIElement"
-grep -q . <<<"$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist")" || fail "LSMinimumSystemVersion"
+grep -qx '15.0' <<<"$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist")" || fail "LSMinimumSystemVersion must be 15.0 (V5 J7)"
 
 # TCC: a missing usage string silently suppresses the permission prompt.
 echo "[verify] TCC usage descriptions"

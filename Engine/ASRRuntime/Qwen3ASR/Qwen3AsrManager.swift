@@ -27,7 +27,6 @@ private let logger = Logger(subsystem: "in.adityakatare.voiceplus", category: "Q
 /// 2. Build prompt tokens -> Swift-side embedding lookup -> merge audio features
 /// 3. Prefill through decoder -> first token
 /// 4. Decode loop: Swift embedding -> decoder -> next token
-@available(macOS 15, *)
 public actor Qwen3AsrManager {
     private var models: Qwen3AsrModels?
     private let rope: Qwen3RoPE

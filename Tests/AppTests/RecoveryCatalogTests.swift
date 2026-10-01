@@ -324,7 +324,6 @@ struct RecoveryCatalogTests {
     /// The Qwen3-ASR second pass is macOS 15+: unsupported hardware is M06, anything else leaves the
     /// first-pass text standing (T03).
     @Test func qwenRefinementErrors() {
-        guard #available(macOS 15, *) else { return }
         #expect(RecoveryCatalog.entry(for: Qwen3AsrError.unsupportedHardware).id == .M06)
         #expect(RecoveryCatalog.entry(for: Qwen3AsrError.decoderFailed("logits")).id == .T03)
         #expect(EngineMessage.describe(Qwen3AsrError.modelNotFound("qwen3_asr_embeddings.bin"), log: Self.quiet)

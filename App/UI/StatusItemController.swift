@@ -329,21 +329,15 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
 /// Title, helper line and ready dot for one `NSMenuItem`.
 ///
-/// The helper is the native subtitle (macOS 14.4+). On macOS 14 an attributed title hides the
-/// subtitle, so where the title needs one (the ready dot) or the subtitle API is missing, the helper
-/// is drawn as a second, secondary-coloured line of the attributed title instead.
+/// The helper is the native subtitle (always available on the macOS 15 floor); the ready dot is an
+/// attributed title that leaves the subtitle intact.
 enum MenuItemText {
     static let dot = "●"
 
     static func apply(title: String, detail: String?, readyDot: Bool, to item: NSMenuItem) {
-        if #available(macOS 15, *) {
-            item.subtitle = detail
-            if readyDot { item.attributedTitle = attributed(title: title, detail: nil, readyDot: true) }
-        } else if #available(macOS 14.4, *), !readyDot {
-            item.subtitle = detail
-        } else if readyDot || detail != nil {
-            item.attributedTitle = attributed(title: title, detail: detail, readyDot: readyDot)
-        }
+        // macOS 15 is the floor (V5 J7): the native subtitle always works alongside the dot.
+        item.subtitle = detail
+        if readyDot { item.attributedTitle = attributed(title: title, detail: nil, readyDot: true) }
         // The dot is decoration; VoiceOver reads the words, never "black circle".
         if item.attributedTitle != nil {
             item.setAccessibilityLabel(detail.map { "\(title), \($0)" } ?? title)

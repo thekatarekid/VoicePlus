@@ -12,7 +12,6 @@
 // stays a faithful copy.
 import Foundation
 
-@available(macOS 15, *)
 struct Qwen3ContextTokenizer: Sendable {
     /// Longest token in Qwen's vocabulary worth probing, in escaped scalars.
     private static let maxTokenLength = 24

@@ -47,7 +47,7 @@ public enum EngineMessage {
     /// The catalogue entry for an error this layer recognises, or nil so a caller that knows more
     /// types (the app's `RecoveryCatalog`) can try its own before settling on `X08`.
     public static func classify(_ error: Error) -> RecoveryID? {
-        if #available(macOS 15, *), let qwen = error as? Qwen3AsrError { return recoveryID(qwen) }
+        if let qwen = error as? Qwen3AsrError { return recoveryID(qwen) }
         switch error {
         case let engine as EngineError: return engine.recoveryID
         case let capture as AudioCaptureError: return recoveryID(capture)
@@ -184,7 +184,6 @@ public enum EngineMessage {
 
     /// The Qwen3-ASR refinement backend (second pass). Unless the hardware rules it out, a failure
     /// here only means the first-pass text stands (V3 §5.3).
-    @available(macOS 15, *)
     private static func recoveryID(_ error: Qwen3AsrError) -> RecoveryID {
         switch error {
         case .unsupportedHardware: return .M06

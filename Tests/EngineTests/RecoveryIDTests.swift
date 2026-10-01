@@ -104,7 +104,6 @@ struct RecoveryIDTests {
     /// Every id `classify` can produce has a headline in the slice, so `describe` never falls back.
     /// The Qwen3-ASR second pass exists only on macOS 15+, so its errors cannot sit in `samples`.
     @Test func qwenRefinementErrorsMapLikeRefinementErrors() {
-        guard #available(macOS 15, *) else { return }
         let cases: [(Qwen3AsrError, RecoveryID)] = [
             (.unsupportedHardware, .M06), (.modelNotFound("qwen3_asr_embeddings.bin"), .T03),
             (.invalidVocabulary, .T03), (.encoderFailed("x"), .T03), (.decoderFailed("x"), .T03),

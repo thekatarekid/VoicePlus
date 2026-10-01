@@ -178,11 +178,6 @@ struct RefinementBenchmarkCorpusTests {
             }
             qwenFolder = folder
         }
-        guard #available(macOS 15, *) else {
-            print("SKIPPED: macOS 15+ only — the refinement session is gated on it (V3 §5.3), so no arm "
-                  + "of this benchmark can run on 14.")
-            return
-        }
 
         let (bench, out, gatedCount) = try await Self.measureCorpus(
             items: items, arms: arms, pass: pass, manager: manager, weights: weights, qwenFolder: qwenFolder)
@@ -209,7 +204,6 @@ struct RefinementBenchmarkCorpusTests {
     /// The body of the benchmark, split out only because `Qwen3RefinementSession` is
     /// `@available(macOS 15, *)`: a variable of that type cannot be declared inside a function that
     /// also has to run on 14. Everything measured lives here; the test above decides whether to run it.
-    @available(macOS 15, *)
     static func measureCorpus(items: [GateRecallCorpusTests.Item], arms: [Arm], pass: String,
                               manager: ModelManager, weights: Qwen3WeightsStore,
                               qwenFolder: URL?) async throws -> (RefinementBenchmark, String, Int) {
@@ -424,7 +418,6 @@ struct RefinementBenchmarkCorpusTests {
             print("SKIPPED: refinement is unavailable or the Qwen weights are not on disk.")
             return
         }
-        guard #available(macOS 15, *) else { print("SKIPPED: macOS 15+ only."); return }
 
         let passOne = try await RecognizerFactory.makeFinal(manager: manager)
         let passTwo = Qwen3RefinementSession(store: weights, language: .english)

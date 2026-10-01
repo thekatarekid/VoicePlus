@@ -213,7 +213,6 @@ struct GateRecallCorpusTests {
                 """)
             return
         }
-        guard #available(macOS 15, *) else { print("SKIPPED: macOS 15+ only."); return }
 
         let passOne = try await RecognizerFactory.makeFinal(manager: manager)
         let passTwo = Qwen3RefinementSession(store: weights, language: .english)
@@ -397,7 +396,6 @@ struct GateRecallCorpusTests {
             print("SKIPPED: refinement is unavailable or the Qwen weights are not on disk.")
             return
         }
-        guard #available(macOS 15, *) else { print("SKIPPED: macOS 15+ only."); return }
 
         let passOne = try await RecognizerFactory.makeFinal(manager: manager)
         let passTwo = Qwen3RefinementSession(store: weights, language: .english)

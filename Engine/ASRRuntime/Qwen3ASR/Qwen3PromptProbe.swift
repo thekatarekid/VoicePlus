@@ -10,7 +10,6 @@
 import CoreML
 import Foundation
 
-@available(macOS 15, *)
 struct Qwen3PromptProbe {
     let manager: Qwen3AsrManager
     let tokenizer: Qwen3ContextTokenizer

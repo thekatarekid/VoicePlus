@@ -28,7 +28,6 @@ import Foundation
 ///
 /// - Warning: This class is NOT thread-safe and NOT `Sendable` due to mutable
 ///   reusable buffers. Each thread/task should use its own instance.
-@available(macOS 15, *)
 public final class Qwen3WhisperMelSpectrogram {
 
     // MARK: Config

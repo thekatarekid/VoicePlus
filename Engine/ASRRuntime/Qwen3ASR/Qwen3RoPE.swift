@@ -19,7 +19,6 @@ import Foundation
 ///
 /// All positions 0..<maxCacheSeqLen are precomputed at init to avoid per-token
 /// trigonometric calls in the hot decode loop.
-@available(macOS 15, *)
 public struct Qwen3RoPE: Sendable {
     private let invFreq: [Float]
     public let headDim: Int

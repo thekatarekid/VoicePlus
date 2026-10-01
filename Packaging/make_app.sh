@@ -58,7 +58,7 @@ setkey CFBundleIdentifier in.adityakatare.voiceplus string
 setkey CFBundleExecutable "$BIN_NAME" string
 setkey CFBundleShortVersionString "$VERSION" string
 setkey CFBundleVersion "$BUILD_NUMBER" string
-setkey LSMinimumSystemVersion 14.0 string
+setkey LSMinimumSystemVersion 15.0 string
 setkey LSUIElement true bool
 setkey CFBundleIconFile AppIcon string
 setkey CFBundlePackageType APPL string
