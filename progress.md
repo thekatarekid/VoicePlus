@@ -1926,3 +1926,11 @@ Initial checkpoint (superseded by the dated entries below):
 - **New deps/downloads:** none.
 - **Full suite:** `--no-parallel`, .build-v5a: 4434 tests passed, 0 failed, 688 s (11:45 wall). No gate fixes needed.
 - **Needs hardware/owner (T1):** real AX landings + pill frames; kernel memory pressure; llama.cpp prewarm latency; one HAL client + mic indicator, lock/sleep in meeting; Notes routes in live apps; multilingual cleanup quality/latency, SCOWL GBs download; end-to-end update (host appcast, Developer ID); CI run on GitHub; the 26 OA owner actions in VoicePlus_HumanTest.md.
+
+## 2026-10-02 — V5 final installer 1.13.0
+- Self-contained installer **1.13.0**: `Packaging/releases/VoicePlus_V5-Full_1.13.0.dmg`, 693 MB (726,797,928 bytes), SHA256 `2158e515d71eb485668038c4b423b1540ebe6fcdedddfb917f477d2f34fe4ea3`. Built with `FULL_INSTALLER=1 BUNDLE_MODELS_FROM=~/Library/Application Support/VoicePlus/Models Packaging/release.sh V5-Full 1.13.0 --no-github` (release build in `.build-release`, 491 s; `.build-v5a` reclaimed first, 20 GB free).
+- Bundled: TDT v3 + EOU 160 ms + speaker (SHA256-verified from the local cache) + Silero VAD (V5 C6, checked in); llama.framework (V5 D2, universal) embedded and ad-hoc signed. 110M CTC, Qwen/LLM weights and other large models stay on-demand downloads.
+- Release fix: the self-containment audit in `make_app.sh` (and the same check in `verify_install.sh`) read `otool -L` with `NR>1`, so the universal llama.framework's second `(architecture arm64):` header line was reported as a non-portable dependency and the build aborted. Now only tab-indented dependency lines are read.
+- `FULL_INSTALLER=1 verify_install.sh` **OK**: bundled TDT/EOU/speaker/Silero inference from the read-only mount (empty cache, no fetchers); version 1.13.0; LSMinimumSystemVersion 15.0; 9 TCC usage strings incl. camera; build-independent designated requirement; self-contained; owner-writable; no quarantine; headless launch of its own temp copy, stopped by pid only.
+- Not installed to `/Applications`, user's running copy untouched. DMG local + gitignored; CHECKSUMS entry added; public appcast/cask unchanged (release.sh edits reverted). Tag `release/V5/v1.13.0`.
+- Not verified: notarization/Developer ID (J4, owner), Gatekeeper first-open on a clean Mac, in-app update to 1.13.0 (feed host not live), real dictation with this build.

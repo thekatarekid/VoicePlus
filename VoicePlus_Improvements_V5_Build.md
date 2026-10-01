@@ -813,6 +813,10 @@ Directory ownership per lane is listed at the top of each wave. Two lanes never 
 
 ### Lane 8b · Release
 
+#### R1 · V5 final installer 1.13.0
+- **Status:** done — `Packaging/releases/VoicePlus_V5-Full_1.13.0.dmg` (693 MB, sha256 `2158e515…4ea3`), FULL_INSTALLER verify_install OK, tag release/V5/v1.13.0; local + gitignored, not notarized (J4)
+- [x] Release build, FULL_INSTALLER DMG (TDT v3 + EOU + speaker + Silero VAD + llama.framework), `FULL_INSTALLER=1 verify_install.sh`, CHECKSUMS, progress.md.
+
 #### J5 · Updater
 - **Status:** partial — AppcastUpdater (feed, channel, min-OS, delta/full, sha256, hdiutil+codesign check, swap+rollback), Settings › Updates (92484fd); feed host not live, release.sh emits no delta DMG, ad-hoc signing loses TCC grants → J4/T1
 - [ ] Replace `NoopUpdater` with an appcast-based updater (Sparkle-compatible feed already published as `Packaging/appcast`); delta = small DMG; full = self-contained. Settings › Updates shows channel and "check now".
@@ -858,3 +862,4 @@ Deviations / new deps / notes for progress.md: <…>
 - 2026-10-01 · W3+W4 completion gate: done C3, K2, K4, K6, F3, B3, HW2, D5, D3, D4, I3, E5, E6, K10, Q14, F2; partial C1, C1b, C4, C5, B1, B5, D2, P1–P7 (all need V1 datasets/models/hardware). Gate fixes e4f4033 (lane 4c leftovers), 60c877a (Q14 switch). Full suite --no-parallel: 3860 passed, 0 failed, 515 s. Details in progress.md.
 - 2026-10-02 · W5+W6+W7 gate: done O1–O3, O4+O5+L4, L1–L3, L5, K3, N1, N3, N4, M1–M4, M5, M14, M12, M6, M7, M8, M10, M13, M-d, M17, M16+M21, M18+M20, M19, M22, M23, CU1, CU8, CU4, CU9, CU6, CU7, H4, LANG2, G2, G3, LR1, LR3, LR5, K5; partial L6, N2, M9, M11, CU2, LANG1, G1, LR2, K8 (models/datasets/owner). Gate fixes a4fca5a. Full suite --no-parallel: 4344 passed, 0 failed, 636 s. Details in progress.md.
 - 2026-10-02 · W8 + follow-ups gate: done Q13, HW3, D5, M-d, K21, O1, N2, LANG1, T1, I4; partial J5 (feed host/delta DMG/signing), J2 (not run on GitHub); blocked J4 (owner). Full suite --no-parallel: 4434 passed, 0 failed, 688 s; no gate fixes needed. Details in progress.md.
+- 2026-10-02 · V5 final installer 1.13.0: VoicePlus_V5-Full_1.13.0.dmg, 693 MB, sha256 2158e515d71eb485668038c4b423b1540ebe6fcdedddfb917f477d2f34fe4ea3; FULL_INSTALLER verify_install OK; release fix: otool audit misread universal llama.framework. Details in progress.md.

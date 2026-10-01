@@ -133,7 +133,7 @@ echo "[verify]   build-independent: grants survive updates"
 # Self-containment: nothing may point back at the build machine.
 echo "[verify] self-containment"
 while IFS= read -r macho; do
-  otool -L "$macho" | awk 'NR>1 {print $1}' | grep -Ev '^(/usr/lib/|/System/|@rpath/|@executable_path/|@loader_path/)' \
+  otool -L "$macho" | awk '/^\t/ {print $1}' | grep -Ev '^(/usr/lib/|/System/|@rpath/|@executable_path/|@loader_path/)' \
     && fail "$macho links a non-portable path"
   otool -l "$macho" | awk '/LC_RPATH/{f=1} f&&/^ *path /{print $2; f=0}' \
     | grep -Ev '^(@executable_path|@loader_path|/usr/lib|/System/)' \

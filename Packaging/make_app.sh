@@ -204,7 +204,9 @@ while IFS= read -r macho; do
       /usr/lib/*|/System/*|@rpath/*|@executable_path/*|@loader_path/*) ;;
       *) echo "ERROR: $macho links non-portable path: $dep" >&2; BAD=1 ;;
     esac
-  done < <(otool -L "$macho" | awk 'NR>1 {print $1}')
+  # Dependencies are the tab-indented lines. A universal binary (llama.framework, V5 D2)
+  # prints one "<path> (architecture …):" header per slice, which NR>1 misread as a dep.
+  done < <(otool -L "$macho" | awk '/^\t/ {print $1}')
   while read -r p; do
     case "$p" in
       @executable_path*|@loader_path*|/usr/lib*|/System/*) ;;
