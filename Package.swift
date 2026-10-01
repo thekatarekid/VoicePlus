@@ -12,7 +12,12 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
-        .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.1.0"),
+        // V5 J6: pinned to main past v0.17.4 — first revision exposing `AsrModelVersion.ultra/.redux`
+        // AND `LocalVqeManager` (Apache-2.0). Root revision pin overrides FluidUse's `from: 0.15.8`.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", revision: "c388107348134698135cfd34f3f59dc823b6e7ce"),
+        // V5 J6: FluidUse (Apache-2.0) — decision/CUA managers (Laya, Kev, CUA-S1). Main past v0.3.0
+        // (KevFastManager is not in a tag yet).
+        .package(url: "https://github.com/FluidInference/FluidUse.git", revision: "c9e967f2d6f98b138240c187e49997ef4f60aebe"),
     ],
     targets: [
         .target(
@@ -22,14 +27,22 @@ let package = Package(
         ),
         .target(
             name: "Engine",
-            dependencies: ["Shared", .product(name: "FluidAudio", package: "FluidAudio")],
+            dependencies: [
+                "Shared",
+                .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "FluidUse", package: "FluidUse"),
+            ],
             path: "Engine"
         ),
         .target(name: "Pipeline", dependencies: ["Shared"], path: "Pipeline"),
         .target(name: "Injection", dependencies: ["Shared"], path: "Injection"),
         .target(name: "Providers", dependencies: ["Shared"], path: "Providers"),
         .target(name: "Lab", dependencies: ["Shared"], path: "Lab"),
-        .target(name: "Actions", dependencies: ["Shared"], path: "Actions"),
+        .target(
+            name: "Actions",
+            dependencies: ["Shared", .product(name: "FluidUse", package: "FluidUse")],
+            path: "Actions"
+        ),
         .target(name: "Sync", dependencies: ["Shared"], path: "Sync"),
         .target(name: "KeyboardCore", dependencies: ["Shared"], path: "iOS/KeyboardCore"),
         .executableTarget(
