@@ -13,6 +13,9 @@ public enum CaretRung: String, Sendable, Equatable, CaseIterable {
     case textMarkers
     /// No AX rung answered; our own last landing into this element did (D5).
     case landingMemory
+    /// V5 K10 / Q14 — the OCR caret band (opt-in, Screen Recording): AX and the landing memory
+    /// had nothing.
+    case ocr
     /// Nothing answered, or the field is a password field (never read): `unknown`.
     case none
 }
@@ -20,6 +23,12 @@ public enum CaretRung: String, Sendable, Equatable, CaseIterable {
 public struct CaretReading: Sendable, Equatable {
     public var caret: CaretState
     public var rung: CaretRung
+    /// Q14 — the caret on screen (global AppKit points), when the OCR band found it (Q5's anchor).
+    public var caretRect: CGRect?
+
+    public init(caret: CaretState, rung: CaretRung, caretRect: CGRect? = nil) {
+        self.caret = caret; self.rung = rung; self.caretRect = caretRect
+    }
 }
 
 /// R4.2 wiring — the focused AX element → `FieldContext`, the value `Pipeline` classifies.
@@ -58,12 +67,30 @@ public final class FieldContextReader: @unchecked Sendable {
     public var details: FocusedFieldDetailsReading?
     /// V5 E4 — where bundle IDs the category table had to guess for are noted.
     public var unknownApps: UnknownApps = .shared
+    /// V5 K10 / Q14 — the OCR rung (last before `unknown`). Live: `LiveOCRCaret` over a
+    /// `ScreenTextService` when `system` is the live one. Asked only when `ocrOptIn()` and the
+    /// app's contextual reading are both on.
+    public var ocr: OCRCaretReading?
+    /// The user's switch (Settings: "Read the caret from the screen", off by default).
+    public var ocrOptIn: () -> Bool = { CaretOCRSettings.isEnabled() }
+
+    /// V5 E6 — To/Cc of a mail compose, the chat title of a messenger. Live when `system` is the
+    /// live one; `nil` reads no participants.
+    public var participantsReader: ThreadParticipantsReading?
+    /// The destination app's "contextual reading" rule (Settings › Dictionary & Apps). Off: no
+    /// participants and no OCR rung — nothing more than the field itself is read.
+    public var contextualReading: (String?) -> Bool = { bundleID in
+        guard let bundleID, !bundleID.isEmpty else { return true }
+        return AppRules.current().resolved(for: bundleID).contextualReading.value
+    }
 
     public init(system: SystemAccess, window: Int = CaretWindow.defaultWindow,
                 landingMemory: LandingMemory? = nil,
                 capabilities: CaretCapabilityMemory = CaretCapabilityMemory(),
                 unknownApps: UnknownApps = .shared,
-                details: FocusedFieldDetailsReading? = nil) {
+                details: FocusedFieldDetailsReading? = nil,
+                participants: ThreadParticipantsReading? = nil,
+                ocr: OCRCaretReading? = nil) {
         self.system = system
         self.window = window
         self.landingMemory = landingMemory ?? LandingMemory.attached(to: system)
@@ -71,6 +98,9 @@ public final class FieldContextReader: @unchecked Sendable {
         self.unknownApps = unknownApps
         self.details = details ?? (system as? FocusedFieldDetailsReading)
             ?? (system is LiveSystemAccess ? LiveFocusedFieldDetails() : nil)
+        self.participantsReader = participants ?? (system as? ThreadParticipantsReading)
+            ?? (system is LiveSystemAccess ? LiveThreadParticipants() : nil)
+        self.ocr = ocr ?? (system is LiveSystemAccess ? LiveOCRCaret(service: ScreenTextService()) : nil)
     }
 
     /// `nil` only when there is no readable focused element at all (no accessibility permission,
@@ -105,11 +135,24 @@ public final class FieldContextReader: @unchecked Sendable {
             let labels = details.focusedFieldLabels(pid: pid)
             if !labels.isEmpty { field.hints = FocusedElementInfo.hints(from: (field.hints + labels).map { Optional($0) }) }
         }
-        if Self.isBrowser(bundle), let reader = system as? FocusedDocumentURLReading {
-            field.documentURL = reader.focusedDocumentURL()
+        if Self.isBrowser(bundle) {
+            if let reader = system as? FocusedDocumentURLReading { field.documentURL = reader.focusedDocumentURL() }
+            // V5 E5 — the page title routes the sub-app when the web area hides its URL.
+            if field.documentURL == nil, let details, let pid {
+                field.documentTitle = details.focusedDocumentTitle(pid: pid).map { String($0.prefix(200)) }
+            }
         }
         if FieldRole.classify(field) == .spreadsheetCell, let details, let pid {
             field.columnHeader = details.focusedCellColumnHeader(pid: pid).map { String($0.prefix(80)) }
+        }
+        // V5 E6 — who the text is for (mail To/Cc, the chat's title), only where a thread exists.
+        if let reader = participantsReader, let pid, contextualReading(bundle) {
+            let category = field.subApp?.category ?? AppCategoryTable.category(for: bundle)
+            if category == .mail || category == .chat {
+                var observation = reader.observe(pid: pid, category: category)
+                if observation.title == nil { observation.title = field.documentTitle }
+                field.participants = ThreadParticipants.extract(category: category, observation: observation)
+            }
         }
     }
 
@@ -141,6 +184,7 @@ public final class FieldContextReader: @unchecked Sendable {
         // Rung 1 — free: `focusedElement()` already carried the value and the range.
         if let caret = info.caretFromSelectedRange(window: window) {
             capabilities.note(bundleID: bundle, answered: true)
+            capabilities.note(bundleID: bundle, rung: .selectedRange, answered: true)
             return CaretReading(caret: caret, rung: .selectedRange)
         }
         // Rung 2 — the marker round-trip, unless this app has never answered it (D7).
@@ -148,14 +192,25 @@ public final class FieldContextReader: @unchecked Sendable {
            let markers = system as? TextMarkerCaretReading,
            let read = markers.caretByTextMarkers() {
             capabilities.note(bundleID: bundle, answered: true)
+            capabilities.note(bundleID: bundle, rung: .textMarkers, answered: true)
             return CaretReading(caret: read.caretState(window: window), rung: .textMarkers)
         }
         capabilities.note(bundleID: bundle, answered: false)
         // Rung 3 — our own last landing into this very element (D5).
         if let element = LandedElement(focus: frontmost, role: info.role),
            let caret = landingMemory.caret(for: element) {
+            capabilities.note(bundleID: bundle, rung: .landingMemory, answered: true)
             return CaretReading(caret: caret, rung: .landingMemory)
         }
+        // Rung 4 (K10 / Q14) — the OCR band: only with the switch on and contextual reading
+        // allowed for this app, and not in an app whose band has never answered.
+        if let ocr, let focus = frontmost, !OwnProcess.owns(focus), ocrOptIn(), contextualReading(bundle),
+           !capabilities.shouldSkip(.ocr, bundleID: bundle) {
+            let band = ocr.caretBand(pid: focus.pid, bundleID: bundle, lastLanded: landingMemory.last?.text)
+            capabilities.note(bundleID: bundle, rung: .ocr, answered: band != nil)
+            if let band { return CaretReading(caret: band.caretState(window: window), rung: .ocr, caretRect: band.caretRect) }
+        }
+        capabilities.note(bundleID: bundle, rung: .none, answered: true)
         return CaretReading(caret: .unknown, rung: .none)
     }
 
@@ -208,6 +263,47 @@ public final class CaretCapabilityMemory: @unchecked Sendable {
     public func misses(for bundleID: String) -> Int {
         lock.withLock { misses[bundleID] ?? 0 }
     }
+
+    // MARK: K10 — the ladder per app
+
+    private var rungMisses: [String: [CaretRung: Int]] = [:]
+    private var answering: [String: CaretRung] = [:]
+
+    /// K10 — skip `rung` in `bundleID`: it came back empty `threshold` times in a row. The text
+    /// markers keep D7's own counter (`shouldSkipAXRoundTrip`); `selectedRange` is free and the
+    /// landing memory is in-process, so neither is ever skipped.
+    public func shouldSkip(_ rung: CaretRung, bundleID: String) -> Bool {
+        switch rung {
+        case .textMarkers: return shouldSkipAXRoundTrip(bundleID: bundleID)
+        case .ocr: return lock.withLock { (rungMisses[bundleID]?[rung] ?? 0) >= threshold }
+        case .selectedRange, .landingMemory, .none: return false
+        }
+    }
+
+    /// K10 — record one read of `rung` in `bundleID`. `answered` resets its count and records the
+    /// rung as the one this app answers on (`.none` = nothing answered).
+    public func note(bundleID: String, rung: CaretRung, answered: Bool) {
+        lock.withLock {
+            if answered {
+                rungMisses[bundleID]?[rung] = nil
+                answering[bundleID] = rung
+            } else {
+                rungMisses[bundleID, default: [:]][rung] = min((rungMisses[bundleID]?[rung] ?? 0) + 1, threshold)
+            }
+        }
+    }
+
+    /// K10 — the rung that last produced this app's caret (`.none`: the ladder ran dry), for
+    /// diagnostics. `nil` before the first read.
+    public func lastRung(for bundleID: String) -> CaretRung? {
+        lock.withLock { answering[bundleID] }
+    }
+
+    /// K10 — consecutive empty reads of `rung` in `bundleID`.
+    public func misses(for bundleID: String, rung: CaretRung) -> Int {
+        if rung == .textMarkers { return misses(for: bundleID) }
+        return lock.withLock { rungMisses[bundleID]?[rung] ?? 0 }
+    }
 }
 
 // MARK: - V5 E2/E3 · labels and column headers
@@ -219,6 +315,13 @@ public protocol FocusedFieldDetailsReading: AnyObject {
     func focusedFieldLabels(pid: Int32) -> [String]
     /// The column header over the focused cell (`AXColumnHeaderUIElements`), when there is one.
     func focusedCellColumnHeader(pid: Int32) -> String?
+    /// V5 E5 — the title of the web document holding the focused element (its `AXWebArea`'s
+    /// `AXTitle`), else the focused window's title. `nil` when neither is exposed.
+    func focusedDocumentTitle(pid: Int32) -> String?
+}
+
+public extension FocusedFieldDetailsReading {
+    func focusedDocumentTitle(pid: Int32) -> String? { nil }
 }
 
 /// Live AX reads, addressed through the app element for `pid` (never the system-wide element,
@@ -261,6 +364,19 @@ public final class LiveFocusedFieldDetails: FocusedFieldDetailsReading, @uncheck
         let headers = children(table, "AXColumnHeaderUIElements")
         guard column >= 0, column < headers.count else { return nil }
         return title(of: headers[column])
+    }
+
+    public func focusedDocumentTitle(pid: Int32) -> String? {
+        guard let element = focused(pid: pid) else { return nil }
+        var current: AXUIElement? = element
+        var hops = 0
+        while let node = current, hops < 25 {
+            if string(node, kAXRoleAttribute) == "AXWebArea", let title = string(node, kAXTitleAttribute) { return title }
+            current = child(node, kAXParentAttribute); hops += 1
+        }
+        guard let app = AXGuard.application(pid: pid) else { return nil }
+        AXUIElementSetMessagingTimeout(app, timeout)
+        return child(app, kAXFocusedWindowAttribute).flatMap { string($0, kAXTitleAttribute) }
     }
 
     // MARK: AX plumbing
@@ -308,5 +424,33 @@ public final class LiveFocusedFieldDetails: FocusedFieldDetailsReading, @uncheck
     private func title(of element: AXUIElement) -> String? {
         (string(element, kAXTitleAttribute) ?? string(element, kAXValueAttribute) ?? string(element, kAXDescriptionAttribute))
             .map { String($0.prefix(80)) }
+    }
+}
+
+// MARK: - V5 E5 / E6 · persona keyed by `bundle|host`, overrides by thread participant
+
+/// The lander decorates the context with the app's persona before the field is read. Once the
+/// field is known, two things can change which persona applies:
+///
+/// * E5 — the field is inside a browser sub-app (Gmail in Chrome): the persona is keyed
+///   `bundle|host` (`com.google.Chrome|mail.google.com`), auto-drafted from the sub-app's category.
+/// * E6 — the thread's participants were read (To/Cc, the chat title): a per-recipient override
+///   on that persona applies.
+///
+/// Neither: nothing changes. A persona set by a caller before decoration (the Lab, a test) is
+/// replaced only when the field says something new.
+public enum FieldPersonaRedecoration {
+    public static func apply(_ field: FieldContext, to context: inout StageContext, manager: PersonaManager?) {
+        guard let manager else { return }
+        let bundle = context.appBundleID
+        let key = field.personaKey ?? bundle
+        let keyed = key != nil && key != bundle
+        guard keyed || !field.participants.isEmpty else { return }
+        var probe = context
+        probe.appBundleID = key
+        probe.extra[StageContextParticipants.key] = context.extra[StageContextParticipants.key]
+        guard let resolved = try? manager.resolve(context: probe) else { return }
+        guard keyed || resolved.override != nil else { return }
+        context.extra[PersonaManager.promptKey] = resolved.promptText
     }
 }

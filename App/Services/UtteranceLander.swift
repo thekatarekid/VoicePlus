@@ -212,6 +212,8 @@ public final class UtteranceLander: @unchecked Sendable {
         var field = readField ?? (fieldContextProvider == nil ? nil : FieldContext(appBundleID: bundleID, caret: .unknown))
         if field != nil { field?.preferences = formattingPreferences() }
         if let field { FieldRolePipeline.write(field, into: &ctx) }
+        // V5 E5/E6 — the persona for a browser sub-app (`bundle|host`) and a thread participant.
+        if let field { FieldPersonaRedecoration.apply(field, to: &ctx, manager: personaManager) }
         var result = LandingResult(utteranceID: id, route: .none, register: .unknown, text: "", injection: nil,
                                    focusDestination: Self.destinationName(focus: focus, bundleID: bundleID),
                                    repair: nil, pipelineMs: 0, totalMs: 0)
