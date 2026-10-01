@@ -16,6 +16,8 @@ extension ModelCatalog {
         case .parakeetTDTCTC110m: return Repo.parakeetTdtCtc110m.folderName
         // H3: fetched through `ModelHub` (`FluidAudioFetcher`), so stored under upstream's name too.
         case .speakerEmbedding: return Repo.diarizer.folderName
+        // V5 B1: fetched through `ModelHub` (`Repo.parakeetCtc110m`), loaded from our folder directly.
+        case .parakeetCTC110m: return Repo.parakeetCtc110m.folderName
         // V5 C6: fetched through `ModelHub` too (`Repo.vad`).
         case .sileroVAD: return Repo.vad.folderName
         // V5 C1b: likewise (`Repo.localVqe`).
