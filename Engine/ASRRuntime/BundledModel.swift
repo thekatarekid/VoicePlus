@@ -1,10 +1,14 @@
 import Foundation
 import Shared
 
-/// "Bundled tiny model" strategy (T3). 100 MB+ blobs cannot live in git, so the bundled model is
-/// the smallest TDT-capable Parakeet (TDT-CTC 110M, ~110 MB) fetched *first* at first launch;
-/// until it lands, `AppleSpeechRecognizer` (on-device) handles dictation. The full TDT v3 and the
-/// EOU preview model download in the background and are picked up on the next `start()`.
+/// First-launch model strategy. The **full installer** (`make_app.sh` with `FULL_INSTALLER=1` +
+/// `BUNDLE_MODELS_FROM`, staged by `Packaging/bundle_models.py`) ships the default stack inside
+/// `Contents/Resources/Models`: Parakeet TDT v3 (final pass), the realtime EOU 160 ms preview model and
+/// the speaker-diarization models. `BundledModelResources` exposes those as read-only candidates, so a
+/// full-installer user downloads nothing to dictate. Only when **no** final model is on disk (a
+/// model-free build, or the bundle was removed) is the tiny TDT-CTC 110M (~110 MB) fetched *first*,
+/// with `AppleSpeechRecognizer` (on-device) covering dictation until it lands; TDT v3 and EOU then
+/// follow in the background and are picked up on the next `start()` (see `firstLaunchOrder`).
 public enum BundledModel {
     public static let id: ModelID = .parakeetTDTCTC110m
 
