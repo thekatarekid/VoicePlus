@@ -1,5 +1,6 @@
 import FluidAudio
 import Foundation
+import Shared
 
 /// V5 B1 — the loaded CTC boosting model (`parakeet-ctc-110m-coreml`): keyword spotter + tokenizer,
 /// plus a rescorer cached for the last vocabulary (consecutive utterances usually share one).
@@ -156,20 +157,32 @@ public struct CTCVocabularyBooster: VocabularyBooster {
 /// The app's source: the model where `ModelManager` finds it (our install, or a read-only bundled
 /// copy), fetched **on demand** the first time a non-empty vocabulary asks for it. That utterance
 /// stays unboosted (the ~103 MB download runs in the background); the next one is boosted.
+///
+/// §10: the load goes through `ModelResidency` (`.onDemand`, key `boost.parakeet-ctc-110m#<scope>`),
+/// so the CTC model shares the one memory budget, idles out and is evicted under pressure; the
+/// next utterance reloads it. `residency: nil` keeps a bare load (tests).
 public actor ManagedCTCBoostingSource: CTCBoostingModelSource {
     public static let modelID: ModelID = .parakeetCTC110m
     private let manager: ModelManager
     private let fetchWhenMissing: Bool
-    private var loaded: CTCBoostingRuntime?
+    private let residency: ModelResidency?
+    public nonisolated let residencyKey: String
+    private let box = RuntimeBox()
+    private var registered = false
     private var fetching: Task<Void, Never>?
 
-    public init(manager: ModelManager, fetchWhenMissing: Bool = true) {
+    public init(manager: ModelManager, fetchWhenMissing: Bool = true, residency: ModelResidency? = .shared) {
         self.manager = manager
         self.fetchWhenMissing = fetchWhenMissing
+        self.residency = residency
+        self.residencyKey = "boost.\(Self.modelID.rawValue)#\(UUID().uuidString.prefix(8))"
+    }
+
+    deinit {
+        if let residency { let key = residencyKey; Task { await residency.unregister(key) } }
     }
 
     public func runtime() async -> CTCBoostingRuntime? {
-        if let loaded { return loaded }
         guard let url = await manager.locate(Self.modelID) else {
             if fetchWhenMissing, fetching == nil {
                 let manager = self.manager
@@ -179,9 +192,35 @@ public actor ManagedCTCBoostingSource: CTCBoostingModelSource {
             }
             return nil
         }
-        loaded = try? await CTCBoostingRuntime.load(from: url)
-        return loaded
+        guard let residency else {
+            if box.runtime == nil { box.runtime = try? await CTCBoostingRuntime.load(from: url) }
+            return box.runtime
+        }
+        if !registered {
+            let box = self.box
+            await residency.register(residencyKey, tier: .onDemand,
+                                     estimatedBytes: ModelCatalog.descriptor(Self.modelID).approxBytes * 2,
+                                     owner: "boost.ctc",
+                                     load: { if box.runtime == nil { box.runtime = try await CTCBoostingRuntime.load(from: url) } },
+                                     unload: { box.runtime = nil })
+            registered = true
+        }
+        do { try await residency.acquire(residencyKey) } catch { return nil }
+        return box.runtime
     }
 
-    public func unload() { loaded = nil }
+    public func unload() async {
+        if let residency, registered { await residency.unload(residencyKey, reason: .explicit) }
+        box.runtime = nil
+    }
+}
+
+/// Holds the runtime a residency `load` closure produced (the closures are `@Sendable`).
+private final class RuntimeBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _runtime: CTCBoostingRuntime?
+    var runtime: CTCBoostingRuntime? {
+        get { lock.withLock { _runtime } }
+        set { lock.withLock { _runtime = newValue } }
+    }
 }
