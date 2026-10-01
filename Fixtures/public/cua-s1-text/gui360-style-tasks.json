@@ -1,0 +1,2468 @@
+{
+ "name": "cua-s1-text-gui360-style",
+ "note": "Hand-authored GUI-360-style text tasks (Office ribbons, forms, settings, browser) for the CUA-S1 element chooser. Not drawn from GUI-360; labels by construction. Testing data only.",
+ "license": "CC0-1.0",
+ "tasks": [
+  {
+   "id": "word-bold",
+   "app": "Word",
+   "window": "Word",
+   "goal": "Make the selected text bold",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Layout",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Review",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bold",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Italic",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Underline",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Font Size",
+     "value": "12",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bullets",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Numbering",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Align Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Styles",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Page 1 of 3",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Bold",
+    "action": "click"
+   }
+  },
+  {
+   "id": "word-insert-tab",
+   "app": "Word",
+   "window": "Word",
+   "goal": "Open the Insert tab",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Layout",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Review",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bold",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Italic",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Underline",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Font Size",
+     "value": "12",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bullets",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Numbering",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Align Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Styles",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Page 1 of 3",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Insert",
+    "action": "select"
+   }
+  },
+  {
+   "id": "word-bullets",
+   "app": "Word",
+   "window": "Word",
+   "goal": "Turn these lines into a bulleted list",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Layout",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Review",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bold",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Italic",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Underline",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Font Size",
+     "value": "12",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bullets",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Numbering",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Align Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Styles",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Page 1 of 3",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Bullets",
+    "action": "click"
+   }
+  },
+  {
+   "id": "word-center",
+   "app": "Word",
+   "window": "Word",
+   "goal": "Center this paragraph",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Layout",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Review",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bold",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Italic",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Underline",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Font Size",
+     "value": "12",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bullets",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Numbering",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Align Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Styles",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Page 1 of 3",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Align Center",
+    "action": "click"
+   }
+  },
+  {
+   "id": "word-review",
+   "app": "Word",
+   "window": "Word",
+   "goal": "Go to the Review tab to track changes",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Layout",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Review",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bold",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Italic",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Underline",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Font Size",
+     "value": "12",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bullets",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Numbering",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Align Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Styles",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Page 1 of 3",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Review",
+    "action": "select"
+   }
+  },
+  {
+   "id": "word-numbering",
+   "app": "Word",
+   "window": "Word",
+   "goal": "Number the list",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Layout",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Review",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bold",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Italic",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Underline",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Font Size",
+     "value": "12",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Bullets",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Numbering",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Align Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Styles",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Page 1 of 3",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Numbering",
+    "action": "click"
+   }
+  },
+  {
+   "id": "excel-sort",
+   "app": "Excel",
+   "window": "Excel",
+   "goal": "Sort this column from smallest to largest",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Formulas",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Data",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sort Ascending",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filter",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Merge & Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "AutoSum",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Chart",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Wrap Text",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Name Box",
+     "value": "A1",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Formula Bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Sort Ascending",
+    "action": "click"
+   }
+  },
+  {
+   "id": "excel-filter",
+   "app": "Excel",
+   "window": "Excel",
+   "goal": "Add a filter to the table",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Formulas",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Data",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sort Ascending",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filter",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Merge & Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "AutoSum",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Chart",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Wrap Text",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Name Box",
+     "value": "A1",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Formula Bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Filter",
+    "action": "click"
+   }
+  },
+  {
+   "id": "excel-sum",
+   "app": "Excel",
+   "window": "Excel",
+   "goal": "Sum the selected cells",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Formulas",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Data",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sort Ascending",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filter",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Merge & Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "AutoSum",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Chart",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Wrap Text",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Name Box",
+     "value": "A1",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Formula Bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "AutoSum",
+    "action": "click"
+   }
+  },
+  {
+   "id": "excel-chart",
+   "app": "Excel",
+   "window": "Excel",
+   "goal": "Insert a chart for this data",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Formulas",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Data",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sort Ascending",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filter",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Merge & Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "AutoSum",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Chart",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Wrap Text",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Name Box",
+     "value": "A1",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Formula Bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Insert Chart",
+    "action": "click"
+   }
+  },
+  {
+   "id": "excel-formulas",
+   "app": "Excel",
+   "window": "Excel",
+   "goal": "Show the Formulas tab",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Formulas",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Data",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sort Ascending",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filter",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Merge & Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "AutoSum",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Chart",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Wrap Text",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Name Box",
+     "value": "A1",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Formula Bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Formulas",
+    "action": "select"
+   }
+  },
+  {
+   "id": "excel-wrap",
+   "app": "Excel",
+   "window": "Excel",
+   "goal": "Wrap the text in this cell",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Formulas",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Data",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "View",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sort Ascending",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filter",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Merge & Center",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "AutoSum",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Chart",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Wrap Text",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Name Box",
+     "value": "A1",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Formula Bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Wrap Text",
+    "action": "click"
+   }
+  },
+  {
+   "id": "ppt-new-slide",
+   "app": "PowerPoint",
+   "window": "PowerPoint",
+   "goal": "Add a new slide",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Design",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Transitions",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Slide Show",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Duplicate Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Delete Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Start From Beginning",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Picture",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Text Box",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Slide 2 of 9",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "New Slide",
+    "action": "click"
+   }
+  },
+  {
+   "id": "ppt-duplicate",
+   "app": "PowerPoint",
+   "window": "PowerPoint",
+   "goal": "Duplicate this slide",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Design",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Transitions",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Slide Show",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Duplicate Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Delete Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Start From Beginning",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Picture",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Text Box",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Slide 2 of 9",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Duplicate Slide",
+    "action": "click"
+   }
+  },
+  {
+   "id": "ppt-present",
+   "app": "PowerPoint",
+   "window": "PowerPoint",
+   "goal": "Start the presentation from the beginning",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Design",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Transitions",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Slide Show",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Duplicate Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Delete Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Start From Beginning",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Picture",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Text Box",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Slide 2 of 9",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Start From Beginning",
+    "action": "click"
+   }
+  },
+  {
+   "id": "ppt-design",
+   "app": "PowerPoint",
+   "window": "PowerPoint",
+   "goal": "Open the Design tab",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Design",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Transitions",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Slide Show",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Duplicate Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Delete Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Start From Beginning",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Picture",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Text Box",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Slide 2 of 9",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Design",
+    "action": "select"
+   }
+  },
+  {
+   "id": "ppt-textbox",
+   "app": "PowerPoint",
+   "window": "PowerPoint",
+   "goal": "Insert a text box",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Home",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Insert",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Design",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Transitions",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Slide Show",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Duplicate Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Delete Slide",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Start From Beginning",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Insert Picture",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Text Box",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXStaticText",
+     "title": "Slide 2 of 9",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Text Box",
+    "action": "click"
+   }
+  },
+  {
+   "id": "login-user",
+   "app": "Portal",
+   "window": "Portal",
+   "goal": "Log in as the demo user",
+   "elements": [
+    {
+     "role": "AXStaticText",
+     "title": "Sign in to Portal",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Username",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Password",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Remember me",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sign in",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Forgot password?",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [
+    {
+     "label": "Username",
+     "value": "demo"
+    }
+   ],
+   "expect": {
+    "label": "Username",
+    "action": "fill"
+   }
+  },
+  {
+   "id": "login-remember",
+   "app": "Portal",
+   "window": "Portal",
+   "goal": "Keep me signed in on this computer",
+   "elements": [
+    {
+     "role": "AXStaticText",
+     "title": "Sign in to Portal",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Username",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Password",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Remember me",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sign in",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Forgot password?",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Remember me",
+    "action": "check"
+   }
+  },
+  {
+   "id": "login-forgot",
+   "app": "Portal",
+   "window": "Portal",
+   "goal": "I forgot my password",
+   "elements": [
+    {
+     "role": "AXStaticText",
+     "title": "Sign in to Portal",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Username",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Password",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Remember me",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Sign in",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Forgot password?",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Forgot password?",
+    "action": "click"
+   }
+  },
+  {
+   "id": "mail-to",
+   "app": "Mail",
+   "window": "Mail",
+   "goal": "Address this email to Priya",
+   "elements": [
+    {
+     "role": "AXTextField",
+     "title": "To",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Subject",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextArea",
+     "title": "Message body",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Send",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Attach",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Discard draft",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Request read receipt",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [
+    {
+     "label": "To",
+     "value": "priya@example.com"
+    }
+   ],
+   "expect": {
+    "label": "To",
+    "action": "fill"
+   }
+  },
+  {
+   "id": "mail-attach",
+   "app": "Mail",
+   "window": "Mail",
+   "goal": "Attach a file",
+   "elements": [
+    {
+     "role": "AXTextField",
+     "title": "To",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Subject",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextArea",
+     "title": "Message body",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Send",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Attach",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Discard draft",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Request read receipt",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Attach",
+    "action": "click"
+   }
+  },
+  {
+   "id": "settings-privacy",
+   "app": "Settings",
+   "window": "Settings",
+   "goal": "Open the privacy settings",
+   "elements": [
+    {
+     "role": "AXRadioButton",
+     "title": "General",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXRadioButton",
+     "title": "Accounts",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXRadioButton",
+     "title": "Privacy",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXRadioButton",
+     "title": "Notifications",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Launch at login",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Show in menu bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Theme",
+     "value": "System",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Reset to defaults",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Privacy",
+    "action": "select"
+   }
+  },
+  {
+   "id": "settings-login",
+   "app": "Settings",
+   "window": "Settings",
+   "goal": "Start the app when I log in",
+   "elements": [
+    {
+     "role": "AXRadioButton",
+     "title": "General",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXRadioButton",
+     "title": "Accounts",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXRadioButton",
+     "title": "Privacy",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXRadioButton",
+     "title": "Notifications",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Launch at login",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXCheckBox",
+     "title": "Show in menu bar",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXPopUpButton",
+     "title": "Theme",
+     "value": "System",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Reset to defaults",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Launch at login",
+    "action": "check"
+   }
+  },
+  {
+   "id": "browser-inbox",
+   "app": "Safari",
+   "window": "Safari",
+   "goal": "Switch to the inbox tab",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Inbox – Mail",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Pull requests · repo",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Docs",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Back",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Reload",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Address and search bar",
+     "value": "github.com/org/repo/pulls",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Fix crash on launch #412",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Add dark mode #409",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New pull request",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filters",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Inbox – Mail",
+    "action": "select"
+   }
+  },
+  {
+   "id": "browser-pr",
+   "app": "Safari",
+   "window": "Safari",
+   "goal": "Open the dark mode pull request",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Inbox – Mail",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Pull requests · repo",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Docs",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Back",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Reload",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Address and search bar",
+     "value": "github.com/org/repo/pulls",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Fix crash on launch #412",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Add dark mode #409",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New pull request",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filters",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Add dark mode #409",
+    "action": "click"
+   }
+  },
+  {
+   "id": "browser-reload",
+   "app": "Safari",
+   "window": "Safari",
+   "goal": "Reload the page",
+   "elements": [
+    {
+     "role": "AXTab",
+     "title": "Inbox – Mail",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Pull requests · repo",
+     "value": "",
+     "selected": true,
+     "enabled": true
+    },
+    {
+     "role": "AXTab",
+     "title": "Docs",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Back",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Reload",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXTextField",
+     "title": "Address and search bar",
+     "value": "github.com/org/repo/pulls",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Fix crash on launch #412",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXLink",
+     "title": "Add dark mode #409",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "New pull request",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    },
+    {
+     "role": "AXButton",
+     "title": "Filters",
+     "value": "",
+     "selected": false,
+     "enabled": true
+    }
+   ],
+   "entities": [],
+   "expect": {
+    "label": "Reload",
+    "action": "click"
+   }
+  }
+ ]
+}
