@@ -1,32 +1,52 @@
 name: CI
 
+# Manual only (owner decision, 0b35cf7: save macOS Actions minutes). Run from the Actions tab or
+# `gh workflow run ci.yml [-f runner=self-hosted]`. Do not add push / pull_request / schedule.
 on:
   workflow_dispatch:
-env:
-  # Swift 6 toolchain (swift-testing needs Xcode 16+).
-  DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+    inputs:
+      runner:
+        description: "github = GitHub-hosted macos-15; self-hosted = a registered [self-hosted, macOS] runner"
+        type: choice
+        options: [github, self-hosted]
+        default: github
+      nightly_dmg:
+        description: "Also build an ad-hoc signed nightly DMG"
+        type: boolean
+        default: false
 
 jobs:
   build-and-test:
-    name: Build & test
-    runs-on: macos-14
-    timeout-minutes: 45
+    name: Build & test (non-hardware suites)
+    # V5 J7: the package targets macOS 15, so tests must run on a macOS 15 host.
+    runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted", "macOS"]') || 'macos-15' }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Cache SwiftPM
+        if: inputs.runner != 'self-hosted'
         uses: actions/cache@v4
         with:
           path: |
-            .build
+            .build-ci
             ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
-      - name: Swift version
-        run: swift --version
-      - name: Build
-        run: swift build
-      - name: Test
-        run: swift test
+      # bootstrap-toolchain (CLT-only hosts) + swift build + swift test --no-parallel over the
+      # non-hardware suites; the same script runs locally.
+      - name: Build and test
+        run: Scripts/ci-test.sh
+        env:
+          CI_SCRATCH: ${{ github.workspace }}/.build-ci
+          CI_TEST_LOG: ${{ github.workspace }}/.build-ci/test.log
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log-${{ github.run_number }}
+          path: .build-ci/test.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: SwiftLint (if installed)
         run: |
           if command -v swiftlint >/dev/null 2>&1; then
@@ -37,9 +57,9 @@ jobs:
 
   nightly-dmg:
     name: Nightly dmg
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: inputs.nightly_dmg
     needs: build-and-test
-    runs-on: macos-14
+    runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted", "macOS"]') || 'macos-15' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
