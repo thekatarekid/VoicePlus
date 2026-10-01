@@ -422,7 +422,16 @@ public final class PersonasViewModel: ObservableObject {
     public init(database: AppDatabase?) { self.database = database; reload() }
 
     public func reload() {
-        personas = (try? database?.reader.read { try PersonaRecord.order(Column("appBundleID")).fetchAll($0) }) ?? []
+        // V5 F1 — only the app rows; the persona-meta / recipient / style bookkeeping rows share the table.
+        personas = ((try? database?.reader.read { try PersonaRecord.order(Column("appBundleID")).fetchAll($0) }) ?? [])
+            .filter { !DatabasePersonaStore.isBookkeepingKey($0.appBundleID) }
+    }
+
+    /// V5 F1 — "Learned from N dictations" under the app's writing instructions; nil before the first.
+    public func learnedLine(for appBundleID: String) -> String? {
+        guard let database, let profile = try? DatabaseStyleProfileStore(database: database).profile(for: appBundleID),
+              profile.dictationCount > 0 else { return nil }
+        return profile.dictationCount == 1 ? "Learned from 1 dictation" : "Learned from \(profile.dictationCount) dictations"
     }
 
     /// Upserts by bundle ID; empty instructions delete the persona.

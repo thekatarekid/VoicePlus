@@ -30,6 +30,9 @@ public struct StyleProfile: Codable, Equatable, Sendable {
     public var preferredGreeting: String?
     public var preferredSignOff: String?
     public var updatedAt: Date
+    /// V5 F1 — real landings learned from (accepted or edited), excluding the cold-start prior.
+    /// Shown in Settings as "learned from N dictations". Absent in pre-V5 rows → 0.
+    public var dictationCount: Int = 0
 
     /// Samples required before the stage trusts a learned feature over the prior.
     public static let confidentSampleCount: Double = 8
@@ -68,6 +71,34 @@ public struct StyleProfile: Codable, Equatable, Sendable {
 
     public static func decode(json: String) throws -> StyleProfile {
         try JSONDecoder().decode(StyleProfile.self, from: Data(json.utf8))
+    }
+}
+
+extension StyleProfile {
+    private enum CodingKeys: String, CodingKey {
+        case version, appBundleID, category, sampleCount, capitalizationRate, terminalPeriodRate, punctuationDensity,
+             emojiRate, greetingRate, signOffRate, avgSentenceLength, preferredGreeting, preferredSignOff, updatedAt,
+             dictationCount
+    }
+
+    /// Tolerates profiles persisted before `dictationCount` existed.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? StyleProfile.schemaVersion
+        appBundleID = try c.decode(String.self, forKey: .appBundleID)
+        category = try c.decode(AppCategory.self, forKey: .category)
+        sampleCount = try c.decode(Double.self, forKey: .sampleCount)
+        capitalizationRate = try c.decode(Double.self, forKey: .capitalizationRate)
+        terminalPeriodRate = try c.decode(Double.self, forKey: .terminalPeriodRate)
+        punctuationDensity = try c.decode(Double.self, forKey: .punctuationDensity)
+        emojiRate = try c.decode(Double.self, forKey: .emojiRate)
+        greetingRate = try c.decode(Double.self, forKey: .greetingRate)
+        signOffRate = try c.decode(Double.self, forKey: .signOffRate)
+        avgSentenceLength = try c.decode(Double.self, forKey: .avgSentenceLength)
+        preferredGreeting = try c.decodeIfPresent(String.self, forKey: .preferredGreeting)
+        preferredSignOff = try c.decodeIfPresent(String.self, forKey: .preferredSignOff)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        dictationCount = try c.decodeIfPresent(Int.self, forKey: .dictationCount) ?? 0
     }
 }
 

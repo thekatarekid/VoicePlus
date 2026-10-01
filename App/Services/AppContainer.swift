@@ -179,7 +179,10 @@ public final class AppContainer {
         pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
 
         // P2.5 personas: the same rows Settings edits, auto-drafted from style learnings.
-        personas = PersonaManager(store: database.map { DatabasePersonaStore(database: $0) } ?? InMemoryPersonaStore(), styles: styleStore)
+        let personaManager = PersonaManager(store: database.map { DatabasePersonaStore(database: $0) } ?? InMemoryPersonaStore(), styles: styleStore)
+        personas = personaManager
+        // V5 F1 — every closed landing teaches the app's style; auto-drafted personas follow it.
+        let personaLearning = PersonaLearningLoop(personas: personaManager)
 
         // P2.1–P2.4: selection → transform (replace in place, 8 s warm window) / question (answer below).
         transform = TransformLanding(session: TransformSession(executor: TransformExecutor(providers: providerRouting),
@@ -190,8 +193,10 @@ public final class AppContainer {
 
         // Zero-edit counter (P1.11) over AX readback.
         let zeroEditTracker: ZeroEditTracker? = database.map { db in
-            ZeroEditTracker(observer: AXFieldObserver(system: system)) { [weak adaptationService] outcome in
+            ZeroEditTracker(observer: AXFieldObserver(system: system)) { [weak adaptationService, personaLearning] outcome in
                 do { try ZeroEditTracker.persist(outcome, to: db) } catch { Log.db.error("zero-edit persist failed: \(error)") }
+                personaLearning.observe(original: outcome.originalText, fieldValue: outcome.edited ? outcome.finalText : nil,
+                                        bundleID: outcome.field.appBundleID)
                 // P6.1 — an edited landing becomes a training pair; a clean one still counts.
                 if outcome.edited, let final = outcome.finalText {
                     adaptationService?.ingestEdit(utteranceID: outcome.utteranceID, original: outcome.originalText, edited: final)

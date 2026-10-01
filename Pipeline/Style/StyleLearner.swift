@@ -49,6 +49,7 @@ public struct StyleLearner: Sendable {
         if let g = obs.greeting { p.preferredGreeting = g }
         if let s = obs.signOff { p.preferredSignOff = s }
         p.sampleCount += weight
+        p.dictationCount += 1
         p.updatedAt = Date()
     }
 

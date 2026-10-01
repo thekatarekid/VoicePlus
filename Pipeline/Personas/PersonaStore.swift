@@ -41,7 +41,10 @@ public struct DatabasePersonaStore: PersonaStoring {
         }
         var map: [String: String] = [:]
         for o in overrides { map[String(o.appBundleID.dropFirst(prefix.count))] = o.instructions }
-        return Persona(appBundleID: bundleID, text: main.instructions, isAutoDrafted: meta?.instructions == "auto",
+        // V5 F1 — a box row written after its meta row was edited outside the manager (Settings saves
+        // the `PersonaRecord` directly): that is a user edit, so it is never re-drafted.
+        let auto = meta.map { $0.instructions == "auto" && main.updatedAt <= $0.updatedAt } ?? false
+        return Persona(appBundleID: bundleID, text: main.instructions, isAutoDrafted: auto,
                        recipientOverrides: map, updatedAt: main.updatedAt)
     }
 
@@ -70,6 +73,13 @@ public struct DatabasePersonaStore: PersonaStoring {
         try database.reader.read { db in
             try PersonaRecord.select(Column("appBundleID"), as: String.self).order(Column("appBundleID")).fetchAll(db)
         }.filter { !$0.hasPrefix(Self.metaPrefix) && !$0.hasPrefix(Self.recipientPrefix) && !$0.hasPrefix(DatabaseStyleProfileStore.keyPrefix) }
+    }
+
+    /// True for the namespaced bookkeeping rows (`persona-meta:`, `persona-recipient:`, `style:`)
+    /// that share the `personas` table; Settings lists only the app rows.
+    public static func isBookkeepingKey(_ appBundleID: String) -> Bool {
+        appBundleID.hasPrefix(metaPrefix) || appBundleID.hasPrefix(recipientPrefix)
+            || appBundleID.hasPrefix(DatabaseStyleProfileStore.keyPrefix)
     }
 
     private func deleteRecipients(_ b: String) throws {

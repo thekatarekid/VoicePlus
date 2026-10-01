@@ -415,6 +415,12 @@ struct AppRuleRow: View {
                 .lineLimit(2...5)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("apps.personas.instructions")
+            if let learned = model.personas.learnedLine(for: row.bundleID) {   // V5 F1
+                Text(learned)
+                    .windowFont(Tokens.Typography.meta)
+                    .foregroundStyle(WindowColor.secondaryInk)
+                    .accessibilityIdentifier("apps.personas.learned")
+            }
             if let failure = model.instructionsFailure(for: row.bundleID) {
                 ScopedBanner(failure) { _ = model.saveInstructions(text.wrappedValue, for: row.bundleID) }
             }
