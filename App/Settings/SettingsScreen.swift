@@ -22,6 +22,7 @@ struct SettingsScreen: SectionScreen {
     @StateObject private var models: ModelsPageModel
     @StateObject private var credentials: ProviderCredentialsModel
     @StateObject private var updates: UpdatesPageModel
+    @StateObject private var computerUse: ComputerUseSettingsModel   // V5 CU1
 
     init(context: SectionContext) {
         self.init(context: context, credentials: ProviderCredentialsModel(), inventory: LiveModelInventory())
@@ -41,6 +42,8 @@ struct SettingsScreen: SectionScreen {
                                                             load: ModelsPageModel.loader(for: window.deps)))
         _credentials = StateObject(wrappedValue: credentials())
         _updates = StateObject(wrappedValue: UpdatesPageModel.live(deps: window.deps))
+        _computerUse = StateObject(wrappedValue: ComputerUseSettingsModel(store: window.deps.settingsStore,
+                                                                          general: window.general, models: window.models))
     }
 
     var body: some View {
@@ -65,6 +68,8 @@ struct SettingsScreen: SectionScreen {
         case .providers:
             ProvidersSettingsPage(credentials: credentials, connectors: window.connectors, models: window.models,
                                   hotkey: hotkey)
+        case .computerUse:
+            ComputerUseSettingsPage(model: computerUse, general: general, hotkey: hotkey)
         case .sync:
             SyncSettingsPage(sync: window.sync, database: window.deps.database, hotkey: hotkey)
         case .updates:

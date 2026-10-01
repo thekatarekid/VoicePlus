@@ -78,6 +78,13 @@ public final class ConsentEngine: @unchecked Sendable {
     /// UI hooks; nil in tests.
     public var onToast: (@Sendable (UUID, UndoToastModel) -> Void)?
     public var onCard: (@Sendable (UUID, ConfirmationCard) -> Void)?
+    /// V5 CU1 — the user's consent defaults (Settings › Computer use). Only ever stricter than the
+    /// classifier: irreversible actions always wait for `confirm`.
+    public var policy: ConsentPolicy {
+        get { sync { _policy } }
+        set { sync { _policy = newValue } }
+    }
+    private var _policy = ConsentPolicy.default
 
     private func sync<T>(_ f: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return f() }
 
@@ -90,7 +97,7 @@ public final class ConsentEngine: @unchecked Sendable {
     @discardableResult
     public func submit(_ r: ConsentRequest, execute: @escaping Executor) async throws -> (UUID, ConsentOutcome) {
         let token = UUID()
-        switch classifier.classify(r) {
+        switch policy.effective(classifier.classify(r)) {
         case .reversible:
             return (token, .executed(try await execute(r)))
         case .semi:

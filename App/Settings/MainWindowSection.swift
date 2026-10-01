@@ -108,7 +108,9 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
 /// subpage: the old `benchmark`, `flags`, `data`, `snippets` and `personas` tabs are re-homed into
 /// other sections (`LegacySettingsTab.route`), never given a page of their own.
 public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
-    case general, shortcuts, appearance, models, providers, sync, updates
+    /// V5 CU1 adds `computerUse` after Providers: the act key, where the planner runs, its model,
+    /// timeout and consent defaults (it is the one page past the design's seven).
+    case general, shortcuts, appearance, models, providers, computerUse, sync, updates
 
     public var id: String { rawValue }
 
@@ -121,6 +123,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
         case .appearance: return "Appearance"
         case .models: return "Models"
         case .providers: return "Providers"
+        case .computerUse: return ComputerUseCopy.title
         case .sync: return "Sync"
         case .updates: return "Updates"
         }
@@ -132,7 +135,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// screen), so they use the Settings screen's copy.
     public var screen: DesignScreen {
         switch self {
-        case .general, .appearance, .updates: return .settings
+        case .general, .appearance, .updates, .computerUse: return .settings
         case .shortcuts: return .shortcuts
         case .models: return .models
         case .providers, .sync: return .services
@@ -143,12 +146,12 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// screen's subtitle but must not repeat its title over different rows.
     public var pageTitle: String {
         switch self {
-        case .appearance, .updates: return title
+        case .appearance, .updates, .computerUse: return title
         default: return screen.page?.title ?? title
         }
     }
 
-    public var pageSubtitle: String { screen.page?.subtitle ?? "" }
+    public var pageSubtitle: String { self == .computerUse ? ComputerUseCopy.subtitle : (screen.page?.subtitle ?? "") }
 
     /// Remembered like the section, so `⌘,` reopens the subpage the user left.
     public static let selectionKey = "window.settings.subpage"
@@ -429,6 +432,8 @@ public enum SettingsReachability {
         .init(.general, "Expose text in Chromium browsers (V5 Q2)", "settings.insertion.exposeChromiumText", .settings, .general),
         .init(.general, "Confirm in apps that hide their text — Screen Recording, off (V5 Q14)",
               "settings.insertion.confirmHiddenText", .settings, .general),
+        // V5 CU1 — Settings › Computer use (enable/key mirror Shortcuts' Actions key).
+        .init(.general, "Computer use page (V5 CU1)", "ComputerUseSettingsPage(", .settings, .computerUse),
     ]
 
     /// Source files that make up each section's detail pane: the section's `SectionScreen` entry

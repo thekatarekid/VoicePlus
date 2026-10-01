@@ -44,7 +44,19 @@ public final class NativeAgentBackend: AgentActionBackend, @unchecked Sendable {
         c?()
     }
 
-    private func publish(_ f: (inout StepChipsModel) -> Void) { f(&chips); onChips?(chips) }
+    /// V5 CU1 — "Show plan chips". Off: the pill shows only what needs the user (a step awaiting
+    /// confirmation); the run's result still arrives through the dispatch.
+    public var showsPlanChips: Bool {
+        get { sync { _showsPlanChips } }
+        set { sync { _showsPlanChips = newValue } }
+    }
+    private var _showsPlanChips = true
+
+    private func publish(_ f: (inout StepChipsModel) -> Void) {
+        f(&chips)
+        if showsPlanChips { onChips?(chips); return }
+        if case .awaitingConfirmation = chips.phase { onChips?(chips) }
+    }
 
     public func run(goal: String) async -> AgentRunReport {
         let busy: Bool = sync { if running { return true }; running = true; stopRequested = false; return false }

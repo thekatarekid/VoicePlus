@@ -164,6 +164,10 @@ public final class ActSessionController: @unchecked Sendable {
     public var contextLines: (() -> [String])?
     public var onDispatch: ((ActDispatch) -> Void)?
     public var onError: ((Error) -> Void)?
+    /// V5 CU1 — where Settings › Computer use is read from at the start of each act turn (timeout,
+    /// consent defaults, plan chips). The app's store is `UserDefaults.standard`-backed, so the
+    /// default reads the same values the page writes; tests inject an in-memory store.
+    public var settings: SettingsStore? = UserDefaultsSettingsStore()
 
     public init(engine: any EngineProtocol, router: ActRouter, state: ActDomainState) {
         self.engine = engine
@@ -174,6 +178,7 @@ public final class ActSessionController: @unchecked Sendable {
     public func handle(_ action: HotkeyStateMachine.Action) {
         switch action {
         case .startCapture:
+            applySettings()
             state.activate()
             Task {
                 do { try await engine.start(prewarm: true) } catch { Log.app.error("act: engine start failed: \(error)") }
@@ -211,7 +216,13 @@ public final class ActSessionController: @unchecked Sendable {
         await route(router.parser.parse(text, appBundleID: appBundleID()))
     }
 
+    /// Push Settings › Computer use into the router's consent engine and agent (V5 CU1).
+    public func applySettings() {
+        ComputerUseSettings.apply(settings, consent: router.consent, agent: router.agent)
+    }
+
     public func route(_ parsed: ActRoute) async {
+        applySettings()
         var parsed = parsed
         if case .agentic(let goal) = parsed, let lines = contextLines?(), !lines.isEmpty {
             parsed = .agentic(goal: "\(goal) [\(lines.joined(separator: "; "))]")

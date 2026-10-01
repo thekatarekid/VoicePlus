@@ -1029,7 +1029,7 @@ struct SettingsSubpagesS7gTests {
 
     @Test("every subpage renders in the window (smoke), and Settings has exactly the seven")
     func everySubpageRenders() throws {
-        #expect(SettingsSubpage.allCases.count == 7)
+        #expect(SettingsSubpage.allCases.count == 8)   // + V5 CU1 Computer use
         let store = InMemorySettingsStore()
         let window = MainWindowShellS7aTests.window(store: store, section: .settings)
         for subpage in SettingsSubpage.allCases {
