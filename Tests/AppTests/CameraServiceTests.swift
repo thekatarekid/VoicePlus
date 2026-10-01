@@ -77,6 +77,7 @@ import Testing
 
     @Test func lipReadingModesRunAt25fps() async {
         let (svc, _, cap) = make(.granted)
+        svc.bindLipsOnly(engine: SwappableEngine(UnavailableEngine())) { svc.lipsOnlyEngine(model: StubModel()) }
         _ = await svc.setMode(.signals)
         _ = await svc.setMode(.lipsOnly)
         #expect(cap.starts == [15, 25])
@@ -120,5 +121,49 @@ import Testing
         #expect(row.settingsAnchor == "Privacy_Camera")
         #expect(!Permission.allCases.map(\.rawValue).contains(row.rawValue), "never part of the required walk")
         #expect(row.rationale.contains("never saved"))
+    }
+
+    // MARK: LR3
+
+    final class StubModel: AVSRModelRunning, @unchecked Sendable {
+        let vocabulary = AVSRVocabulary(tokens: ["<blank>", "\u{2581}HI"])
+        var installed = true
+        func isAvailable(_ v: AVSRVariant) -> Bool { installed }
+        func run(_ input: AVSRInput, variant: AVSRVariant) async throws -> CTCOutput {
+            CTCOutput(logProbs: [[Float(log(0.1)), Float(log(0.9))]], frameDuration: 0.04)
+        }
+    }
+
+    @Test func lipsOnlySwapsTheEngineAndMutesTheMic() async {
+        let (svc, _, _) = make(.granted)
+        let voice = UnavailableEngine(reason: "voice stand-in")
+        let slot = SwappableEngine(voice)
+        let model = StubModel()
+        var muted: [Bool] = []
+        svc.onMicrophoneMuted = { muted.append($0) }
+        svc.bindLipsOnly(engine: slot) { svc.lipsOnlyEngine(model: model) }
+        _ = await svc.setMode(.lipsOnly)
+        #expect(slot.current is LipsOnlyEngine && svc.lipsOnlyActive)
+        _ = await svc.setMode(.fused)
+        #expect(slot.current === voice && !svc.lipsOnlyActive)
+        #expect(muted == [true, false])
+    }
+
+    @Test func lipsOnlyWithoutTheModelFallsBackToFused() async {
+        let (svc, _, _) = make(.granted)
+        let slot = SwappableEngine(UnavailableEngine())
+        var notices: [String] = []
+        svc.onNotice = { notices.append($0) }
+        svc.bindLipsOnly(engine: slot) { nil }
+        #expect(await svc.setMode(.lipsOnly) == .fused)
+        #expect(!(slot.current is LipsOnlyEngine))
+        #expect(notices == [LipsOnlyEngine.notInstalledMessage])
+    }
+
+    @Test func relaunchNeverRestoresAMutedMic() {
+        let store = InMemorySettingsStore()
+        store.set(LipMode.lipsOnly.rawValue, for: CameraService.modeKey)
+        let (svc, _, _) = make(.granted, store: store)
+        #expect(svc.restore() == .fused)
     }
 }

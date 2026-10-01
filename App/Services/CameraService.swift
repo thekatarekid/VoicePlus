@@ -190,7 +190,8 @@ public final class CameraService: FaceSignalsProviding, @unchecked Sendable {
     /// permission is already granted.
     @discardableResult
     public func restore() -> LipMode {
-        let wanted = persistedMode
+        // LR3 is situational (a library, a meeting): a relaunch never comes back with the mic muted.
+        let wanted = persistedMode == .lipsOnly ? .fused : persistedMode
         if case .start = CameraModeGate.decide(mode: wanted, status: authorization.status()) {
             apply(wanted)
         } else {
@@ -214,7 +215,55 @@ public final class CameraService: FaceSignalsProviding, @unchecked Sendable {
         case .denied(let notice):
             apply(.off); onNotice?(notice)
         }
+        await applyLipsOnlyTransition()
         return mode
+    }
+
+    // MARK: LR3 · lips-only switch
+
+    /// Asks the composition root to mute (true) / unmute the microphone (`MuteController`).
+    public var onMicrophoneMuted: ((Bool) -> Void)?
+    private weak var swappable: SwappableEngine?
+    private var makeLipsOnlyEngine: (() -> (any EngineProtocol)?)?
+    private var voiceEngine: (any EngineProtocol)?
+    public private(set) var lipsOnlyActive = false
+
+    /// Bind the dictation engine slot: while `.lipsOnly` is on, `swappable` runs the engine
+    /// `makeLipsOnly` returns (nil = model not installed → the mode reverts to `.fused`).
+    public func bindLipsOnly(engine swappable: SwappableEngine, makeLipsOnly: @escaping () -> (any EngineProtocol)?) {
+        self.swappable = swappable
+        self.makeLipsOnlyEngine = makeLipsOnly
+    }
+
+    /// The lips-only engine over this service's mouth crops (LR3 "same pipeline").
+    public func lipsOnlyEngine(model: AVSRModelRunning) -> LipsOnlyEngine {
+        let crops = mouthCrops
+        return LipsOnlyEngine(recognizer: AVSRRecognizer(videoOnly: true, model: model, visual: crops),
+                              isModelInstalled: { [weak model] in model?.isAvailable(.visualOnly) ?? false },
+                              clock: now, onUtteranceEnd: { crops.clear() })
+    }
+
+    private func applyLipsOnlyTransition() async {
+        let want = mode == .lipsOnly
+        guard want != lipsOnlyActive else { return }
+        if want {
+            guard let engine = makeLipsOnlyEngine?() else {
+                apply(.fused)
+                onNotice?(LipsOnlyEngine.notInstalledMessage)
+                return
+            }
+            if let swappable {
+                voiceEngine = swappable.current
+                await swappable.swap(to: engine)
+            }
+            lipsOnlyActive = true
+            onMicrophoneMuted?(true)
+        } else {
+            if let swappable, let voice = voiceEngine { await swappable.swap(to: voice) }
+            voiceEngine = nil
+            lipsOnlyActive = false
+            onMicrophoneMuted?(false)
+        }
     }
 
     private func apply(_ next: LipMode, persist: Bool = true) {
