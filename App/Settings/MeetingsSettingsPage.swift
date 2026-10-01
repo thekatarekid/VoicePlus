@@ -158,6 +158,7 @@ struct MeetingsSettingsPage: View {
                         Toggle(cal.title, isOn: Binding(get: { model.isIncluded(cal.id) }, set: { model.setIncluded(cal.id, $0) }))
                     }
                 }
+                MeetingSpeakerLabelSettingsSection()   // V5 M13
                 Section("After the meeting") {
                     Picker("Save meeting recording", selection: Binding(get: { model.saveRecording }, set: model.setSaveRecording)) {
                         ForEach(MeetingRecordingSaveMode.allCases, id: \.self) { Text($0.label).tag($0) }

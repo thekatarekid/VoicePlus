@@ -73,7 +73,7 @@ public struct MeetingVoiceMapping: Sendable {
             if let s = Self.speaker(forLabel: label), let e = voices.voices[label]?.embedding { speakers[s] = e }
         }
         let matches = library.match(speakers: speakers)
-        var current = names.names(for: meetingID)
+        var current = names.savedNames(for: meetingID)
         for (speaker, m) in matches {
             switch m {
             case .applied(let p, _):
@@ -99,7 +99,7 @@ public struct MeetingVoiceMapping: Sendable {
     @discardableResult
     public func map(_ speaker: MeetingSpeaker, to name: String, meetingID: String) throws -> VoiceprintPerson {
         let person = try library.person(named: name)
-        var current = names.names(for: meetingID)
+        var current = names.savedNames(for: meetingID)
         current.names[speaker.label] = person.name
         try names.save(current, for: meetingID)
         let dir = directory(meetingID)

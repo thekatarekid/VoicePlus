@@ -145,6 +145,10 @@ struct MeetingsDetailView: View {
                         .foregroundStyle(WindowColor.secondaryInk)
                 }
             }
+            // V5 M13 — who spoke: descriptive labels, hover card, snippet, "Map to…" (M10).
+            MeetingSpeakersStrip(meetingID: record.id, playSnippet: snippet,
+                                 onNamesChanged: { model.objectWillChange.send() })
+                .id(record.id)
             MeetingPaper {
                 if model.visibleLines.isEmpty && !model.transcriptQuery.isEmpty {
                     VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
@@ -167,6 +171,15 @@ struct MeetingsDetailView: View {
                         .accessibilityIdentifier("meetings.transcript.noAudio")
                 }
             }
+        }
+    }
+
+    /// V5 M13 — 3 s of a speaker's voice from the kept recording.
+    private var snippet: ((TimeInterval) -> Void)? {
+        guard let url = model.retainedAudio else { return nil }
+        return { time in
+            player.play(url, from: time)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { player.stop() }
         }
     }
 

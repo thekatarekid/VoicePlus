@@ -230,22 +230,48 @@ public enum DiarizationFactory {
                             legs: Set<MeetingChannel> = [.mic, .system],
                             modelManager: ModelManager? = nil,
                             residency: ModelResidency = .shared,
-                            embeddingChoice: MeetingEmbeddingChoice = .wespeaker) -> any SpeakerLabeler {
+                            embeddingChoice: MeetingEmbeddingChoice = .wespeaker,
+                            locateCampPlus: () -> URL? = { ResidentCampPlusEmbedding.locate() },
+                            describe: Describe? = nil) -> any SpeakerLabeler {
+        // One backend instance per model (each owns its `ModelResidency` key).
+        let wespeaker = locate().map { ResidentSpeakerEmbedding(directory: $0, residency: residency) }
+        let campPlus = embeddingChoice == .campPlus ? locateCampPlus().map { ResidentCampPlusEmbedding(directory: $0, residency: residency) } : nil
         let base: any SpeakerLabeler
-        if let enrolled = enrolledUserEmbedding, !enrolled.isEmpty, let directory = locate() {
+        if let enrolled = enrolledUserEmbedding, !enrolled.isEmpty, let wespeaker {
             // V5 M9 — CAM++ clusters the call when it is the chosen model and installed.
-            let cluster = embeddingChoice == .campPlus ? embeddingChoice.backend(residency: residency) : nil
-            base = EmbeddingLabeler(backend: ResidentSpeakerEmbedding(directory: directory, residency: residency),
-                                    enrolled: enrolled, threshold: micThreshold, clusterBackend: cluster)
+            base = EmbeddingLabeler(backend: wespeaker, enrolled: enrolled, threshold: micThreshold, clusterBackend: campPlus)
         } else {
             base = ChannelLabeler()
         }
-        guard let folder = sortformer() else {
+        let labeler: any SpeakerLabeler
+        if let folder = sortformer() {
+            let diarizer = StreamingDiarizer(backend: SortformerBackend(folder: folder, residency: residency), legs: legs)
+            labeler = SortformerLabeler(diarizer: diarizer, fallback: base)
+        } else {
             if let modelManager { fetchSortformer(modelManager) }
-            return base
+            labeler = base
         }
-        let diarizer = StreamingDiarizer(backend: SortformerBackend(folder: folder, residency: residency), legs: legs)
-        return SortformerLabeler(diarizer: diarizer, fallback: base)
+        guard let describe else { return labeler }
+        // V5 M10/M13 — voices for the library in the chosen model's space (WeSpeaker when CAM++ is absent).
+        let (voices, embedder): ((any SpeakerEmbeddingBackend)?, String) = campPlus.map { ($0, MeetingEmbeddingChoice.campPlus.embedderID) }
+            ?? (wespeaker, MeetingEmbeddingChoice.wespeaker.embedderID)
+        return DescribingLabeler(inner: labeler, voices: voices, voiceEmbedder: embedder, library: describe.library,
+                                 hints: describe.hints, context: describe.context)
+    }
+
+    /// V5 M10/M13/M11 — describe the meeting's speakers at the end (see `DescribingLabeler`).
+    public struct Describe: Sendable {
+        public var library: @Sendable () -> VoiceprintStore?
+        public var hints: (any SpeakerNameHinting)?
+        public var context: @Sendable (MeetingRecord) -> SpeakerDescriptionContext
+        public init(library: @escaping @Sendable () -> VoiceprintStore? = { try? VoiceprintStore() },
+                    hints: (any SpeakerNameHinting)? = nil,
+                    context: @escaping @Sendable (MeetingRecord) -> SpeakerDescriptionContext = {
+                        SpeakerDescriptionContext(title: $0.title, startedAt: $0.startedAt,
+                                                  perceivedGender: SpeakerDescriptorBuilder.perceivedGenderEnabled())
+                    }) {
+            self.library = library; self.hints = hints; self.context = context
+        }
     }
 
     private static let fetching = OnceFlag()

@@ -45,7 +45,20 @@ public struct FileMeetingSpeakerNames: MeetingSpeakerNameSource {
         store.directory(for: meetingID).appendingPathComponent(MeetingSpeakerNames.fileName)
     }
 
+    /// Names to show: what the user / voiceprint library named (`speaker-names.json`), else the
+    /// speaker's M13 descriptive label (`speaker-descriptors.json`), else nothing (the caller shows
+    /// "Others 2").
     public func names(for meetingID: String) -> MeetingSpeakerNames {
+        var out = savedNames(for: meetingID)
+        for (label, text) in MeetingSpeakerDescriptors.load(from: store.directory(for: meetingID)).labels where out.names[label] == nil {
+            out.names[label] = text
+        }
+        return out
+    }
+
+    /// V5 M13 — only the names in `speaker-names.json` (real names). Load-modify-save goes through
+    /// this, so a descriptive label is never saved as though it were a name.
+    public func savedNames(for meetingID: String) -> MeetingSpeakerNames {
         guard let data = try? Data(contentsOf: url(for: meetingID)),
               let names = try? JSONDecoder().decode(MeetingSpeakerNames.self, from: data) else { return .init() }
         return names
