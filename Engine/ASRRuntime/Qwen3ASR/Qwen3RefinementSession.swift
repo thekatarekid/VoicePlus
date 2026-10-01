@@ -135,6 +135,13 @@ private actor Backend {
         guard incomplete.isEmpty else {
             throw RefinementError.weightsIncomplete(path: folder.path, problems: incomplete)
         }
+        // V5 K21 — byte counts against the publisher's manifest before any load, so the Settings
+        // row's "Ready" / "Not verified" means exactly what the backend accepted.
+        let unverified = store.verify(at: folder)
+        guard unverified.isEmpty else {
+            throw RefinementError.weightsIncomplete(path: folder.path,
+                                                    problems: unverified.map { "\($0) does not match the published size" })
+        }
         do {
             tokenizer = try Qwen3ContextTokenizer(
                 vocabularyFile: folder.appendingPathComponent("vocab.json")
