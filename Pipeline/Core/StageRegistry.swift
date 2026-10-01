@@ -10,7 +10,8 @@ public enum StageRegistry {
         ChatFormatter(),
         CodeFormatter(),
         TerminalFormatter(),
-        StyleStage(), // P1.7 T7 — runs after formatters (style is the last pass, Bet 8)
+        TextReplacementStage(), CasingStage(), // V5 P1/P3 — after ITN (formatters), before cleanup/style
+        EntityProtectingStage(StyleStage()), // P1.7 T7 — runs after formatters (style is the last pass, Bet 8); V5 P5 never lowercases a likely entity
     ]
 
     /// All registered stages, in registration order (used by `PipelineRunner.standard`).
