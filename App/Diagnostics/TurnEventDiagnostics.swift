@@ -12,6 +12,9 @@ public enum TurnEventDiagnostics {
     nonisolated(unsafe) public static var observer: ((TurnDiagnosticsEvent, String) -> Void)?
     /// Where the pointer is (AppKit global coordinates). Swappable in tests.
     nonisolated(unsafe) public static var pointer: () -> DiagnosticsPoint? = { DiagnosticsPoint(NSEvent.mouseLocation) }
+    /// The pill's frame (AppKit global coordinates), nil while it is not on screen. The pill panel
+    /// controller points this at its panel; swappable in tests.
+    nonisolated(unsafe) public static var frame: () -> DiagnosticsRect? = { nil }
 
     /// Appends to the shared Q13 store (`PillDiagnostics.store`, set by the composition root).
     public static func record(_ event: TurnDiagnosticsEvent, turn: String) {
@@ -42,7 +45,7 @@ public enum TurnEventDiagnostics {
     }
 
     static func pauseEvent(_ reason: String, resumed: Bool) -> TurnDiagnosticsEvent {
-        resumed ? .resume(reason: reason, pointer: pointer(), frame: nil)
-                : .pause(reason: reason, pointer: pointer(), frame: nil)
+        resumed ? .resume(reason: reason, pointer: pointer(), frame: frame())
+                : .pause(reason: reason, pointer: pointer(), frame: frame())
     }
 }

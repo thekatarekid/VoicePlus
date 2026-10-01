@@ -132,6 +132,12 @@ public final class PillPanelController {
             forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
         ) { [weak self] _ in self?.noteSurfaceOnScreen() }
         Self.logPlacementDiagnostics()
+        // V5 Q13 — dwell pause/resume diagnostics carry the pill frame at that moment (main thread
+        // only; an off-main read records no frame rather than touching AppKit).
+        TurnEventDiagnostics.frame = { [weak panel] in
+            guard Thread.isMainThread, let panel, panel.isVisible else { return nil }
+            return DiagnosticsRect(panel.frame)
+        }
     }
 
     deinit {
