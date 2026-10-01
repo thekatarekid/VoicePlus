@@ -1,0 +1,202 @@
+# H2 — 200 scripted utterances: class<TAB>expected route<TAB>text. Notes route as dictation
+# (the gatekeeper has no note route; note ownership is O2/O3's decision layer). Not in the seed corpus.
+dictate	dictate	hey Sam, are we still on for lunch tomorrow
+dictate	dictate	the build failed again on the integration branch
+dictate	dictate	I'll be about ten minutes late to standup
+dictate	dictate	please review the pull request when you get a chance
+dictate	dictate	our flight lands at six thirty in the evening
+dictate	dictate	the customer asked for a refund on the annual plan
+dictate	dictate	make sure the staging database is backed up first
+dictate	dictate	no rush on this one, next week is fine
+dictate	dictate	not a problem, I can cover the Friday shift
+dictate	dictate	what a great presentation that was
+dictate	dictate	fix for the login bug is in the latest release
+dictate	dictate	change of plans, we are meeting in room four instead
+dictate	dictate	I said I would finish the draft by Monday and I will
+dictate	dictate	turn left at the second signal after the petrol pump
+dictate	dictate	let me know if the numbers look off to you
+dictate	dictate	the API returns a four oh four when the token expires
+dictate	dictate	we need three more chairs for the workshop
+dictate	dictate	happy birthday, hope you have a wonderful day
+dictate	dictate	the invoice total should be twelve thousand rupees
+dictate	dictate	can we push the review to Thursday afternoon
+dictate	dictate	I just pushed the hotfix to production
+dictate	dictate	the kids have a school holiday on the fifteenth
+dictate	dictate	thanks so much for helping out with the move
+dictate	dictate	how about we try the new Thai place tonight
+dictate	dictate	the server room temperature alarm went off twice
+dictate	dictate	please add Priya to the calendar invite
+dictate	dictate	our sprint goal is to ship the onboarding flow
+dictate	dictate	the doctor said to take the tablets after meals
+dictate	dictate	we are out of milk and eggs
+dictate	dictate	the design looks clean but the spacing feels tight
+dictate	dictate	I will send the slides after the call
+dictate	dictate	remember the parking lot closes at nine
+dictate	dictate	the quarterly review is on the twenty third
+dictate	dictate	nobody responded to the survey yet
+dictate	dictate	the cache invalidation logic is in the utils folder
+dictate	dictate	congrats on the promotion, well deserved
+dictate	dictate	the meeting notes are in the shared drive
+dictate	dictate	I think the second option is cheaper overall
+dictate	dictate	looking forward to catching up next week
+dictate	dictate	the package should arrive by Wednesday
+dictate	dictate	our rent goes up by five percent from April
+dictate	dictate	the tests pass locally but fail on CI
+dictate	dictate	can you grab coffee on your way in
+dictate	dictate	the client loved the new logo
+dictate	dictate	I am working from home today
+dictate	dictate	the train was delayed by forty minutes
+dictate	dictate	the error only happens on Safari
+dictate	dictate	just landed, heading to the hotel now
+dictate	dictate	let's keep the scope small for the first version
+dictate	dictate	the dog needs to go to the vet on Saturday
+command	repairCommand	scratch that last sentence
+command	repairCommand	no, Tuesday
+command	repairCommand	no, it's Rahul not Raul
+command	repairCommand	undo the last change
+command	repairCommand	delete the last two words
+command	repairCommand	replace Tuesday with Wednesday
+command	repairCommand	change twenty to thirty
+command	repairCommand	I said Kubernetes
+command	repairCommand	I meant the Mumbai office
+command	repairCommand	not that, the other one
+command	repairCommand	strike that whole line
+command	repairCommand	erase that sentence
+command	repairCommand	never mind
+command	repairCommand	go back one sentence
+command	repairCommand	put it back the way it was
+command	repairCommand	the second option
+command	repairCommand	the first one
+command	repairCommand	capital M for Meera
+command	repairCommand	that's wrong
+command	repairCommand	spell it P R I Y A
+command	repairCommand	nope, Friday
+command	repairCommand	delete that
+command	repairCommand	remove that last bit
+command	repairCommand	redo that
+command	repairCommand	uppercase that word
+command	repairCommand	swap Monday with Friday
+command	repairCommand	no, seven thirty
+command	repairCommand	fix the last word to Pune
+command	repairCommand	not the first one
+command	repairCommand	I said Sundar
+command	repairCommand	wrong, it should be Anthropic
+command	repairCommand	lowercase that
+command	repairCommand	no, the blue one
+command	repairCommand	undo
+command	repairCommand	delete the last sentence please
+command	repairCommand	replace cat with dog
+command	repairCommand	it's spelled K A T A R E
+command	repairCommand	scratch that, start over
+command	repairCommand	the third one
+command	repairCommand	I meant Thursday
+command	repairCommand	no, Mehta
+command	repairCommand	change the name to Aditya
+command	repairCommand	erase that last word
+command	repairCommand	delete last line
+command	repairCommand	strike that word
+command	repairCommand	never mind that
+command	repairCommand	not that one, the next
+command	repairCommand	no, make it eleven
+command	repairCommand	the second one please
+command	repairCommand	put that back
+edit	transform	rewrite this more politely
+edit	transform	summarize the email above
+edit	transform	translate it into Spanish
+edit	transform	shorten this paragraph
+edit	transform	simplify the wording here
+edit	transform	make this sound more professional
+edit	transform	make it shorter
+edit	transform	turn this into a numbered list
+edit	transform	convert it to a table
+edit	transform	clean it up a bit
+edit	transform	fix the grammar in this
+edit	transform	make that more concise
+edit	transform	proofread this
+edit	transform	paraphrase the second line
+edit	transform	condense this into two sentences
+edit	transform	reword it for a customer
+edit	transform	tighten it up
+edit	transform	formalize this
+edit	transform	expand this into a full paragraph
+edit	transform	make it friendlier
+edit	transform	turn it into a haiku
+edit	transform	convert this into bullet points
+edit	transform	reply to this saying yes
+edit	transform	respond to this with a thank you
+edit	transform	make this less wordy
+edit	transform	translate this into Hindi please
+edit	transform	summarise this thread
+edit	transform	rewrite it as a tweet
+edit	transform	make these bullet points
+edit	transform	flip this into passive voice
+edit	transform	add a sign off to this
+edit	transform	make it sound more confident
+edit	transform	turn this into an email to the team
+edit	transform	shorten it to one line
+edit	transform	simplify this for a child
+edit	transform	rewrite this paragraph in plain English
+edit	transform	make this more casual
+edit	transform	fix the spelling in this
+edit	transform	clean this up for slack
+edit	transform	condense it
+edit	transform	make it more direct
+edit	transform	convert that into a checklist
+edit	transform	reword this so it sounds kinder
+edit	transform	expand on it a little
+edit	transform	make it formal
+edit	transform	turn that into a question
+edit	transform	tighten this paragraph
+edit	transform	paraphrase this
+edit	transform	summarize it in three bullets
+edit	transform	make it punchier
+note	dictate	note to self call the bank on Monday
+note	dictate	remember to renew the passport before June
+note	dictate	idea for the app, a weekly summary email
+note	dictate	note buy batteries for the remote
+note	dictate	reminder the gym membership expires next month
+note	dictate	thought, maybe we should hire a designer
+note	dictate	todo update the README with setup steps
+note	dictate	note the wifi password is on the fridge
+note	dictate	remember Ananya likes dark chocolate
+note	dictate	idea, add keyboard shortcuts to the editor
+note	dictate	note to self the meeting moved to three
+note	dictate	jot down that the car service is due
+note	dictate	remember to water the plants on Sunday
+note	dictate	idea for a blog post about local first apps
+note	dictate	note to self pay the electricity bill
+note	dictate	todo file the expense report
+note	dictate	note that the client prefers email over calls
+note	dictate	remember the dentist appointment on the ninth
+note	dictate	idea, a podcast about indie hacking
+note	dictate	note to self back up the laptop tonight
+note	dictate	reminder to follow up with Karan about the contract
+note	dictate	note the parking spot is level two row C
+note	dictate	thought for later, migrate the blog to a static site
+note	dictate	todo book train tickets for Diwali
+note	dictate	note to self the API key rotates every ninety days
+note	dictate	remember to send the thank you card
+note	dictate	idea, use a queue for the email jobs
+note	dictate	note grandma's recipe needs two cups of flour
+note	dictate	todo clean up the downloads folder
+note	dictate	remember mom's flight is on Thursday
+note	dictate	note to self ask about the health insurance renewal
+note	dictate	idea, make onboarding a three step wizard
+note	dictate	note the landlord's number ends in four five
+note	dictate	todo cancel the unused streaming subscription
+note	dictate	remember to pick up the dry cleaning
+note	dictate	note to self, the bug only happens after sleep
+note	dictate	idea for the weekend, hike up the hills
+note	dictate	note the meeting room code is four four two one
+note	dictate	reminder to submit the timesheet by Friday
+note	dictate	todo order a new keyboard
+note	dictate	note to self, check the logs for timeout errors
+note	dictate	remember the library books are due on the twelfth
+note	dictate	idea, add dark mode to the dashboard
+note	dictate	note that Ravi is out next week
+note	dictate	todo renew the domain name
+note	dictate	remember to charge the camera batteries
+note	dictate	note to self look into the memory leak
+note	dictate	idea, gift a plant for the housewarming
+note	dictate	note the conference starts at nine sharp
+note	dictate	todo write the quarterly goals

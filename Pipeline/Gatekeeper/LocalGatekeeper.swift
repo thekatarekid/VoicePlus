@@ -7,7 +7,10 @@ import Shared
 public struct LocalGatekeeper: GatekeeperClassifying {
     public static let shared = LocalGatekeeper()
 
-    public var routeThreshold: Double = 0.6
+    /// H2 (2026-10-01): 0.6 → 0.9. On the 200-utterance scripted set (Lab/results/h2-gatekeeper-confusion.md)
+    /// accuracy 0.900 → 0.985 and dictation routed as a command/transform 13 → 2, at the cost of 1 missed
+    /// command. Rules still catch the crisp commands; Bayes now needs a strong posterior to override dictation.
+    public var routeThreshold: Double = 0.9
     public var registerThreshold: Double = 0.55
     /// Commands, transforms and questions are short. Past this many words the Bayes route
     /// model is not consulted (its posterior saturates on long narration — P1.12 chaos finding);
@@ -17,7 +20,7 @@ public struct LocalGatekeeper: GatekeeperClassifying {
     private let routeModel: NaiveBayesClassifier<Utterance.Route>
     private let registerModel: NaiveBayesClassifier<Utterance.Register>
 
-    public init(routeThreshold: Double = 0.6, registerThreshold: Double = 0.55) {
+    public init(routeThreshold: Double = 0.9, registerThreshold: Double = 0.55) {
         self.routeThreshold = routeThreshold
         self.registerThreshold = registerThreshold
         routeModel = NaiveBayesClassifier(examples: GatekeeperSeedCorpus.routes)

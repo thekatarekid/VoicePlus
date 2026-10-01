@@ -110,8 +110,11 @@ struct RealRoomDigitsClassTests {
         let starts: [Double] = [0.24, 0.56, 1.36, 1.68, 2.0, 2.4, 2.72, 2.96, 3.28, 4.4, 4.88, 5.28, 5.6, 5.92]
         let ends: [Double] = [0.56, 1.36, 1.68, 2.0, 2.16, 2.64, 2.96, 3.28, 3.92, 4.64, 5.04, 5.6, 5.84, 7.68]
         let spans = words.indices.map { TranscriptSpan(text: words[$0], confidence: 0.95, audioRange: starts[$0]...ends[$0], provenance: [.asr]) }
-        let decision = LocalGatekeeper.shared.classify(spans.joinedText, context: StageContext())
-        #expect(decision.route == .question, "the route model's reading this test guards against")
+        // H2 raised the shipped route threshold to 0.9, which now reads line 05 as dictation; the
+        // pre-H2 threshold (0.6) still reproduces the misreading this test guards against.
+        let legacy = LocalGatekeeper(routeThreshold: 0.6).classify(spans.joinedText, context: StageContext())
+        #expect(legacy.route == .question, "the route model's reading this test guards against")
+        #expect(LocalGatekeeper.shared.classify(spans.joinedText, context: StageContext()).route == .dictate)
         let payload = await Self.lander().land(spans, startedAt: Date(), focus: Self.notes, inject: false)
         #expect(payload.text == "The invoice total is 2340 rupees not 2430.")
         #expect(payload.route == .dictate)

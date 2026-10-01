@@ -1,0 +1,830 @@
+{
+  "date" : "2026-10-01",
+  "item" : "H2",
+  "model" : "LocalGatekeeper (rules + naive Bayes seed corpus)",
+  "set" : "Fixtures\/gatekeeper\/h2-scripted.tsv (200 scripted, 50\/class)",
+  "shipped" : {
+    "accuracy" : 0.985,
+    "falseCommands" : 2,
+    "matrix" : {
+      "command" : {
+        "dictate" : 0,
+        "none" : 0,
+        "question" : 0,
+        "repairCommand" : 50,
+        "transform" : 0
+      },
+      "dictate" : {
+        "dictate" : 48,
+        "none" : 0,
+        "question" : 0,
+        "repairCommand" : 2,
+        "transform" : 0
+      },
+      "edit" : {
+        "dictate" : 1,
+        "none" : 0,
+        "question" : 0,
+        "repairCommand" : 0,
+        "transform" : 49
+      },
+      "note" : {
+        "dictate" : 50,
+        "none" : 0,
+        "question" : 0,
+        "repairCommand" : 0,
+        "transform" : 0
+      }
+    },
+    "missedCommands" : 1,
+    "misses" : [
+      "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+      "dictate → repairCommand: I think the second option is cheaper overall",
+      "edit → dictate: fix the spelling in this"
+    ],
+    "perClassAccuracy" : {
+      "command" : 1,
+      "dictate" : 0.96,
+      "edit" : 0.98,
+      "note" : 1
+    },
+    "threshold" : 0.9
+  },
+  "sweep" : [
+    {
+      "accuracy" : 0.685,
+      "falseCommands" : 44,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 20,
+          "none" : 0,
+          "question" : 9,
+          "repairCommand" : 19,
+          "transform" : 2
+        },
+        "edit" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 50
+        },
+        "note" : {
+          "dictate" : 17,
+          "none" : 0,
+          "question" : 10,
+          "repairCommand" : 12,
+          "transform" : 11
+        }
+      },
+      "missedCommands" : 0,
+      "misses" : [
+        "dictate → question: I'll be about ten minutes late to standup",
+        "dictate → question: our flight lands at six thirty in the evening",
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → question: no rush on this one, next week is fine",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → question: what a great presentation that was",
+        "dictate → question: change of plans, we are meeting in room four instead",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: turn left at the second signal after the petrol pump",
+        "dictate → repairCommand: the API returns a four oh four when the token expires",
+        "dictate → repairCommand: the invoice total should be twelve thousand rupees",
+        "dictate → repairCommand: I just pushed the hotfix to production",
+        "dictate → repairCommand: the kids have a school holiday on the fifteenth",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: the server room temperature alarm went off twice",
+        "dictate → question: our sprint goal is to ship the onboarding flow",
+        "dictate → question: we are out of milk and eggs",
+        "dictate → repairCommand: the design looks clean but the spacing feels tight",
+        "dictate → repairCommand: I will send the slides after the call",
+        "dictate → repairCommand: remember the parking lot closes at nine",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → transform: looking forward to catching up next week",
+        "dictate → repairCommand: the package should arrive by Wednesday",
+        "dictate → question: our rent goes up by five percent from April",
+        "dictate → repairCommand: the tests pass locally but fail on CI",
+        "dictate → repairCommand: I am working from home today",
+        "dictate → repairCommand: the train was delayed by forty minutes",
+        "dictate → repairCommand: the error only happens on Safari",
+        "dictate → repairCommand: just landed, heading to the hotel now",
+        "dictate → repairCommand: the dog needs to go to the vet on Saturday",
+        "note → repairCommand: remember to renew the passport before June",
+        "note → transform: idea for the app, a weekly summary email",
+        "note → repairCommand: reminder the gym membership expires next month",
+        "note → repairCommand: todo update the README with setup steps",
+        "note → question: remember Ananya likes dark chocolate",
+        "note → transform: idea, add keyboard shortcuts to the editor",
+        "note → repairCommand: jot down that the car service is due",
+        "note → transform: remember to water the plants on Sunday",
+        "note → question: idea for a blog post about local first apps",
+        "note → repairCommand: note to self pay the electricity bill",
+        "note → repairCommand: todo file the expense report",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: idea, a podcast about indie hacking",
+        "note → repairCommand: note to self back up the laptop tonight",
+        "note → transform: reminder to follow up with Karan about the contract",
+        "note → question: note the parking spot is level two row C",
+        "note → transform: thought for later, migrate the blog to a static site",
+        "note → question: todo book train tickets for Diwali",
+        "note → question: note grandma's recipe needs two cups of flour",
+        "note → transform: todo clean up the downloads folder",
+        "note → question: remember mom's flight is on Thursday",
+        "note → question: note to self ask about the health insurance renewal",
+        "note → transform: idea, make onboarding a three step wizard",
+        "note → question: note the landlord's number ends in four five",
+        "note → repairCommand: todo cancel the unused streaming subscription",
+        "note → transform: remember to pick up the dry cleaning",
+        "note → repairCommand: note the meeting room code is four four two one",
+        "note → transform: todo order a new keyboard",
+        "note → transform: idea, add dark mode to the dashboard",
+        "note → question: note that Ravi is out next week",
+        "note → repairCommand: todo renew the domain name",
+        "note → transform: note to self look into the memory leak",
+        "note → repairCommand: note the conference starts at nine sharp"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.4,
+        "edit" : 1,
+        "note" : 0.34
+      },
+      "threshold" : 0.4
+    },
+    {
+      "accuracy" : 0.765,
+      "falseCommands" : 31,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 25,
+          "none" : 0,
+          "question" : 9,
+          "repairCommand" : 14,
+          "transform" : 2
+        },
+        "edit" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 50
+        },
+        "note" : {
+          "dictate" : 28,
+          "none" : 0,
+          "question" : 7,
+          "repairCommand" : 6,
+          "transform" : 9
+        }
+      },
+      "missedCommands" : 0,
+      "misses" : [
+        "dictate → question: I'll be about ten minutes late to standup",
+        "dictate → question: our flight lands at six thirty in the evening",
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → question: no rush on this one, next week is fine",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → question: what a great presentation that was",
+        "dictate → question: change of plans, we are meeting in room four instead",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: turn left at the second signal after the petrol pump",
+        "dictate → repairCommand: the API returns a four oh four when the token expires",
+        "dictate → repairCommand: the invoice total should be twelve thousand rupees",
+        "dictate → repairCommand: I just pushed the hotfix to production",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: the server room temperature alarm went off twice",
+        "dictate → question: our sprint goal is to ship the onboarding flow",
+        "dictate → question: we are out of milk and eggs",
+        "dictate → repairCommand: the design looks clean but the spacing feels tight",
+        "dictate → repairCommand: I will send the slides after the call",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → transform: looking forward to catching up next week",
+        "dictate → question: our rent goes up by five percent from April",
+        "dictate → repairCommand: I am working from home today",
+        "dictate → repairCommand: the train was delayed by forty minutes",
+        "dictate → repairCommand: the error only happens on Safari",
+        "dictate → repairCommand: the dog needs to go to the vet on Saturday",
+        "note → transform: idea for the app, a weekly summary email",
+        "note → repairCommand: todo update the README with setup steps",
+        "note → transform: idea, add keyboard shortcuts to the editor",
+        "note → repairCommand: jot down that the car service is due",
+        "note → transform: remember to water the plants on Sunday",
+        "note → question: idea for a blog post about local first apps",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: note the parking spot is level two row C",
+        "note → transform: thought for later, migrate the blog to a static site",
+        "note → question: todo book train tickets for Diwali",
+        "note → question: note grandma's recipe needs two cups of flour",
+        "note → transform: todo clean up the downloads folder",
+        "note → question: remember mom's flight is on Thursday",
+        "note → transform: idea, make onboarding a three step wizard",
+        "note → question: note the landlord's number ends in four five",
+        "note → repairCommand: todo cancel the unused streaming subscription",
+        "note → transform: remember to pick up the dry cleaning",
+        "note → repairCommand: note the meeting room code is four four two one",
+        "note → transform: todo order a new keyboard",
+        "note → transform: idea, add dark mode to the dashboard",
+        "note → question: note that Ravi is out next week",
+        "note → repairCommand: todo renew the domain name"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.5,
+        "edit" : 1,
+        "note" : 0.56
+      },
+      "threshold" : 0.45
+    },
+    {
+      "accuracy" : 0.825,
+      "falseCommands" : 21,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 29,
+          "none" : 0,
+          "question" : 8,
+          "repairCommand" : 11,
+          "transform" : 2
+        },
+        "edit" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 50
+        },
+        "note" : {
+          "dictate" : 36,
+          "none" : 0,
+          "question" : 6,
+          "repairCommand" : 4,
+          "transform" : 4
+        }
+      },
+      "missedCommands" : 0,
+      "misses" : [
+        "dictate → question: I'll be about ten minutes late to standup",
+        "dictate → question: our flight lands at six thirty in the evening",
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → question: no rush on this one, next week is fine",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → question: what a great presentation that was",
+        "dictate → question: change of plans, we are meeting in room four instead",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: turn left at the second signal after the petrol pump",
+        "dictate → repairCommand: the API returns a four oh four when the token expires",
+        "dictate → repairCommand: I just pushed the hotfix to production",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: the server room temperature alarm went off twice",
+        "dictate → question: our sprint goal is to ship the onboarding flow",
+        "dictate → repairCommand: the design looks clean but the spacing feels tight",
+        "dictate → repairCommand: I will send the slides after the call",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → transform: looking forward to catching up next week",
+        "dictate → question: our rent goes up by five percent from April",
+        "dictate → repairCommand: I am working from home today",
+        "dictate → repairCommand: the train was delayed by forty minutes",
+        "note → transform: idea for the app, a weekly summary email",
+        "note → repairCommand: todo update the README with setup steps",
+        "note → repairCommand: jot down that the car service is due",
+        "note → question: idea for a blog post about local first apps",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: note the parking spot is level two row C",
+        "note → question: note grandma's recipe needs two cups of flour",
+        "note → transform: todo clean up the downloads folder",
+        "note → question: remember mom's flight is on Thursday",
+        "note → transform: idea, make onboarding a three step wizard",
+        "note → question: note the landlord's number ends in four five",
+        "note → transform: remember to pick up the dry cleaning",
+        "note → question: note that Ravi is out next week",
+        "note → repairCommand: todo renew the domain name"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.58,
+        "edit" : 1,
+        "note" : 0.72
+      },
+      "threshold" : 0.5
+    },
+    {
+      "accuracy" : 0.86,
+      "falseCommands" : 17,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 33,
+          "none" : 0,
+          "question" : 7,
+          "repairCommand" : 8,
+          "transform" : 2
+        },
+        "edit" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 50
+        },
+        "note" : {
+          "dictate" : 39,
+          "none" : 0,
+          "question" : 4,
+          "repairCommand" : 4,
+          "transform" : 3
+        }
+      },
+      "missedCommands" : 0,
+      "misses" : [
+        "dictate → question: our flight lands at six thirty in the evening",
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → question: no rush on this one, next week is fine",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → question: what a great presentation that was",
+        "dictate → question: change of plans, we are meeting in room four instead",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: the API returns a four oh four when the token expires",
+        "dictate → repairCommand: I just pushed the hotfix to production",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: the server room temperature alarm went off twice",
+        "dictate → question: our sprint goal is to ship the onboarding flow",
+        "dictate → repairCommand: the design looks clean but the spacing feels tight",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → transform: looking forward to catching up next week",
+        "dictate → question: our rent goes up by five percent from April",
+        "dictate → repairCommand: I am working from home today",
+        "note → repairCommand: todo update the README with setup steps",
+        "note → repairCommand: jot down that the car service is due",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: note the parking spot is level two row C",
+        "note → question: note grandma's recipe needs two cups of flour",
+        "note → transform: todo clean up the downloads folder",
+        "note → question: remember mom's flight is on Thursday",
+        "note → transform: idea, make onboarding a three step wizard",
+        "note → question: note the landlord's number ends in four five",
+        "note → transform: remember to pick up the dry cleaning",
+        "note → repairCommand: todo renew the domain name"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.66,
+        "edit" : 1,
+        "note" : 0.78
+      },
+      "threshold" : 0.55
+    },
+    {
+      "accuracy" : 0.9,
+      "falseCommands" : 13,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 36,
+          "none" : 0,
+          "question" : 5,
+          "repairCommand" : 7,
+          "transform" : 2
+        },
+        "edit" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 50
+        },
+        "note" : {
+          "dictate" : 44,
+          "none" : 0,
+          "question" : 2,
+          "repairCommand" : 2,
+          "transform" : 2
+        }
+      },
+      "missedCommands" : 0,
+      "misses" : [
+        "dictate → question: our flight lands at six thirty in the evening",
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → question: no rush on this one, next week is fine",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → question: what a great presentation that was",
+        "dictate → question: change of plans, we are meeting in room four instead",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: the API returns a four oh four when the token expires",
+        "dictate → repairCommand: I just pushed the hotfix to production",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: the design looks clean but the spacing feels tight",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → transform: looking forward to catching up next week",
+        "dictate → repairCommand: I am working from home today",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: note the parking spot is level two row C",
+        "note → question: note grandma's recipe needs two cups of flour",
+        "note → transform: idea, make onboarding a three step wizard",
+        "note → transform: remember to pick up the dry cleaning",
+        "note → repairCommand: todo renew the domain name"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.72,
+        "edit" : 1,
+        "note" : 0.88
+      },
+      "threshold" : 0.6
+    },
+    {
+      "accuracy" : 0.93,
+      "falseCommands" : 9,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 40,
+          "none" : 0,
+          "question" : 3,
+          "repairCommand" : 6,
+          "transform" : 1
+        },
+        "edit" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 50
+        },
+        "note" : {
+          "dictate" : 46,
+          "none" : 0,
+          "question" : 2,
+          "repairCommand" : 1,
+          "transform" : 1
+        }
+      },
+      "missedCommands" : 0,
+      "misses" : [
+        "dictate → question: our flight lands at six thirty in the evening",
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → question: change of plans, we are meeting in room four instead",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: I just pushed the hotfix to production",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: the design looks clean but the spacing feels tight",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → repairCommand: I am working from home today",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: note the parking spot is level two row C",
+        "note → question: note grandma's recipe needs two cups of flour",
+        "note → transform: idea, make onboarding a three step wizard"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.8,
+        "edit" : 1,
+        "note" : 0.92
+      },
+      "threshold" : 0.65
+    },
+    {
+      "accuracy" : 0.94,
+      "falseCommands" : 9,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 41,
+          "none" : 0,
+          "question" : 2,
+          "repairCommand" : 6,
+          "transform" : 1
+        },
+        "edit" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 50
+        },
+        "note" : {
+          "dictate" : 47,
+          "none" : 0,
+          "question" : 1,
+          "repairCommand" : 1,
+          "transform" : 1
+        }
+      },
+      "missedCommands" : 0,
+      "misses" : [
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → question: change of plans, we are meeting in room four instead",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: I just pushed the hotfix to production",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: the design looks clean but the spacing feels tight",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → repairCommand: I am working from home today",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: note the parking spot is level two row C",
+        "note → transform: idea, make onboarding a three step wizard"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.82,
+        "edit" : 1,
+        "note" : 0.94
+      },
+      "threshold" : 0.7
+    },
+    {
+      "accuracy" : 0.95,
+      "falseCommands" : 7,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 44,
+          "none" : 0,
+          "question" : 1,
+          "repairCommand" : 4,
+          "transform" : 1
+        },
+        "edit" : {
+          "dictate" : 1,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 49
+        },
+        "note" : {
+          "dictate" : 47,
+          "none" : 0,
+          "question" : 1,
+          "repairCommand" : 1,
+          "transform" : 1
+        }
+      },
+      "missedCommands" : 1,
+      "misses" : [
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "dictate → repairCommand: I am working from home today",
+        "edit → dictate: fix the spelling in this",
+        "note → repairCommand: note that the client prefers email over calls",
+        "note → question: note the parking spot is level two row C",
+        "note → transform: idea, make onboarding a three step wizard"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.88,
+        "edit" : 0.98,
+        "note" : 0.94
+      },
+      "threshold" : 0.75
+    },
+    {
+      "accuracy" : 0.965,
+      "falseCommands" : 5,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 45,
+          "none" : 0,
+          "question" : 1,
+          "repairCommand" : 3,
+          "transform" : 1
+        },
+        "edit" : {
+          "dictate" : 1,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 49
+        },
+        "note" : {
+          "dictate" : 49,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 1
+        }
+      },
+      "missedCommands" : 1,
+      "misses" : [
+        "dictate → transform: make sure the staging database is backed up first",
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → question: how about we try the new Thai place tonight",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "edit → dictate: fix the spelling in this",
+        "note → transform: idea, make onboarding a three step wizard"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.9,
+        "edit" : 0.98,
+        "note" : 0.98
+      },
+      "threshold" : 0.8
+    },
+    {
+      "accuracy" : 0.975,
+      "falseCommands" : 4,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 47,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 3,
+          "transform" : 0
+        },
+        "edit" : {
+          "dictate" : 1,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 49
+        },
+        "note" : {
+          "dictate" : 49,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 1
+        }
+      },
+      "missedCommands" : 1,
+      "misses" : [
+        "dictate → repairCommand: not a problem, I can cover the Friday shift",
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "edit → dictate: fix the spelling in this",
+        "note → transform: idea, make onboarding a three step wizard"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.94,
+        "edit" : 0.98,
+        "note" : 0.98
+      },
+      "threshold" : 0.85
+    },
+    {
+      "accuracy" : 0.985,
+      "falseCommands" : 2,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 48,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 2,
+          "transform" : 0
+        },
+        "edit" : {
+          "dictate" : 1,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 49
+        },
+        "note" : {
+          "dictate" : 50,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 0
+        }
+      },
+      "missedCommands" : 1,
+      "misses" : [
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "edit → dictate: fix the spelling in this"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.96,
+        "edit" : 0.98,
+        "note" : 1
+      },
+      "threshold" : 0.9
+    },
+    {
+      "accuracy" : 0.985,
+      "falseCommands" : 2,
+      "matrix" : {
+        "command" : {
+          "dictate" : 0,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 50,
+          "transform" : 0
+        },
+        "dictate" : {
+          "dictate" : 48,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 2,
+          "transform" : 0
+        },
+        "edit" : {
+          "dictate" : 1,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 49
+        },
+        "note" : {
+          "dictate" : 50,
+          "none" : 0,
+          "question" : 0,
+          "repairCommand" : 0,
+          "transform" : 0
+        }
+      },
+      "missedCommands" : 1,
+      "misses" : [
+        "dictate → repairCommand: I said I would finish the draft by Monday and I will",
+        "dictate → repairCommand: I think the second option is cheaper overall",
+        "edit → dictate: fix the spelling in this"
+      ],
+      "perClassAccuracy" : {
+        "command" : 1,
+        "dictate" : 0.96,
+        "edit" : 0.98,
+        "note" : 1
+      },
+      "threshold" : 0.95
+    }
+  ]
+}
