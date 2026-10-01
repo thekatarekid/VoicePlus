@@ -27,6 +27,16 @@ public enum CameraPrivacyAudit {
         "AVCaptureMovieFileOutput", "AVCapturePhotoOutput", "AVAssetWriter", "CGImageDestination",
         "write(to:", "createFile(", "jpegData", "pngData", "tiffRepresentation", "representation(using:",
         "URLSession", "URLRequest", "NSPasteboard",
+        // LR5 — keeping a frame alive past the callback, copying it, or parking it anywhere durable.
+        "CVPixelBufferRetain", "CVBufferRetain", "passRetained", "CMSampleBufferCreateCopy",
+        "CVPixelBufferCreate", "FileHandle(forWriting", "NSKeyedArchiver", "NSCache", "UserDefaults",
+    ]
+
+    /// LR5 — lines that must appear somewhere on the camera path: late frames are discarded by the
+    /// capture output (never queued up behind a slow callback), and stale frames are dropped unread.
+    public static let requiredInvariants = [
+        "alwaysDiscardsLateVideoFrames = true",
+        "now() - time <= Self.maxFrameAge",
     ]
 
     /// `var|let name: [?CVPixelBuffer…` at type scope or anywhere — frames are never held.
@@ -74,6 +84,10 @@ public enum CameraPrivacyAudit {
                     violations.append(Violation(file: rel, line: i + 1, symbol: String(line[r])))
                 }
             }
+        }
+        let all = files.compactMap { try? String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
+        for invariant in requiredInvariants where !all.contains(invariant) {
+            violations.append(Violation(file: "<camera path>", line: 0, symbol: "missing: \(invariant)"))
         }
         return violations
     }

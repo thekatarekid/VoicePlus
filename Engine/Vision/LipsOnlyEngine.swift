@@ -17,6 +17,8 @@ public final class LipsOnlyEngine: EngineProtocol, @unchecked Sendable {
     private let clock: @Sendable () -> TimeInterval
     /// Called when an utterance ends (recognised, failed or cancelled) — the crop buffer is cleared.
     private let onUtteranceEnd: @Sendable () -> Void
+    /// Called when an utterance starts — the crop buffer keeps crops past its 1 s pre-roll (LR5).
+    private let onUtteranceStart: @Sendable () -> Void
     private let broadcaster = EngineEventBroadcaster()
     private let stateSubject = CurrentValueSubject<EngineState, Never>(.idle)
     private let lock = NSLock()
@@ -25,11 +27,13 @@ public final class LipsOnlyEngine: EngineProtocol, @unchecked Sendable {
     public init(recognizer: AVSRRecognizer,
                 isModelInstalled: @escaping @Sendable () -> Bool,
                 clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                onUtteranceStart: @escaping @Sendable () -> Void = {},
                 onUtteranceEnd: @escaping @Sendable () -> Void = {}) {
         precondition(recognizer.videoOnly, "LipsOnlyEngine needs AVSRRecognizer(videoOnly: true)")
         self.recognizer = recognizer
         self.isModelInstalled = isModelInstalled
         self.clock = clock
+        self.onUtteranceStart = onUtteranceStart
         self.onUtteranceEnd = onUtteranceEnd
     }
 
@@ -59,6 +63,7 @@ public final class LipsOnlyEngine: EngineProtocol, @unchecked Sendable {
             startedAt = clock(); return false
         }
         if already { throw EngineError.alreadyListening }
+        onUtteranceStart()
         set(.listening(level: 0))
     }
 

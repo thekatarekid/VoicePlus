@@ -160,6 +160,7 @@ import Testing
         try "final class Bad { var last: CVPixelBuffer?\n func save() { try? data.write(to: url) } }"
             .write(to: dir.appendingPathComponent("Engine/Vision/Bad.swift"), atomically: true, encoding: .utf8)
         let violations = try #require(CameraPrivacyAudit.audit(root: dir))
-        #expect(violations.count == 2)
+        #expect(violations.filter { $0.line > 0 }.count == 2)
+        #expect(violations.filter { $0.line == 0 }.count == CameraPrivacyAudit.requiredInvariants.count)
     }
 }

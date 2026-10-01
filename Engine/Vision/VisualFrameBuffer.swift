@@ -66,38 +66,123 @@ public protocol VisualClipProviding: AnyObject, Sendable {
     func visualClip(duration: TimeInterval) -> VisualClip?
 }
 
-/// Thread-safe rolling store of mouth crops. Bounded to `maxSeconds` (default 60 s ≈ 11.6 MB at
-/// 25 fps); `clear()` after each utterance. Holds crops only — never a camera frame.
+/// V5 LR5 — how long mouth crops may live in memory.
+///
+/// * Outside an utterance the buffer is a ≤ `idleSeconds` (1 s) pre-roll: older crops are dropped
+///   on every append, so an idle camera never accumulates video.
+/// * While an utterance is open (`beginUtterance()`), crops are kept for that utterance only,
+///   capped at `maxSeconds`.
+/// * `endUtterance()` seals the utterance's crops for the recogniser that finalises it: they are
+///   handed over **once** (`visualClip`) and dropped after `sealedLifetime` if nobody asks.
+public struct CropRetention: Equatable, Sendable {
+    public var idleSeconds: TimeInterval
+    public var maxSeconds: TimeInterval
+    public var sealedLifetime: TimeInterval
+    public init(idleSeconds: TimeInterval = 1, maxSeconds: TimeInterval = 60, sealedLifetime: TimeInterval = 10) {
+        self.idleSeconds = idleSeconds; self.maxSeconds = maxSeconds; self.sealedLifetime = sealedLifetime
+    }
+    public static let standard = CropRetention()
+}
+
+/// Thread-safe store of mouth crops under `CropRetention` (LR5). Holds crops only — never a camera
+/// frame. `clear()` drops everything, open or sealed.
 public final class VisualFrameBuffer: VisualClipProviding, @unchecked Sendable {
-    public let maxSeconds: TimeInterval
+    public let retention: CropRetention
+    public var maxSeconds: TimeInterval { retention.maxSeconds }
     private let lock = NSLock()
     private var frames: [MouthCropFrame] = []
+    private var open = false
+    private var sealed: (frames: [MouthCropFrame], end: TimeInterval)?
     private let now: @Sendable () -> TimeInterval
 
-    public init(maxSeconds: TimeInterval = 60,
+    public init(retention: CropRetention = .standard,
                 now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
-        self.maxSeconds = maxSeconds; self.now = now
+        self.retention = retention; self.now = now
+    }
+
+    public convenience init(maxSeconds: TimeInterval,
+                            now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.init(retention: CropRetention(maxSeconds: maxSeconds), now: now)
     }
 
     public func append(_ frame: MouthCropFrame) {
         lock.withLock {
             frames.append(frame)
-            let cutoff = frame.time - maxSeconds
-            if let first = frames.firstIndex(where: { $0.time >= cutoff }), first > 0 { frames.removeFirst(first) }
+            trim(newest: frame.time)
+            expireSealed(at: now())
         }
     }
 
-    public func clear() { lock.withLock { frames.removeAll() } }
+    /// An utterance started (hold key down / latch / audio capture started): keep its crops.
+    public func beginUtterance() {
+        lock.withLock {
+            open = true
+            sealed = nil
+        }
+    }
 
-    public var count: Int { lock.withLock { frames.count } }
+    /// The utterance ended: seal its crops for the one recogniser read, back to the idle pre-roll.
+    public func endUtterance() {
+        lock.withLock {
+            guard open else { return }
+            open = false
+            let t = now()
+            sealed = frames.isEmpty ? nil : (frames, t)
+            frames.removeAll { $0.time < t - retention.idleSeconds }
+        }
+    }
+
+    public var isUtteranceOpen: Bool { lock.withLock { open } }
+    /// Whether a sealed utterance is waiting for its recogniser.
+    public var hasSealedClip: Bool { lock.withLock { expireSealed(at: now()); return sealed != nil } }
+
+    public func clear() {
+        lock.withLock { frames.removeAll(); sealed = nil; open = false }
+    }
+
+    /// Crops held right now (live + sealed).
+    public var count: Int { lock.withLock { expireSealed(at: now()); return frames.count + (sealed?.frames.count ?? 0) } }
+
+    /// Seconds between the oldest and the newest crop held right now (live + sealed).
+    public var heldSpan: TimeInterval {
+        lock.withLock {
+            expireSealed(at: now())
+            let times = frames.map(\.time) + (sealed?.frames.map(\.time) ?? [])
+            guard let lo = times.min(), let hi = times.max() else { return 0 }
+            return hi - lo
+        }
+    }
 
     public func clip(from: TimeInterval, to: TimeInterval) -> VisualClip {
         let picked = lock.withLock { frames.filter { $0.time >= from - 0.1 && $0.time <= to + 0.1 } }
         return VisualClip(start: from, end: to, frames: picked)
     }
 
+    /// A sealed utterance is handed over once (and dropped); otherwise the live crops ending now.
     public func visualClip(duration: TimeInterval) -> VisualClip? {
-        let end = now()
-        return clip(from: end - duration, to: end)
+        let t = now()
+        let handed: (frames: [MouthCropFrame], end: TimeInterval)? = lock.withLock {
+            expireSealed(at: t)
+            defer { sealed = nil }
+            return sealed
+        }
+        if let handed {
+            let from = handed.end - duration
+            return VisualClip(start: from, end: handed.end,
+                              frames: handed.frames.filter { $0.time >= from - 0.1 && $0.time <= handed.end + 0.1 })
+        }
+        return clip(from: t - duration, to: t)
+    }
+
+    // MARK: private (lock held)
+
+    private func trim(newest: TimeInterval) {
+        let keep = open ? retention.maxSeconds : retention.idleSeconds
+        let cutoff = newest - keep
+        if let first = frames.firstIndex(where: { $0.time >= cutoff }), first > 0 { frames.removeFirst(first) }
+    }
+
+    private func expireSealed(at t: TimeInterval) {
+        if let s = sealed, t - s.end > retention.sealedLifetime { sealed = nil }
     }
 }

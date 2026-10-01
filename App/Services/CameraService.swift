@@ -240,7 +240,8 @@ public final class CameraService: FaceSignalsProviding, @unchecked Sendable {
         let crops = mouthCrops
         return LipsOnlyEngine(recognizer: AVSRRecognizer(videoOnly: true, model: model, visual: crops),
                               isModelInstalled: { [weak model] in model?.isAvailable(.visualOnly) ?? false },
-                              clock: now, onUtteranceEnd: { crops.clear() })
+                              clock: now, onUtteranceStart: { crops.beginUtterance() },
+                              onUtteranceEnd: { crops.clear() })
     }
 
     private func applyLipsOnlyTransition() async {
@@ -301,8 +302,14 @@ public final class CameraService: FaceSignalsProviding, @unchecked Sendable {
 
     // MARK: Frames
 
-    /// Runs on the capture queue. The buffer is not retained past this call.
+    /// LR5 — a camera frame older than this when it reaches us is dropped unread: no frame is
+    /// ever worked on (or held) more than a second after it was captured.
+    public static let maxFrameAge: TimeInterval = 1
+
+    /// Runs on the capture queue. The buffer is not retained past this call. A frame that arrives
+    /// while the mode is off or the camera stopped (a late callback) is dropped unread (LR5).
     func handleFrame(_ buffer: CVPixelBuffer, time: TimeInterval) {
+        guard mode.needsCamera, capture.isRunning, now() - time <= Self.maxFrameAge else { return }
         let analysis = landmarker.analyze(buffer, time: time)
         ingest(analysis)
         guard mode.collectsMouthCrops else { return }
@@ -331,8 +338,20 @@ public final class CameraService: FaceSignalsProviding, @unchecked Sendable {
         let stream = broadcaster.subscribe()
         audioTask = Task { [weak self] in
             for await event in stream {
-                if case .audio(let samples, _) = event { self?.noteAudio(samples) }
+                self?.noteAudioEvent(event)
             }
+        }
+    }
+
+    /// One broadcaster event: audio blocks feed the correlation; capture start/stop bracket the
+    /// utterance whose mouth crops the fused recogniser reads (LR5 — outside an utterance only a
+    /// 1 s pre-roll of crops is held).
+    public func noteAudioEvent(_ event: AudioPipelineEvent) {
+        switch event {
+        case .audio(let samples, _): noteAudio(samples)
+        case .started: if mode.collectsMouthCrops { mouthCrops.beginUtterance() }
+        case .stopped: mouthCrops.endUtterance()
+        default: break
         }
     }
 

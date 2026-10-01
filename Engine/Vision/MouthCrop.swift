@@ -4,7 +4,7 @@ import Foundation
 
 // V5 LR2/LR3 — the mouth region Auto-AVSR reads: an 88×88 grayscale crop centred on the lips,
 // sampled straight out of the camera frame inside the capture callback. Only these 7.7 KB crops are
-// kept (for the current utterance, ≤ `VisualFrameBuffer.maxSeconds`); the camera frame itself is
+// kept (a 1 s pre-roll, or the current utterance — `CropRetention`, LR5); the camera frame itself is
 // released when the callback returns (LR5).
 
 /// An 8-bit grayscale image, row-major, origin top-left.
