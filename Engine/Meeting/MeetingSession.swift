@@ -90,6 +90,9 @@ public actor MeetingSession {
     /// before the meeting's chunk is transcribed). Kept for `pendingTagWindow` seconds.
     private var pendingTags: [UtteranceTag] = []
     static let pendingTagWindow: TimeInterval = 120
+    /// V5 O2 — every transcribed span as appended, before merging, so a tag that settles after its
+    /// span was merged can still label exactly that span (`tag(_:)` re-merges from these).
+    private var segments: [MeetingUtterance] = []
 
     public init(title: String, event: CalendarMeeting? = nil, transcriber: any MeetingTranscriber,
                 labeler: any SpeakerLabeler, notesProvider: any MeetingNotesProvider = ExtractiveNotesProvider(),
@@ -124,8 +127,15 @@ public actor MeetingSession {
     /// capture graph); the tag only labels that span, so the dictation appears once, tagged.
     public func tag(_ tag: UtteranceTag) {
         guard tag.owner != .ignore else { return }
-        let tagged = record.transcript.apply(tag, origin: record.startedAt)
-        if tagged > 0 { _ = try? store.save(record) }
+        // Tag the transcribed *segments* (one per chunk), then re-merge: a span merged into the
+        // user's adjacent conversation before the claim settled is split back out, and the remark
+        // it was merged with is never dragged into "dictated".
+        var raw = MeetingTranscript(utterances: segments)
+        if raw.apply(tag, origin: record.startedAt) > 0 {
+            segments = raw.utterances
+            record.transcript.utterances = Self.merged(segments)
+            _ = try? store.save(record)
+        }
         // Later chunks of the same claim may still be in flight: keep the tag for them too.
         let horizon = tag.range.upperBound.addingTimeInterval(-Self.pendingTagWindow)
         pendingTags.removeAll { $0.range.upperBound < horizon || $0.utteranceID == tag.utteranceID }
@@ -137,10 +147,8 @@ public actor MeetingSession {
         if u.tag == nil, let claim = pendingTags.first(where: {
             MeetingTranscript.claims($0, speaker: u.speaker, range: u.range, origin: record.startedAt)
         }) { u.tag = claim.owner }
-        // Merge with the previous utterance when same speaker and contiguous (< 1 s gap) — and, since
-        // O2, the same owner: a dictated span never merges into the conversation around it.
-        if var last = record.transcript.utterances.last, last.speaker == u.speaker, last.tag == u.tag,
-           u.range.lowerBound - last.range.upperBound < 1 {
+        segments.append(u)
+        if var last = record.transcript.utterances.last, Self.merges(last, u) {
             last.text += " " + u.text
             last.range = last.range.lowerBound...max(last.range.upperBound, u.range.upperBound)
             last.confidence = min(last.confidence, u.confidence)
@@ -151,6 +159,28 @@ public actor MeetingSession {
         // Always save the live transcript so a crash loses nothing.
         _ = try? store.save(record)
         onUtterance?(u)
+    }
+
+    /// Merge with the previous utterance when same speaker and contiguous (< 1 s gap) — and, since
+    /// O2, the same owner: a dictated span never merges into the conversation around it.
+    static func merges(_ last: MeetingUtterance, _ u: MeetingUtterance) -> Bool {
+        last.speaker == u.speaker && last.tag == u.tag && u.range.lowerBound - last.range.upperBound < 1
+    }
+
+    /// The transcript as `append` builds it, from the unmerged segments (V5 O2 late tags).
+    static func merged(_ segments: [MeetingUtterance]) -> [MeetingUtterance] {
+        var out: [MeetingUtterance] = []
+        for u in segments {
+            if var last = out.last, merges(last, u) {
+                last.text += " " + u.text
+                last.range = last.range.lowerBound...max(last.range.upperBound, u.range.upperBound)
+                last.confidence = min(last.confidence, u.confidence)
+                out[out.count - 1] = last
+            } else {
+                out.append(u)
+            }
+        }
+        return out
     }
 
     @discardableResult

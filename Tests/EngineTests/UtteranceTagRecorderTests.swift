@@ -77,6 +77,24 @@ struct UtteranceTagRecorderTests {
         #expect(us[1].tagLabel == "command")
     }
 
+    @Test("a late tag splits a dictation out of the conversation it was already merged into")
+    func lateTagAfterMerge() async throws {
+        let rig = Rig()
+        // Chunks transcribed before the claim settles: conversation 0–5 s, dictation 5.5–8.5 s (merged).
+        try await rig.session.ingest([rig.chunk(.mic, 0.1, 0, 5), rig.chunk(.mic, 0.9, 5.5)])
+        #expect(await rig.session.record.transcript.utterances.count == 1)
+        await rig.session.tag(await rig.tag(.dictate, 5.5, 8.5))
+        let us = await rig.session.record.transcript.utterances
+        #expect(us.map(\.tag) == [nil, .dictate])
+        #expect(us.map(\.text) == ["sounds good to me", "please send the report by friday"])
+        #expect(try rig.store.load(id: await rig.session.record.id).transcript.utterances.map(\.tag) == [nil, .dictate])
+        // A short dictation right after a short remark must not drag the remark into "dictated".
+        let rig2 = Rig()
+        try await rig2.session.ingest([rig2.chunk(.mic, 0.1, 0, 2), rig2.chunk(.mic, 0.9, 2.5)])
+        await rig2.session.tag(await rig2.tag(.dictate, 2.5, 5.5))
+        #expect(await rig2.session.record.transcript.utterances.map(\.tag) == [nil, .dictate])
+    }
+
     @Test("only the user's own voice can be claimed; ignore labels nothing; a span keeps its first owner")
     func claimRules() {
         let origin = Date(timeIntervalSince1970: 1_800_000_000)
