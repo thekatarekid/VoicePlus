@@ -299,7 +299,10 @@ struct ModelLayoutTests {
         #expect(ModelCatalog.descriptor(.parakeetRedux).hfRepo == "FluidInference/parakeet-redux-coreml")
         #expect(ModelCatalog.descriptor(.parakeetRedux).approxBytes < ModelCatalog.descriptor(.parakeetTDTv3).approxBytes)
         // Appended: the speech models' `RealEngine.revision()` bits do not move.
-        #expect(Array(ModelID.allCases.suffix(2)) == [.parakeetUltra, .parakeetRedux])
+        // (V5 M7 appended `.sortformer` after them.)
+        let all = ModelID.allCases, ultra = all.firstIndex(of: .parakeetUltra)!
+        #expect(Array(all[ultra...].prefix(2)) == [.parakeetUltra, .parakeetRedux])
+        #expect(ultra > all.firstIndex(of: .sileroVAD)!)
     }
 
     /// Present ⇒ ranked by `v1Ranking`: Ultra beats v3, v3 beats Redux; Redux only where it can load.

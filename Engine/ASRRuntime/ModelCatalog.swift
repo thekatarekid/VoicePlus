@@ -45,6 +45,10 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// ~0.22 GB). Optional, for small-memory Macs. Needs macOS 15 (iOS 18 Core ML ops) — see
     /// `ModelCatalog.isSupportedOnThisOS`.
     case parakeetRedux = "parakeet-redux-coreml"
+    /// V5 M7 — Sortformer streaming diarization (NVIDIA "high context" v2.1 weights, CoreML, ~0.26 GB)
+    /// for live meeting speaker labels and the M8 re-diarization. On demand: fetched only when
+    /// meetings want it, never part of the stack. Appended so older `RealEngine.revision()` bits hold.
+    case sortformer = "diar-streaming-sortformer-coreml"
 }
 
 /// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
@@ -270,6 +274,25 @@ public enum ModelCatalog {
             requiredPaths: ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc", "parakeet_vocab.json"],
             approxBytes: 220_462_264, displayName: "Parakeet Redux (compact)", license: "CC-BY-4.0",
             role: .onDemand),
+        // V5 M7 — one Sortformer variant, not the repo: `ModelHub` (`Repo.sortformer`) would fetch every
+        // variant at both precisions (`ModelNames.Sortformer.requiredModels`), so this entry borrows
+        // `.whisper` for its fetcher (`ManifestFetcher`, flat files from `hfSubdirectory`) and lists the ten
+        // files of `v3/fp16/SortformerNvidiaHigh_v2.1.mlmodelc` — the BNNS-fixed v3 rebuild (FluidAudio
+        // issue #726). Sizes and LFS sha256 from the HF tree (main @ ae9a27a, 2026-10-01); the two
+        // `model.mil` files are not LFS, so size-checked only. 255,245,283 bytes. CC-BY-4.0 (card).
+        // Loader: `SortformerRuntime` through `ModelResidency`, never `ModelManager.load` (`.whisper` throws
+        // `unsupported` there — a clean failure, no network).
+        .sortformer: ModelDescriptor(
+            id: .sortformer, kind: .whisper,
+            folderName: "diar-streaming-sortformer",
+            hfRepo: "FluidInference/diar-streaming-sortformer-coreml", hfSubdirectory: "v3/fp16",
+            requiredPaths: [SortformerFiles.bundle,
+                            SortformerFiles.bundle + "/model0/weights/0-weight.bin",
+                            SortformerFiles.bundle + "/model1/weights/1-weight.bin"],
+            remoteFiles: SortformerFiles.remote,
+            approxBytes: SortformerFiles.remote.compactMap(\.size).reduce(0, +),
+            displayName: "Sortformer live speaker labels", license: "CC-BY-4.0",
+            role: .onDemand),
     ]
 
     /// Whether `id` can load on the running OS. Parakeet Redux's 2-bit encoder uses iOS 18 / macOS 15
@@ -367,4 +390,22 @@ public enum ModelStack {
         }
         return fetched
     }
+}
+
+/// V5 M7 — the files of the one Sortformer variant the catalog installs (see `ModelCatalog.all[.sortformer]`).
+public enum SortformerFiles {
+    /// `ModelNames.Sortformer.Variant.highContextV2_1.name` + `.mlmodelc` (a test pins the two together).
+    public static let bundle = "SortformerNvidiaHigh_v2.1.mlmodelc"
+    public static let remote: [RemoteFile] = [
+        RemoteFile(path: bundle + "/analytics/coremldata.bin", sha256: "28954e7ccf79680bee9cc6e3ced612c319c3c1c685cf321ed0f93a16971a21cc", size: 202),
+        RemoteFile(path: bundle + "/coremldata.bin", sha256: "a7ff887a7abe071f1c2670b73b158fb0bfb590742c4fe9ea8f976e3558a4688c", size: 1_099),
+        RemoteFile(path: bundle + "/model0/analytics/coremldata.bin", sha256: "5a8281049b2a65a3be541cfd9f949e84b8fe1c5251ce90e46da1626fed54e58a", size: 108),
+        RemoteFile(path: bundle + "/model0/coremldata.bin", sha256: "5a47708a470a5a440345dcc2a8c91c4defdaa4ba05c24b24c2d9f2dda643ad38", size: 634),
+        RemoteFile(path: bundle + "/model0/model.mil", size: 63_578),
+        RemoteFile(path: bundle + "/model0/weights/0-weight.bin", sha256: "88a98803e35186b1dfb41d7f748f7cee5093bb6efeb117f56953c17549792fa4", size: 8_948_544),
+        RemoteFile(path: bundle + "/model1/analytics/coremldata.bin", sha256: "5a8281049b2a65a3be541cfd9f949e84b8fe1c5251ce90e46da1626fed54e58a", size: 108),
+        RemoteFile(path: bundle + "/model1/coremldata.bin", sha256: "27f7962852ce92d8886fdfec8abb124b9357de9ceb5551811fcccd2ba1a89a12", size: 595),
+        RemoteFile(path: bundle + "/model1/model.mil", size: 3_024_719),
+        RemoteFile(path: bundle + "/model1/weights/1-weight.bin", sha256: "6efba8623ce70f92314d10edcdd205d4d0d3e72ca3adf8c2ef92b7c5c1a3506c", size: 243_205_696),
+    ]
 }

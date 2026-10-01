@@ -28,6 +28,8 @@ extension ModelCatalog {
         // Loaded file-by-file out of the directory we pass (`StreamingEouAsrManager.loadModels(from:)`
         // / no FluidAudio runtime at all), so no name to agree with.
         case .parakeetEOU160, .parakeetEOU320, .whisperSmall: return nil
+        // V5 M7: one variant fetched file by file (`ManifestFetcher`), loaded from its bundle path.
+        case .sortformer: return nil
         }
     }
 }

@@ -206,13 +206,44 @@ public enum DiarizationFactory {
     /// (`SpeakerProfileStore.meetingEmbedding()`: the M6 voiceprint or an enrolled WeSpeaker
     /// profile); channel labeler otherwise. Never downloads; the model loads through
     /// `ModelResidency` on the first labelled batch.
+    ///
+    /// V5 M7 — when Sortformer is installed (`sortformer()`), that labeler is wrapped in a
+    /// `SortformerLabeler` diarizing `legs` (mic always; system in video-call / hybrid). When it is
+    /// not and a `modelManager` is given, the on-demand model (~0.26 GB) is fetched in the background
+    /// for the next meeting; this meeting keeps the labeler above.
     public static func make(enrolledUserEmbedding: [Float]?,
                             locate: () -> URL? = { SpeakerEmbedderFactory.locateModel() },
+                            sortformer: () -> URL? = { SortformerBackend.locate() },
+                            legs: Set<MeetingChannel> = [.mic, .system],
+                            modelManager: ModelManager? = nil,
                             residency: ModelResidency = .shared) -> any SpeakerLabeler {
+        let base: any SpeakerLabeler
         if let enrolled = enrolledUserEmbedding, !enrolled.isEmpty, let directory = locate() {
-            return EmbeddingLabeler(backend: ResidentSpeakerEmbedding(directory: directory, residency: residency),
+            base = EmbeddingLabeler(backend: ResidentSpeakerEmbedding(directory: directory, residency: residency),
                                     enrolled: enrolled, threshold: micThreshold)
+        } else {
+            base = ChannelLabeler()
         }
-        return ChannelLabeler()
+        guard let folder = sortformer() else {
+            if let modelManager { fetchSortformer(modelManager) }
+            return base
+        }
+        let diarizer = StreamingDiarizer(backend: SortformerBackend(folder: folder, residency: residency), legs: legs)
+        return SortformerLabeler(diarizer: diarizer, fallback: base)
+    }
+
+    private static let fetching = OnceFlag()
+
+    /// One background fetch per launch; a failure is logged and retried next launch.
+    static func fetchSortformer(_ manager: ModelManager) {
+        guard !fetching.exchange() else { return }
+        Task.detached(priority: .utility) {
+            do {
+                _ = try await manager.ensureAvailable(.sortformer)
+                Log.engine.notice("meeting: Sortformer installed — live speaker labels from the next meeting")
+            } catch {
+                Log.engine.warning("meeting: Sortformer fetch failed: \(error)")
+            }
+        }
     }
 }
