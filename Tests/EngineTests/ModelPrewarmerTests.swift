@@ -132,6 +132,7 @@ struct ModelPrewarmerTests {
         let start = Date()
         #expect(await p.hotkeyDown().value == [.timedOut(ResidencyKey.cleanup)])
         #expect(Date().timeIntervalSince(start) < 5, "bounded by the attempt timeouts, not the loader")
+        #expect(calls.value == 1, "a timed-out load is not retried in the same pass")
         // The slot cleared: a new press is a new pass (it times out again rather than hanging).
         #expect(await p.hotkeyDown().value == [.timedOut(ResidencyKey.cleanup)])
         #expect(calls.value >= 1)

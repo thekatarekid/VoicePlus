@@ -16,8 +16,9 @@ import Shared
 // - touches an already-resident model so a busy user never watches it idle out,
 // - coalesces: a second press while a prewarm is still loading reuses that task,
 // - bounds every load attempt by `attemptTimeout` and retries a failed / timed-out load up to
-//   `maxAttempts` times, so a loader that never returns cannot wedge the prewarmer: the pass ends
-//   with `.timedOut`, the in-flight slot clears, and the next hotkey-down tries again.
+//   `maxAttempts` times (a timed-out load is not retried in the same pass), so a loader that
+//   never returns cannot wedge the prewarmer: the pass ends with `.timedOut`, the in-flight slot
+//   clears, and the next hotkey-down tries again.
 // Unloading is not this type's job: the residency's idle sweeper does it (`ModelResidency.sweepIdle`).
 
 public final class ModelPrewarmer: @unchecked Sendable {
@@ -28,7 +29,7 @@ public final class ModelPrewarmer: @unchecked Sendable {
         case notRegistered(String)
         case skippedExclusive(String)
         case failed(String)
-        /// Every attempt outlived `attemptTimeout` (the loader never returned in time).
+        /// The load outlived `attemptTimeout` (the loader never returned in time).
         case timedOut(String)
     }
 
@@ -100,8 +101,10 @@ public final class ModelPrewarmer: @unchecked Sendable {
                 Log.engine.info("prewarm: \(key) loaded at hotkey-down")
                 return .loaded(key)
             case .timedOut:
+                // Not retried: the residency still owns that load, so a retry would only join the
+                // same stuck load and hold the pass for another timeout. The next hotkey-down tries.
                 Log.engine.notice("prewarm: \(key) load attempt \(attempt) timed out")
-                last = .timedOut(key)
+                return .timedOut(key)
             case let .failed(error):
                 Log.engine.notice("prewarm: \(key) not loaded (attempt \(attempt)) — \(error)")
                 last = .failed(key)
