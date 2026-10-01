@@ -294,7 +294,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                            embedder: { [weak container] in container?.latchController.embedder }),
             decisions: AmbientWiring.decisionPipeline(
                 settings: container.settings, actParser: container.actRouter.parser,
-                mode: AmbientModeWiring.controller ?? AmbientModeController(settings: container.settings)))
+                mode: AmbientModeWiring.controller ?? AmbientModeController(settings: container.settings),
+                // V5 O5 — app, field role and meeting state on every Layer 1 call.
+                context: AmbientDecisionContext.make(
+                    frontmostApp: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
+                    field: { [weak container] app in container?.lander.fieldContextProvider?(app) },
+                    meetingActive: { [weak container] in container?.meeting.session != nil })))
+        // V5 O4 (O-b 5) — "Not for you" raises the frontmost app's decision bands one step.
+        container.latchController.notYouCorrection.observer = BandNudgingTeacher(
+            inner: nil, bands: DecisionBandsSettings(settings: container.settings),
+            frontmostApp: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier })
         let ambientListening = AmbientListenerWiring(listener: ambientListener,
                                                      isMuted: { [weak container] in container?.latchController.mute.isMuted ?? true })
         ambientListening.start(mute: container.latchController.mute)

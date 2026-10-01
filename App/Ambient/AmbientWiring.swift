@@ -1,6 +1,7 @@
 import Actions
 import Engine
 import Foundation
+import Pipeline
 import Shared
 
 // R8.1 / R8.2 — the composition seam. One place that builds ambient capture, and one place that
@@ -67,6 +68,7 @@ public enum AmbientWiring {
                                decisions: AmbientDecisionPipeline?,
                                forwardsVerdict: Bool = true,
                                onDecision: ((AmbientCaptureDecision) -> Void)? = nil) -> AmbientCaptureDecision {
+        if forwardsVerdict { decisions?.heard(heard.verdict, at: heard.capturedAt) }   // O5 other-voice signal
         let decision = gate.decide(text: heard.text, verdict: heard.verdict, at: heard.capturedAt,
                                    duration: heard.duration, confidence: heard.confidence)
         switch decision {
@@ -165,6 +167,26 @@ public enum AmbientWiring {
             return true
         }
         return pipeline
+    }
+}
+
+/// V5 O5 — the production state for one ambient utterance: frontmost app, the focused field's
+/// `FieldRole` (read through the same provider the lander uses), and whether a meeting is recording.
+/// History and "another voice in the last 10 s" are added by `AmbientDecisionPipeline`. Lip activity
+/// and prosody stay nil on the ambient path (camera only in a lip-reading mode, L5; the ambient
+/// segmenter computes no directed-speech features).
+public enum AmbientDecisionContext {
+    public static func make(frontmostApp: @escaping () -> String?,
+                            field: @escaping (String?) -> FieldContext?,
+                            meetingActive: @escaping () -> Bool) -> (String) -> DecisionState {
+        { text in
+            let app = frontmostApp()
+            let role = field(app).map(FieldRole.classify)
+            let focused = role.map { $0 != .unknown } ?? false
+            return DecisionState(utterance: text, frontmostApp: app,
+                                 fieldRole: focused ? role?.rawValue : nil,
+                                 textFieldFocused: focused, meetingActive: meetingActive())
+        }
     }
 }
 

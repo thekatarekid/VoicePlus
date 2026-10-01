@@ -49,6 +49,9 @@ public final class NotYouCorrection: @unchecked Sendable {
     private(set) var recent: [PendingTrigger] = []
     private let teacher: any DirectedSpeechTeacher
     private let profile: (any SpeakerProfileUpdating)?
+    /// A second teacher told about every example after `teacher` (V5 O4: `BandNudgingTeacher`, which
+    /// raises the frontmost app's decision bands on "not for you").
+    public var observer: (any DirectedSpeechTeacher)?
 
     public init(teacher: any DirectedSpeechTeacher, profile: (any SpeakerProfileUpdating)? = nil) {
         self.teacher = teacher; self.profile = profile
@@ -73,7 +76,9 @@ public final class NotYouCorrection: @unchecked Sendable {
             recent.removeLast(); return last
         }
         guard let t else { return nil }
-        teacher.learn(DirectedSpeechExample(utteranceID: t.utteranceID, label: .notDirected, reason: reason, embedding: t.embedding, at: now))
+        let example = DirectedSpeechExample(utteranceID: t.utteranceID, label: .notDirected, reason: reason, embedding: t.embedding, at: now)
+        teacher.learn(example)
+        observer?.learn(example)
         if reason == .notMe, let e = t.embedding { profile?.addNegative(e) }
         return t
     }
@@ -85,7 +90,9 @@ public final class NotYouCorrection: @unchecked Sendable {
             return recent.remove(at: i)
         }
         guard let t else { return }
-        teacher.learn(DirectedSpeechExample(utteranceID: id, label: .directed, reason: .accepted, embedding: t.embedding, at: now))
+        let example = DirectedSpeechExample(utteranceID: id, label: .directed, reason: .accepted, embedding: t.embedding, at: now)
+        teacher.learn(example)
+        observer?.learn(example)
         if let e = t.embedding { profile?.reinforce(e) }
     }
 }

@@ -30,6 +30,24 @@ public final class AmbientDecisionPipeline: @unchecked Sendable {
 
     private let lock = NSLock()
     private var history: [DecisionHistoryItem] = []
+    /// O5 "another voice heard in the last 10 s": when a non-user verdict last came through here.
+    private var lastOtherVoice: Date?
+    public static let otherVoiceWindow: TimeInterval = 10
+
+    /// Every heard ambient segment, kept or discarded (another voice is usually discarded by the
+    /// gate, yet it is exactly what O5's "another voice in the last 10 s" must know about).
+    public func heard(_ verdict: SpeakerGate.Verdict, at date: Date) {
+        guard case .other = verdict else { return }
+        lock.withLock { lastOtherVoice = max(lastOtherVoice ?? date, date) }
+    }
+
+    /// Whether another voice was heard within `otherVoiceWindow` before `date`.
+    public func otherVoiceRecently(before date: Date) -> Bool {
+        lock.withLock {
+            guard let t = lastOtherVoice else { return false }
+            return t <= date && date.timeIntervalSince(t) <= Self.otherVoiceWindow
+        }
+    }
 
     public init(mode: AmbientModeController,
                 arbiter: @escaping () -> IntentArbiter?,
@@ -44,6 +62,7 @@ public final class AmbientDecisionPipeline: @unchecked Sendable {
         let current = mode.mode
         guard current.listens else { return report(.recordOnly(.modeOff), nil) }
         let voice = heard ?? verdict()
+        let otherRecently = otherVoiceRecently(before: range.lowerBound)
         // Spoken mode switches: anyone may turn listening down; only the user may turn acting back on.
         if let wanted = AmbientModeVoiceCommand.parse(text), wanted != .listenAndAct || voice.isUser {
             mode.set(wanted)
@@ -53,6 +72,8 @@ public final class AmbientDecisionPipeline: @unchecked Sendable {
         var state = context(text)
         state.utterance = text
         state.history = lock.withLock { history }
+        // O5: another voice in the last 10 s (before this utterance), unless the context already knows.
+        state.otherVoiceRecently = state.otherVoiceRecently || otherRecently
         // `evaluate`, not `decide`: the arbiter's own Layer 2 handoff is never used for ambient speech —
         // everything leaves through the guarantees below. The decision is still reported (hub, Q13).
         let input = ArbiterInput(utteranceID: utteranceID, range: range, state: state)
