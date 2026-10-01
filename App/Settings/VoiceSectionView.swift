@@ -117,6 +117,7 @@ struct VoiceSectionView: View {
                 .accessibilityIdentifier("voice.enrollment.running")
             } else {
                 enrollmentRow
+                OnlyMyVoiceRow(enrollment: model.enrollmentStatus)   // V5 K3
                 if model.enrollment.rendering == .error {
                     SectionStateView(state: model.enrollment) { model.beginEnrollment() }
                         .padding(.vertical, Tokens.Spacing.m)

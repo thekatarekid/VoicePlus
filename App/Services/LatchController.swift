@@ -57,10 +57,15 @@ public final class LatchController: @unchecked Sendable {
     /// speaker at all. On a machine with no WeSpeaker weights that answer is no, and the status is
     /// `.modelUnavailable` — which suppresses insertion and says so, rather than implying a check.
     public var speakerFilter: SpeakerFilter {
-        speakerLock.withLock {
-            SpeakerFilter(isOn: _speakerFilteringEnabled, gate: _speakerGate, embedder: _embedder)
+        let wanted = onlyMyVoice()   // read outside the lock: it reads settings
+        return speakerLock.withLock {
+            SpeakerFilter(isOn: _speakerFilteringEnabled && wanted, gate: _speakerGate, embedder: _embedder)
         }
     }
+    /// V5 K3 — Settings › Voice "Only react to my voice" (default on). Off: latch segments are not
+    /// speaker-filtered even with a voice enrolled. Read live on every segment, so the switch applies
+    /// at once. Set by the composition root (`OnlyMyVoiceSettings.isOn`).
+    public var onlyMyVoice: () -> Bool = { true }
     /// The honest sentence for the current filter state, or nil when there is nothing to say.
     public var speakerFilterMessage: String? { speakerFilter.status.message }
     let lock = NSLock()
@@ -567,7 +572,10 @@ extension LatchController {
     func syncSpeakerGuard() {
         let (runtime, on) = speakerLock.withLock { (self.runtime, _speakerFilteringEnabled) }
         guard let runtime else { return }
-        runtime.speakerGuard = on ? { [weak self] in self?.latchSegmentDecision() ?? .allow(similarity: nil) } : nil
+        runtime.speakerGuard = on ? { [weak self] in
+            guard let self, self.onlyMyVoice() else { return .allow(similarity: nil) }   // V5 K3
+            return self.latchSegmentDecision()
+        } : nil
     }
 
     func decideLatchSegment(samples: [Float]) -> SpeakerFilter.Decision {

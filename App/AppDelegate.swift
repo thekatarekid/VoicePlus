@@ -259,6 +259,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             wantsHolds: { [weak container] in container?.latchController.wantsHoldAudio ?? false },   // V5 M6
             observe: SpeakerAudioWiring.observeHolds(on: container.latchController))
         if let audio = container.audio { speakerAudio.bind(to: audio) }
+        // V5 K3 — "Only react to my voice" (Settings › Voice), read live on every latch segment.
+        container.latchController.onlyMyVoice = { [weak container] in OnlyMyVoiceSettings.isOn(container?.settings) }
         container.latchController.attach(runtime: latch, segmentAudio: { [weak speakerAudio] in speakerAudio?.segmentAudio.take() })
         // V5 M6 — "Voice learned" once ever: the voiceprint (5 holds) or the H2 profile, whichever first.
         container.latchController.onVoiceLearnedNotice = { [weak self] in
