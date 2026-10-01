@@ -63,6 +63,8 @@ public final class AppContainer {
     public let latchController: LatchController
     public let wakeVerb: WakeVerbPreRoute
     public let meeting: MeetingCoordinator
+    /// V5 O2 — the ambient timeline as a recorder of capability tags (held here; the hub is weak).
+    public let ambientTagger: AmbientTimelineTagger
     /// P6 — personal adaptation loop, code-switching, encrypted sync.
     public let adaptation: AdaptationService?
     public let codeSwitch: CodeSwitchService
@@ -328,6 +330,15 @@ public final class AppContainer {
         let meetingCoordinator = MeetingCoordinator(settings: settings)
         let meetingStore = meetingCoordinator.store
         meeting = meetingCoordinator
+
+        // V5 O2/O3 — one decision per utterance: logged to Q13 and tagged onto every recorder (the
+        // meeting session, the ambient timeline). `SessionCoordinator` settles landings on this hub.
+        ambientTagger = AmbientTimelineTagger()
+        let decisionHub = UtteranceDecisionHub.app
+        decisionHub.setRecorder(meetingCoordinator, for: "meeting")
+        decisionHub.setRecorder(ambientTagger, for: "ambient")
+        let decisionLog = database.flatMap { try? TurnDiagnostics(database: $0) }
+        decisionHub.diagnostics = { [decisionLog] event, turn in decisionLog?.record(event, turn: turn) }
 
         labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, boosting: boosting)
 

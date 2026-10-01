@@ -118,6 +118,11 @@ public final class SessionCoordinator {
     public let dictation: DictationCoordinator
     public let mute: MuteController
     public let latch: LatchRuntime?
+    /// V5 O2/O3 — where each landed utterance's one decision is settled, logged (Q13) and tagged onto
+    /// the running recorders.
+    public let decisions: UtteranceDecisionHub
+    /// Wall clock for claim windows (tests inject one).
+    public var clock: () -> Date = Date.init
 
     /// Told to release the microphone when a higher-ranked requester takes it. The capture graph
     /// preempts the stream on its own; this is how the *owner* finds out, so a mic check can say
@@ -136,11 +141,23 @@ public final class SessionCoordinator {
     private var requestedMode: Mode = .idle
     /// Set by lock/sleep. Cleared only by an explicit start — never by waking up (V3 §8).
     private var awaitingRestart = false
+    /// V5 O2 — when the current dictation claim opened, and the closed claims not yet landed.
+    private var claimOpenedAt: Date?
+    private var closedClaims: [ClosedRange<Date>] = []
 
-    public init(dictation: DictationCoordinator, mute: MuteController, latch: LatchRuntime? = nil) {
+    public init(dictation: DictationCoordinator, mute: MuteController, latch: LatchRuntime? = nil,
+                decisions: UtteranceDecisionHub = .app) {
         self.dictation = dictation
         self.mute = mute
         self.latch = latch
+        self.decisions = decisions
+        // V5 O3 — every landing settles its utterance's one decision. Chained onto whatever the app
+        // already does with a landing (the pill), which is set before this coordinator exists.
+        let landed = dictation.onLanded
+        dictation.onLanded = { [weak self] result in
+            landed?(result)
+            self?.settleLanding(result)
+        }
         latch?.isLatched = { [weak dictation] in dictation?.latched ?? false }
         // The mode has exactly one home. `DictationCoordinator.latched` is it; this mirror exists so
         // `mode` can be read without asking two objects and getting two answers.
@@ -300,6 +317,8 @@ public final class SessionCoordinator {
         lock.withLock { requestedMode = mode == .idle ? .hold : mode }
         if mode == .latched, !dictation.latched { dictation.handle(.enterLatch) }
         if requester.dictates {
+            let now = clock()
+            lock.withLock { claimOpenedAt = now }
             latch?.sessionStarted()
             latch?.attach(dictation.engine)
             dictation.start()
@@ -312,7 +331,7 @@ public final class SessionCoordinator {
         if requester.isRecorder { return stopRecorder(requester, reason: reason) }
         guard lock.withLock({ holder == nil || holder == requester }) else { return }
         if dictation.latched { dictation.endLatch() }
-        if requester.dictates { dictation.finalize() }
+        if requester.dictates { closeClaim(); dictation.finalize() }
         release(requester)
         onStopped?(requester, reason)
     }
@@ -323,7 +342,7 @@ public final class SessionCoordinator {
         guard lock.withLock({ holder == nil || holder == requester }) else { return }
         if dictation.latched { dictation.endLatch() }
         latch?.cancelPending(reason: reason.rawValue)
-        if requester.dictates { dictation.cancel() }
+        if requester.dictates { lock.withLock { claimOpenedAt = nil }; dictation.cancel() }
         release(requester)
         onStopped?(requester, reason)
     }
@@ -362,6 +381,54 @@ public final class SessionCoordinator {
             lock.withLock { holder = .hotkey; requestedMode = .latched }
             latch?.attach(dictation.engine)
         }
+    }
+
+    // MARK: One decision per utterance — V5 O2/O3
+
+    /// Closes the open dictation claim: the stretch of time this utterance was spoken over.
+    private func closeClaim() {
+        let now = clock()
+        lock.withLock {
+            guard let opened = claimOpenedAt else { return }
+            claimOpenedAt = nil
+            closedClaims.append(opened...max(opened, now))
+            // Claims that never landed (nothing captured) age out.
+            closedClaims.removeAll { now.timeIntervalSince($0.upperBound) > Self.claimMemory }
+        }
+    }
+
+    static let claimMemory: TimeInterval = 120
+
+    /// The window a landing was spoken over: the closed claim that began nearest the landing's own
+    /// start (`PendingInsertion.startedAt`), else the most recent one, else the landing's start → now.
+    func claimWindow(for result: LandingResult) -> ClosedRange<Date> {
+        let now = clock()
+        let started = result.pending?.startedAt
+        return lock.withLock {
+            let pick: Int?
+            if let started {
+                pick = closedClaims.indices.min { abs(closedClaims[$0].lowerBound.timeIntervalSince(started))
+                    < abs(closedClaims[$1].lowerBound.timeIntervalSince(started)) }
+                    .flatMap { abs(closedClaims[$0].lowerBound.timeIntervalSince(started)) < 5 ? $0 : nil }
+            } else {
+                pick = closedClaims.indices.last
+            }
+            if let pick {
+                let window = closedClaims[pick]
+                closedClaims.removeSubrange(...pick)
+                return window
+            }
+            let lower = min(started ?? now, now)
+            return lower...now
+        }
+    }
+
+    /// V5 O3 — settles a landing's provisional decision (`UtteranceDecisionHub.decision(for:)`). An
+    /// arbiter decision for the same utterance or time wins; this is a no-op then.
+    public func settleLanding(_ result: LandingResult) {
+        let window = claimWindow(for: result)
+        decisions.settle(UtteranceDecisionHub.decision(for: result), utterance: result.utteranceID.uuidString,
+                         range: window, source: .landing, turn: PillDiagnostics.turnID())
     }
 
     // MARK: Escape — V3 §4.3
