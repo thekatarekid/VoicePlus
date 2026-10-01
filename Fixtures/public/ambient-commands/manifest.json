@@ -1,0 +1,1359 @@
+{
+ "set": "ambient-commands",
+ "language": "en",
+ "audioRoot": "ambient-commands",
+ "licence": "VoicePlus project (written for V5 L6; testing, not training data)",
+ "source": "V5 L6 scripted command set: 150 lines, 25 per capability (dictate/edit/act/note/ask/ignore). Labels are drafts; the owner confirms them on T1 before the set gates anything.",
+ "items": [
+  {
+   "id": "dictate-01",
+   "reference": "type dear Sarah thanks for sending the slides over",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-02",
+   "reference": "write that the meeting moved to Thursday at three",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-03",
+   "reference": "put in the reply that I can do Friday morning",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-04",
+   "reference": "the quarterly numbers look strong across every region",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-05",
+   "reference": "type hi team quick update on the launch",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-06",
+   "reference": "dictate please find the invoice attached",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-07",
+   "reference": "write looking forward to seeing you next week",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-08",
+   "reference": "add a line saying the build is green again",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-09",
+   "reference": "type the address is twelve Baker Street London",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-10",
+   "reference": "write a sentence saying we need two more reviewers",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-11",
+   "reference": "type sounds good let's go with option B",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-12",
+   "reference": "put happy birthday Anna in the card field",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-13",
+   "reference": "type my order number is four seven two one nine",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-14",
+   "reference": "write that the bug only happens on Safari",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-15",
+   "reference": "type best regards Aditya",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-16",
+   "reference": "type see you at the standup",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-17",
+   "reference": "write the deadline is the end of the month",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-18",
+   "reference": "type I'll be ten minutes late",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-19",
+   "reference": "write that we shipped version two point three today",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-20",
+   "reference": "type thanks so much for your patience",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-21",
+   "reference": "type the password reset email never arrived",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-22",
+   "reference": "write please review the pull request when you can",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-23",
+   "reference": "type can we push the call by half an hour",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-24",
+   "reference": "write the root cause was a stale cache",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "dictate-25",
+   "reference": "type great work everyone",
+   "label": "dictate",
+   "tags": [
+    "scripted",
+    "dictate"
+   ]
+  },
+  {
+   "id": "edit-01",
+   "reference": "delete the last sentence",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-02",
+   "reference": "make that more formal",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-03",
+   "reference": "change Thursday to Friday",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-04",
+   "reference": "scratch that",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-05",
+   "reference": "undo that",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-06",
+   "reference": "capitalize the first word",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-07",
+   "reference": "replace team with everyone",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-08",
+   "reference": "make the last paragraph shorter",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-09",
+   "reference": "fix the spelling in that line",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-10",
+   "reference": "turn that into a bullet list",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-11",
+   "reference": "remove the word basically",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-12",
+   "reference": "rewrite that more politely",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-13",
+   "reference": "make it sound friendlier",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-14",
+   "reference": "change the subject line to launch update",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-15",
+   "reference": "move that sentence to the top",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-16",
+   "reference": "delete the previous word",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-17",
+   "reference": "bold the heading",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-18",
+   "reference": "translate that to Spanish",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-19",
+   "reference": "shorten the whole email",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-20",
+   "reference": "put that in quotes",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-21",
+   "reference": "add a comma after however",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-22",
+   "reference": "split that into two sentences",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-23",
+   "reference": "change it to past tense",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-24",
+   "reference": "select the last line and delete it",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "edit-25",
+   "reference": "make the greeting less stiff",
+   "label": "edit",
+   "tags": [
+    "scripted",
+    "edit"
+   ]
+  },
+  {
+   "id": "act-01",
+   "reference": "open my calendar",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-02",
+   "reference": "send the email",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-03",
+   "reference": "open Slack",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-04",
+   "reference": "switch to Safari",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-05",
+   "reference": "create a new note called groceries",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-06",
+   "reference": "start a timer for ten minutes",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-07",
+   "reference": "mute my notifications for an hour",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-08",
+   "reference": "open the downloads folder",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-09",
+   "reference": "close this window",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-10",
+   "reference": "search the web for flights to Lisbon",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-11",
+   "reference": "play my focus playlist",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-12",
+   "reference": "turn the volume down",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-13",
+   "reference": "take a screenshot of this window",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-14",
+   "reference": "open the last PDF I downloaded",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-15",
+   "reference": "schedule a meeting with Priya tomorrow at ten",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-16",
+   "reference": "reply to Tom's email with sounds good",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-17",
+   "reference": "move this file to the projects folder",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-18",
+   "reference": "go to the next tab",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-19",
+   "reference": "open settings",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-20",
+   "reference": "start recording the meeting",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-21",
+   "reference": "mark this email as read",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-22",
+   "reference": "join the zoom call",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-23",
+   "reference": "set a reminder to call the bank at five",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-24",
+   "reference": "open the pull request in the browser",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "act-25",
+   "reference": "archive this conversation",
+   "label": "act",
+   "tags": [
+    "scripted",
+    "act"
+   ]
+  },
+  {
+   "id": "note-01",
+   "reference": "note to self buy oat milk",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-02",
+   "reference": "remember to call mum on Sunday",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-03",
+   "reference": "jot down that the plumber comes Tuesday",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-04",
+   "reference": "add to my list renew the passport",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-05",
+   "reference": "idea a podcast about tiny habits",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-06",
+   "reference": "note the wifi password is on the router",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-07",
+   "reference": "remind me later that the car needs a service",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-08",
+   "reference": "save this thought the onboarding is too long",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-09",
+   "reference": "make a note Priya prefers mornings",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-10",
+   "reference": "write down the flight is at six forty",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-11",
+   "reference": "take a note to follow up with legal",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-12",
+   "reference": "I should email the landlord about the heating",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-13",
+   "reference": "don't forget the dentist on the fourteenth",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-14",
+   "reference": "note that the demo went well",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-15",
+   "reference": "keep in mind the budget is capped at five thousand",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-16",
+   "reference": "add milk eggs and bread to the shopping list",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-17",
+   "reference": "thought for later we could cache the embeddings",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-18",
+   "reference": "remember the parking spot is level three",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-19",
+   "reference": "note the client wants a dark mode",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-20",
+   "reference": "save that Raj's birthday is in March",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-21",
+   "reference": "remind me the report is due Friday",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-22",
+   "reference": "I need to cancel the gym membership",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-23",
+   "reference": "jot down book recommendation Piranesi",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-24",
+   "reference": "note to self water the plants",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "note-25",
+   "reference": "remember to back up the laptop",
+   "label": "note",
+   "tags": [
+    "scripted",
+    "note"
+   ]
+  },
+  {
+   "id": "ask-01",
+   "reference": "what's on my calendar tomorrow",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-02",
+   "reference": "how long is the drive to the airport",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-03",
+   "reference": "what time is it in Tokyo",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-04",
+   "reference": "what did Sarah say about the launch",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-05",
+   "reference": "how do I convert this to a PDF",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-06",
+   "reference": "what's the weather this afternoon",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-07",
+   "reference": "when is my next meeting",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-08",
+   "reference": "what's twelve percent of eighty",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-09",
+   "reference": "who sent me the contract",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-10",
+   "reference": "what does this error mean",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-11",
+   "reference": "how many unread emails do I have",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-12",
+   "reference": "what was the decision in yesterday's standup",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-13",
+   "reference": "is the build passing",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-14",
+   "reference": "what's the capital of Australia",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-15",
+   "reference": "how do you spell necessary",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-16",
+   "reference": "what's the shortcut for screenshot",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-17",
+   "reference": "summarize this page",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-18",
+   "reference": "what's my battery level",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-19",
+   "reference": "when did I last talk to Raj",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-20",
+   "reference": "what's the exchange rate for euros",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-21",
+   "reference": "how far is the office from here",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-22",
+   "reference": "which file did I edit last",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-23",
+   "reference": "what are my action items from the meeting",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-24",
+   "reference": "explain this paragraph",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ask-25",
+   "reference": "how much storage is left",
+   "label": "ask",
+   "tags": [
+    "scripted",
+    "ask"
+   ]
+  },
+  {
+   "id": "ignore-01",
+   "reference": "yeah I think so too",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-02",
+   "reference": "can you pass me the charger",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-03",
+   "reference": "honey did you feed the cat",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-04",
+   "reference": "no no the other one",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-05",
+   "reference": "hang on I'm on a call",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-06",
+   "reference": "what do you want for dinner",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-07",
+   "reference": "haha that's hilarious",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-08",
+   "reference": "okay see you later",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-09",
+   "reference": "did you watch the match last night",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-10",
+   "reference": "I'll be down in a minute",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-11",
+   "reference": "mm hmm",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-12",
+   "reference": "sorry what did you say",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-13",
+   "reference": "let's grab coffee after this",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-14",
+   "reference": "the kids are back at six",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-15",
+   "reference": "I told him that already",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-16",
+   "reference": "where did I put my keys",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-17",
+   "reference": "come in the door's open",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-18",
+   "reference": "right right exactly",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-19",
+   "reference": "I'm not sure that's how it works",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-20",
+   "reference": "thanks for picking me up",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-21",
+   "reference": "you're on mute",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-22",
+   "reference": "can everyone see my screen",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-23",
+   "reference": "let me share my screen",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-24",
+   "reference": "I'll take that offline",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  },
+  {
+   "id": "ignore-25",
+   "reference": "great talking to you bye",
+   "label": "ignore",
+   "tags": [
+    "scripted",
+    "ignore"
+   ]
+  }
+ ]
+}

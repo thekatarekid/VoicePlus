@@ -69,7 +69,7 @@ public enum LabCLI {
                             runner: LabRunner? = nil, eval: PublicEval? = nil,
                             transport: (any DatasetTransport)? = nil) async -> Output {
         do {
-            if let command = args.first, ["eval", "fetch", "datasets", "mix", "pairs", "revalidate"].contains(command) {
+            if let command = args.first, ["eval", "fetch", "datasets", "mix", "pairs", "revalidate", "decide-set"].contains(command) {
                 let ev = eval ?? PublicEval(paths: EvalPaths(fixturesDirectory: fixturesDirectory))
                 return try await PublicEvalCLI.execute(command, try parse(Array(args.dropFirst())), registry: registry,
                                                        eval: ev, transport: transport ?? URLSessionTransport())
@@ -91,6 +91,7 @@ public enum LabCLI {
                                                                # V3: build <name>-noisy (clean + noise at each SNR)
            lab revalidate --set <name>                         # V4: preview / mic-quality / segment-class tables from hyp-*.json
            lab pairs --set <name> --model <id> [--hyp FILE]    # B4: error pairs → Lab/results/error-pairs/<set>.jsonl
+           lab decide-set --from ami|notsofar1 [--limit N]     # L6: meeting utterances labelled ignore → <set>-decide
     """
 
     static func execute(_ args: [String], registry: LabRegistry, fixturesDirectory: URL?, runner: LabRunner?) async throws -> Output {

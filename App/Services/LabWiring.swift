@@ -19,6 +19,7 @@ public enum LabWiring {
         }
         registry.stages["pipeline"] = { PipelineStageChain(runner: PipelineRunner.standard()) }
         if let repair { registry.stages[StageID.repair.rawValue] = { RepairStage(session: repair) } }
+        ArbiterEvalBackend.register(&registry)   // V5 L6: `lab eval --stage decide --model decide-<model>`
 
         if let modelManager {
             registry.transcribers["engine"] = { _ in try makeEngineTranscriber(manager: modelManager, boosting: boosting) }

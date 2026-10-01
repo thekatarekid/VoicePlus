@@ -6,6 +6,7 @@ import Foundation
 ///              [--tags a,b] [--hyp FILE] [--gate] [--no-write] [--pairs]
 ///     lab pairs --set <name> --model <id> [--hyp FILE]   # B4 error pairs only
 ///     lab mix --set <name> [--snr …] [--noise …]          # V3 noisy copy of a set
+///     lab decide-set --from ami|notsofar1 [--limit N]     # L6 meeting utterances → ignore
 ///
 /// Prints the per-condition table, writes `Lab/results/<date>-<set>-<model>.json`, prints Δ vs
 /// `Lab/results/baselines.json`; with `--gate` exits 1 when Δ > +0.3. `--hyp FILE` scores a
@@ -35,6 +36,12 @@ enum PublicEvalCLI {
             var text = Revalidation.markdown(result)
             if opts["no-write"] != "true" { text += "\nwrote \(try rv.write(result).path)" }
             return LabCLI.Output(exitCode: 0, text: text, reports: [])
+        case "decide-set":
+            // V5 L6 — `lab decide-set --from ami [--limit N]` → <cache>/ami-decide (every utterance → ignore).
+            guard let from = opts["from"] else { throw LabError.badArguments("decide-set needs --from <\(DecideSetBuilder.meetingSets.joined(separator: "|"))>") }
+            let m = DecideSetBuilder.ignoreSet(from: try eval.paths.loadManifest(set: from), limit: opts["limit"].flatMap(Int.init))
+            let url = try DecideSetBuilder.write(m, paths: eval.paths)
+            return LabCLI.Output(exitCode: 0, text: "\(m.set): \(m.items.count) utterances labelled ignore → \(url.path)", reports: [])
         case "mix":
             guard let set = opts["set"] else { throw LabError.badArguments("mix needs --set <name>") }
             let snrs = try LabCLI.list(opts["snr"] ?? "20,10,5,0").map { v -> Double in
