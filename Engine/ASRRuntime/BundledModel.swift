@@ -104,8 +104,9 @@ public enum RecognizerFactory {
             guard let preview else { return nil }
             return formatted ? FormattedPreviewRecognizer(preview) : preview
         }
-        if backend == .eouStreaming120m, await manager.isPresent(.parakeetEOU160),
-           let eou = try? await manager.load(.parakeetEOU160).eouManager {
+        // V5 C5: 320 ms when on disk, else the 160 ms an existing install already has.
+        if backend == .eouStreaming120m, let eouID = await PreviewEOUTier.resolve(in: manager),
+           let eou = try? await manager.load(eouID).eouManager {
             return wrap(EOUPreviewRecognizer(manager: eou))
         }
         return wrap(final is AppleSpeechRecognizer ? nil : PollingPreviewRecognizer(recognizer: final))

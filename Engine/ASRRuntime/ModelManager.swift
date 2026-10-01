@@ -196,7 +196,7 @@ public actor ModelManager {
             let version: AsrModelVersion = (id == .parakeetTDTCTC110m) ? .tdtCtc110m : .v3
             return .tdt(try await AsrModels.load(from: url, version: version))
         case .streamingEOU:
-            let manager = StreamingEouAsrManager(chunkSize: .ms160)
+            let manager = StreamingEouAsrManager(chunkSize: PreviewEOUTier.chunkSize(for: id))   // V5 C5
             try await manager.loadModels(from: url)
             return .eou(manager)
         case .whisper:
@@ -215,6 +215,8 @@ public actor ModelManager {
             .parakeetTDTCTC110m: [fa.appendingPathComponent("parakeet-tdt-ctc-110m"), fa.appendingPathComponent("parakeet-tdt-ctc-110m-coreml")],
             .parakeetEOU160: [fa.appendingPathComponent("parakeet-eou-streaming/160ms"),
                               fa.appendingPathComponent("parakeet-realtime-eou-120m-coreml/160ms")],
+            .parakeetEOU320: [fa.appendingPathComponent("parakeet-eou-streaming/320ms"),          // V5 C5
+                              fa.appendingPathComponent("parakeet-realtime-eou-120m-coreml/320ms")],
         ]
         for (id, folder) in BundledModelResources.candidates() {
             caches[id, default: []].insert(folder, at: 0)
@@ -452,7 +454,8 @@ public actor ModelManager {
     @discardableResult
     public func warmStart(preferred: [ModelID] = [.parakeetEOU160, .parakeetTDTv3, .parakeetTDTCTC110m]) async -> [ModelID] {
         var ok: [ModelID] = []
-        for id in preferred where isPresent(id) {
+        // V5 C5: one EOU variant only — 320 ms when present, else 160 ms.
+        for id in PreviewEOUTier.dedupe(preferred, isPresent: { isPresent($0) }) where isPresent(id) {
             if (try? await load(id)) != nil { ok.append(id) }
         }
         return ok

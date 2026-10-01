@@ -32,6 +32,10 @@ public enum ModelID: String, Codable, CaseIterable, Sendable {
     /// V5 C1b — LocalVQE speech enhancement (neural AEC + NS + dereverb, v1.3 4.8M, 256 ms chunk).
     /// Not part of the stack: fetched only when Settings › Voice selects it (`ModelRole.onDemand`).
     case localVQE = "localvqe-coreml"
+    /// V5 C5 — Parakeet realtime EOU 120M at the 320 ms chunk size (upstream ~5.7 % vs ~8.3 % WER
+    /// on test-clean). The preview prefers it when present (`PreviewEOUTier`); `.onDemand` until the
+    /// V1 preview-WER gate moves the first-run stack to it.
+    case parakeetEOU320 = "parakeet-realtime-eou-120m-coreml-320ms"
 }
 
 /// Which fetcher `ModelManager` downloads a model with, and which loader it would load it with.
@@ -147,6 +151,14 @@ public enum ModelCatalog {
             // FX3: the real size of the 160 ms variant — 16 files, 224,047,838 bytes in a verified
             // 1.11.1 install's manifest (it was quoted as 400 MB).
             approxBytes: 224_047_838, displayName: "Parakeet Realtime EOU 120M (160 ms)", license: "other"),
+        // V5 C5 — same file set in the repo's `320ms/` folder (`Repo.parakeetEou320`); loaded file by
+        // file like the 160 ms one, at `StreamingChunkSize.ms320`. Size approximate until a verified
+        // install records its manifest.
+        .parakeetEOU320: ModelDescriptor(
+            id: .parakeetEOU320, kind: .streamingEOU, hfRepo: "FluidInference/parakeet-realtime-eou-120m-coreml", hfSubdirectory: "320ms",
+            requiredPaths: ["streaming_encoder.mlmodelc", "decoder.mlmodelc", "joint_decision.mlmodelc", "vocab.json"],
+            approxBytes: 230_000_000, displayName: "Parakeet Realtime EOU 120M (320 ms)", license: "other",
+            role: .onDemand),
         .parakeetTDTCTC110m: ModelDescriptor(
             id: .parakeetTDTCTC110m, kind: .finalTDT,
             // = `Repo.parakeetTdtCtc110m.folderName` (an explicit case in `ModelNames.folderName`).
