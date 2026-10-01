@@ -166,7 +166,34 @@ public final class PresenceIndicatorController {
     var reducedState: PresenceState {
         PresenceStateReducer.reduce(inputs, microphone: microphoneOwnership?() ?? .closed)
     }
-    public func setPillVisible(_ visible: Bool) { onMain { self.update { $0.pillVisible = visible } } }
+    public func setPillVisible(_ visible: Bool) {
+        onMain {
+            self.pillStateVisible = visible
+            self.update { $0.pillVisible = self.pillIsReallyShowing }
+        }
+    }
+
+    /// BUG B — the pill's panel is (or is not) genuinely ordered in (`PillPanelController.surfaceOnScreen`).
+    ///
+    /// The chin may only stand down for a pill the user can actually see. Suppressing it on the
+    /// strength of a pill *state* meant that every way the panel could fail to appear — no host
+    /// display, the pinned display gone, a turn refused between the state and the frame — took both
+    /// surfaces away at once and left the key press with nothing on screen at all.
+    public func setPillOnScreen(_ onScreen: Bool) {
+        onMain {
+            self.pillPanelOnScreen = onScreen
+            self.update { $0.pillVisible = self.pillIsReallyShowing }
+        }
+    }
+
+    /// Pill state and pill panel must agree before the chin stands down. `pillPanelOnScreen` is nil
+    /// until someone reports a panel (headless runs and tests that never order one in), and then the
+    /// pill's state alone decides, exactly as it did before.
+    private var pillIsReallyShowing: Bool {
+        pillStateVisible && (pillPanelOnScreen ?? true)
+    }
+    private var pillStateVisible = false
+    private var pillPanelOnScreen: Bool?
     public func setPaused(_ paused: Bool) { onMain { self.update { $0.paused = paused } } }
     public func setMuted(_ muted: Bool) { onMain { self.update { $0.muted = muted } } }
     public func setCapabilities(_ caps: PermissionPlanner.Capabilities) { onMain { self.update { $0.capabilities = caps } } }
@@ -180,10 +207,18 @@ public final class PresenceIndicatorController {
     /// never the pill's: the pill only gets what the S3 turn controller admits, which after key-up
     /// excludes `.finalizing`, `.landed` and `.idle` — so a chin fed from the pill never heard the
     /// turn end, and sat on "Working…" until the next press.
+    ///
+    /// BUG B — `pillOnScreen` is the pill *panel*'s own report (`PillPanelController.surfaceOnScreen`).
+    /// Pass it in production: without it the chin stands down for a pill state that may never reach
+    /// the screen, which is how a press left the user with no surface at all.
     public func bind(pill: PillViewModel, engineStates: AnyPublisher<EngineState, Never>,
-                     turnEnded: AnyPublisher<TurnStage, Never>? = nil, mute: MuteController?) {
+                     turnEnded: AnyPublisher<TurnStage, Never>? = nil, mute: MuteController?,
+                     pillOnScreen: AnyPublisher<Bool, Never>? = nil) {
         pill.$state.receive(on: DispatchQueue.main)
-            .sink { [weak self] state in self?.update { $0.pillVisible = state.isVisible } }
+            .sink { [weak self] state in self?.setPillVisible(state.isVisible) }
+            .store(in: &cancellables)
+        pillOnScreen?.receive(on: DispatchQueue.main)
+            .sink { [weak self] onScreen in self?.setPillOnScreen(onScreen) }
             .store(in: &cancellables)
         engineStates.receive(on: DispatchQueue.main)
             .sink { [weak self] engine in self?.setEngine(engine) }

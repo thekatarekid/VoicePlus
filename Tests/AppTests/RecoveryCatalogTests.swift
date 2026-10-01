@@ -302,7 +302,9 @@ struct RecoveryCatalogTests {
             slice += 1
             #expect(headline == RecoveryCatalog.entry(id).headline, "\(id.rawValue)")
         }
-        #expect(slice == 20)
+        // 21 since `AudioCaptureError.notPermitted` made P01 reachable from the engine layer: a
+        // missing or revoked microphone grant is no longer reported as A01 "No microphone found".
+        #expect(slice == 21)
     }
 
     /// App-layer errors follow the same rule as `EngineMessage.describe`: the entry comes back, the

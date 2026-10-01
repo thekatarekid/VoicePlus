@@ -44,6 +44,12 @@ public final class AudioPipeline: @unchecked Sendable {
         /// the capture broken and emitting `.captureFailed`. 0 disables the watchdog.
         /// A working built-in mic delivers its first ~50 ms block well inside this window.
         public var noAudioTimeout: TimeInterval = 2.0
+        /// How long a capture may deliver nothing but bit-exact-zero samples before it is called
+        /// broken (`CaptureSilenceWatchdog`). `noAudioTimeout` covers "no blocks at all"; this
+        /// covers the far commoner macOS failure where the blocks arrive and are all silence —
+        /// a revoked microphone grant, a muted input, a tap the engine reconfigured out from under
+        /// us. 0 disables it. Only ever fires when *no* non-zero sample was seen in the capture.
+        public var digitalSilenceTimeout: TimeInterval = CaptureSilenceWatchdog.defaultTimeout
         public init() {}
     }
 
@@ -115,6 +121,8 @@ public final class AudioPipeline: @unchecked Sendable {
     /// A `.noSpeech` was reported; the endpointer re-arms when speech is next heard (worker only).
     private var endpointAwaitingSpeech = false
     private let micQuality = MicQualityAnalyzer()
+    /// Worker-only, like `chunker`: blocks are processed strictly in order, so it needs no lock.
+    private var silence: CaptureSilenceWatchdog
     private var vadPending: [Float] = []
     private var position = 0          // 16k samples delivered
     private var vadPosition = 0       // samples fed to VAD
@@ -133,6 +141,7 @@ public final class AudioPipeline: @unchecked Sendable {
         self.endpointer = options.endpointer
         self.latched = options.latched
         self.endpointerConfig = options.endpointer
+        self.silence = CaptureSilenceWatchdog(timeout: options.digitalSilenceTimeout)
     }
 
     /// Fresh stream per call; every event after subscribing is delivered in order.
@@ -281,6 +290,18 @@ public final class AudioPipeline: @unchecked Sendable {
         broadcaster.send(.captureFailed(reason: reason))
     }
 
+    /// Blocks arrived and every sample in them was bit-exact zero: the stream is open and silenced.
+    /// Reported on the same `.captureFailed` channel as "no blocks at all" — both are the design's
+    /// A05, "recorder opens but receives no samples" — so one consumer covers both.
+    private func reportDigitalSilence(after seconds: TimeInterval) {
+        stateLock.lock(); let live = running; stateLock.unlock()
+        guard live else { return }
+        let device = source.device?.name ?? "the selected input"
+        let reason = CaptureSilenceWatchdog.reason(device: device, seconds: seconds)
+        Log.engine.error("audio: \(reason)")
+        broadcaster.send(.captureFailed(reason: reason))
+    }
+
     /// Waits until every sample pushed so far has been processed. Test/Lab helper.
     public func drain() async {
         semaphore.signal()
@@ -323,7 +344,7 @@ public final class AudioPipeline: @unchecked Sendable {
     // MARK: processing (worker task, strictly ordered)
 
     private func resetProcessing() {
-        chunker.reset(); endpointer.reset(); micQuality.reset()
+        chunker.reset(); endpointer.reset(); micQuality.reset(); silence.reset()
         vadPending.removeAll(); position = 0; vadPosition = 0; totalSamples = 0; lastMicQuality = nil; lastMicMeasurement = nil; lastOverruns = 0
         stateLock.lock(); sawAudio = false; stateLock.unlock()
     }
@@ -340,8 +361,19 @@ public final class AudioPipeline: @unchecked Sendable {
         broadcaster.send(.audio(samples: samples, position: start))
 
         var acc: Float = 0
-        for s in samples { acc += s * s }
+        var anyNonZero = false
+        for s in samples {
+            acc += s * s
+            if s != 0 { anyNonZero = true }
+        }
         broadcaster.send(.level(rms: (acc / Float(samples.count)).squareRoot()))
+
+        // A capture that is *being silenced* rather than merely quiet. Decided on the same block
+        // whose RMS was just published, so the verdict is a function of the audio, not of timing.
+        if case .digitalSilence(let seconds) = silence.note(seconds: Double(samples.count) / 16_000,
+                                                            allZero: !anyNonZero) {
+            reportDigitalSilence(after: seconds)
+        }
 
         for chunk in chunker.feed(samples) { broadcaster.send(.chunk(chunk)) }
 

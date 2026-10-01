@@ -34,6 +34,10 @@ public enum CaptureReleaseReason: String, Sendable, Equatable, CaseIterable {
     case mute, quit, deviceChange, idle
     /// The engine was swapped (a model landed): nobody will start this graph again.
     case replaced
+    /// The graph opened and delivered nothing but silence (`CaptureSilenceWatchdog`). A kept graph
+    /// is the *reason* that can persist for a whole session — a warm resume re-runs nothing — so a
+    /// silent capture is released rather than paused, and the next press builds a cold one.
+    case silent
 }
 
 /// A capture source that can describe the graph it actually resolved to. Implemented by the two
@@ -58,6 +62,11 @@ public enum AudioCaptureError: Error, Equatable {
     case formatMismatch(hardware: Double, client: Double)
     /// Capture started and stayed silent: not one audio block arrived inside the watchdog window.
     case noAudio(seconds: TimeInterval)
+    /// The microphone is not ours to open: TCC has no grant for this code identity, or the user
+    /// revoked it. Distinct from `.noInputDevice` because the two need opposite instructions —
+    /// "Choose microphone" (A01) versus "Open Microphone settings" (P01) — and reporting a denied
+    /// grant as "No microphone found" is what sent users looking at their hardware.
+    case notPermitted(status: String)
     /// Another owner already holds the capture graph and outranks this caller. Reported instead of
     /// the silent no-op that used to hand a second caller a stream it had not configured.
     case busy(owner: String)
@@ -83,6 +92,8 @@ extension AudioCaptureError: CustomStringConvertible {
             return "the microphone is already in use by \(owner)"
         case .startTimedOut(let device, let seconds):
             return "\(device) did not start within \(String(format: "%.0f", seconds))s"
+        case .notPermitted(let status):
+            return "microphone access is \(status) for this copy of VoicePlus"
         }
     }
 }
@@ -354,6 +365,19 @@ public protocol CaptureGraphDriver: AnyObject {
     func startMonitoring(onDefaultInputChanged: @escaping (AudioDeviceInfo?) -> Void,
                          onDeviceListChanged: @escaping ([AudioDeviceInfo]) -> Void)
     func stopMonitoring()
+    /// `AVAudioEngineConfigurationChangeNotification`: the engine has rebuilt its own graph because
+    /// the input hardware format changed under it (another app pushed the device to a different
+    /// rate, a wake, a same-device route change). **The engine invalidates installed taps when this
+    /// happens** and stops itself, which the HAL listeners in `AudioDeviceMonitor` cannot see: they
+    /// watch the *default device* and the *device list*, and neither changed. Defaulted to a no-op
+    /// so fake drivers need not implement it.
+    func observeConfigurationChanges(_ onChange: @escaping () -> Void)
+    func stopObservingConfigurationChanges()
+}
+
+public extension CaptureGraphDriver {
+    func observeConfigurationChanges(_ onChange: @escaping () -> Void) {}
+    func stopObservingConfigurationChanges() {}
 }
 
 // MARK: - CoreAudioCaptureSource
@@ -444,6 +468,7 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescr
         // that callback is itself waiting for `lock`.
         guard stopMonitor else { return }
         driver.stopMonitoring()
+        driver.stopObservingConfigurationChanges()
         // A prewarm that slipped in between the two re-armed the monitor just stopped: arm it again,
         // or a device change would go unseen by a graph that exists.
         lock.withLock {
@@ -468,6 +493,33 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescr
         if wasRunning { _ = try perform(.start) }
         Log.engine.notice("audio: switched input \(old?.name ?? "none") -> \(target.name)")
         onDeviceChanged?(old, target)
+    }
+
+    /// Rebuilds the graph for whatever device the policy chooses **now**, whether or not the device
+    /// changed. `switchDevice(to:)` answers "a different microphone"; this answers "the same
+    /// microphone, but the graph in front of it is no longer wired to it" — which is what an
+    /// `AVAudioEngine` configuration change leaves behind, tap included.
+    public func rebuildGraph() throws {
+        let current = lock.withLock { device }
+        noteEnumeration()
+        let all = driver.inputDevices()
+        let stillPresent = current.map { c in all.contains { $0.uid == c.uid } } ?? false
+        let chosen = policy.choose(from: all, systemDefault: driver.defaultInputDevice(),
+                                   current: stillPresent ? current : nil)
+        try switchDevice(to: chosen)
+    }
+
+    /// The engine rebuilt itself. A graph that is merely `paused` is the dangerous case: the next
+    /// `start()` is one `engine.start()` on a tap that is no longer installed, so capture "opens",
+    /// the microphone indicator lights, and not one buffer ever arrives — for every press until the
+    /// idle release ten minutes later. Rebuild now, while nobody is holding the key.
+    private func handleConfigurationChange() {
+        let phase = lock.withLock { lifecycle.phase }
+        guard phase != .stopped else { return }
+        Log.engine.notice("audio: the audio engine reconfigured itself while \(phase.rawValue); rebuilding the capture graph so the tap is attached again")
+        do { try rebuildGraph() } catch {
+            Log.engine.error("audio: rebuilding after an engine configuration change failed: \(error)")
+        }
     }
 
     // MARK: lifecycle steps (called with `lock` held)
@@ -542,6 +594,7 @@ public final class CoreAudioCaptureSource: AudioCaptureSource, CaptureGraphDescr
     private func ensureMonitoring() {
         guard !monitoring else { return }
         monitoring = true
+        driver.observeConfigurationChanges { [weak self] in self?.handleConfigurationChange() }
         driver.startMonitoring(
             onDefaultInputChanged: { [weak self] newDefault in self?.handleRouteChange(newDefault: newDefault) },
             onDeviceListChanged: { [weak self] list in
@@ -739,8 +792,15 @@ public final class AVAudioEngineCaptureDriver: CaptureGraphDriver, @unchecked Se
     private var monitor: AudioDeviceMonitor?
     /// AUHAL bus 1 is the input (microphone) element.
     private static let inputBus: AudioUnitElement = 1
+    /// The engine-configuration observer and the handler it calls. Kept so the observer can be
+    /// re-registered against the *new* engine object after `recreateEngine()` — the notification is
+    /// posted by the engine instance, so an observer left on the discarded one hears nothing.
+    private var configurationObserver: NSObjectProtocol?
+    private var onConfigurationChange: (() -> Void)?
 
     public init() {}
+
+    deinit { stopObservingConfigurationChanges() }
 
     public func inputDevices() -> [AudioDeviceInfo] { AudioDeviceEnumerator.inputDevices() }
     public func defaultInputDevice() -> AudioDeviceInfo? { AudioDeviceEnumerator.defaultInputDevice() }
@@ -812,6 +872,21 @@ public final class AVAudioEngineCaptureDriver: CaptureGraphDriver, @unchecked Se
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         engine = AVAudioEngine()
+        // The notification comes from the engine object, so the observer has to follow it.
+        if let handler = onConfigurationChange { observeConfigurationChanges(handler) }
+    }
+
+    public func observeConfigurationChanges(_ onChange: @escaping () -> Void) {
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        onConfigurationChange = onChange
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { _ in onChange() }
+    }
+
+    public func stopObservingConfigurationChanges() {
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = nil
+        onConfigurationChange = nil
     }
 
     public func startMonitoring(onDefaultInputChanged: @escaping (AudioDeviceInfo?) -> Void,

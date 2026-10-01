@@ -603,8 +603,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // FX2 — the chin takes the engine's own, unfiltered states and every turn end; the pill keeps
         // the turn controller's admitted stream (a chin fed from the pill sat on "Working…").
+        // BUG B — and the chin stands down only for a pill the panel has really ordered in, never
+        // for the intent to show one: a press that cannot put a pill on screen must leave the chin.
         presence.bind(pill: pill.model, engineStates: coordinator.engineStates,
-                      turnEnded: coordinator.turnEnded, mute: container.latchController.mute)
+                      turnEnded: coordinator.turnEnded, mute: container.latchController.mute,
+                      pillOnScreen: pill.surfaceOnScreen)
         presence.start()
 
         // ── S2 · the Spool pill and the presence chin (design §4–§6, §10) ─────────────────────────

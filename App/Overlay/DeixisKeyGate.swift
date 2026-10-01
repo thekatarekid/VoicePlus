@@ -1,6 +1,7 @@
 import Actions
 import CoreGraphics
 import Foundation
+import Shared
 
 // G1 — the dictation key as the deixis trigger (V4.28, V4.31).
 //
@@ -253,8 +254,18 @@ public final class DeixisKeyController: @unchecked Sendable {
 
     public func handle(_ action: HotkeyStateMachine.Action) {
         lock.lock()
-        let effects = arbiter.handle(action, sessionLatched: sessionLatched(), drawWithoutKey: drawWithoutKey())
+        let latched = sessionLatched()
+        let effects = arbiter.handle(action, sessionLatched: latched, drawWithoutKey: drawWithoutKey())
+        let mode = arbiter.mode
         lock.unlock()
+        // BUG B — a press that reaches nothing is the shape of "the key did nothing at all", and in
+        // latch this gate holds a key-down back by design (it may be a pointing press). That is only
+        // ever right while a latched session really is running, so say so in the log: a swallowed
+        // `.startCapture` with no latch behind it is the one reading that is a defect, and it was
+        // indistinguishable from a dead key on the owner's Mac.
+        if effects.forward.isEmpty, action == .startCapture || action == .finalize {
+            Log.app.notice("deixis key: \(String(describing: action)) held back as a latch press (mode=\(String(describing: mode)) sessionLatched=\(latched))")
+        }
         apply(effects)
     }
 

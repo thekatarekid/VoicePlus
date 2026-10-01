@@ -80,6 +80,7 @@ public enum EngineMessage {
     /// holds all 59 entries; tests keep the two identical.
     public static func engineHeadline(for id: RecoveryID) -> String? {
         switch id {
+        case .P01: return "Microphone access is off"
         case .K04: return "Finishing your previous dictation"
         case .A01: return "No microphone found"
         case .A03: return "Couldn’t start this microphone"
@@ -130,6 +131,9 @@ public enum EngineMessage {
     private static func recoveryID(_ error: AudioCaptureError) -> RecoveryID {
         switch error {
         case .noInputDevice: return .A01
+        // A missing or revoked TCC grant is a permissions failure, not a hardware one: P01's action
+        // is "Open Microphone settings", A01's is "Choose microphone", and only one of them helps.
+        case .notPermitted: return .P01
         case .formatMismatch: return .A04
         case .noAudio: return .A05
         case .busy: return .A09

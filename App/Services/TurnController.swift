@@ -403,10 +403,40 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// Capture never opened (the engine could not start). The turn ends; nothing to land. The
     /// engine's own error row (which passes `admitsEngineState`) is left standing; a bare
     /// "Starting…" is taken down.
-    public func captureFailed(_ id: TurnID) {
+    ///
+    /// BUG B — and the user is told. `.starting` suppresses the presence chin, so retracting it with
+    /// nothing in its place was the one press that could leave no surface on screen at all. `reason`
+    /// is the catalogue entry for whatever refused the start (A03 "Couldn’t start this microphone ·
+    /// Nothing was recorded." when the caller knows nothing more specific) — catalogue copy only,
+    /// exactly like K04 on the admission gate above.
+    public func captureFailed(_ id: TurnID, reason: RecoveryID = .A03) {
         guard lock.withLock({ turns[id] != nil }) else { return }
         end(id, stage: .failed)
         retract()
+        notice(reason)
+    }
+
+    /// Capture opened and then produced nothing usable — no audio blocks at all, or nothing but
+    /// digital silence (`AudioPipeline`'s two watchdogs, reported as `.captureFailed`).
+    ///
+    /// This is the one exit `listeningQuiet` never had. "Listening · quiet" is the honest row for a
+    /// quiet *room*, and nothing about it is time-bounded: `quietElapsed` sets the stage and no
+    /// later event can clear it except speech that, in this failure, can never arrive. So a turn
+    /// could sit there for the whole hold with no levels, no partials and no explanation. A capture
+    /// that is silent for a knowable reason now ends the turn and says A05 instead.
+    ///
+    /// Unlike `captureFailed(_:reason:)` this takes no id: the pipeline's watchdogs fire from the
+    /// audio side and know nothing about turns, so the live capture turn is looked up here.
+    public func captureSilent(reason: RecoveryID = .A05) {
+        let id = lock.withLock { () -> TurnID? in
+            guard let id = captureID, turns[id]?.stage.isCapturing == true else { return nil }
+            return id
+        }
+        guard let id else { return }
+        end(id, stage: .failed)
+        notice(reason)
+        // Closing capture is the coordinator's (it owns the engine session), exactly as for
+        // `captureFailed` and `captureCancelled`. This only ends the turn and says why.
     }
 
     /// Capture was cancelled without Escape (a too-short tap, a preemption, mute): the capture turn

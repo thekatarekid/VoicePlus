@@ -199,6 +199,15 @@ public final class DictationCoordinator {
         levelSource?.cancel()
         levelSource = nil
         audio.onLevel = { [capturedLevels] level in capturedLevels.send(level) }
+        // The capture watchdogs had no consumer at all on the dictation path: `AudioPipeline` has
+        // emitted `.captureFailed` since 1.6.4 and `PipelineAudioSource` has forwarded it to
+        // `onCaptureFailure`, but nothing in the app ever assigned that closure — so a capture that
+        // opened and delivered nothing logged one line and showed the user "Listening · quiet".
+        // Bound here, beside the level channel, because this is the one method called at launch and
+        // again after every engine swap, so it always tracks the live pipeline.
+        audio.onCaptureFailure = { [weak self, weak audio] reason in
+            Task { @MainActor in self?.noteCaptureSilent(reason, source: audio) }
+        }
         // B1 — the same pipeline is what the latch listens to (VAD, endpoints, stream position).
         // The app binds here at launch and after every engine swap, so this is always the live one.
         latchAudio = audio
@@ -281,6 +290,33 @@ public final class DictationCoordinator {
         onLatchChanged?(false)
     }
 
+    /// A capture that opened and will never deliver anything usable: no blocks at all, or nothing
+    /// but digital silence (a muted input, a microphone grant macOS is silencing us for, a tap an
+    /// `AVAudioEngine` configuration change detached). The turn ends with the catalogue's A05 row,
+    /// the session is torn down, and the kept capture graph is **released** rather than left paused.
+    ///
+    /// That last part is the half that makes the failure stop repeating. V4.7 keeps the graph
+    /// between turns and a warm resume is one `engine.start()` — no enumeration, no format sync, no
+    /// tap re-install — so once a graph has gone silent, every later press resumed the same dead
+    /// graph until the ten-minute idle release. Releasing it here means the next press builds a cold
+    /// one and can succeed.
+    @MainActor
+    public func noteCaptureSilent(_ reason: String, source: PipelineAudioSource?) {
+        Log.app.error("dictation: capture opened and stayed silent — \(reason)")
+        turns?.captureSilent()
+        // Latch must end here, and `cancel()` deliberately will not do it (a cancelled utterance
+        // inside a latched session is not the user asking to leave the mode). This is one of the
+        // paths that *must*: the mode promises "listening continues", and the capture it was
+        // listening to is about to be released. Without this the pill kept its latch dress and the
+        // runtime stayed connected to a dead pipeline — "Listening" for ever again, by another
+        // route. Nothing is lost by ending it: the watchdog only fires on a capture in which no
+        // non-zero sample has *ever* arrived, so there is no dictation in it to lose.
+        endLatch()
+        cancel()
+        guard let graph = source?.pipeline.source else { return }
+        DispatchQueue.global(qos: .userInitiated).async { graph.release(reason: .silent) }
+    }
+
     public func noteMicQuality(_ quality: MicQuality) {
         lastMicQuality = quality
         if quality.verdict != .good { pill.model.apply(.warning(quality)) }
@@ -318,8 +354,29 @@ public final class DictationCoordinator {
     private func beginSession(turn: TurnID? = nil) async {
         await openSession()
         guard let turn, let turns else { return }
-        if isSessionHeld { turns.captureOpened(turn) } else { turns.captureFailed(turn) }
+        if isSessionHeld {
+            turns.captureOpened(turn)
+        } else {
+            // BUG B — a start that never opened capture says so in the pill, in the catalogue's own
+            // words for *this* failure (A03 when nothing recognises it). Until now the turn ended
+            // and its "Starting microphone…" row was retracted, which — because a pill row suppresses
+            // the presence chin — is how a press could end with no surface on screen at all.
+            turns.captureFailed(turn, reason: startFailureID())
+        }
     }
+
+    /// The catalogue id of the last `engine.start()` failure, consumed once. `.A03` ("Couldn’t start
+    /// this microphone · Nothing was recorded.") when the start failed without an error we can map —
+    /// the honest reading of "capture is not open and nobody threw".
+    private func startFailureID() -> RecoveryID {
+        let error = sessionLock.withLock { () -> Error? in
+            defer { startFailure = nil }
+            return startFailure
+        }
+        guard let error else { return .A03 }
+        return RecoveryCatalog.recoveryID(for: error)
+    }
+    private var startFailure: Error?
 
     private func openSession() async {
         // A session still held here belongs to an utterance that never ended (a swallowed error, a
@@ -355,7 +412,7 @@ public final class DictationCoordinator {
     private func failStart(_ error: Error) async {
         Log.app.error("engine start failed: \(error)")
         await engine.cancel()
-        sessionLock.withLock { sessionHeld = false }
+        sessionLock.withLock { sessionHeld = false; startFailure = error }
         // Capture never opened, so there is no latched session to be in. Leaving `latched` set here
         // would put the gesture recogniser (which the app resets on this callback) and the
         // coordinator into two different modes.

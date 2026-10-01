@@ -26,6 +26,18 @@ public final class PillPanelController {
     /// explicit retarget instead of following a window that macOS moved to another display.
     public var onPinnedDisplayLost: (() -> Void)?
 
+    /// BUG B — is the pill's panel *genuinely* ordered in right now?
+    ///
+    /// The presence chin stands down while "the pill is showing" (`PresenceStateReducer`), and until
+    /// now that was decided by `PillViewModel.state.isVisible` — an *intent* to show a pill. Every
+    /// path below that returns from `render` without ordering the panel in (no display to place it
+    /// on, the pinned display gone) therefore produced the reported symptom: the chin suppressed by a
+    /// pill that is not on screen, and so no surface at all. This is the truth the chin binds to.
+    public var surfaceOnScreen: AnyPublisher<Bool, Never> { onScreen.removeDuplicates().eraseToAnyPublisher() }
+    private let onScreen = CurrentValueSubject<Bool, Never>(false)
+    /// Reports what the window server has been told, from the one place that can know it.
+    private func noteSurfaceOnScreen() { onScreen.send(panel.isVisible) }
+
     public init() {
         shadowPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel = PillInteractionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -88,6 +100,13 @@ public final class PillPanelController {
             guard resolution.metrics != nil else {
                 self.panel.orderOut(nil)
                 self.shadowPanel.orderOut(nil)
+                // BUG B — ORDER MATTERS with `lastSurface`: the panel is out, so the next render has
+                // to take the `(false, true)` branch and order it back in. Leaving `lastSurface` at a
+                // visible value made `render` believe the panel was still up, so it only ever
+                // animated a window that was never ordered front again — the pill went missing for
+                // the rest of the process while the chin stayed suppressed by it.
+                self.lastSurface = .hidden
+                self.noteSurfaceOnScreen()
                 return
             }
             self.render(self.model.state, force: true)
@@ -166,11 +185,21 @@ public final class PillPanelController {
         let wasVisible = lastSurface != .hidden
         guard force || surface != lastSurface || state.isVisible != wasVisible else {
             syncPointerTracking(acceptsMouse: Self.acceptsMouse(state, content: content))
+            noteSurfaceOnScreen()
             return
         }
-        defer { lastSurface = surface }
         if !wasVisible || pinnedMetrics == nil { pinnedMetrics = Self.currentMetrics() }
-        guard let metrics = pinnedMetrics else { return }
+        guard let metrics = pinnedMetrics else {
+            // BUG B — nothing was placed and nothing was ordered in, so `lastSurface` must not claim
+            // a visible surface (it did, through a `defer` that ran on this very return): one render
+            // with no host display left the controller believing the panel was up forever after.
+            // `.hidden` is the honest record, and the chin is told so it keeps the user a surface.
+            Log.app.warning("pill: no display to place the pill on — leaving it retracted (wanted \(String(describing: surface)))")
+            lastSurface = .hidden
+            noteSurfaceOnScreen()
+            return
+        }
+        lastSurface = surface
         let size = NotchGeometry.size(for: surface, on: metrics)
         let layout = NotchGeometry.pillLayout(for: metrics, size: size == .zero ? NotchGeometry.activeSize : size)
         if surface != .hidden, !wasVisible {
@@ -201,12 +230,14 @@ public final class PillPanelController {
                 self.panel.orderOut(nil)
                 self.shadowPanel.orderOut(nil)
                 self.pinnedMetrics = nil
+                self.noteSurfaceOnScreen()
             }
         case (true, true):
             animate(to: layout.shown)
         case (false, false):
             break
         }
+        noteSurfaceOnScreen()
     }
 
     /// V4.41 — mouse acceptance, and the truth about hover.

@@ -206,7 +206,11 @@ struct LatchEndpointLoopTests {
         let capture = ScriptedLatchCapture()
         let decisions = DecisionLog(capture.audio.pipeline)
         try await rig.latch(on: capture)
-        await capture.play(S.silence(9.0), into: rig.latch)         // past the 8 s no-speech bound
+        // Room tone, not bit-exact zeros: a live microphone in a quiet room. Zeros here would be a
+        // *silenced* stream, which `CaptureSilenceWatchdog` ends with A05 — a different claim than
+        // this test's, and one that would make the expectations below pass for the wrong reason
+        // (no segment closes because the whole turn was torn down).
+        await capture.play(S.roomTone(9.0), into: rig.latch)        // past the 8 s no-speech bound
         await latchWait("the no-speech report") { decisions.all == [.noSpeech] }
         await rig.flush()
         #expect(rig.latch.endpointClosures == 0)
@@ -278,7 +282,10 @@ struct LatchEndpointLoopTests {
         var rig = LatchLoopRig()
         let capture = ScriptedLatchCapture()
         try await rig.latch(on: capture)
-        await capture.play(S.silence(3.1), into: rig.latch)
+        // Room tone: the user has latched and is not speaking yet, with a live microphone. The
+        // clock must count that audio. (Bit-exact zeros would be a silenced input, which the
+        // capture-silence watchdog ends with A05 — correctly, and this test is not about that.)
+        await capture.play(S.roomTone(3.1), into: rig.latch)
         // The first block anchors the clock; every block after it counts.
         #expect(abs(rig.latch.elapsed - (3.1 - 0.05)) < 1e-6)
         await latchWait("the pill timer") { rig.dictation.latchElapsed >= 3 }

@@ -30,6 +30,7 @@ struct RecoveryIDTests {
         (EngineError.fixtureNotFound("clip"), .X08),
         (EngineError.fixtureInvalid("clip"), .X08),
         (AudioCaptureError.noInputDevice, .A01),
+        (AudioCaptureError.notPermitted(status: "turned off"), .P01),
         (AudioCaptureError.engineStartFailed("kAudioUnitErr_FormatNotSupported"), .A03),
         (AudioCaptureError.deviceSelectionFailed(-10851), .A03),
         (AudioCaptureError.formatMismatch(hardware: 48_000, client: 44_100), .A04),
@@ -87,7 +88,8 @@ struct RecoveryIDTests {
     @Test func everyEngineHeadlineIsTheFixturesVerbatim() throws {
         let fixture = Dictionary(uniqueKeysWithValues: try Self.fixture().map { ($0.id, $0.headline) })
         let slice = RecoveryID.allCases.compactMap { id in EngineMessage.engineHeadline(for: id).map { (id, $0) } }
-        #expect(slice.count == 20)
+        // 21 since `AudioCaptureError.notPermitted` made P01 reachable from the engine layer.
+        #expect(slice.count == 21)
         for (id, headline) in slice {
             #expect(headline == fixture[id.rawValue], "\(id.rawValue)")
         }

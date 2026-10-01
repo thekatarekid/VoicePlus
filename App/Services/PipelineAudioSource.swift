@@ -102,7 +102,7 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     ///   new owner, who therefore gets a stream configured for *its* utterance, not an inherited one;
     /// * a higher-ranked owner holds it → `AudioCaptureError.busy`, so the caller can say so.
     public func start(for owner: Owner) throws {
-        guard !requireMicrophonePermission || Self.microphoneAuthorized else { throw AudioCaptureError.noInputDevice }
+        if requireMicrophonePermission, let refusal = Self.authorizationRefusal() { throw refusal }
         let displaced: Owner? = try lock.withLock {
             if let current = self.owner {
                 guard owner.rank >= current.rank else { throw AudioCaptureError.busy(owner: current.rawValue) }
@@ -270,6 +270,64 @@ public final class PipelineAudioSource: AudioSource, @unchecked Sendable {
     static var microphoneAuthorized: Bool {
         if ProcessInfo.processInfo.environment["VOICEPLUS_MOCK_PERMISSIONS"] == "1" { return true }
         return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    /// What a `start()` should do about the current TCC answer. Pure, so the mapping is testable
+    /// without a microphone — `AVCaptureDevice.authorizationStatus` is read by the caller.
+    ///
+    /// The whole point is the asymmetry that used to be flattened. Until now every non-authorized
+    /// answer threw `.noInputDevice`, which the recovery catalogue reads as A01 "No microphone
+    /// found" — sending a user whose microphone is fine and whose *grant* is missing off to look at
+    /// their hardware. And `.notDetermined` was a dead end for ever, because nothing on the capture
+    /// path ever asked for the grant.
+    public enum AuthorizationDecision: Equatable, Sendable {
+        /// Open the microphone.
+        case proceed
+        /// Refuse, and ask macOS for the grant first: this is the one state a prompt can resolve.
+        case requestThenRefuse
+        /// Refuse. Only System Settings can change this.
+        case refuse
+    }
+
+    public static func decide(_ status: AVAuthorizationStatus) -> AuthorizationDecision {
+        switch status {
+        case .authorized: return .proceed
+        case .notDetermined: return .requestThenRefuse
+        // `.denied`, `.restricted` (MDM / Screen Time), and anything Apple adds later.
+        default: return .refuse
+        }
+    }
+
+    public static func label(for status: AVAuthorizationStatus) -> String {
+        switch status {
+        case .authorized: return "granted"
+        case .notDetermined: return "not requested yet"
+        case .denied: return "turned off"
+        case .restricted: return "blocked by a profile on this Mac"
+        @unknown default: return "unavailable"
+        }
+    }
+
+    /// nil when capture may open; otherwise the error to throw, which classifies to P01
+    /// "Microphone access is off" rather than A01 "No microphone found".
+    static func authorizationRefusal() -> AudioCaptureError? {
+        if ProcessInfo.processInfo.environment["VOICEPLUS_MOCK_PERMISSIONS"] == "1" { return nil }
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch decide(status) {
+        case .proceed:
+            return nil
+        case .requestThenRefuse:
+            // This press cannot be served — the prompt is asynchronous and the user has to answer
+            // it — but the *next* one can. Asking here is also the only call that ever puts
+            // VoicePlus into Privacy & Security › Microphone at all.
+            Log.app.notice("audio source: microphone access has never been requested; asking macOS now")
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                Log.app.notice("audio source: microphone access \(granted ? "granted" : "refused")")
+            }
+            return .notPermitted(status: label(for: status))
+        case .refuse:
+            return .notPermitted(status: label(for: status))
+        }
     }
 
     /// One start's race against its budget: exactly one of "returned" and "given up" wins.

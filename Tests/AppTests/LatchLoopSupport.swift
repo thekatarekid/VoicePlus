@@ -232,7 +232,25 @@ final class ScriptedLatchCapture {
     static func speech(_ seconds: Double) -> [Float] {
         (0..<Int((seconds * 16_000).rounded())).map { 0.2 * sin(Float($0) * 2 * .pi * 440 / 16_000) }
     }
+    /// Bit-exact zero. This is what a *silenced* stream delivers (TCC, a mute switch, a detached
+    /// tap), not what a live microphone delivers — `CaptureSilenceWatchdog` fires on it by design.
+    /// Use it only for a pause that follows real audio in the same capture (one non-zero sample
+    /// disarms the watchdog for the rest of the capture); for "the user is simply not speaking yet",
+    /// use `roomTone(_:)`.
     static func silence(_ seconds: Double) -> [Float] { [Float](repeating: 0, count: Int((seconds * 16_000).rounded())) }
+
+    /// A live-but-silent microphone: the ±1 LSB dither of a real 16-bit analogue input in a quiet
+    /// room. Non-zero in every sample, so the capture reads as healthy, and three orders of
+    /// magnitude under `ScriptedLatchVAD`'s 0.01 speech threshold, so it is still "not speaking".
+    /// This — not `silence(_:)` — is what the user who latches and then pauses is producing.
+    static func roomTone(_ seconds: Double) -> [Float] {
+        let lsb: Float = 1.0 / 32_768
+        var state: UInt64 = 0x9E3779B97F4A7C15
+        return (0..<Int((seconds * 16_000).rounded())).map { _ in
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return (state >> 63) == 0 ? lsb : -lsb          // never zero
+        }
+    }
 
     func start() throws { try audio.start(for: .engine) }
     func stop() { audio.stop() }
