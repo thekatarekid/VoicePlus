@@ -1,13 +1,14 @@
 import Engine
 import Foundation
 
-// R8.1 — what ambient capture is allowed to keep, and the one thing it is never allowed to do.
+// R8.1 — what ambient capture is allowed to keep.
 //
-// The whole of this file is about *storage*. There is no delivery, no injection, no action: V3 §8 —
-// "Transcript into Timeline only; never type or act from ambient speech". `App/Ambient` does not
-// import `Injection`, an `AmbientEntry` has no route to an injector, and the only consumer of a
-// captured entry is `AmbientTranscriptSink`. See `AmbientInjectionAudit` and
-// `Tests/AppTests/AmbientNeverInjectsTests.swift`, which fail if that ever stops being true.
+// The whole of this file is about *storage*. There is no delivery, no injection, no action here: an
+// `AmbientEntry` has no route to an injector and the only consumer of a captured entry is
+// `AmbientTranscriptSink`. Since V5 L2 (amends V3 §8) a kept utterance may *also* be decided by the
+// arbiter, and leaves the Timeline only as `AmbientGuarantees` allow (Listen & act, the user's voice,
+// the act band, never self-confirming) — see `AmbientDecisionPipeline` and
+// `Tests/AppTests/AmbientGuaranteesTests.swift`.
 
 /// One thing that was said, on its way to the Timeline and nowhere else.
 ///

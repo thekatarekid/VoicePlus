@@ -6,6 +6,9 @@ import Foundation
 
 @MainActor
 public enum AmbientModeWiring {
+    /// The app's controller once `install` ran (the ambient decision pipeline reads it).
+    public private(set) static var controller: AmbientModeController?
+
     /// Builds the controller, hangs it on the status menu and installs the first-enable explainer.
     @discardableResult
     public static func install(settings: (any SettingsStore)?, status: StatusItemController) -> AmbientModeController {
@@ -13,6 +16,7 @@ public enum AmbientModeWiring {
         controller.presentExplainer = { mode in Task { @MainActor in showExplainer(mode) } }
         AmbientModeController.presentFirstEnable = controller.presentExplainer
         status.ambientModeController = controller
+        self.controller = controller
         controller.observe { [weak status] _ in Task { @MainActor in status?.refreshIcon() } }
         return controller
     }

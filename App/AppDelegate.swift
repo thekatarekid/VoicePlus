@@ -269,8 +269,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // captured once, so turning the switch off stops capture on the next utterance instead of
         // the next relaunch, and the enrolled-speaker verdict is re-read for the same reason.
         //
-        // Ambient text never reaches `delivery` — that is the property `AmbientNeverInjectsTests`
-        // and `AmbientInjectionAudit` exist to defend (V3 §8: never type or act from ambient speech).
+        // V5 L2 (amends V3 §8): ambient speech leaves the Timeline only through the decision
+        // pipeline — arbiter, then `AmbientGuarantees` (Listen & act only, user's voice only, act band
+        // only, never self-confirming); `AmbientGuaranteesTests` prove it.
         NotesStore.preparedDefaultRoot()   // V5 N4: fold legacy …/Ambient into …/Notes before the launch sweep
         let ambientStore = AmbientWiring.store(database: container.database, settings: container.settings)
         self.ambientStore = ambientStore
@@ -279,7 +280,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              gate: { [weak container] in
                                  AmbientWiring.gate(settings: container?.settings,
                                                     filter: container?.latchController.speakerFilter)
-                             })
+                             },
+                             decisions: AmbientWiring.decisionPipeline(
+                                settings: container.settings, actParser: container.actRouter.parser,
+                                mode: AmbientModeWiring.controller ?? AmbientModeController(settings: container.settings)))
         // The verdict stays at its default `.unknown`: the transcript seam carries text and a
         // SegmentID, not audio, and `SpeakerGate.verdict(for:embedder:)` needs samples. With the
         // enrolled-only path that means every segment is discarded — `.modelUnavailable` on a
@@ -578,6 +582,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // V5 M17/M16/M21 — meeting notes + Ask over the `meeting.*` routes.
         MeetingIntelligenceWiring.install(routing: container.routing, settings: container.settings)
+        // V5 M23 — the meetings MCP server listens only while its setting is on (off by default).
+        MeetingsMCPController.shared.configure(settings: container.settings)
+        Task { await MeetingsMCPController.shared.apply() }
         // V5 N1–N4 — Notes: one store with the ambient Timeline, the pill's "📝 notes · N" chip, the
         // menu's "N new notes" row, and "Insert here" into the app behind the window (hide, then type).
         NotesWiring.install(database: container.database, settings: container.settings,

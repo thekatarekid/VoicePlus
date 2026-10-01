@@ -1,3 +1,4 @@
+import Actions
 import Engine
 import Foundation
 import Shared
@@ -7,9 +8,10 @@ import Shared
 //
 // `LatchRuntime` already has the hole this fills: `onTranscript` is documented there as "Ambient
 // transcript sink (V3 §8: into the Timeline, never typed). Set by the ambient item." This is the
-// ambient item. Note what the seam is *not*: it is not a `LatchDelivering`, it carries no
-// destination, and `LatchRuntime.run` reaches it by returning **before** delivery is consulted. The
-// only thing this wiring can do with ambient speech is store it.
+// ambient item. The seam is not a `LatchDelivering` and carries no destination: `LatchRuntime.run`
+// reaches it by returning **before** delivery is consulted. Since V5 L2 a kept utterance also goes to
+// the `AmbientDecisionPipeline` (arbiter → `AmbientGuarantees`), which is the only way ambient speech
+// can become a Note or — in Listen & act, from the user's voice, in the act band — a capability.
 //
 // Retention is enforced here too, at the two moments a user would notice it not being: when the
 // store is built (app launch) and periodically while entries are being written. Opening the Timeline
@@ -66,6 +68,7 @@ public enum AmbientWiring {
                               gate: @escaping () -> AmbientCaptureGate,
                               verdict: @escaping () -> SpeakerGate.Verdict = { .unknown },
                               now: @escaping () -> Date = { Date() },
+                              decisions: AmbientDecisionPipeline? = nil,
                               onDecision: ((AmbientCaptureDecision) -> Void)? = nil) {
         runtime.onTranscript = { text, segment in
             let decision = gate().decide(text: text, verdict: verdict(), at: now())
@@ -73,10 +76,49 @@ public enum AmbientWiring {
             case .keep(let entry):
                 do { try sink.store(entry) }
                 catch { Log.app.error("ambient: entry \(segment) not stored: \(error)") }
+                // V5 L2/L4 — a kept utterance is decided (Layer 1 on every ambient utterance) and
+                // routed only as `AmbientGuarantees` allows.
+                let end = entry.capturedAt.addingTimeInterval(max(0, entry.duration))
+                decisions?.enqueue(text, utteranceID: "ambient-\(segment.sessionID.uuidString)-\(segment.index)",
+                                   range: entry.capturedAt...end)
             case .discard(let reason):
                 Log.app.notice("ambient: segment \(segment) discarded — \(reason.rawValue)")
             }
             onDecision?(decision)
         }
     }
+
+    /// V5 L2/L4 — the ambient decision pipeline: mode → arbiter (built asynchronously: registering
+    /// the decision model with `ModelResidency` is async; until it is ready utterances are only
+    /// recorded) → `AmbientGuarantees` → Notes. No capability delivery is attached yet (needs L3's
+    /// samples on the seam for a real speaker verdict, and CU for act); `delivery` stays nil.
+    @MainActor
+    public static func decisionPipeline(settings: (any SettingsStore)?, actParser: ActIntentParser?,
+                                        mode: AmbientModeController,
+                                        verdict: @escaping () -> SpeakerGate.Verdict = { .unknown },
+                                        context: @escaping (String) -> DecisionState = { DecisionState(utterance: $0) })
+        -> AmbientDecisionPipeline {
+        let box = ArbiterBox()
+        Task { box.set(await ArbiterWiring.make(settings: settings, actParser: actParser)) }
+        let pipeline = AmbientDecisionPipeline(mode: mode, arbiter: { box.get() }, verdict: verdict, context: context)
+        pipeline.note = { [weak mode] text, decision in
+            // The guarantees already decided this is a note; Notes only needs the source tag.
+            let band = AmbientBand.note
+            let listenAndNote = mode?.mode == .listenAndNote
+            Task { @MainActor in
+                NotesWiring.router?.route(text, signals: NotesRouteSignals(ambientBand: band, listenAndNote: listenAndNote,
+                                                                           arbiterChoseNote: true))
+            }
+            return true
+        }
+        return pipeline
+    }
+}
+
+/// Holds the arbiter once it is built.
+final class ArbiterBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var arbiter: IntentArbiter?
+    func set(_ a: IntentArbiter) { lock.withLock { arbiter = a } }
+    func get() -> IntentArbiter? { lock.withLock { arbiter } }
 }

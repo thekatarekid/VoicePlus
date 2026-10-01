@@ -347,19 +347,30 @@ App + field role + text before cursor --------------------------> formatting / c
 | Latch | Continue across endpoints; persistent listening state; visible Stop |
 | Focus changes while latched | Pause delivery, hold pending text, require explicit resumption into a named target |
 | Speaker mismatch or uncertain, filtering on | Suppress insertion; never silently save another person's speech |
-| Ambient enabled | Transcript into Timeline only; never type or act from ambient speech |
+| Ambient · Off | No ambient listening; explicit use (hold, latch, act key) only |
+| Ambient · Listen & note | Transcript into Timeline; ambient speech may become a Note; never type or act from ambient speech |
+| Ambient · Listen & act | As Listen & note, and ambient speech may dictate / act — only under the V5 L2 guarantees below |
 | Lock / sleep | Stop capture, cancel pending insertion; no silent resume |
 | Hard mute | Stop every capture path; persist |
 
 - Speaker identity is not directed-speech intent. Latch is an explicit dictation session.
 - Enrollment is requested when enabling speaker filtering, never for hold-to-talk. Validate with real
   voices before any default-on.
-- Ambient off by default, separate opt-in. When on: transcript only, enrolled user only, seven-day
-  retention, no sync. Other speakers discarded unless broader capture is explicitly enabled.
+- Ambient off by default, separate opt-in. When on: transcript kept for the enrolled user only (acting
+  per the amendment below), seven-day retention, no sync. Other speakers discarded unless broader capture is explicitly enabled.
 - Timeline: search, source filters, delete, delete-all; expiry clears indexes. Audio retention is a
   separate choice. Indicators reflect actual microphone ownership.
-- Wake words, wake verbs that act, and autonomous ambient actions are out of scope. `directedSpeech`
-  stays off.
+- ~~Wake words, wake verbs that act, and autonomous ambient actions are out of scope.~~ **Amended by
+  V5 L1/L2 (owner approved, 1 Oct 2026):** ambient has three settings — Off · Listen & note · Listen &
+  act (`AmbientMode`, `ambient.mode`; default Off). Ambient speech may type or act **only** in Listen &
+  act, and only when every guarantee holds (`AmbientGuarantees`, proven by `AmbientGuaranteesTests`):
+  1. the mode is Listen & act — Off and Listen & note never reach `delivery` or an action;
+  2. the voice is the user's (K4/M6 speaker verdict `.you`); unknown or another voice never acts;
+  3. the arbiter's decision is in the act band (≥ `DecisionBands.act`, or an explicit Layer 0 trigger);
+  4. an irreversible step is never confirmed by ambient speech — it needs a spoken "confirm" in a turn
+     the user started, or a click (§O-b rubric 6).
+  Listen & note may store Notes, never type. `directedSpeech` stays off; the ambient glyph follows the
+  mode (X14). This replaces R8.1's `AmbientNeverInjectsTests` / `AmbientInjectionAudit`.
 
 ---
 

@@ -292,6 +292,7 @@ names.
 | **Held** ("⚠ Destination changed · text held") | Committed text waiting for an explicit destination | `held` |
 | **Recent dictations** (Today) | Retained dictation turns, newest first | `TurnRecord` / `TurnStore` |
 | **Timeline** | Ambient transcript history (kept from v1; the verified design has no separate word for it) | `AmbientTimeline` |
+| **Ambient · Off / Listen & note / Listen & act** (menu row + segmented control, Settings › Privacy) | V5 L1 ambient settings. Ambient speech may dictate or act **only in Listen & act**, only from the user's voice, only in the act band, never self-confirming an irreversible step (V5 L2, amends V3 §8); Listen & note only stores Notes | `AmbientMode` (`off`, `listenAndNote`, `listenAndAct`), `AmbientGuarantees` |
 
 **"Hands-free" in UI copy.** v1 forbade the words "hands-free" anywhere in UI copy. That rule is
 replaced by the verified latched copy: the latched pill status is **Hands-free · listening**, its helper

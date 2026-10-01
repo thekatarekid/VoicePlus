@@ -301,7 +301,7 @@ public final class PrivacySectionViewModel: ObservableObject {
     }
 
     public static let enrolledSpeakerOnlyNote =
-        "Ambient capture only keeps what your enrolled voice said, as transcript. Nothing is typed anywhere, and it never reaches an injection path."
+        "Ambient listening only keeps what your enrolled voice said. Listen & note never types or acts; Listen & act may, only when it is sure you are talking to it."
 
     /// What the Privacy section says under the retention picker, from the policy that enforces it.
     public var retentionSentence: String { AmbientRetentionPolicy(days: retentionDays).sentence }
