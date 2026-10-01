@@ -72,6 +72,7 @@ public final class SyncService: @unchecked Sendable {
                                      updatedAt: record.createdAt)
             }
         }
+        p.personas = syncedPersonas()
         p.snippets = ((try? snippets.all()) ?? []).map { snippet in
             Sync.Snippet(id: snippet.id, trigger: snippet.trigger, expansion: snippet.body, updatedAt: snippet.createdAt)
         }
@@ -87,10 +88,41 @@ public final class SyncService: @unchecked Sendable {
                 do { try database.save(record) } catch { Log.db.error("sync dictionary apply failed: \(error)") }
             }
         }
+        applyPersonas(merged.personas)
         let existing = ((try? snippets.all()) ?? [])
         for s in merged.snippets where !s.deleted {
             guard !existing.contains(where: { $0.id == s.id || $0.trigger == s.trigger }) else { continue }
             try? snippets.save(Pipeline.Snippet(id: s.id, trigger: s.trigger, body: s.expansion, createdAt: s.updatedAt))
+        }
+    }
+
+    // MARK: Personas (V5 F4)
+
+    /// Sync record id for an app's writing instructions.
+    public static func personaRecordID(_ bundleID: String) -> String { "persona:\(bundleID)" }
+
+    /// Only instructions the user wrote travel; auto-drafts are re-learned on each Mac from its own
+    /// landings (F1), so a draft never overwrites what someone typed on another device.
+    func syncedPersonas() -> [Sync.Persona] {
+        guard let database else { return [] }
+        let store = DatabasePersonaStore(database: database)
+        return ((try? store.allBundleIDs()) ?? []).compactMap { bundle in
+            guard let p = try? store.persona(for: bundle), !p.isAutoDrafted, !p.text.isEmpty else { return nil }
+            return Sync.Persona(id: Self.personaRecordID(bundle), name: bundle, styleRules: [p.text], updatedAt: p.updatedAt)
+        }
+    }
+
+    /// A newer remote persona replaces this Mac's text (and any auto-draft); recipient overrides stay.
+    func applyPersonas(_ remote: [Sync.Persona]) {
+        guard let database else { return }
+        let store = DatabasePersonaStore(database: database)
+        for r in remote where !r.deleted && r.id == Self.personaRecordID(r.name) {
+            guard let text = r.styleRules.first, !text.isEmpty else { continue }
+            let local = try? store.persona(for: r.name)
+            if let local, !local.isAutoDrafted, local.updatedAt >= r.updatedAt || local.text == text { continue }
+            var p = local ?? Pipeline.Persona(appBundleID: r.name, text: text)
+            p.text = text; p.isAutoDrafted = false; p.updatedAt = r.updatedAt
+            do { try store.save(p) } catch { Log.db.error("sync persona apply failed: \(error)") }
         }
     }
 
