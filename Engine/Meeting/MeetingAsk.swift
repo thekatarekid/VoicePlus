@@ -129,6 +129,10 @@ public actor MeetingAskIndex {
     private var vectors: [[Float]] = []
     private var cache: [String: [Float]] = [:]
     private var signature: String?
+    /// How far the indexed transcript reached (last utterance end; count kept for logs): a live refresh never
+    /// goes back to an older snapshot (a view that captured the record when it opened keeps
+    /// handing in the same, shrinking-by-comparison transcript).
+    private var indexedExtent: (count: Int, end: Double)?
     public private(set) var builtAt: Date?
     /// How many times windows were (re)embedded: tests read it to see a re-index happen or not.
     public private(set) var builds = 0
@@ -148,6 +152,8 @@ public actor MeetingAskIndex {
     public func refresh(_ transcript: MeetingTranscript, names: MeetingSpeakerNames = .init(), live: Bool) async -> Bool {
         let sig = Self.signature(transcript, names)
         if sig == signature { return false }
+        let extent = (count: transcript.utterances.count, end: Double(transcript.utterances.last?.range.upperBound ?? 0))
+        if live, let had = indexedExtent, extent.end < had.end { return false }
         if live, let builtAt, clock().timeIntervalSince(builtAt) < MeetingRetrieval.liveReindexInterval { return false }
         let fresh = MeetingRetrieval.windows(transcript, names: names)
         let missing = fresh.map(\.text).filter { cache[$0] == nil }
@@ -159,6 +165,7 @@ public actor MeetingAskIndex {
         vectors = fresh.map { cache[$0.text] ?? [] }
         cache = Dictionary(zip(fresh.map(\.text), vectors), uniquingKeysWith: { a, _ in a })
         signature = sig
+        indexedExtent = extent
         builtAt = clock()
         builds += 1
         return true

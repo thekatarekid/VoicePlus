@@ -90,6 +90,24 @@ import Shared
         #expect(await index.builds == 2)
     }
 
+    /// Verify fix: the Ask tab's 30 s loop captured the record when the tab opened; once an ask had
+    /// indexed newer words, the loop's next rebuild put the old snapshot back and the following ask
+    /// (inside 30 s) answered from it. A live index never goes back to an older transcript.
+    @Test func liveIndexNeverGoesBackToAnOlderSnapshot() async {
+        let clock = Clock()
+        let index = MeetingAskIndex(embedder: HashingSentenceEmbedder(), clock: { clock.now })
+        let opened = Self.record(minutes: 1)
+        var current = opened
+        #expect(await index.refresh(opened.transcript, live: true))
+        current.transcript.utterances.append(MeetingUtterance(speaker: .you, text: "Ship on Friday.", range: 70...72, confidence: 1))
+        clock.now += 31
+        #expect(await index.refresh(current.transcript, live: true))
+        #expect(await index.windows.count == 2)
+        clock.now += 31
+        #expect(await index.refresh(opened.transcript, live: true) == false, "stale snapshot is ignored")
+        #expect(await index.windows.count == 2)
+    }
+
     @Test func afterTheMeetingAChangedTranscriptReindexesAtOnce() async {
         let clock = Clock()
         let index = MeetingAskIndex(embedder: HashingSentenceEmbedder(), clock: { clock.now })
