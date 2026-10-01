@@ -863,6 +863,7 @@ public struct OnboardingView: View {
             if let outcome = model.contactsOutcome, case .imported(let n) = outcome {
                 Text("Added \(n) names from Contacts to your dictionary.").foregroundStyle(.secondary)
             }
+            OnboardingWhatToExpectCard { open(OnboardingReady.expectDictionarySection) }   // I1
             laterSteps
         }
     }
