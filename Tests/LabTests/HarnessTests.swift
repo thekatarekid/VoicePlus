@@ -9,7 +9,7 @@ struct FakeBiasingStage: PipelineStage {
     let id: StageID = .biasing
     func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
         spans.map { span in
-            if context.isEnabled(.contextBiasing), span.text.lowercased() == "anthropic", !span.isLowConfidence {
+            if context.isEnabled(.dualPath), span.text.lowercased() == "anthropic", !span.isLowConfidence {
                 return span.rewritten("Anthropic", by: id)
             }
             return span.touched(by: id)
@@ -84,8 +84,8 @@ final class FakeClock: @unchecked Sendable {
         let suites = try runner().loadSuites(LabConfig(name: "x", transcriber: "lower", suites: ["entity"]))
         for item in suites[0].items { t.references[item.file] = item.transcript }
         t.transform = { _, ref in ref.replacingOccurrences(of: "Anthropic", with: "anthropic") }
-        let on = LabConfig(name: "on", transcriber: "lower", stages: ["biasing"], flags: ["contextBiasing": true], suites: ["entity"])
-        let off = LabConfig(name: "off", transcriber: "lower", stages: ["biasing"], flags: ["contextBiasing": false], suites: ["entity"])
+        let on = LabConfig(name: "on", transcriber: "lower", stages: ["biasing"], flags: ["dualPath": true], suites: ["entity"])
+        let off = LabConfig(name: "off", transcriber: "lower", stages: ["biasing"], flags: ["dualPath": false], suites: ["entity"])
         let rOn = try await runner().run(config: on, transcriber: t, stages: [FakeBiasingStage()])
         let rOff = try await runner().run(config: off, transcriber: t, stages: [FakeBiasingStage()])
         #expect(rOn.overall.entityRecall == 1)

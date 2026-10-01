@@ -48,8 +48,8 @@ public struct LabRegistry: Sendable {
 /// `LabCLI.main(args)` — P1.13 wraps this in an executable. Returns (exit code, output).
 ///
 ///     lab run  [--name N] [--transcriber perfect] [--suites clean,entity] [--stages a,b]
-///              [--flags contextBiasing=on,voiceRepair=off] [--format md|json] [--out FILE] [--db FILE]
-///     lab compare --flag contextBiasing [same options]   # runs flag on vs off, prints comparison
+///              [--flags voiceRepair=off,dualPath=on] [--format md|json] [--out FILE] [--db FILE]
+///     lab compare --flag voiceRepair [same options]   # runs flag on vs off, prints comparison
 ///     lab suites                                          # list available suites
 public enum LabCLI {
     public struct Output: Equatable, Sendable {
@@ -82,7 +82,7 @@ public enum LabCLI {
 
     public static let usage = """
     usage: lab run [--name N] [--transcriber T] [--suites a,b] [--stages s1,s2] [--flags f=on,g=off] [--format md|json] [--out FILE] [--db FILE]
-           lab compare --flag contextBiasing [run options]
+           lab compare --flag voiceRepair [run options]
            lab suites
            lab eval --set <name> --stage asr|cleanup|diar|decide --model <id> [--raw] [--limit N] [--tags a,b] [--hyp FILE] [--gate] [--no-write]
            lab fetch --set <name>                              # download a public set + build its manifest

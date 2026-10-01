@@ -21,8 +21,8 @@ struct PreviewBackendChoiceTests {
         let defaults = LabPanelViewModel.defaultChoices()
         #expect(defaults.map { $0.config.name }.contains("preview EOU 120M"))
         #expect(defaults.map { $0.config.name }.contains("preview polling final"))
-        // The comparison that runs when nobody touches anything is still biasing on vs off.
-        #expect(defaults.filter { $0.selected }.map { $0.config.name } == ["biasing on", "biasing off"])
+        // The comparison that runs when nobody touches anything is still voice repair on vs off (V5 A1 deleted the biasing pair).
+        #expect(defaults.filter { $0.selected }.map { $0.config.name } == ["repair on", "repair off"])
     }
 
     @Test func candidatesCanBeSelectedAndRun() async throws {

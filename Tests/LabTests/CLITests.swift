@@ -7,11 +7,11 @@ import Shared
     let runner = LabRunner(clock: { 0 }, hardware: "cli-hw", thermal: { .nominal })
 
     @Test func argParsing() throws {
-        let o = try LabCLI.parse(["--name", "x", "--flags=contextBiasing=on,voiceRepair=off", "--json"])
-        #expect(o == ["name": "x", "flags": "contextBiasing=on,voiceRepair=off", "json": "true"])
+        let o = try LabCLI.parse(["--name", "x", "--flags=dualPath=on,voiceRepair=off", "--json"])
+        #expect(o == ["name": "x", "flags": "dualPath=on,voiceRepair=off", "json": "true"])
         #expect(throws: LabError.badArguments("unexpected argument 'run'")) { try LabCLI.parse(["run"]) }
         let cfg = try LabCLI.makeConfig(o, name: "n")
-        #expect(cfg.flags == ["contextBiasing": true, "voiceRepair": false])
+        #expect(cfg.flags == ["dualPath": true, "voiceRepair": false])
         #expect(cfg.suites == FixtureSuite.defaultNames)
     }
 
@@ -41,14 +41,14 @@ import Shared
 
     @Test func compareRunsFlagOnAndOffAndPersists() async throws {
         let dbPath = FileManager.default.temporaryDirectory.appendingPathComponent("lab-\(UUID().uuidString).sqlite").path
-        let out = await LabCLI.main(["compare", "--flag", "contextBiasing", "--suites", "entity", "--db", dbPath], runner: runner)
+        let out = await LabCLI.main(["compare", "--flag", "dualPath", "--suites", "entity", "--db", dbPath], runner: runner)
         #expect(out.exitCode == 0, Comment(rawValue: out.text))
-        #expect(out.reports.map(\.config.name) == ["contextBiasing=on", "contextBiasing=off"])
-        #expect(out.reports[0].config.flags == ["contextBiasing": true])
+        #expect(out.reports.map(\.config.name) == ["dualPath=on", "dualPath=off"])
+        #expect(out.reports[0].config.flags == ["dualPath": true])
         #expect(out.text.hasPrefix("# Lab comparison"))
         #expect(out.text.contains("| WER | 0.0% | 0.0% |"))
         let db = try AppDatabase.open(at: URL(fileURLWithPath: dbPath))
-        #expect(try db.labRuns().map(\.name).sorted() == ["contextBiasing=off", "contextBiasing=on"])
+        #expect(try db.labRuns().map(\.name).sorted() == ["dualPath=off", "dualPath=on"])
     }
 
     @Test func errorsReportUsage() async {
