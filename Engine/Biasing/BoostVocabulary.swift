@@ -45,6 +45,18 @@ public enum BoostVocabulary {
         }
         return out
     }
+
+    /// N11 — the rubric's two layers (stable first, then per-turn), already typed, scored, quota'd
+    /// and collision-gated by `ContextRubric`. Length rules and the cap still apply here.
+    public static func build(rubric: RankedContext, cap: Int = BoostVocabulary.cap) -> [String] {
+        var out: [String] = []
+        for term in rubric.boostTerms where out.count < cap {
+            let letters = term.filter { $0.isLetter || $0.isNumber }.count
+            guard letters >= minCharacters, term.count <= maxCharacters else { continue }
+            out.append(term)
+        }
+        return out
+    }
 }
 
 /// Builds the boost list at hotkey-down and turns it into a booster for the final pass.
@@ -57,6 +69,7 @@ public final class BoostingController: @unchecked Sendable {
     private let dictionary: @Sendable () -> [String]
     private let corrections: @Sendable () -> [String]
     private let makeBooster: @Sendable ([String]) -> VocabularyBooster
+    private let rubric: (@Sendable (Date) -> RankedContext?)?
     private let lock = NSLock()
     private var _lastTerms: [String] = []
     private var _lastBuildMs: Double = 0
@@ -66,12 +79,15 @@ public final class BoostingController: @unchecked Sendable {
     ///     ranks a harvester holding only the authored sources (corrections, dictionary, learned
     ///     lexicon), so building the boost list never walks the screen.
     ///   - dictionary / corrections: read fresh per utterance (the user may have just added a word).
+    ///   - rubric: N11 — the rubric-ranked context for this utterance (nil = not wired / no surface).
     ///   - makeBooster: builds the per-utterance booster (the app passes `CTCVocabularyBooster` over a
     ///     shared model source; tests pass a scripted one).
     public init(context: @escaping @Sendable (Date) -> RankedContext = { _ in .empty },
                 dictionary: @escaping @Sendable () -> [String] = { [] },
                 corrections: @escaping @Sendable () -> [String] = { [] },
+                rubric: (@Sendable (Date) -> RankedContext?)? = nil,
                 makeBooster: @escaping @Sendable ([String]) -> VocabularyBooster) {
+        self.rubric = rubric
         self.context = context
         self.dictionary = dictionary
         self.corrections = corrections
@@ -84,7 +100,14 @@ public final class BoostingController: @unchecked Sendable {
     /// Rebuild the list for this utterance. Nil (= clear the booster) when there is nothing to boost.
     public func makeBoosterForUtterance(now: Date = Date()) -> VocabularyBooster? {
         let t0 = DispatchTime.now().uptimeNanoseconds
-        let terms = BoostVocabulary.build(dictionary: dictionary(), corrections: corrections(), context: context(now))
+        // N11: when the rubric is wired (surface known), its layers are the whole list — including
+        // "nothing" on a secure field. Otherwise the legacy authored-only build.
+        let terms: [String]
+        if let ranked = rubric?(now) {
+            terms = BoostVocabulary.build(rubric: ranked)
+        } else {
+            terms = BoostVocabulary.build(dictionary: dictionary(), corrections: corrections(), context: context(now))
+        }
         lock.withLock {
             _lastTerms = terms
             _lastBuildMs = Double(DispatchTime.now().uptimeNanoseconds &- t0) / 1e6

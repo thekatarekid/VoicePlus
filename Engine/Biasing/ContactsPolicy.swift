@@ -52,9 +52,17 @@ public enum VocabularyChannel: String, CaseIterable, Sendable {
 
 /// Which harvest sources each channel admits. N1: Contacts are admitted by none.
 public enum ContactsChannelPolicy {
-    /// Until N11 lands surface-aware admission, Contacts are excluded from every channel.
+    /// Without a surface, Contacts are excluded from every channel (N1). See the surface-aware overload.
     public static func admits(_ source: ContextSourceKind, channel: VocabularyChannel) -> Bool {
         source != .contacts
+    }
+
+    /// N11 — surface-aware admission: Contacts are re-admitted only on chat, email and name-field
+    /// surfaces (the rubric gives them weight 0.6 there, 0 elsewhere). Unknown surface → excluded.
+    public static func admits(_ source: ContextSourceKind, channel: VocabularyChannel, surface: SurfaceKind?) -> Bool {
+        guard source == .contacts else { return true }
+        guard let surface else { return false }
+        return ContextRubric.isConversational(surface)
     }
 
     public static func admits(_ origin: DictionaryEntryOrigin, channel: VocabularyChannel) -> Bool {

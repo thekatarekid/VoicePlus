@@ -1,4 +1,5 @@
 import Foundation
+import Shared
 
 // V5 B1 — CTC vocabulary boosting on the final pass.
 //
@@ -70,9 +71,9 @@ public protocol PreviewDecoding: AnyObject {
 /// tokens — confidence, audio range and ids intact — and each replaced run becomes one token per new
 /// word spread over the audio of the words it replaced.
 ///
-/// A replacement word's `logProb` is the *best* token log-prob of the words it replaced: the CTC
-/// evidence beat the TDT word, so it is at least as certain as the TDT hypothesis was, but we do not
-/// invent certainty the acoustic model never reported (Bet 9). Its `tokenId` is `-1` (not a TDT id).
+/// A replacement word's `logProb` is the *lowest* token log-prob of the words it replaced (N11:
+/// boosted words are lower-confidence, never more certain than the hypothesis they replaced, Bet 9).
+/// Its `tokenId` is `-1` (not a TDT id), which `BoostTag` turns into the `.boosted` span tag.
 public enum BoostAlignment {
     public static let replacementTokenId = -1
 
@@ -129,7 +130,9 @@ public enum BoostAlignment {
             let prevEnd = out.last?.endTime ?? span.first?.startTime ?? 0
             let start = span.first?.startTime ?? prevEnd
             let end = span.last?.endTime ?? start
-            let lp = span.map(\.logProb).max() ?? 0
+            // N11: a swapped word takes the LOWER confidence — the CTC evidence chose the word, but
+            // the word is still uncertain; later stages and the UI treat it as such (tag `.boosted`).
+            let lp = span.map(\.logProb).min() ?? 0
             let step = (end - start) / Double(pendingNew.count)
             for (k, w) in pendingNew.enumerated() {
                 let s = start + step * Double(k)
@@ -262,4 +265,26 @@ public struct ScriptedVocabularyBooster: VocabularyBooster {
         return BoostOutcome(tokens: BoostAlignment.apply(rescoredText: words.joined(separator: " "), to: tokens),
                             replacements: replaced, detectedTerms: replaced.map(\.replacement))
     }
+}
+
+extension StageID {
+    /// N11 — a word the vocabulary booster swapped in. Lower confidence; treat as uncertain.
+    public static let boosted: StageID = "asr.boosted"
+}
+
+/// N11 — tags boosted words on the way from tokens to spans.
+public enum BoostTag {
+    /// `WordConfidence.spans`, plus `.boosted` in the provenance of every word that contains a
+    /// booster replacement token. Confidence / audio range / alternates are untouched.
+    public static func spans(from tokens: [DecodedToken], timeOffset: TimeInterval = 0) -> [TranscriptSpan] {
+        let words = WordConfidence.aggregate(tokens)
+        var spans = WordConfidence.spans(from: tokens, timeOffset: timeOffset)
+        guard words.count == spans.count else { return spans }
+        for i in spans.indices where words[i].tokens.contains(where: { $0.tokenId == BoostAlignment.replacementTokenId }) {
+            if !spans[i].provenance.contains(.boosted) { spans[i].provenance.append(.boosted) }
+        }
+        return spans
+    }
+
+    public static func isBoosted(_ span: TranscriptSpan) -> Bool { span.provenance.contains(.boosted) }
 }

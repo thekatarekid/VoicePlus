@@ -66,11 +66,27 @@ public struct RankedContext: Sendable, Equatable {
     /// How many distinct terms the cap dropped (`considered - terms.count`).
     public let dropped: Int
 
+    // N11 — the rubric's outputs (`ContextRubric.rank`). Empty for a tier-ranked list.
+    /// Stable boost layer (~200: corrections, dictionary, surface lexicon), cached per surface class.
+    public internal(set) var stableLayer: [RubricTerm] = []
+    /// Per-turn boost layer (~50: screen, folder, participant terms).
+    public internal(set) var perTurnLayer: [RubricTerm] = []
+    /// The cleanup prompt's "spell exactly" list, chosen by score (not dictionary-first).
+    public internal(set) var spellList: [String] = []
+    /// Top screen / per-turn terms for the cleanup prompt (data, never instructions).
+    public internal(set) var promptTerms: [String] = []
+
     public init(terms: [RankedContextTerm], cap: Int, considered: Int) {
         self.terms = terms
         self.cap = cap
         self.considered = considered
         self.dropped = max(0, considered - terms.count)
+    }
+
+    /// Both boost layers, stable first, deduplicated (case-insensitive).
+    public var boostTerms: [String] {
+        var seen = Set<String>()
+        return (stableLayer + perTurnLayer).map(\.text).filter { seen.insert($0.lowercased()).inserted }
     }
 
     public static let empty = RankedContext(terms: [], cap: RankedContext.defaultCap, considered: 0)

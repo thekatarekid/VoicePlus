@@ -28,7 +28,7 @@ struct VocabularyBoostingB1Tests {
         let k = out[1]
         #expect(k.tokenId == BoostAlignment.replacementTokenId)
         #expect(k.startTime == 0.3 && k.endTime == 0.7)
-        #expect(abs(k.logProb - log(Float(0.6))) < 1e-6, "best of the replaced tokens — no invented certainty")
+        #expect(abs(k.logProb - log(Float(0.5))) < 1e-6, "N11: lowest of the replaced tokens")
         #expect(k.logProb <= 0)
     }
 
@@ -53,7 +53,7 @@ struct VocabularyBoostingB1Tests {
         let spans = WordConfidence.spans(from: out)
         #expect(spans.map(\.text) == ["mister", "Kothari", "will", "join"])
         #expect(spans.allSatisfy { $0.provenance == [.asr] && $0.audioRange.upperBound > $0.audioRange.lowerBound })
-        #expect(abs(spans[1].confidence - 0.6) < 1e-4)
+        #expect(abs(spans[1].confidence - 0.5) < 1e-4)
     }
 
     // MARK: the false-insertion guard
