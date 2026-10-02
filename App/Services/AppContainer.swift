@@ -199,6 +199,8 @@ public final class AppContainer {
         // P2.5 personas: the same rows Settings edits, auto-drafted from style learnings.
         let personaManager = PersonaManager(store: database.map { DatabasePersonaStore(database: $0) } ?? InMemoryPersonaStore(), styles: styleStore)
         personas = personaManager
+        // N9 — once per store: drop the auto persona the old "code" substring drafted for Codex.
+        FormattingSettings.runSurfacePersonaResetIfNeeded(store: settings, personas: personaManager)
         // V5 F1 — every closed landing teaches the app's style; auto-drafted personas follow it.
         let personaLearning = PersonaLearningLoop(personas: personaManager)
 
