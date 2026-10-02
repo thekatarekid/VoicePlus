@@ -7,8 +7,10 @@ struct BundledModelResourcesTests {
     @Test func defaultStackHasCanonicalBundlePaths() {
         let root = URL(fileURLWithPath: "/Applications/VoicePlus.app/Contents/Resources")
         let paths = BundledModelResources.candidates(resources: root)
-        #expect(Set(paths.keys) == Set(ModelStack.models))
-        for id in ModelStack.models {
+        // N6: the full installer also carries the CTC boosting model.
+        let expected = Set(ModelStack.models).union([.parakeetCTC110m])
+        #expect(Set(paths.keys) == expected)
+        for id in expected {
             #expect(paths[id] == ModelCatalog.folder(for: id, in: root.appendingPathComponent("Models")))
         }
         #expect(BundledModelResources.candidates(resources: nil).isEmpty)

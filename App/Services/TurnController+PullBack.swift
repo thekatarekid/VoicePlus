@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Foundation
 import Injection
+import Shared
 
 // Owner decision (2026-10-02, after Round 4) — switched apps mid-dictation → PULL BACK.
 //
@@ -86,7 +87,7 @@ public final class SystemFocusPullBack: FocusPullBacking {
     public func remember(_ focus: FocusSnapshot) -> PullBackAnchor {
         let token = windows?.focusedWindowToken(pid: focus.pid)
         guard captureLive, !OwnProcess.owns(focus) else { return PullBackAnchor(focus: focus, windowToken: token) }
-        let app = AXUIElementCreateApplication(focus.pid)
+        guard let app = AXGuard.application(pid: focus.pid) else { return PullBackAnchor(focus: focus, windowToken: token) }
         AXUIElementSetMessagingTimeout(app, 0.1)
         return PullBackAnchor(focus: focus, windowToken: token,
                               window: Self.element(app, kAXFocusedWindowAttribute),
@@ -135,7 +136,7 @@ public final class SystemFocusPullBack: FocusPullBacking {
     /// accessory app under cooperative activation), `NSRunningApplication.activate` as backup.
     public static func liveRaise(_ anchor: PullBackAnchor) -> RaiseResult {
         guard let running = NSRunningApplication(processIdentifier: anchor.focus.pid), !running.isTerminated else { return .appGone }
-        let app = AXUIElementCreateApplication(anchor.focus.pid)
+        guard let app = AXGuard.application(pid: anchor.focus.pid) else { return .appGone }
         AXUIElementSetMessagingTimeout(app, 0.2)
         let frontmost = AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         let activated = running.activate(options: [])

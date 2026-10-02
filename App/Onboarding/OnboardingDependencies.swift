@@ -559,7 +559,11 @@ public final class OnboardingMockMicLevelPublisher: MicLevelPublishing {
 public final class OnboardingMockModelManager: ModelManaging {
     /// Per-model, exactly as on disk: an install is "what is present", never "which option was
     /// chosen". A test that wants a half-installed stack passes one of the two models.
-    public private(set) var installedModels: Set<ModelID>
+    /// Locked: `downloadStack` finishes off the main actor while tests poll `isStackInstalled` on it
+    /// (an unguarded Set here crashed the gate's full suite with a torn read).
+    public var installedModels: Set<ModelID> { lock.withLock { _installed } }
+    private var _installed: Set<ModelID>
+    private let lock = NSLock()
     public var failDownload = false
     /// What `stackReadiness` reports while the stack is missing. Nil = nothing can transcribe,
     /// which is how a clean Mac with no Apple Speech behaves.
@@ -572,14 +576,14 @@ public final class OnboardingMockModelManager: ModelManaging {
     /// Set by the test to stall a download mid-flight; the task resumes when it is fulfilled.
     public var hold: (@Sendable () async -> Void)?
 
-    public init(installed: Set<ModelID> = []) { installedModels = installed }
+    public init(installed: Set<ModelID> = []) { _installed = installed }
 
     /// Convenience for the common "everything is already here" fixture.
     public static func installed() -> OnboardingMockModelManager {
         OnboardingMockModelManager(installed: Set(ModelStack.models))
     }
 
-    private var missing: [ModelID] { ModelStack.models.filter { !installedModels.contains($0) } }
+    private var missing: [ModelID] { let have = installedModels; return ModelStack.models.filter { !have.contains($0) } }
 
     public var isStackInstalled: Bool { missing.isEmpty }
 
@@ -605,7 +609,7 @@ public final class OnboardingMockModelManager: ModelManaging {
                                            modelName: name, index: 1, count: pending.count))
             if step == 1, let hold { await hold() }
         }
-        installedModels.formUnion(pending)
+        lock.withLock { _installed.formUnion(pending) }
     }
 
     public var stackReadiness: RecognizerReadiness {

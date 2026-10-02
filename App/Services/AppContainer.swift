@@ -274,7 +274,8 @@ public final class AppContainer {
                                                             weights: BoostingWiring.learnedWeights, learning: .shared)
 
         // Voice repair (P1.6, Bet 3): AX replace-range + correction log + zero-edit decrement.
-        let dictionary = (try? database?.dictionaryTerms().map(\.term)) ?? []
+        // N1 gate: voice-repair alternates follow the same Contacts exclusion as the three vocabulary channels.
+        let dictionary = database.flatMap { db in (try? DictionaryOrigins.entries(db)).map { ContactsChannelPolicy.terms($0, channel: .boost) } } ?? []
         let correctionFanout = CompositeCorrectionSink(sinks: [database.map { DatabaseCorrectionSink(database: $0) },
                                                                adaptationService.map { AdaptationCorrectionSink(service: $0) }].compactMap { $0 })
         repair = RepairSession(replaceSink: InjectionReplaceRangeSink(system: system),
