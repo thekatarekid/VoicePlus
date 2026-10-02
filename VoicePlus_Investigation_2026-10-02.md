@@ -407,3 +407,444 @@ Effort: S is under a day, M is 1-3 days, L is more than 3 days. "Symptom" names 
 - **E1F62700:** confirm the stall was the first boosting-model load, using F14's timing logs.
 - **Notes:** per-walk node count and ms, to confirm the four-walk model and size the deadline.
 - **Short presses:** key down/up times per turn (F15 logging), to confirm the tap explanation.
+
+---
+
+## Round 3 (same day): FluidVoice, ChatGPT ground truth, Kivi, model residency, the context rubric
+
+Same build (V5 1.13.0, pid 12840), code at HEAD `9b86614`, the same read-only DB and unified log. Six investigations ran: FluidVoice source, the installed ChatGPT.app, Kivi (binary and demo), model residency, and the context rubric. A second agent re-checked each one against the source, the bundles, the DB and the log, and only the parts that survived that check are reported here. Nothing in VoicePlus was edited, and no app was controlled or typed into. FluidVoice is GPLv3, so this section describes its design and copies none of its code. Confidence labels are the same as in earlier rounds.
+
+**Your direction for this round.** Intelligent input must be general, not a list of per-app or per-site rules that breaks on any app nobody listed. VoicePlus should work out three things: which app or web app you are in, what you are likely to type there, and what is already on screen. It should then weigh those sources with one cascading rubric, in which Contacts are one source among many. F26 (folder names in Terminal) and F27 (on-screen words) are approved in principle. Live tests are deferred until the confidence gate at the end of this section is met.
+
+### R3.0 Corrections to rounds 1 and 2
+
+1. **Contacts do more than fill the boost list. They fill every context channel.** All 1,466 Dictionary rows on this Mac are Contacts imports (`dictionary_term_meta`: contacts = 1466, nothing else). They are tagged as Dictionary terms (Engine/Biasing/Sources.swift:106-108). That puts them in the top "authored" tier, which never decays (ContextRanker.swift:124; Ranker.swift:34), so the lower 0.4 weight meant for Contacts never applies. The result is that Contacts fill all three channels ahead of anything on screen: the 400-term boost list (BoostVocabulary.swift:37-44), the 60-word "spell exactly" list (Personalisation.swift:25) and the 1,000-character cleanup context (PromptBuilder.swift:32). Tiers are strict: a lower tier is used only after every higher one is exhausted. This is the concrete case of "Contacts trump everything" that you objected to. **Confirmed.**
+2. **Round 2 said the Lab "measured no gain" from screen text. That is inaccurate.** The pre-V5 test fed 18 proper nouns as a *participants* list into the old decode-time booster (DECISIONS.md:22-55). Screen text has never been measured through today's CTC rescorer. F27 is therefore untested, not disproven. **Confirmed.**
+3. **The Kivi YouTube demo has now been reviewed.** You were right that the in-app browser could do it. In round 3 the page loaded, the transcript was read, and frames were captured (the Sarvam Epoch 2026 livestream at about 3:06:43, the "made for you" and "hey kivi" slides, and the Sheets joining form). Round 2's line "The YouTube demo was not reviewed" is withdrawn. **Confirmed.**
+4. **Round 2's F14 said "load the boosting model at launch or key-down". Key-down is the wrong place, and the model does not even load there today.** Only the word list is built at key-down (AppContainer.swift:493-498). The ~100 MB model load and the rescorer build both run inside the final recognition pass. Also, "key-down" in this document always means pressing the dictation hotkey, never any key. Section D replaces this with load-at-launch. **Confirmed.**
+5. **A pasted line break is safe in a terminal only when bracketed paste is on.** That is the shell's or app's setting, not a general property of terminals. zsh turns it on by default. Some REPLs, vim's normal mode and ssh into older shells do not, and there a pasted newline runs the line. VoicePlus's terminal adapter already wraps multi-line text in bracketed-paste markers (Injection/AppAdapter.swift:171-176), so keep it. **Likely** (general terminal behaviour, not tested live).
+6. **The "structural" field classifier is still a substring list.** FieldRole decides "terminal" from hints such as "console", "repl" and "shell" (FieldRole.swift:247), and the first match wins. A web dev console, or a chat *about* consoles, can flip a field to terminal. It puts the signals in the right order of authority, but it is not yet general. **Confirmed.**
+7. **New: most of the delay you feel comes after recognition.** From "recognised" to "typed into the app" took a median of **1.25 s** across 16 turns today, with tails of 4.4 s (Claude), 4.7 s (Brave) and 17.1 s (Notes). That costs more on every dictation than the boosting-model reload does. The cause is not yet traced. **Confirmed** (log parse); cause unknown.
+
+---
+
+### A. How FluidVoice handles "any app"
+
+**Short answer: it doesn't try to understand the app. It delivers text in a way that works almost everywhere, and checks afterwards.** All of the following is confirmed from `FluidVoice-main/Sources`.
+
+| Mechanism | What FluidVoice does | Where |
+|---|---|---|
+| Default delivery | **Clipboard paste for every app.** It puts the text on the clipboard as a temporary item, posts a system-level ⌘V, waits 500 ms, then restores the old clipboard. The temporary item is marked Transient, AutoGenerated and Concealed, so clipboard managers skip it. | SettingsStore.swift:6028-6074 (forced to "Clipboard Paste (Recommended)"); PasteDeliveryCoordinator.swift:246-256, 566-577, 612 |
+| Other mode | Types the text as Unicode keystroke events into the focused app's process. If that fails, it uses Accessibility insertion, then system-level keystrokes. The mode is labelled "Direct Paste" but it actually types. | TypingService.swift:797-818, 1188-1204 |
+| Gate before writing | Refuses only when the focused element is **certainly** not editable (a button, a menu and so on). Groups, web areas, windows and unknown roles all go ahead. | DeliveryTargetAssessment.swift:25-36 |
+| Target | Remembers the focused app (PID) and window at the start, and delivers there. No readable text field is required. | TypingService.swift:158-206, 268-365 |
+| Verification | After pasting, it reads the field back. It reports "not landed" only when the same element's value, length and caret are all unchanged. If the field can't be read, or you clicked or typed in the meantime, the result is "unknown" and treated as fine. | PasteVerifier.swift:77-120 |
+| Line breaks | No special handling: they travel inside the pasted text. The only synthetic Return is the opt-in "Spoken Send", which is blocked in apps whose name contains terminal, iterm, warp, ghostty, kitty or alacritty. | TypingService.swift:860; ContentView.swift:2296-2306 |
+| App-specific rules | Few, but they exist. Ghostty is forced onto paste. Slash commands get special handling when the app name, bundle id or window title contains codex, chatgpt, claude, cursor or windsurf, and @mentions when it contains slack, discord or teams. Its earlier per-app and per-site prompts are commented out ("using general processing only"). Users can bind their own prompt to an app. | TypingService.swift:387, 528-529; ASRService+DictationLiteralFormatting.swift:399-417; ContentView.swift:2490-2575 |
+| Context | App name, bundle id and window title go to its AI step on one path. It does not read screen text, use OCR or use Contacts, and does not enable Chromium accessibility (0 hits for AXManualAccessibility or AXEnhancedUserInterface). | ContentView.swift:2709-2713 |
+| Spoken symbols | Converted only after an explicit cue word ("literal", configurable), and the feature is off by default. | ASRService+SpokenPunctuationFormatting.swift:136-138; SettingsStore.swift:4536-4544 |
+| Boosting | One global list of words the user adds by hand, capped at 256 by weight, with similarity and confidence thresholds (0.72 / 0.64). | ParakeetVocabularyStore.swift:76-83, 336-345 |
+| Model loading | Loads the recogniser and the boost model together at app launch and keeps them loaded. It preloads again at record start, and as a last resort loads at stop if still cold. Boost *rescoring* still runs in the final pass. | ASRService.swift:2353-2367, 3547-3555; FluidAudioProvider.swift:365-385 |
+
+**Contrast with VoicePlus.** VoicePlus needs to *read* the focused field before it writes. When it can't (ChatGPT), the text goes to Notes. FluidVoice writes to the remembered app and window, and checks afterwards. So FluidVoice wins on reaching any app, and VoicePlus has the better parts everywhere else: context, formatting, refusal on secure fields and readback. FluidVoice also confirms there is no "magic understanding" behind its reach. It is a better delivery fallback.
+
+**What VoicePlus should adopt (design only):**
+1. **A delivery ladder that does not need a readable field.** If the app and window that were focused at key-up are still focused, and macOS secure input is off, deliver anyway: paste for multi-line text or web content, keystrokes otherwise. Check afterwards when the field is readable, and treat "can't tell" as neutral. Send to Notes only when focus actually moved, there is no window, or the field is secure. (New fix N3.)
+2. **Refuse only when certain.** Block known non-text roles. Hold on canvas-like focus (N15). Never refuse just because the role is unfamiliar.
+3. **Transient clipboard markers and clipboard restore** whenever VoicePlus pastes (N18).
+4. **Spoken symbols need structure or a cue.** Convert "slash", "dot" and "plus" only when the words around them form a path, URL, command or formula, or when you say a cue word. This replaces fixed per-app tables (N12).
+5. **Load the core models at launch and keep them loaded** (section D).
+
+**What not to adopt:**
+- No screen context.
+- A boost list the user builds by hand.
+- Name-substring app rules (the same brittleness you're worried about).
+- Treating an unreadable paste as success without telling anyone. VoicePlus should log it as "unverified".
+
+**Limits of paste-first.** Paste is not universal either. Sheets splits pasted multi-line text into rows. Some editors paste rich text. Terminals depend on bracketed paste. So the write method still comes from the surface kind (section E), and paste is the fallback for unreadable fields, not the new default everywhere.
+
+---
+
+### B. ChatGPT ground truth
+
+**The installed ChatGPT.app is Chromium all the way through, not SwiftUI, and Chromium is not just its in-app browser.** **Confirmed** from the app's own files on disk. No outside sources were used.
+
+| OpenAI app | On this Mac? | What it is built on | Evidence |
+|---|---|---|---|
+| `/Applications/ChatGPT.app`, bundle **`com.openai.codex`**, v26.928.31416 (build 12553) | Yes (pid 57054) | OpenAI's **Codex desktop app, shipped under the ChatGPT name**. Its runtime is "**Owl**": Electron's API on top of a renamed **Chromium 154** framework. The whole UI is web content. | Info.plist: `BundleSigningBaseName=Codex`, `ChromiumBaseVersion=154.0.8037.57`, `NSPrincipalClass=BrowserCrApplication` (Chrome's class), `ElectronAsarIntegrity`, `electron.icns`. `owl-electron-app.json`: packaged from `codex-apps/electron/out/ChatGPT-darwin-arm64`, runtime "owl". `app.asar` is 538 MB; its `package.json` says `openai-codex-electron`, productName Codex, Electron 42.3.0 tooling. The main binary is a 70 KB stub that links only libSystem and loads `Codex Framework.framework` (272 MB, `Chrome/154.0.8037.57`, built from `owl/browser/api/electron_api_*` sources). Helpers: Codex (Renderer), (GPU), (Service). There is **no SwiftUI** link and no `NSHostingView` in the framework. |
+| `com.openai.chat`, the older native ChatGPT Mac app | **No** (mdfind finds nothing) | Native, not Chromium. This is most likely the "SwiftUI" app you remember. | Its history was not checked locally. **Likely.** |
+
+**Why the two of us disagreed.** Both products are called "ChatGPT". What you remember fits the older native app. What is installed is the Codex app under the ChatGPT name. Round 1 called it "a renamed Electron app" from its `app.asar` and Electron markers. Round 2 corrected that to Chromium plus Owl. Both came from reading the bundle on disk.
+
+**Is the composer an "in-app browser" field?** No. The chat UI itself is web content. `contenteditable` appears in 48 of its JS files, including the conversation page and the composer controls. ProseMirror (the editor ChatGPT web uses) appears in 11 files, including the shared app bundles. `<textarea` appears 0 times. So the composer is very likely a ProseMirror contenteditable. Setting its value directly through Accessibility may not update the editor's own state, so typing or pasting, then reading back, is safer. **Confirmed** for the strings; the composer's accessibility role is a **hypothesis** until a live, read-only probe.
+
+**Why it fails today.**
+- VoicePlus classifies the app as plain native. Its Electron check looks for a framework named `Electron Framework.framework`, but this one is `Codex Framework.framework` (Injection/AppAccessibilityEnabler.swift:42-66). So the app's accessibility tree is never switched on.
+- No field can be read, so all 15 `com.openai.codex` turns today have `writeAttempted:false`, and 0 rows in `injection_outcomes`.
+- Its bundle id contains "codex", so the substring rule `"code" → .code` (Pipeline/Style/AppCategory.swift:97) gives it code formatting. A "Terse, technical voice" auto persona was then saved for it.
+- **Confirmed.**
+
+**Two causes, not one.** FluidVoice inserts into this exact app (its own test fixture uses `com.openai.codex`, DictationE2ETests.swift:456-457) without ever enabling accessibility. So VoicePlus's "no readable field → Notes" policy causes the failure as much as the missing accessibility attribute does. **Likely.**
+
+**Corrected F3, now split into three fixes:**
+- **Delivery (N3).** With the delivery ladder in section A, ChatGPT gets text even before its accessibility tree is on. Routing apps "by runtime kind to the safe Electron path" is no longer needed for delivery. Line-break safety comes from structure instead (N5).
+- **Accessibility for context and verification (N10).** Turning on Chromium accessibility is still worth doing, because it is what makes on-screen words (F27), text before the caret, caret geometry for the ribbon, and readback possible.
+  - **Detect the runtime from the bundle, not a list of ids.** Signals: an `app.asar` file or `ElectronAsarIntegrity` key, a `BrowserCrApplication` or `ElectronApplication` principal class, a Chromium framework of any name, or `* (Renderer).app` helpers.
+  - **Then try `AXManualAccessibility` first**, which has no known side effects. Kivi uses only this attribute, with a per-app off switch. **If a probe of the focused element still finds no editable element, try `AXEnhancedUserInterface`.** This ChatGPT build contains only that string (2 hits, against 0 for AXManualAccessibility).
+  - **Judge success by the probe** (an editable element, or one whose selected text range can be set, inside a web area), not by the call's return code. Cache the result per process and app version.
+  - **Respect the existing "Expose text in Chromium browsers" setting** (`injection.exposeChromiumText`, App/Settings/InsertionSettings.swift:7-13) and add a per-app off switch.
+  - **Known cost:** `AXEnhancedUserInterface` makes window managers (Rectangle, yabai) animate or lag on window moves, and a full Chromium accessibility tree costs CPU and memory (**hypothesis**, general knowledge). So enable it lazily, only on the app you are dictating into, and measure the cost.
+- **Category (N9).** **Dropped:** "map `com.openai.codex` to chat". That swaps one wrong per-bundle label for another, because the same app is a chat box in one window and a coding agent in another. Instead:
+  - Fix the generic `"code"` substring rule.
+  - Decide chat or code from the surface: the window title, a composer inside a web area, and the text around the caret.
+  - Reset the stored auto persona for this app.
+
+---
+
+### C. Kivi: what it does, how, and what to copy
+
+**How it was examined.** The installed `/Applications/Kivi.app` (ai.sarvam.Kivi 2026.09.25.1212) was examined statically, read-only: its strings, linked frameworks and bundle contents, its local store and its saved settings. The YouTube demo was reviewed separately (R3.0 #3). No code was disassembled and no network traffic was captured. Going that far would raise terms-of-service questions, and it wouldn't reveal much more, because Kivi's speed lives on Sarvam's server.
+
+**Confirmed findings:**
+- **Recognition is cloud-only.** No speech models ship in the app, and there is no CoreML, Speech or Vision linkage. Audio streams to `wss://kivi.sarvam.ai/v1/dictate/stream`. "Offline" mode only records audio for later. It bundles PostHog analytics and a crash reporter.
+- **Why it feels fast:**
+  - a warm microphone (`WarmCaptureHolder`);
+  - a pre-opened connection with buffered audio (`PreConnectBuffer`);
+  - streaming while you speak, so recognition is nearly done when you let go;
+  - screen context captured *during* speech under a time budget.
+- **Screen context runs on every dictation, not only "hey kivi".**
+  - It reads visible text through Accessibility only: no screenshots, no OCR. Strings include `captureFrontmostVisibleText`, `AXVisibleChildren`, `perAppMaxNodes` and `maxTermsPerCapture`.
+  - It sorts what it finds into **file names, people's names, technical terms and links** ("%ld terms (raw / files / names / tech / links)").
+  - It sends the result with the end-of-speech signal. If capture overruns its budget, it sends an empty context ("produced nothing within the %ldms EOS budget").
+  - It throws the capture away if the frontmost app changed.
+  - It records which screen terms ended up in the transcript (`matchedScreenContextTerms`).
+  - Whether the server uses these terms in recognition itself or only in the AI clean-up step cannot be seen from the app: **unknown**.
+- **A general resolver, with known-app tables underneath.**
+  - The general resolver: `SurfaceProfileResolver`, `SurfaceSignals`, `SurfaceContextResolver`.
+  - The tables: about 45 bundle ids are built in (terminals including WezTerm, Ghostty, Warp and kitty; com.openai.chat and com.openai.codex; Figma, Slack, Excel), plus one URL (`docs.google.com/spreadsheets`).
+  - Surface-specific helpers: `SheetsFormulaGuard`, `NotionMarkdownPasteBuilder`, Discord Markdown and terminal handling.
+  - Every app gets a persona, and an unlisted app falls back to "general".
+  - Some of the per-app persona mapping on this Mac comes from your own Kivi settings (`appAssignments`), not from Kivi's built-in rules.
+- **Chromium accessibility:** `AXManualAccessibility` only, with a per-app kill switch (`electronAccessibilityPrimer.disabledBundleIDs`). There is no `AXEnhancedUserInterface` at all. That means Kivi's primer most likely does nothing for the installed ChatGPT build, so Kivi probably gets text in by pasting and reading back.
+- **Delivery:** paste with readback (`PasteLandingVerifier`), transient and concealed clipboard markers, and an event tap with Unicode typing in the main binary.
+- **Learning:** corrections are stored as "heard aliases" next to the raw recognised text, per app, with full-text and phonetic search. It also imports the Wispr Flow dictionary.
+- **Your Kivi Terminal history is only 3 rows.**
+  - "CD documents." became `cd documents`.
+  - "CD documents slash voice plus." became `cd documents/voice+`. Kivi turns "plus" into "+" too.
+  - "are about to end up." became "Are about to end up." (period kept).
+  - Kivi never looks at the disk, so F26 would put VoicePlus ahead here.
+  - Three rows are too few to rank its terminal quality.
+
+**From the demo** (frames and transcript checked):
+- The "made for you" slide lists dictionary, shortcuts, styles and shared terms.
+- The "hey kivi" assistant slide marks "factual answers and reasoning" as *not available yet*.
+- The Sheets joining-form demo filled a column. The claim that it "inferred Father without being told" is **unverified**: the transcript does not show that the word wasn't spoken.
+- No public speed or accuracy numbers were given.
+
+**Kivi's architecture, as far as the client shows it:**
+1. **Hotkey down.** Warm mic → audio streams to the server at once. In parallel, a budgeted Accessibility capture of the frontmost window yields typed terms.
+2. **Surface resolver.** Signals (role, URL, window title, field signature, known-app table) → a surface profile and persona.
+3. **Hotkey up.** Send end-of-speech with the screen terms. The server returns recognised and formatted text.
+4. **Delivery.** Surface-specific builders (Sheets formula guard, Notion Markdown), then paste, then readback.
+5. **Learning.** Store raw and formatted text per app; keep heard aliases from corrections.
+
+**What VoicePlus should copy (all local, no cloud, no telemetry):**
+- Context capture that starts at key-down, is cut off by a hard budget, and is discarded on an app switch. This is N7.
+- Screen text as *typed terms* (names, files, tech, links), with a cap, rather than raw text (N11).
+- Recording which context terms matched, so the weights can learn (N28).
+- A general resolver, plus known-app tables as high-confidence hints, plus a general fallback (N9).
+- Raw text stored next to final text, and heard aliases from corrections (N6, N28).
+- A per-app off switch for accessibility enabling (N10).
+
+**Do not copy:** cloud recognition, analytics, or AXManualAccessibility-only priming.
+
+**Where Kivi's speed comes from, and VoicePlus's local equivalent:** keep the models loaded (D); the live preview already streams while you speak; start context at key-down (N7); and fix the 1.25 s from "recognised" to "typed" (N8).
+
+---
+
+### D. Model residency: when models load, and what should stay loaded
+
+**Your question: can the models load when the app opens and stay loaded while it's idle?** **Yes, and that is the recommendation.** "Key-down" in round 2 meant pressing the dictation hotkey, never any key. It was still the wrong place, because the first-ever compile of the boosting model took 13.8 s, which no key-down warm-up can hide. Today it doesn't even load at key-down: it loads inside the final pass, which is how E1F62700 took 17.6 s.
+
+**What happened in E1F62700.** **Confirmed** from the log and the code.
+1. 09:16:13: the Contacts import made the dictionary non-empty.
+2. 09:17:25-30: the CTC boosting model, which is not in the installer, downloaded in the background.
+3. 09:18:01.209: your next dictation started its final pass.
+4. 09:18:01.851: the final pass mapped the model into memory (100,778,304 bytes).
+5. 09:18:04.350 to 09:18:18.181: the Neural Engine compiled it.
+6. 09:18:15.280: you pressed Cancel.
+7. 09:18:18.831: the late result was dropped.
+
+The code path is FluidAudioTDTDecoder.swift:97 → CTCVocabularyBooster.swift:152 → :199-208, which loads the model as `.onDemand`, with no time limit.
+
+**Today's residency, and the proposal:**
+
+| Model | Job | Size on disk | Loaded today | Unloaded today | Proposed |
+|---|---|---|---|---|---|
+| Parakeet TDT 0.6B v3 | Final recognition | 461 MB (bundled) | At launch, always resident (Engine/ASRRuntime/ModelResidency.swift:13) | Never | Unchanged |
+| Parakeet EOU 120M | Live preview, end-of-utterance | 214 MB (bundled) | At launch, always resident | Never | Unchanged |
+| Silero VAD | Speech detection | 1 MB (bundled) | At launch | Never | Unchanged |
+| Speaker model | Speaker check | 13 MB (bundled) | At launch | Never | Unchanged |
+| **Parakeet CTC 110M** | **Vocabulary boosting** | **98 MB, not bundled** (downloaded to ~/Library/Application Support/VoicePlus/Models) | **Inside the final pass, on first use** (`.onDemand`, CTCVocabularyBooster.swift:201) | **After 5 min idle** (Shared/Services/ModelResidency.swift:120), **or on any macOS memory warning** (:270), and those warnings reach VoicePlus every 30 min on this Mac | **Bundle it, or fetch it during onboarding. Compile it at launch and right after a download. Make it always resident with a stable key. Exempt it from idle and memory-warning unloads, and drop it only under critical pressure, before the recogniser.** |
+| Cleanup LLM | Optional AI clean-up | not measured | Warmed up at hotkey-down (AppDelegate.swift:157); 0.5 s deadline (CleanupStage.swift:51) | Per its own settings | Unchanged. A cold LLM already can't stall a turn. |
+
+**Measured memory.**
+- Idle VoicePlus uses **998 MB**. Of that, about **800 MB is working memory** (dirty `MALLOC_SMALL`), not memory-mapped files, so macOS cannot simply drop it: it can only compress it or move it to swap.
+- Swap on this Mac is **94% full** (16.4 of 17.4 GB).
+- The CTC model's mapping is 100.8 MB.
+- Per-model RAM was not measured; the sizes in the table are disk sizes.
+- So keeping models loaded is the right call, but it is not free. Adding the booster costs roughly another 100 MB. That was **likely** the case before, and should be measured with Instruments before release.
+- Reading the models back in after 4.8 h idle was fast: the 16:24 turn finished its final pass in 1.27 s, including the booster reload.
+
+**Reloads seen today:** five, each after a gap of more than 5 minutes, each adding about 1 s (1.27-1.58 s against 0.17-0.60 s warm). The 09:45 reload came 0.16 s after a memory warning, so it could have been caused by either the warning or the idle timer.
+
+**Recompiles after updates.**
+- The Neural Engine compile cache (`~/Library/Caches/in.adityakatare.voiceplus/com.apple.e5rt.e5bundlecache/25G83`) was created fresh at this morning's launch, even though macOS had not changed.
+- So every VoicePlus update probably costs about 17 s of compiling at launch, plus about 14 s for the booster. **Likely.**
+- Do this compile at launch, behind a visible "Preparing speech models" state, never during a dictation.
+
+**The policy:**
+1. **At app launch:** load and compile every dictation model, including the booster, and keep them loaded while the app runs, idle or not.
+2. **When the word list changes** (a new dictionary term or correction, a new surface class): rebuild the *stable* rescorer in the background, never in a turn.
+3. **At hotkey-down:** build only the small per-turn layer (screen, folder and participant terms) and start the context snapshot. Load a model here only if it is somehow still cold.
+4. **In the final pass:** run the rescoring with a **1.5 s deadline**. If it runs over, land the unboosted text, which is already in hand.
+5. **Log every stage:** recognise ms, model wait ms, rescore ms, and the time from "landed" to "written". Store the raw text from before boosting in `turn_records`.
+
+This replaces round 2's "at launch or key-down" (N6).
+
+---
+
+### E. The context rubric: general intelligent input
+
+**Principle.** VoicePlus should never need an app to be on a list to behave sensibly. App knowledge lives in two places:
+- general **surface kinds**, such as terminal, spreadsheet cell, chat composer or URL bar;
+- **lexicons** of what each kind accepts.
+
+Known-app tables only raise confidence. Every decision records the signals that made it, so mistakes can be traced and learned from.
+
+#### E1. Step 1: what surface is this? (surface resolver, N9)
+
+Evidence is **added up**, not decided by a first match:
+
+| Signal | Weight (starting point) | Notes |
+|---|---|---|
+| Secure field or macOS secure input | Veto | Refuse or hold; never read |
+| Focused element: role, subrole, editable, single- or multi-line, placeholder, label, description | High | "Search", "Address", "Email", "Formula bar", "Message" labels are strong |
+| Inside a web area, plus the page URL (domain, path) | High | URL patterns are data (for example `/spreadsheets/`), not code |
+| The focused app owns a shell process on a pty (a terminal emulator, VS Code terminal, Claude's terminal pane) | Medium-high, combined with AX evidence | Also gives the folder the shell is in (F26) |
+| Window title | Medium | |
+| Runtime kind (native, Electron/Chromium, browser), sniffed from the bundle once per version | Medium | |
+| Built-in seed table (bundle id → likely kind) | Medium | Hint only. An unlisted app loses nothing |
+| Your per-app override, and what this app's previous turns resolved to | Medium-high | Learned |
+
+The output is a surface kind with a confidence. Below the confidence threshold, the turn falls back to **plain prose with safe line breaks**, which is never wrong in a dangerous way.
+
+#### E2. Step 2: what could you be saying? (context providers)
+
+Each provider returns **typed candidates** (person name, file or folder, command, technical term, link or domain, formula function, ordinary word), each with its source, distance from the caret and freshness:
+- **Field:** the text before and after the caret, the selection, the field's placeholder and label.
+- **Screen:** visible text through Accessibility, under a budget. Reuse `visibleStrings` and `visibleArtifacts` (App/Services/AXContextProviders.swift:55, 93). Read the focused window first, then the rest of the window. Cap nodes, time and terms, Kivi-style, and sort terms into names, files, tech and links (F27).
+- **What this kind of surface accepts:**
+  - Terminal: commands on your `$PATH`, aliases, subcommands (`git checkout`), and entries in the shell's current folder (F26).
+  - Spreadsheet: function names (SUM, XLOOKUP) and the column headers visible on screen.
+  - Markdown editor: heading, list and link syntax.
+  - Code editor: symbols in the open file (the existing `codeSymbols` source).
+  - URL bar: domains of links and tabs visible on screen, plus domains you dictated before.
+  - Email and form fields: the address and number formats the label implies.
+- **You:** your dictionary terms, your corrections, and recent dictations *in this app*.
+- **People:** Contacts and thread participants, used **only** when the surface is chat, email or a name field. Participants come before the whole address book. Use full names, plus uncommon name parts only on a strong match.
+
+#### E3. Step 3: the rubric (scoring)
+
+Every candidate is scored on one scale instead of strict tiers:
+
+**score = source weight × surface fit × closeness × freshness × evidence − collision penalty**
+
+| Source | Starting weight | Fit rule |
+|---|---|---|
+| Your corrections | 1.0 | Everywhere; a guaranteed share of the budget |
+| Your dictionary (used recently) | 0.9 (0.6 if never used) | Everywhere |
+| Terms visible near the caret or in the active thread | 0.8 | Everywhere except secure fields |
+| Surface lexicon (commands, folder entries, formula names) | 0.8-0.9 | Only on the matching surface, scaled by its confidence |
+| Other visible terms in the window | 0.5 | Everywhere |
+| Recent dictations in this app | 0.6 | This app |
+| Thread participants | 0.9 | Chat and email only |
+| Contacts | 0.6 in chat, email and name fields; **0 elsewhere** | Never in terminal, code, sheets or URL bars |
+
+**Rules on top of the scores:**
+- **Collision penalty.** A term that is also a common word (Bucket, Cab, Code, Cleaning, Comp) only enters the boost list with strong evidence, such as being on screen right now. This one rule would have stopped today's Contacts damage, even without N1.
+- **Per-source quotas.** No single source can take more than about half of the budget.
+- **These weights are starting points.** They must be tuned in the Lab (N11). The learning loop then adjusts them per surface from what actually matched (N28).
+
+#### E4. Step 4: where the ranked context goes
+
+| Output | What it receives | Budget |
+|---|---|---|
+| **Recognition boosting** | A **stable layer** (about 200 terms: corrections, dictionary, surface lexicon), cached per surface class and rebuilt in the background. Plus a **per-turn layer** (about 50 terms: screen, folder and participant terms). A swapped word takes the *lower* confidence and is tagged "boosted", so later steps and the UI treat it as uncertain. | 1.5 s rescoring deadline; land unboosted on overrun |
+| **Deterministic formatting** | The surface kind plus its lexicon (N12). | No model; milliseconds |
+| **Cleanup prompt** | Field kind and surface name. The text before the caret. A "spell exactly" list chosen by the rubric (not dictionary-first). The top screen terms. Each section has its own share of the 1,000 characters (N14). | Existing 0.5 s deadline |
+| **Write method** | The surface kind (keystrokes, paste or Accessibility; ⇧↩ or bracketed paste) plus the delivery ladder (N3). | |
+
+#### E5. Surface grammars in place of hardcoded rules (N12)
+
+Each grammar is general for its kind of surface and does not depend on the app.
+- **Spoken symbols.**
+  - "slash", "dot", "dash", "plus", "at" and "colon" become symbols only when the words around them form a path, URL, email, command flag or formula, or when you say a cue word.
+  - Otherwise they stay words. "voice plus" stays "voice plus"; "c plus plus" becomes `c++` because of its structure.
+  - This replaces "plus is always +" (TerminalFormatter.swift:132-133) and the fixed symbol table.
+- **Terminal.**
+  - Treat the text as a command line, not prose: no sentence punctuation and no capitals.
+  - The first word is matched against your real commands, so "CD" / "see dee" becomes `cd` because `cd` is a valid command (not because of a hardcoded list).
+  - Paths are matched against the shell's current folder (F26). The match is applied silently only when it is close: "documents" → `Documents/`, and "voice input" → `VoiceInput`.
+  - Otherwise your words are kept and a suggestion is offered. "voice plus" is never silently turned into `VoiceInput`.
+  - Never press Return.
+- **Spreadsheet cell.**
+  - Saying "equals" at the start makes a formula. Function names are matched against the lexicon, and cell references are normalised.
+  - Without "equals", it is plain text with no trailing period.
+- **URL or search bar.** If what you said parses as a domain or URL, write a URL. Otherwise write a search phrase with no period and no capital letter.
+- **Form fields.** The label decides the format: email, phone, number, name.
+- **Markdown-aware editors.** Spoken "heading", "bullet" and "link" become Markdown only where the surface accepts Markdown.
+
+#### E6. F26 and F27, approved, and how they fit
+
+- **F26, folder names in Terminal (N13).**
+  - **Finding the folder.** Find the shell running in the focused terminal tab: the child process of the terminal app on that tab's terminal device. Read its current folder, and list that one folder (not its subfolders).
+  - **Permission.** Listing Documents, Desktop or Downloads triggers a macOS permission prompt, so ask once in Settings ("Use folder names in Terminal"), never during a dictation.
+  - **Which apps.** It works the same in Terminal, iTerm, WezTerm, Ghostty and VS Code, because it relies on the process tree, not a terminal list.
+  - **What it touches.** It feeds both the stable and per-turn boost layers and the path matcher.
+- **F27, on-screen words in recognition (N11).**
+  - **How.** Screen terms go into the per-turn boost layer through the rubric (typed, capped, with the collision penalty) and into the cleanup prompt.
+  - **Lab test first.** Before it is on by default, run a Lab test: the existing entity suite plus distractor screens, comparing accuracy with and without screen terms, through the current CTC rescorer.
+  - **Privacy.** Accessibility text only; no screenshots or OCR in this path. It respects the per-app "contextual reading" rule *before* any read, never reads secure fields, and nothing leaves the Mac.
+
+#### E7. Rules from earlier rounds that stay, as safety-only
+
+These stay because they prevent harm, not because they encode app knowledge:
+- Refuse or hold on secure fields and when macOS secure input is on.
+- **Never press Return** to send or run anything.
+- Line breaks as ⇧↩ when typing into any web area or Electron/Chromium app.
+- Bracketed paste for multi-line text in terminals.
+- ⌥↩ inside spreadsheet cells, never Return.
+- Hold on canvas focus unless a text edit is active.
+- Discard the context snapshot when the app changes.
+- Honour each app's contextual-reading opt-out.
+
+The known-app tables (terminals, browsers, chat apps) **stay only as seed hints** for the resolver, merged into one list.
+
+---
+
+### F. Revised fix list (supersedes round 2's F1-F31)
+
+Effort: S is under a day, M is 1-3 days, L is more than 3 days. The new numbers are **N1-N28**. The mapping from old to new comes after the tables.
+
+#### P0: stop losing or corrupting text, and make speed predictable
+
+| # | Problem | Change | Files | Effort | Risk | Tests | Symptom fixed |
+|---|---|---|---|---|---|---|---|
+| **N1** | Contacts fill the boost list, the spell-exactly list and the cleanup context, and swap ordinary words everywhere | Carry each Dictionary row's real source (contacts, personal, imported) into the context entries. Keep Contacts out of all three channels except on chat, email and name-field surfaces (until N11, simply exclude them everywhere). **Ship first, alone.** | Engine/Biasing/Sources.swift, BoostVocabulary.swift, App/Services/BoostingWiring.swift, Pipeline/Personas/Personalisation.swift, Engine/Biasing/PromptBuilder.swift | S | Low | No Contacts terms in any channel; offline replay of the 11:34:44, 09:18:22, 09:34:09, 09:30:17 and 09:35:13 recordings shows no Akash, DOCUBE, Bucket, Cab, Cleaning or Code | Terminal garble; "Bucket", "Cab", "Comp" |
+| **N2** | Cancel throws away recognised text; pill buttons do nothing | Unchanged from F2: buttons follow the turn's real stage; after recognition, Cancel = "don't type here", and the text is saved to history with Insert / Copy | App/Core/PillPresentation.swift, App/Services/TurnController.swift, history writer | S-M | Low | Cancel after recognition never drops the payload | Lost Notes and ChatGPT text |
+| **N3** | No readable field → text goes to Notes (ChatGPT) | **Delivery ladder:** if the app and window from key-up are still focused and secure input is off, deliver by paste (multi-line or web) or keystrokes, and verify when readable. "Unverified" is neutral and logged. Notes only on a real focus change, no window, or a secure field. Replaces the delivery half of F3, and F19 | App/Services/UtteranceLander.swift, FieldContextReader.swift, App/Settings/NotesRouting.swift, Injection/TextInjector.swift | M | Medium: could type into a non-text target; guarded by N4, N15 and refuse-when-certain roles | Routing table tests; a fake unreadable Chromium app gets a write | ChatGPT nothing typed, text in Notes |
+| **N4** | A blind write could hit a password field | Check macOS secure input before any write with no readable field (was F13) | Injection/TextInjector.swift | S | Low | Fake secure-input flag refuses | Safety |
+| **N5** | Line breaks can send or run in unlisted apps | Merges F5 and F6, by structure. Inside a web area or any Electron/Chromium runtime, type line breaks as ⇧↩ and never let the fallback post a bare one. On any surface the resolver calls a terminal, use the terminal adapter (bracketed paste). Never press Return | Injection/AppAdapter.swift, TextInjector.swift | S-M | Low | Default adapter in a web area emits ⇧↩; every terminal id and pty-backed field gets the terminal adapter | Early send in Gemini, Safari; commands run in WezTerm, Warp |
+| **N6** | Final pass can take 17 s; about 1 s reloads after idle | Section D: bundle or onboard the CTC model, compile at launch and after updates ("Preparing speech models"), always resident with a stable key, exempt from idle and warning unloads. Stable rescorer rebuilt in the background. 1.5 s rescoring deadline → land unboosted. Per-stage ms and pre-boost raw text in `turn_records`. Replaces F14 (the key-down load is dropped) | Engine/Decoder/CTCVocabularyBooster.swift, FluidAudioTDTDecoder.swift, ResidencyPlan.swift, Shared/Services/ModelResidency.swift, App/Services/TurnController.swift, TurnStore.swift, Packaging/make_app.sh | M | Low-medium: about 100 MB more resident on a Mac with nearly full swap; installer grows by 98 MB | A slow fake booster lands within the deadline; no model load inside a turn; residency tests | E1F62700; slow first dictation after a pause |
+| **N7** | 17 s context stall; reads from the wrong app | Unchanged from F4: one bounded turn snapshot started at key-down, tied to the starting app and window, about 250 ms. It now also feeds the rubric (E2) | App/Services/UtteranceLander.swift, AppContainer.swift, AXContextProviders.swift, DeixisService.swift, ActStack.swift, Injection/AXReader/* , WindowContentCache.swift | M-L | Medium | A mock 10 s source lands in about 400 ms; no read when contextual reading is off | "Still finishing", lost Notes text |
+| **N8** | 1.25 s median (up to 17 s) from "recognised" to "typed" | New. Time every step between landing and the write (formatting, cleanup, focus checks, adapter, readback), find the tails, fix | App/Services/UtteranceLander.swift, TurnController.swift, Injection/* | M | Low | Timing in `turn_records`; target a median under 0.4 s | General slowness compared with Kivi |
+
+#### P1: general intelligent input
+
+| # | Problem | Change | Files | Effort | Risk | Tests | Symptom fixed |
+|---|---|---|---|---|---|---|---|
+| **N9** | Three disagreeing app lists; first-match substrings ("codex" → code, "console" → terminal) | **Surface resolver** (E1): evidence added up, confidence, safe fallback, seed tables as hints, your per-app override, profile and signals saved in `turn_records`. Fix the `"code"` substring and the first-match field hints. Reset the auto persona for `com.openai.codex`. Replaces F10, the category part of F3 and the Gemini line of F9 | Pipeline/Style/AppCategory.swift, Pipeline/Formatters/FieldRole/*, App/Services/FieldContextReader.swift, Injection/AppAdapter.swift, App/Services/TurnStore.swift | M-L | Medium | Table test across known and **unknown** apps; an unknown app gets safe prose; no list disagreement | Wrong format per app and tab; code style in ChatGPT |
+| **N10** | Chromium apps hide their text (ChatGPT, unnamed wrappers) | Section B: runtime detected from the bundle; `AXManualAccessibility` then `AXEnhancedUserInterface`, chosen by probing the focused element; cache per process and version; honour the Chromium setting plus a per-app off switch; enable lazily; measure CPU and window-manager side effects | Injection/AppAccessibilityEnabler.swift | M | Medium: side effects of the enhanced attribute | Fake Owl-style bundle → Chromium; probe-driven attribute choice. **Read-only live probe first** | No screen context or readback in ChatGPT |
+| **N11** | Strict tiers; one list for every app; screen words never used | **Context rubric** (E2-E4): typed candidates, one scoring formula, per-source quotas, collision penalty, stable plus per-turn boost layers, boosted words tagged and lower-confidence. Includes F27 (on-screen words) behind a Lab measurement. Replaces F7 and the confidence part of F8 | Engine/Biasing/ContextRanker.swift, Ranker.swift, BoostVocabulary.swift, ContextHarvester.swift, Engine/Decoder/VocabularyBooster.swift, Lab | L | Medium | Ranking tests; corrections survive a full budget; Lab accuracy with and without screen terms; collision words need evidence | Contacts noise; screen words ignored |
+| **N12** | Hardcoded terminal and symbol tables | **Surface grammars** (E5): symbols need structure or a cue; command-line grammar validated against your real commands; formulas; URL versus search; label-typed form fields; Markdown where accepted. Replaces F8's symbol list and F9 | Pipeline/Formatters/TerminalFormatter.swift, Pipeline/Formatters/* | M-L | Low-medium | Replay 11:34:44; "c plus plus" → c++; "voice plus" stays words; "equals sum a one to a ten" → formula; "google dot com" in a URL bar → google.com | Terminal output; "Akash" for slash |
+| **N13** | Terminal can't use the folder you're in (approved) | F26: the focused shell's current folder through the process tree; one-time permission in Settings; silent match only when close, otherwise suggest; never Return | new App/Services/ShellContextProvider.swift, Engine/Biasing/Sources.swift, TerminalFormatter.swift | M | Low-medium (permission prompt; ask once in Settings) | Fake process tree and folder listing; no listing without permission | `cd documents/voiceplus` |
+| **N14** | Cleanup ignores the surface; Contacts fill its context | Prompt gets field kind, surface, text before the caret, a rubric-chosen spell list and screen terms, each with its own budget | Pipeline/Cleanup/CleanupPrompt.swift, Engine/Biasing/PromptBuilder.swift | S-M | Low | Prompt snapshot tests per surface | Generic clean-up everywhere |
+| **N15** | Canvas apps: letters trigger tools; comment line breaks | F11 made structural: hold with "Click into a text box first" when the focused element is not editable text in a canvas-like window. Figma's line-break safety comes from N5 | Injection/AppAdapter.swift, UtteranceLander.swift | M | Medium | Role-based hold tests. **Live:** Figma | Figma and Slides safety |
+| **N16** | Brave learned "paste first" for every tab | Unchanged from F12: "unconfirmed" counts as neutral; never promote paste above keystrokes in newline-safe adapters | Injection/MethodRouter.swift | S | Low | Router test | Paste into Sheets or Figma web |
+| **N17** | Taps and silent presses look like failures | Unchanged from F15 | App/Services/DictationCoordinator.swift, TurnController.swift | S | Low | Tap → hint, no turn record | "Empty or cancelled" turns |
+| **N18** | Clipboard managers record dictations; clipboard not restored | Transient, auto-generated and concealed markers; restore the previous clipboard after a settle. More important now that N3 pastes more often (was F16) | Injection/ClipboardPaster.swift | S | Low | Pasteboard type and restore tests | Privacy |
+| **N19** | Ribbon misses (Claude, x.com, Docs) | F17 and F18 merged | App/Overlay/TapeFlight*.swift, App/Diagnostics | S | Low | Geometry and controller tests | Ribbon |
+| **N20** | Notch says "landed" too early; wrong app on the held row; refused presses are silent | F20, F21 and F22 merged | App/Services/TurnController.swift, App/Core/PillDelivery.swift | S | Low | Copy and sequence tests | "Done" while nothing typed |
+| **N21** | Turn ids differ between tables | Unchanged from F23 | App/Diagnostics, TurnStore.swift | S | Low | Join test | Debuggability |
+
+#### P2: later
+
+| # | Change | Effort | Notes |
+|---|---|---|---|
+| N22 | Collapse pill and notch to 5 states (was F24) | M-L | After N2, N7 and N20 |
+| N23 | Allow a new press once the previous text is final (was F25) | M | After N7 |
+| N24 | Rich paste: a table into Sheets, Markdown into Notion (was F28) | M | Uses N9's surface kind, not app names |
+| N25 | 2-3 named presets per surface kind (was F29) | S-M | Per surface kind, with per-app overrides |
+| N26 | Separate "skip cleanup" from "style off" (was F30) | S | |
+| N27 | OCR caret-band ribbon rung (was F31) | M | Opt-in; never feeds context |
+| N28 | **Learning loop:** record which context candidates matched the final text and which you corrected; adjust source weights per surface within bounds; keep heard aliases and per-app overrides | M | Needs N6 (raw text stored) and N11 |
+
+#### What happened to F1-F31
+
+| Old | New | Change |
+|---|---|---|
+| F1 | N1 | **Widened:** Contacts out of all three channels, not just boosting |
+| F2 | N2 | Same |
+| F3 | N3 + N10 + N9 | **Split.** Delivery → ladder (N3). Accessibility → probe-chosen attribute (N10). **Dropped:** "map com.openai.codex to chat" and "route by runtime kind to the Electron path" for delivery |
+| F4 | N7 | Same, now feeds the rubric |
+| F5, F6 | N5 | **Merged**; terminals found by structure (pty shell + AX), not only a list |
+| F7 | N11 | **Replaced** by the rubric (no fixed "corrections > dictionary > Contacts" ranking) |
+| F8 | N12 (symbols) + N11 (confidence) | **Replaced:** no fixed list of protected words; structure decides |
+| F9 | N12 | **Replaced:** command-line grammar plus your real commands, not hardcoded cd/ls and "plus" rules. "Add Gemini to chat" dropped (N9 handles it) |
+| F10 | N9 | **Replaced:** an evidence-adding resolver; the URL and title additions become seed hints |
+| F11 | N15 | Made structural (focused-role hold) |
+| F12 | N16 | Same |
+| F13 | N4 | Same; now P0 |
+| F14 | N6 | **Corrected:** load at launch, keep resident; the key-down load is dropped |
+| F15 | N17 | Same |
+| F16 | N18 | Plus clipboard restore |
+| F17, F18 | N19 | Merged |
+| F19 | N3 | Absorbed by the delivery ladder |
+| F20, F21, F22 | N20 | Merged |
+| F23 | N21 | Same |
+| F24, F25 | N22, N23 | Same |
+| F26 | N13 | **Approved; promoted to P1** |
+| F27 | N11 | **Approved; promoted to P1**, behind a Lab measurement |
+| F28-F31 | N24-N27 | Same |
+| — | N8, N14, N28 | **New** |
+
+#### Order and dependencies
+
+1. **N1 alone, now.**
+2. **Measurement first:** N21, the logging parts of N6, N7, N8 and N19, plus N2. Every later change must be measurable from one `turn_records` row.
+3. **N6** (models loaded at launch, deadline).
+4. **N4 + N5 + N18, then N3.** The safety checks must exist before anything writes into an unreadable field.
+5. **N8** (post-landing latency) once its timings exist.
+6. **N7, then N9.** The resolver reads the same snapshot.
+7. **N10** after a read-only probe. Then **N11 → N12 → N13 → N14**, which share the rubric's candidate types.
+8. **N15-N17 and N20**, then P2. **N28** last, once there is data to learn from.
+
+#### Confidence gate: what must be true before the live tests in ChatGPT, Gemini, Figma and WezTerm
+
+You were right to defer them. A live test is only worth running when a failure points to one cause. All of the following must hold first:
+
+1. **Built and passing.** N1, N3, N4, N5, N6, N9 and N21 are in one build, with their unit and table tests green, including the **unknown-app** cases (an app on no list gets safe prose, ⇧↩ in web content, no Return).
+2. **Offline replay is clean.** Today's recordings (09:18:22, 09:30:17, 09:34:09, 09:35:13, 09:37, 11:34:44) show no Contacts swaps. The Lab entity and WER suite is no worse than with boosting off.
+3. **Every turn explains itself.** `turn_records` holds the surface kind and the signals that chose it, the field role, the write method, the verification result ("verified" / "unverified" / "not landed"), per-stage ms and the pre-boost raw text.
+4. **Speed.** In a 20-dictation local run:
+   - from "recognised" to "typed", median under 0.4 s and p95 under 1 s;
+   - no final pass over 1.5 s;
+   - the first dictation after 30 minutes idle adds under 0.2 s;
+   - no model load inside any turn.
+5. **A read-only probe has been run in each app.** It only reads the focused element's role, whether it sits in a web area, and which accessibility attribute exposes it; it does not type. Results are written down, and N10's attribute choice matches them. This needs your OK, but it changes nothing in those apps.
+6. **Pass criteria are written before testing**, about 10 scripted utterances per app:
+   - **ChatGPT:** lands in the composer, never sends, verified or neutral, chat style rather than code.
+   - **Gemini:** ⇧↩ line breaks, no early send.
+   - **Figma:** canvas → hold with a hint; text layer and comment box → text lands, no post.
+   - **WezTerm:** multi-line text never runs; `cd` plus a real folder name comes out right.
+
+Only then run the live session, with you present.
+
+#### Still open after round 3
+
+- The composer's accessibility role in ChatGPT, and which attribute exposes it (gate item 5).
+- What the 1.25 s between "recognised" and "typed" is spent on (N8).
+- Per-model RAM, and whether the 800 MB of working memory is mostly CoreML buffers (Instruments).
+- The cause of the memory-pressure warnings every 30 minutes on this Mac.
+- Whether `AXEnhancedUserInterface` slows window movement or costs noticeable CPU in practice.
