@@ -72,6 +72,11 @@ hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MNT" "$DMG"
 
 if [ "${FULL_INSTALLER:-0}" = "1" ]; then
   [ -d "$MNT/VoicePlus.app/Contents/Resources/Models" ] || fail "full installer lacks bundled models"
+  # N6 — a full installer carries the CTC boosting model so no dictation downloads/compiles it.
+  CTC="$MNT/VoicePlus.app/Contents/Resources/Models/parakeet-ctc-110m-coreml"
+  [ -f "$CTC/AudioEncoder.mlmodelc/coremldata.bin" ] && [ -f "$CTC/voiceplus-manifest.json" ] \
+    || fail "full installer lacks the N6 CTC boosting model"
+  echo "[verify] N6 CTC boosting model bundled"
 fi
 # V5 C6 — every bundle carries Silero VAD (thin installers included).
 SILERO="$MNT/VoicePlus.app/Contents/Resources/Models/silero-vad"

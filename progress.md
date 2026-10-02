@@ -1945,3 +1945,10 @@ Initial checkpoint (superseded by the dated entries below):
 - **Replay:** 41 recordings, 0 swaps, no Contacts in any channel. Open: "one, two, three." → "123  ".
 - **New deps:** none.
 - **Needs live test (S0–S2, deferred):** AX probe in real apps, ribbon in Claude/x.com/Docs, OCR rung (Screen Recording), pull-back across apps, shell process trees, rich paste in Sheets, Figma hold, clipboard managers honouring markers, first-launch CTC compile time + ~100 MB memory, FULL_INSTALLER DMG with CTC model.
+
+## 2026-10-02 — N-fixes final installer 1.14.0
+- `Packaging/releases/VoicePlus_N-fixes_1.14.0.dmg`, 779 MB (817,064,671 bytes), SHA256 `c398e91cf42871f2a8af633efe5cb90f391cfc07f94ca4e24d636f708c575bc8`. `FULL_INSTALLER=1 Packaging/release.sh N-fixes 1.14.0 --no-github`.
+- Bundled: TDT v3 + EOU 160 ms + speaker (re-hashed from the 1.13.0 DMG; local cache now holds only CTC) + N6 CTC 110M boosting model (98 MB, `--require-boost`) + Silero VAD + llama.framework.
+- `verify_install.sh` now fails a full installer lacking the N6 CTC model. `FULL_INSTALLER=1 verify_install.sh` **OK** (TDT/EOU/speaker/Silero inference from read-only mount, CTC present, 1.14.0, 9 TCC strings, self-contained, headless launch of temp copy).
+- Not installed to /Applications; running app untouched; appcast/cask/notes reverted. Tag `release/N-fixes/v1.14.0`.
+- Not verified: CTC inference in the bundle self-test (presence only), first-launch CTC compile time, notarization/Gatekeeper on a clean Mac, real dictation with this build.
