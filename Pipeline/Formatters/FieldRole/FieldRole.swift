@@ -72,6 +72,28 @@ public struct FieldContext: Sendable, Equatable {
     /// V5 E6 — who the text is for: To/Cc of a mail compose, the chat or channel of a messenger.
     /// Written to `StageContext.extra["thread.participants"]` (comma-separated).
     public var participants: [String] = []
+    /// N9 — the surface kind the app already resolved with its full evidence (see
+    /// `Keys.surfaceKind`). `nil` → `surface` resolves from this field's own evidence.
+    public var upstreamSurface: SurfaceKind?
+    /// N9 — the field has an `AXWebArea` ancestor. `nil` = not read (a URL then implies it).
+    public var isInWebArea: Bool?
+
+    /// N9 — what the field's own evidence says (role, labels, URL, window title, seed hint).
+    public var surfaceEvidence: SurfaceEvidence {
+        SurfaceEvidence(bundleID: appBundleID.map { BrowserSubApp.split(key: $0).bundleID },
+                        role: axRole, subrole: axSubrole, isMultiline: isMultiline, hints: hints,
+                        isInWebArea: isInWebArea ?? (documentURL?.isEmpty == false),
+                        url: documentURL, windowTitle: documentTitle)
+    }
+
+    /// N9 — the surface this field is. The upstream answer (richer evidence) wins when given.
+    public var surface: SurfaceResolution {
+        if let upstreamSurface {
+            return SurfaceResolution(kind: upstreamSurface, confidence: 1, isWebArea: isInWebArea ?? false,
+                                     signals: ["upstream"])
+        }
+        return SurfaceResolver.resolve(surfaceEvidence)
+    }
 
     /// V5 E5 — the browser sub-app this field sits in (Gmail, Slack web, GitHub…), from
     /// `documentURL` then `documentTitle`. `nil` for native apps and unknown sites.
@@ -165,6 +187,17 @@ public extension FieldContext {
         /// V5 E6 — the thread's participants, comma-separated. Same key `Personas` reads
         /// (`StageContextParticipants.key`).
         public static let participants = "thread.participants"
+        /// N9 — the surface the app resolved upstream with its full evidence (pty shell, window
+        /// title, override, history): `SurfaceKind.id`. When present, `FieldRole.classify` uses it.
+        public static let surfaceKind = "surface.kind"
+        /// N9 — the resolution's confidence ("0.72") and signals (joined by `hintSeparator`),
+        /// for `turn_records` and diagnostics.
+        public static let surfaceConfidence = "surface.confidence"
+        public static let surfaceSignals = "surface.signals"
+        /// N9 — "true" when the resolution was the below-threshold prose fallback.
+        public static let surfaceFallback = "surface.fallback"
+        /// N9 — the field sits in web content (⇧↩ line breaks, keystrokes not AX writes).
+        public static let surfaceWeb = "surface.web"
     }
 
     /// ASCII unit separator: cannot occur in an AX label, so no escaping is needed.
@@ -197,6 +230,8 @@ public extension FieldContext {
             documentTitle: e[Keys.documentTitle],
             participants: Self.participants(from: e[Keys.participants])
         )
+        self.upstreamSurface = e[Keys.surfaceKind].flatMap(SurfaceKind.init(id:))
+        self.isInWebArea = f[Keys.surfaceWeb]
     }
 
     /// The inverse: what `App`/`Injection` writes when it builds the context for a run.
@@ -220,6 +255,18 @@ public extension FieldContext {
             stageContext.extra[Keys.subAppCategory] = sub.category.rawValue
         }
         if !participants.isEmpty { stageContext.extra[Keys.participants] = Self.participantsValue(participants) }
+        if let upstreamSurface { stageContext.extra[Keys.surfaceKind] = upstreamSurface.id }
+        if let isInWebArea { stageContext.flags[Keys.surfaceWeb] = isInWebArea }
+    }
+
+    /// N9 — writes a resolution (kind, confidence, signals, web) so later stages and the turn
+    /// record see the same answer.
+    static func write(_ resolution: SurfaceResolution, into stageContext: inout StageContext) {
+        stageContext.extra[Keys.surfaceKind] = resolution.kind.id
+        stageContext.extra[Keys.surfaceConfidence] = String(format: "%.2f", resolution.confidence)
+        stageContext.extra[Keys.surfaceSignals] = resolution.signals.joined(separator: hintSeparator)
+        stageContext.extra[Keys.surfaceFallback] = resolution.isFallback ? "true" : "false"
+        stageContext.flags[Keys.surfaceWeb] = resolution.isWebArea
     }
 
     /// V5 E6 — participants as one `extra` value: names joined by ", " (commas inside a name are
@@ -239,21 +286,15 @@ public extension FieldContext {
 // MARK: - Classification
 
 public extension FieldRole {
-    /// Substrings that mark a shell/REPL surface. Checked against every hint, lowercased.
-    ///
-    /// Field-tested shapes: VS Code / Cursor integrated terminal exposes an xterm.js textarea
-    /// labelled "Terminal input"; Xcode's console is "Console"; a Jupyter/Swift REPL cell reads
-    /// "repl". Bundle ID cannot see any of them.
-    static let terminalHints = ["terminal", "xterm", "console", "repl", "shell", "command line", "tmux"]
-    /// Substrings that mark a source-editor surface.
-    static let editorHints = ["monaco", "code editor", "source editor", "codemirror", "cm-content",
-                              "ace_text-input", "editor content", "sourceeditor"]
+    // N9 — the terminal / editor hint lists moved into `SurfaceLexicon.phrases` (word-level,
+    // weighted, added up). Field-tested shapes still hold: VS Code's integrated terminal is an
+    // xterm.js textarea labelled "Terminal input"; Xcode's console is "Console"; Monaco says so.
 
     static let singleLineRoles: Set<String> = ["AXTextField", "AXSearchField", "AXComboBox", "AXPopUpButton"]
     static let multilineRoles: Set<String> = ["AXTextArea", "AXWebArea", "AXScrollArea", "AXGroup", "AXStaticText"]
 
-    /// Role + app, in that order of authority. A terminal *hint* beats the app class, which is the
-    /// whole point of R4.2: `com.microsoft.VSCode` with a "Terminal input" label is a terminal.
+    /// Role + labels + app, added up by `SurfaceResolver` (N9). A terminal *label* still beats the
+    /// app class (R4.2): `com.microsoft.VSCode` with a "Terminal input" label is a terminal.
     static func classify(_ field: FieldContext) -> FieldRole {
         if field.axRole == FieldRole.secureRoleName || field.axSubrole == FieldRole.secureRoleName { return .secure }
         // V5 E3 — a web password field that only says so in its label (`aria-label`, the
@@ -263,19 +304,21 @@ public extension FieldRole {
         // reading "console" must not make a cell a shell.
         if isSpreadsheetCell(field) { return .spreadsheetCell }
 
-        let haystack = field.hints.map { $0.lowercased() }
-        if haystack.contains(where: { h in terminalHints.contains(where: h.contains) }) { return .terminal }
-        if haystack.contains(where: { h in editorHints.contains(where: h.contains) }) { return .codeEditor }
-
-        let appCategory = field.appBundleID.map(AppCategoryTable.category(for:))
+        // N9 — the surface resolver adds the evidence up (role, labels word by word, URL,
+        // title, seed hint) instead of the first substring that matched: "Search console" is a
+        // search box, and an app id containing "codex" is not a code editor.
         let role = field.axRole ?? ""
         let looksSingleLine = singleLineRoles.contains(role) || field.isMultiline == false
-
-        if appCategory == .terminal { return .terminal }
+        let surface = field.surface
+        switch surface.kind {
+        case .secure: return .secure
+        case .spreadsheetCell: return .spreadsheetCell
+        case .terminal: return .terminal
         // A find field in an IDE is a one-line field, not the code surface.
-        if appCategory == .code { return looksSingleLine ? .singleLineText : .codeEditor }
-
-        if looksSingleLine { return .singleLineText }
+        case .codeEditor: return looksSingleLine ? .singleLineText : .codeEditor
+        default: break
+        }
+        if looksSingleLine || surface.kind.isSingleLine && field.isMultiline != true { return .singleLineText }
         if multilineRoles.contains(role) || field.isMultiline == true { return .multilineText }
         return .unknown
     }

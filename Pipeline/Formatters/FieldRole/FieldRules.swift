@@ -128,6 +128,13 @@ public struct FieldRules: Sendable, Equatable {
     static func appCategory(for field: FieldContext) -> AppCategory {
         // V5 E5 — inside a browser, the sub-app (Gmail, Slack web, GitHub…) decides.
         if let sub = field.subApp { return sub.category }
+        // N9 — the surface decides chat versus code (a composer in a coding app is chat), but
+        // only when it is confident; prose-like kinds leave the app's category standing.
+        let surface = field.surface
+        if !surface.isFallback, [.chatComposer, .emailBody, .codeEditor, .terminal].contains(surface.kind),
+           let c = AppCategoryTable.category(for: surface.kind) {
+            return c
+        }
         if let bundleID = field.appBundleID, !bundleID.isEmpty,
            AppCategoryTable.exact[bundleID] != nil || AppCategoryTable.category(for: bundleID) != .prose {
             return AppCategoryTable.category(for: bundleID)

@@ -10,6 +10,8 @@ public extension SettingsKeys {
     static let formattingSpacing = FieldContext.Keys.spacing
     /// `UnknownCaretStyle.rawValue`: `sentence` (default) · `asSpoken`.
     static let formattingUnknownCaretStyle = FieldContext.Keys.unknownCaretStyle
+    /// N9 — "1" once `FormattingSettings.runSurfacePersonaResetIfNeeded` has run.
+    static let surfacePersonaResetDone = "formatting.surfacePersonaReset.v1"
 }
 
 /// Typed access with the defaults in one place. An unrecognised stored value reads as the
@@ -36,4 +38,14 @@ public enum FormattingSettings {
     }
 
     public static var allKeys: [String] { [SettingsKeys.formattingSpacing, SettingsKeys.formattingUnknownCaretStyle] }
+
+    /// N9 — one-time reset of auto personas / cold-start styles that the old `"code"` substring
+    /// guessed wrong (`com.openai.codex`). Runs once per store; returns the bundle ids reset.
+    @discardableResult
+    public static func runSurfacePersonaResetIfNeeded(store: SettingsStore?, personas: PersonaManager) -> [String] {
+        guard let store, store.string(SettingsKeys.surfacePersonaResetDone) != "1" else { return [] }
+        let changed = (try? personas.resetMiscategorized()) ?? []
+        store.set("1", for: SettingsKeys.surfacePersonaResetDone)
+        return changed
+    }
 }

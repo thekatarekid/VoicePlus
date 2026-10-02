@@ -81,6 +81,26 @@ public struct PersonaManager: Sendable {
         return p
     }
 
+    /// N9 — apps whose stored auto persona and cold-start style came from a wrong category guess
+    /// (the old `"code"` substring made `com.openai.codex` a code editor). Deletes an
+    /// auto-drafted persona (an edited one is the user's and is kept) and resets a style profile
+    /// whose category no longer matches the table, so the next draft starts from the right
+    /// category. Returns the bundle ids that changed. Idempotent.
+    @discardableResult
+    public func resetMiscategorized(_ bundleIDs: Set<String> = SeedHints.personaResets) throws -> [String] {
+        var changed: [String] = []
+        for id in bundleIDs.sorted() {
+            var did = false
+            if let p = try store.persona(for: id), p.isAutoDrafted { try store.delete(bundleID: id); did = true }
+            let category = AppCategoryTable.category(for: id)
+            if let profile = try styles.profile(for: id), profile.category != category {
+                try styles.save(StyleProfile.coldStart(appBundleID: id, category: category)); did = true
+            }
+            if did { changed.append(id) }
+        }
+        return changed
+    }
+
     // MARK: Resolution / prompt assembly
 
     /// Persona for this context: base for the app, override for the first thread participant

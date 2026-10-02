@@ -8,60 +8,37 @@ public enum AppCategory: String, Codable, CaseIterable, Sendable {
 
 /// bundle-id → category. Exact matches first, then substring heuristics, then `.prose`.
 public enum AppCategoryTable {
-    public static let exact: [String: AppCategory] = [
-        // mail
-        "com.apple.mail": .mail, "com.microsoft.Outlook": .mail, "com.readdle.smartemail-Mac": .mail,
-        "com.superhuman.mail": .mail, "com.mimestream.Mimestream": .mail, "com.airmail.mac": .mail,
-        // chat
-        "com.tinyspeck.slackmacgap": .chat, "com.apple.MobileSMS": .chat, "com.hnc.Discord": .chat,
-        "com.microsoft.teams2": .chat, "net.whatsapp.WhatsApp": .chat, "ru.keepcoder.Telegram": .chat,
-        "org.signal.Signal": .chat, "com.facebook.archon": .chat,
-        // code
-        "com.microsoft.VSCode": .code, "com.apple.dt.Xcode": .code, "com.jetbrains.intellij": .code,
-        "com.sublimetext.4": .code, "com.todesktop.230313mzl4w4u92": .code, "dev.zed.Zed": .code,
-        "com.vim.MacVim": .code, "org.gnu.Emacs": .code,
-        // terminal
-        "com.apple.Terminal": .terminal, "com.googlecode.iterm2": .terminal, "dev.warp.Warp-Stable": .terminal,
-        "io.alacritty": .terminal, "net.kovidgoyal.kitty": .terminal, "com.github.wez.wezterm": .terminal,
-        // prose
-        "com.apple.Notes": .prose, "com.apple.TextEdit": .prose, "md.obsidian": .prose, "notion.id": .prose,
-        "com.microsoft.Word": .prose, "com.apple.iWork.Pages": .prose, "com.google.Chrome": .prose,
-        "com.apple.Safari": .prose, "com.culturedcode.ThingsMac": .prose, "com.bear-writer": .prose,
+    /// N9 — derived from the one merged seed table (`SeedHints`), so the formatters, the
+    /// adapters and the accessibility enabler can no longer disagree about an app.
+    public static let exact: [String: AppCategory] = SeedHints.table.mapValues { category(for: $0.family) }
 
-        // V5 E4 — coverage. Browsers stay prose (E5 routes their sub-apps by host).
-        "company.thebrowser.Browser": .prose, "com.brave.Browser": .prose, "com.microsoft.edgemac": .prose,
-        "org.mozilla.firefox": .prose, "com.operasoftware.Opera": .prose, "com.vivaldi.Vivaldi": .prose,
-        "com.kagi.kagimacOS": .prose, "app.zen-browser.zen": .prose, "com.apple.SafariTechnologyPreview": .prose,
-        // mail
-        "com.readdle.SparkDesktop": .mail, "it.bloop.airmail2": .mail, "com.freron.MailMate": .mail,
-        "org.mozilla.thunderbird": .mail, "io.canarymail.mac": .mail, "ch.protonmail.desktop": .mail,
-        // chat / calls
-        "us.zoom.xos": .chat, "com.microsoft.teams": .chat, "com.apple.FaceTime": .chat, "com.skype.skype": .chat,
-        "com.openai.chat": .chat, "com.anthropic.claudefordesktop": .chat, "com.viber.osx": .chat,
-        "jp.naver.line.mac": .chat, "com.tencent.xinWeChat": .chat, "im.riot.app": .chat,
-        "Mattermost.Desktop": .chat, "org.zulip.zulip-electron": .chat, "com.automattic.beeper.desktop": .chat,
-        // code
-        "com.exafunction.windsurf": .code, "com.microsoft.VSCodeInsiders": .code, "com.vscodium": .code,
-        "com.visualstudio.code.oss": .code, "com.jetbrains.pycharm": .code, "com.jetbrains.WebStorm": .code,
-        "com.jetbrains.goland": .code, "com.jetbrains.CLion": .code, "com.jetbrains.rider": .code,
-        "com.jetbrains.intellij.ce": .code, "com.jetbrains.fleet": .code, "com.google.android.studio": .code,
-        "com.panic.Nova": .code, "com.barebones.bbedit": .code, "com.sublimetext.3": .code,
-        "dev.zed.Zed-Preview": .code,
-        // terminal
-        "com.mitchellh.ghostty": .terminal, "dev.warp.Warp": .terminal, "co.zeit.hyper": .terminal,
-        "org.tabby": .terminal, "com.termius-dmg.mac": .terminal,
-        // prose: documents, slides, spreadsheets (E2 decides the cell), notes, tasks, design, issues
-        "com.apple.iWork.Keynote": .prose, "com.apple.iWork.Numbers": .prose, "com.microsoft.Excel": .prose,
-        "com.microsoft.Powerpoint": .prose, "com.microsoft.onenote.mac": .prose, "com.figma.Desktop": .prose,
-        "com.linear": .prose, "com.lukilabs.lukiapp": .prose, "com.agiletortoise.Drafts-OSX": .prose,
-        "net.shinyfrog.bear": .prose, "com.ulyssesapp.mac": .prose, "com.literatureandlatte.scrivener3": .prose,
-        "com.apple.reminders": .prose, "com.apple.iCal": .prose, "com.todoist.mac.Todoist": .prose,
-        "com.omnigroup.OmniFocus3": .prose, "com.evernote.Evernote": .prose, "com.logseq.logseq": .prose,
-        "com.apple.Preview": .prose, "com.apple.freeform": .prose, "com.raycast.macos": .prose,
-    ]
+    /// The formatting category a seed family implies. Browsers and spreadsheets are prose apps:
+    /// the surface (URL, cell) decides.
+    public static func category(for family: SeedHints.Family) -> AppCategory {
+        switch family {
+        case .mail: return .mail
+        case .chat: return .chat
+        case .code: return .code
+        case .terminal: return .terminal
+        case .browser, .spreadsheet, .prose: return .prose
+        }
+    }
+
+    /// N9 — the formatting category a resolved surface implies (`nil` when the surface says
+    /// nothing about it and the app's category should stand).
+    public static func category(for surface: SurfaceKind) -> AppCategory? {
+        switch surface {
+        case .terminal: return .terminal
+        case .codeEditor: return .code
+        case .chatComposer: return .chat
+        case .emailBody: return .mail
+        case .prose, .markdownEditor, .urlBar, .searchField, .formField, .spreadsheetCell: return .prose
+        case .canvas, .secure: return nil
+        }
+    }
 
     /// V5 E2 — spreadsheet apps: a focused field in one of these is a cell unless it is a search box.
-    public static let spreadsheetBundleIDs: Set<String> = ["com.microsoft.Excel", "com.apple.iWork.Numbers"]
+    public static let spreadsheetBundleIDs: Set<String> = SeedHints.bundleIDs(.spreadsheet)
 
     public static func isSpreadsheet(bundleID: String?) -> Bool {
         guard let bundleID else { return false }
@@ -89,13 +66,18 @@ public enum AppCategoryTable {
         return category
     }
 
+    /// Whole-word tokens of an unknown bundle id (split on `.`, `-`, `_` and camelCase). N9:
+    /// matched as **words**, never substrings — `com.openai.codex` is not "code", and
+    /// `com.googlecode.iterm2` is not "code" either. Generic words ("code", "editor", "chat")
+    /// are gone: they guessed wrong more often than right.
     static let substrings: [(String, AppCategory)] = [
         ("mail", .mail), ("outlook", .mail),
         ("slack", .chat), ("discord", .chat), ("messages", .chat), ("telegram", .chat), ("whatsapp", .chat),
-        ("signal", .chat), ("teams", .chat), ("chat", .chat),
-        ("terminal", .terminal), ("iterm", .terminal), ("warp", .terminal), ("kitty", .terminal), ("alacritty", .terminal),
-        ("code", .code), ("xcode", .code), ("jetbrains", .code), ("intellij", .code), ("vim", .code), ("emacs", .code),
-        ("editor", .code), ("zed", .code),
+        ("signal", .chat), ("teams", .chat),
+        ("terminal", .terminal), ("iterm", .terminal), ("iterm2", .terminal), ("warp", .terminal), ("kitty", .terminal),
+        ("alacritty", .terminal),
+        ("vscode", .code), ("xcode", .code), ("jetbrains", .code), ("intellij", .code), ("vim", .code), ("emacs", .code),
+        ("zed", .code),
     ]
 
     public static func category(for bundleID: String?) -> AppCategory {
@@ -103,8 +85,9 @@ public enum AppCategoryTable {
         // V5 E5 — a `bundle|host` persona key: the browser sub-app decides.
         if bundleID.contains(BrowserSubApp.keySeparator) { return category(forKey: bundleID) }
         if let hit = exact[bundleID] { return hit }
-        let lower = bundleID.lowercased()
-        for (needle, cat) in substrings where lower.contains(needle) { return cat }
+        if let hint = SeedHints.hint(for: bundleID) { return category(for: hint.family) }
+        let tokens = Set(SurfaceLexicon.words(bundleID))
+        for (word, cat) in substrings where tokens.contains(word) { return cat }
         return .prose
     }
 

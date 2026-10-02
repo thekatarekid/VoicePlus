@@ -31,6 +31,11 @@ public enum FieldRolePipeline {
     /// rules and the style profile want the same two edits, and nothing is switched off.
     public static func write(_ field: FieldContext, into context: inout StageContext) {
         field.write(into: &context)
+        // N9 — record the surface (kind, confidence, signals) for later stages and the turn
+        // record; an upstream resolution with richer evidence is kept as is.
+        if context.extra[FieldContext.Keys.surfaceConfidence] == nil {
+            FieldContext.write(field.surface, into: &context)
+        }
         let plan = FieldRoleFormatter().plan(for: field)
         if !plan.rules.trailingPeriod || !plan.continuation.capitalizeFirstWord {
             context.extra[StyleStage.enabledKey] = "false"
