@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Shared
 
 // V5 Q13 — persisted per-turn diagnostics (SQLite table `turn_diagnostics`, 7-day retention, local
 // only). Records *why* the pill/panel did what it did and how text landed, so misfires (P-items, O3
@@ -94,6 +95,13 @@ public enum TurnDiagnosticsEvent: Codable, Equatable, Sendable {
     }
 }
 
+extension TurnID {
+    /// N21 — the one key a turn has in every table: `turn_records.id` and
+    /// `turn_diagnostics.turnID` both hold the full UUID string, so the two join on equality.
+    /// (`description`, the 8-character log form, is for logs only.)
+    public var diagnosticsKey: String { rawValue.uuidString }
+}
+
 /// One stored row.
 public struct TurnDiagnosticsEntry: Codable, Equatable, Sendable {
     public var id: Int64?
@@ -147,6 +155,26 @@ public final class TurnDiagnostics: Sendable {
             try db.execute(sql: "INSERT INTO \(Self.table) (turnID, at, kind, payloadJSON) VALUES (?, ?, ?, ?)",
                            arguments: [turnID, when, event.kind, json])
         }
+    }
+
+    /// N21 — appends one event under the turn's shared key (`turn_records.id`).
+    public func record(_ event: TurnDiagnosticsEvent, turnID: TurnID, at date: Date? = nil) {
+        record(event, turn: turnID.diagnosticsKey, at: date)
+    }
+
+    /// N21 — every event of one turn, including rows an older build wrote under the 8-character
+    /// short id.
+    public func entries(turnID: TurnID) throws -> [TurnDiagnosticsEntry] {
+        try writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM \(Self.table) WHERE turnID IN (?, ?) ORDER BY at, id",
+                             arguments: [turnID.diagnosticsKey, turnID.description]).compactMap(Self.entry)
+        }
+    }
+
+    private static func entry(_ row: Row) -> TurnDiagnosticsEntry? {
+        let json: String = row["payloadJSON"]
+        guard let event = try? JSONDecoder().decode(TurnDiagnosticsEvent.self, from: Data(json.utf8)) else { return nil }
+        return TurnDiagnosticsEntry(id: row["id"], turnID: row["turnID"], at: row["at"], event: event)
     }
 
     /// Deletes everything older than the 7-day retention window. Returns rows removed.

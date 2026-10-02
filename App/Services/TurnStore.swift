@@ -81,13 +81,21 @@ public struct TurnEntry: Equatable, Sendable, Identifiable {
     /// `true` only once the row was written to the database. `false` = session only: persistence
     /// is off, there is no database, or the write failed.
     public var persisted: Bool
+    /// T-schema — what other lanes set beside the record (`TurnStore.setExtras`). Explicit values
+    /// only; `resolvedExtras` completes them from the record.
+    public var extras: TurnRecordExtras
 
-    public init(record: TurnRecord, stage: TurnStage, updatedAt: Date, persisted: Bool) {
+    public init(record: TurnRecord, stage: TurnStage, updatedAt: Date, persisted: Bool,
+                extras: TurnRecordExtras = TurnRecordExtras()) {
         self.record = record
         self.stage = stage
         self.updatedAt = updatedAt
         self.persisted = persisted
+        self.extras = extras
     }
+
+    /// The values `turn_records`' readable columns hold for this turn.
+    public var resolvedExtras: TurnRecordExtras { extras.resolved(for: record) }
 
     public var id: TurnID { record.turnID }
 
@@ -171,6 +179,8 @@ public final class TurnStore: @unchecked Sendable {
     private let queue = DispatchQueue(label: "VoicePlus.TurnStore", qos: .utility)
     private let lock = NSLock()
     private var memory: [TurnID: TurnEntry] = [:]
+    /// Extras set before the turn's first save; applied by that save.
+    private var pendingExtras: [TurnID: TurnRecordExtras] = [:]
     private var tableReady = false
     /// Settled rows kept in the database; unsettled (held) rows are never pruned.
     public var databaseLimit = 500
@@ -211,6 +221,11 @@ public final class TurnStore: @unchecked Sendable {
                     )
                     """)
                 try db.execute(sql: "CREATE INDEX IF NOT EXISTS \(table)_startedAt ON \(table)(startedAt)")
+                // T-schema — additive columns; an older table gains them in place.
+                let existing = Set(try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))").map { $0["name"] as String })
+                for (name, type) in extraColumns where !existing.contains(name) {
+                    try db.execute(sql: "ALTER TABLE \(table) ADD COLUMN \(name) \(type)")
+                }
             }
             return true
         } catch {
@@ -247,8 +262,9 @@ public final class TurnStore: @unchecked Sendable {
             mayBeStored = previous.map { $0.persisted || $0.isRecoverable } ?? !stage.isLive
             // Claimed only once the database has said so (`written`): until then, and for good
             // when persistence is off, the row is this session's only.
+            let extras = previous?.extras ?? pendingExtras.removeValue(forKey: record.turnID) ?? TurnRecordExtras()
             let entry = TurnEntry(record: record, stage: stage, updatedAt: now,
-                                  persisted: persisting && (previous?.persisted ?? false))
+                                  persisted: persisting && (previous?.persisted ?? false), extras: extras)
             memory[record.turnID] = entry
             pruneMemoryLocked()
             return entry
@@ -285,9 +301,43 @@ public final class TurnStore: @unchecked Sendable {
         return save(entry.record, stage: stage ?? entry.stage)
     }
 
+    /// T-schema — the setter other lanes fill (L2 stage ms and pre-boost text, L4 write method and
+    /// verification, L6 surface kind and signals). Before the turn's first save the change waits for
+    /// it; afterwards the row is rewritten under the same rules as `save` (history off: only a
+    /// recoverable row reaches the database).
+    public func setExtras(_ id: TurnID, _ change: (inout TurnRecordExtras) -> Void) {
+        // A row from an earlier session (database only) is brought into memory first.
+        if lock.withLock({ memory[id] == nil }),
+           let row = stored(where: "id = ?", arguments: [id.rawValue.uuidString], limit: 1).first {
+            lock.withLock { if memory[id] == nil { memory[id] = row } }
+        }
+        let current = lock.withLock { () -> TurnEntry? in
+            guard var entry = memory[id] else {
+                var pending = pendingExtras[id] ?? TurnRecordExtras()
+                change(&pending)
+                pendingExtras[id] = pending
+                if pendingExtras.count > 64, let oldest = pendingExtras.keys.first(where: { $0 != id }) {
+                    pendingExtras[oldest] = nil
+                }
+                return nil
+            }
+            change(&entry.extras)
+            memory[id] = entry
+            return entry
+        }
+        guard let current else { return }
+        save(current.record, stage: current.stage)
+    }
+
+    /// The explicit extras for `id` (memory, then database).
+    public func extras(_ id: TurnID) -> TurnRecordExtras? {
+        if let pending = lock.withLock({ pendingExtras[id] }) { return pending }
+        return entry(id)?.extras
+    }
+
     /// Deletes one turn everywhere (Today › Delete).
     public func remove(_ id: TurnID) {
-        lock.withLock { memory[id] = nil }
+        lock.withLock { memory[id] = nil; pendingExtras[id] = nil }
         if let database, tableReady {
             queue.async {
                 do {
@@ -305,6 +355,7 @@ public final class TurnStore: @unchecked Sendable {
         let ids = lock.withLock { () -> [TurnID] in
             let ids = Array(memory.keys)
             memory.removeAll()
+            pendingExtras.removeAll()
             return ids
         }
         if let database, tableReady {
@@ -325,14 +376,23 @@ public final class TurnStore: @unchecked Sendable {
         queue.async { [weak self] in
             do {
                 let json = String(decoding: try JSONEncoder().encode(entry.record), as: UTF8.self)
+                let x = entry.resolvedExtras
+                let extraNames = Self.extraColumns.map(\.0)
+                let extraValues: [(any DatabaseValueConvertible)?] = [
+                    x.surfaceKind, Self.json(x.surfaceSignals), x.fieldRole, x.writeMethod, x.verification?.rawValue,
+                    Self.json(x.stageMs), x.preBoostRawText, x.keyDownAt?.timeIntervalSinceReferenceDate,
+                    x.keyUpAt?.timeIntervalSinceReferenceDate, entry.extras.isEmpty ? nil : Self.json(entry.extras),
+                ]
                 try database.writer.write { db in
-                    try db.execute(sql: """
-                        INSERT INTO \(Self.table) (id, startedAt, updatedAt, stage, recordJSON) VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET startedAt = excluded.startedAt, updatedAt = excluded.updatedAt,
-                            stage = excluded.stage, recordJSON = excluded.recordJSON
-                        """,
-                        arguments: [entry.id.rawValue.uuidString, entry.record.startedAt.timeIntervalSinceReferenceDate,
-                                    entry.updatedAt.timeIntervalSinceReferenceDate, entry.stage.rawValue, json])
+                    let columns = (["id", "startedAt", "updatedAt", "stage", "recordJSON"] + extraNames).joined(separator: ", ")
+                    let marks = Array(repeating: "?", count: 5 + extraNames.count).joined(separator: ", ")
+                    let updates = (["startedAt", "updatedAt", "stage", "recordJSON"] + extraNames)
+                        .map { "\($0) = excluded.\($0)" }.joined(separator: ", ")
+                    let base: [(any DatabaseValueConvertible)?] = [
+                        entry.id.rawValue.uuidString, entry.record.startedAt.timeIntervalSinceReferenceDate,
+                        entry.updatedAt.timeIntervalSinceReferenceDate, entry.stage.rawValue, json]
+                    try db.execute(sql: "INSERT INTO \(Self.table) (\(columns)) VALUES (\(marks)) ON CONFLICT(id) DO UPDATE SET \(updates)",
+                                   arguments: StatementArguments(base + extraValues))
                     // Settled rows beyond the limit go; a held row stays until the user resolves it.
                     try db.execute(sql: """
                         DELETE FROM \(Self.table) WHERE stage != ? AND id NOT IN (
@@ -404,7 +464,7 @@ public final class TurnStore: @unchecked Sendable {
     /// Rows from the database (none when there is no database or no table).
     private func stored(where clause: String?, arguments: StatementArguments, limit: Int) -> [TurnEntry] {
         guard let database, tableReady, limit > 0 else { return [] }
-        let sql = "SELECT stage, updatedAt, recordJSON FROM \(Self.table)"
+        let sql = "SELECT stage, updatedAt, recordJSON, extras_json FROM \(Self.table)"
             + (clause.map { " WHERE \($0)" } ?? "") + " ORDER BY startedAt DESC LIMIT \(limit)"
         do {
             return try database.reader.read { db in
@@ -413,8 +473,11 @@ public final class TurnStore: @unchecked Sendable {
                     guard let record = try? JSONDecoder().decode(TurnRecord.self, from: Data(json.utf8)) else { return nil }
                     let stageRaw: String = row["stage"]
                     let updated: Double = row["updatedAt"]
+                    let extrasJSON: String? = row["extras_json"]
+                    let extras = extrasJSON.flatMap { try? JSONDecoder().decode(TurnRecordExtras.self, from: Data($0.utf8)) }
                     return TurnEntry(record: record, stage: TurnStage(rawValue: stageRaw) ?? .failed,
-                                     updatedAt: Date(timeIntervalSinceReferenceDate: updated), persisted: true)
+                                     updatedAt: Date(timeIntervalSinceReferenceDate: updated), persisted: true,
+                                     extras: extras ?? TurnRecordExtras())
                 }
             }
         } catch {

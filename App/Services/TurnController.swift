@@ -958,13 +958,13 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         }
         fx.run(self)
         // V5 Q13 — every pause with its reason and the pointer.
-        if let logTurn { TurnEventDiagnostics.record(TurnEventDiagnostics.pauseEvent(reason.rawValue, resumed: false), turn: logTurn.description) }
+        if let logTurn { TurnEventDiagnostics.record(TurnEventDiagnostics.pauseEvent(reason.rawValue, resumed: false), turn: logTurn.diagnosticsKey) }
     }
 
     public func resumeDwell(_ reason: DwellPause) {
         var fx = Effects()
         var logTurn: TurnID?
-        defer { if let logTurn { TurnEventDiagnostics.record(TurnEventDiagnostics.pauseEvent(reason.rawValue, resumed: true), turn: logTurn.description) } }
+        defer { if let logTurn { TurnEventDiagnostics.record(TurnEventDiagnostics.pauseEvent(reason.rawValue, resumed: true), turn: logTurn.diagnosticsKey) } }
         lock.withLock {
             guard let turn = previewTurnLocked() else { return }
             let before = DwellPause.pauseReason(for: turn.pauses)
@@ -1199,7 +1199,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             delivery: delivery,
             verdict: LandingVerdictLedger.shared.verdict(forText: result.text, utteranceID: result.utteranceID.uuidString),
             appBundleID: target.focus?.bundleID,
-            settleMs: Int((clock.now.timeIntervalSince(now) * 1000).rounded())), turn: id.description)
+            settleMs: Int((clock.now.timeIntervalSince(now) * 1000).rounded())), turn: id.diagnosticsKey)
         let stage: TurnStage
         switch delivery {
         case .some(.held): stage = .held
@@ -1705,7 +1705,7 @@ public final class TurnWiring {
         if let database = container.database, PillDiagnostics.store == nil {
             PillDiagnostics.store = try? TurnDiagnostics(database: database)
         }
-        PillDiagnostics.turnID = { [weak controller] in controller?.currentTurn?.description }
+        PillDiagnostics.turnID = { [weak controller] in controller?.currentTurn?.diagnosticsKey }
         // V5 HW3 — "Running lighter models — memory is low" chip while memory pressure is critical.
         LighterModelsChip.wire(pill: pill)
         // V5 Q8 — the self-healing tick reads the pill's real state (main queue clock).

@@ -33,7 +33,7 @@ struct TurnEventDiagnosticsQ13Tests {
         h.controller.resumeDwell(.hover)
         h.clock.advance(1)
         #expect(await h.wait { h.events.landed.count == 1 })
-        let events = sink.of(id.description)
+        let events = sink.of(id.diagnosticsKey)
         #expect(events.count == 3)
         #expect(events.first == .pause(reason: "hover", pointer: .init(x: 7, y: 9), frame: .init(x: 1, y: 2, width: 300, height: 40)))
         #expect(events.dropFirst().first == .resume(reason: "hover", pointer: .init(x: 7, y: 9), frame: .init(x: 1, y: 2, width: 300, height: 40)))
