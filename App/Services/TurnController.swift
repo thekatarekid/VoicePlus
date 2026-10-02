@@ -226,6 +226,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var onLanded: ((LandingResult) -> Void)?
     /// Any turn ended, with its final stage (deixis clears the turn's boxes on it).
     public var onTurnEnded: ((TurnID, TurnStage) -> Void)?
+    /// T-schema verify — the turn's key-down surface resolution (N9 resolver, via the app's
+    /// `TurnSurfaceContext`). Read off the key-up thread (it may wait for an in-flight resolve) and
+    /// recorded into `turn_records.surface_kind` / `surface_signals_json`. `nil` = not wired.
+    public var surfaceForTurn: (() -> SurfaceResolution?)?
 
     // State.
     private let lock = NSLock()
@@ -573,6 +577,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             return false
         }
         fx.run(self)
+        recordSurface(id)
         // A latched session's last words close now: aim them at where focus is now.
         if lock.withLock({ turns[id]?.latched ?? false }) {
             let target = targets.read(at: now)
@@ -585,6 +590,31 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             }
         }
         return true
+    }
+
+    /// T-schema verify — the surface that chose this turn's write plan, so every turn explains
+    /// itself. Kind plus signal labels only (never field contents); history-off rules are the
+    /// store's. Taken at key-up, before a newer press can re-resolve (N23 waits for final text).
+    private func recordSurface(_ id: TurnID) {
+        guard let provider = surfaceForTurn else { return }
+        let store = self.store
+        DispatchQueue.global(qos: .utility).async {
+            guard let surface = provider() else { return }
+            store.setExtras(id) { extras in
+                if extras.surfaceKind == nil { extras.surfaceKind = surface.kind.id }
+                if extras.surfaceSignals == nil { extras.surfaceSignals = Self.signalMap(surface) }
+            }
+        }
+    }
+
+    static func signalMap(_ surface: SurfaceResolution) -> [String: String] {
+        var map: [String: String] = [
+            "confidence": String(format: "%.2f", surface.confidence),
+            "web_area": surface.isWebArea ? "1" : "0",
+        ]
+        if surface.isFallback { map["fallback"] = surface.candidate.id }
+        for (i, signal) in surface.signals.prefix(12).enumerated() { map["signal\(i)"] = signal }
+        return map
     }
 
     private func finishingSlow(_ id: TurnID) {
@@ -1883,6 +1913,8 @@ public final class TurnWiring {
         controller.useReplaceRange(over: container.system)
         // Owner decision — switched apps mid-dictation: pull back to the key-down window, then type.
         controller.pullBack = SystemFocusPullBack.live(system: container.system)
+        // T-schema verify — the key-down surface lands in turn_records (surface_kind, signals).
+        controller.surfaceForTurn = { [turnSurface = container.turnSurface] in turnSurface.surface() }
         let wiring = TurnWiring(controller: controller, store: store, escape: escape)
         current = wiring
 

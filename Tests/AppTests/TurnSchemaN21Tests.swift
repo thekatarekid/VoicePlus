@@ -166,4 +166,35 @@ struct TurnSchemaN21Tests {
         #expect(rows == 0)
         #expect(store.extras(rec.turnID)?.preBoostRawText == "secret words")
     }
+
+    @Test("T-schema verify: the key-down surface is recorded into surface_kind and signals at key-up")
+    func surfaceRecordedFromController() async throws {
+        let h = TurnControllerTests.Harness(dwell: .immediate)
+        h.controller.surfaceForTurn = {
+            SurfaceResolution(kind: .chatComposer, confidence: 0.82, isWebArea: true, signals: ["role:AXTextArea", "runtime:electron"])
+        }
+        guard case .began(let id) = h.controller.keyDown() else { Issue.record("no turn"); return }
+        h.controller.captureOpened(id)
+        #expect(h.controller.keyUp(id))
+        await h.controller.finalize(id, spans: TurnControllerTests.words("hello there"))
+        _ = await h.wait { h.events.landed.count == 1 }
+        var extras: TurnRecordExtras?
+        for _ in 0..<200 {
+            extras = h.store.entry(id)?.resolvedExtras
+            if extras?.surfaceKind != nil { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(extras?.surfaceKind == "chatComposer")
+        #expect(extras?.surfaceSignals?["web_area"] == "1")
+        #expect(extras?.surfaceSignals?["signal1"] == "runtime:electron")
+    }
+
+    @Test("T-schema verify: no surface provider leaves the columns empty")
+    func noSurfaceProvider() async throws {
+        let h = TurnControllerTests.Harness(dwell: .immediate)
+        guard case .began(let id) = h.controller.keyDown() else { Issue.record("no turn"); return }
+        h.controller.captureOpened(id)
+        #expect(h.controller.keyUp(id))
+        #expect(h.store.entry(id)?.resolvedExtras.surfaceKind == nil)
+    }
 }
