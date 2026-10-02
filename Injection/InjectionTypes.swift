@@ -1,4 +1,5 @@
 import Foundation
+import Shared
 
 /// The four layers of the stack (Build doc P1.8 T1). Raw values are what `injection_outcomes.method` stores.
 public enum InjectionMethod: String, CaseIterable, Codable, Sendable, Equatable {
@@ -15,11 +16,15 @@ public struct InjectionRequest: Equatable, Sendable {
     public var utteranceID: String?
     /// Focus captured at hotkey release; injection aborts if the frontmost app/element differs.
     public var expectedFocus: FocusSnapshot?
+    /// N5 / N9 — the resolver's surface kind at key-down, when the caller has one. Only ever moves
+    /// the write plan toward a safer one (terminal → bracketed paste; chat → ⇧↩).
+    public var surfaceKind: SurfaceKind?
 
-    public init(text: String, utteranceID: String? = nil, expectedFocus: FocusSnapshot? = nil) {
+    public init(text: String, utteranceID: String? = nil, expectedFocus: FocusSnapshot? = nil, surfaceKind: SurfaceKind? = nil) {
         self.text = text
         self.utteranceID = utteranceID
         self.expectedFocus = expectedFocus
+        self.surfaceKind = surfaceKind
     }
 }
 

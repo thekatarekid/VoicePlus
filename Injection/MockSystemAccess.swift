@@ -1,4 +1,5 @@
 import Foundation
+import Shared
 
 /// In-memory `SystemAccess`. Simulates one focused text field per frontmost app and a pasteboard.
 /// Behaviour knobs (`axWriteWorks`, `keystrokesWork`, `pasteWorks`, `axReadable`) let tests model
@@ -44,6 +45,10 @@ open class MockSystemAccess: SystemAccess {
     public private(set) var accessibilityEvents: [String] = []
     /// Q1 — `AXURL` of the web area around the field (`FocusedDocumentURLReading`).
     public var documentURL: String?
+    /// N5 — the focused element has an `AXWebArea` ancestor.
+    public var inWebArea = false
+    /// N5 — the runtime each pid reports (`.native` when absent).
+    public var runtimeByPID: [Int32: SurfaceRuntime] = [:]
 
     /// Whether AX exposes the field's value for reading (false models Electron/Figma canvases).
     public var axReadable = true
@@ -286,4 +291,12 @@ extension MockSystemAccess: TransientPasteboardWriting {
         for marker in PasteboardMarkers.all { types[marker] = Data() }
         return writeOurs(PasteboardItemSnapshot(types: types))
     }
+}
+
+extension MockSystemAccess: WebAreaProbing {
+    public func focusedIsInWebArea() -> Bool { inWebArea }
+}
+
+extension MockSystemAccess: AppRuntimeReading {
+    public func appRuntime(pid: Int32) -> SurfaceRuntime { runtimeByPID[pid] ?? .native }
 }

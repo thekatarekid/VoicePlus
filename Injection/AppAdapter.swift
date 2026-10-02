@@ -161,7 +161,8 @@ enum SmartPunctuation {
 /// terminals have no meaningful AX value to set, and paste goes through the shell's own paste handling.
 public final class TerminalAdapter: AppAdapter {
     public static let bundleIDs: Set<String> = ["com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty",
-                                               "dev.warp.Warp-Stable", "net.kovidgoyal.kitty", "io.alacritty", "org.alacritty"]
+                                               "dev.warp.Warp-Stable", "net.kovidgoyal.kitty", "io.alacritty", "org.alacritty",
+                                               "com.github.wez.wezterm", "co.zeit.hyper", "org.tabby", "com.raphaelamorim.rio"]
     public let id = "terminal"
     public init() {}
     public func matches(bundleID: String) -> Bool { Self.bundleIDs.contains(bundleID) }

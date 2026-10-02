@@ -431,3 +431,28 @@ extension LiveSystemAccess: TransientPasteboardWriting {
         return pb.changeCount
     }
 }
+
+// MARK: - N5 — web area ancestor and runtime, by structure
+
+extension LiveSystemAccess: WebAreaProbing {
+    /// Walks `AXParent` (bounded) from the focused element looking for role `AXWebArea`.
+    public func focusedIsInWebArea() -> Bool {
+        (try? onSafeThread(ownProcess: ownProcessHasFocus()) { [self] () -> Bool in
+            var element: AXUIElement? = try focusedAXElement()
+            var depth = 0
+            while let current = element, depth < 40 {
+                if (copyAttribute(current, kAXRoleAttribute) as? String) == "AXWebArea" { return true }
+                // swiftlint:disable:next force_cast
+                element = copyAttribute(current, kAXParentAttribute).map { $0 as! AXUIElement }
+                depth += 1
+            }
+            return false
+        }) ?? false
+    }
+}
+
+extension LiveSystemAccess: AppRuntimeReading {
+    public func appRuntime(pid: Int32) -> SurfaceRuntime {
+        AppRuntimeSniffer.shared.runtime(bundleURL: NSRunningApplication(processIdentifier: pid)?.bundleURL)
+    }
+}

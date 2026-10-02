@@ -41,11 +41,18 @@ import Shared
 
     @Test func routerLearnsFromInjectorOutcomesEndToEnd() {
         let (injector, mock, store) = makeStack("com.example.Flaky")
-        // AX lies three times → readback fails → router demotes AX; fourth run starts with keystrokes.
+        // N16 — AX "lands" three times but readback shows nothing (unconfirmed): that is neutral,
+        // not evidence against AX (Chromium's stale AXValue taught Brave paste-first). Order holds.
         final class Lying: MockSystemAccess { override func setFocusedSelectedText(_ text: String) throws {} }
         let lying = Lying(frontmost: focus("com.example.Flaky"))
         let learner = TextInjector(system: lying, store: store)
         for _ in 0..<3 { _ = learner.inject(InjectionRequest(text: "a")) }
+        #expect(injector.router.order([.ax, .keystroke, .paste], for: "com.example.Flaky") == [.ax, .keystroke, .paste])
+        // Real failures (threw before posting) still demote.
+        for _ in 0..<3 {
+            store.record(InjectionOutcomeRecord(utteranceID: nil, appBundleID: "com.example.Flaky", method: "ax",
+                                                succeeded: false, latencyMs: 1, detail: "threw before posting: x"))
+        }
         #expect(injector.router.order([.ax, .keystroke, .paste], for: "com.example.Flaky") == [.keystroke, .paste, .ax])
         _ = injector.inject(InjectionRequest(text: "b"))
         #expect(mock.journal.first?.hasPrefix("key.unicode") == true)

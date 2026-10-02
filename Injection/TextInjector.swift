@@ -136,9 +136,14 @@ public final class TextInjector: Injector {
         }
 
         // FX1 — our own window never gets the AX-first default: it gets the in-process path.
-        let adapter = own ? ownProcessAdapter : registry.adapter(for: focus.bundleID)
+        // N5 — the bundle-id adapter is only the starting point: a terminal surface gets the
+        // terminal plan, web content the ⇧↩ keystroke plan (never a bare ↩, never an AX write).
+        let base: AppAdapter = own ? ownProcessAdapter : registry.adapter(for: focus.bundleID)
+        let adapter = own ? base : WritePlanner.adapter(base: base, context: writeContext(request, focus: focus, focused: focusedBefore))
         let text = adapter.prepare(request.text, focused: focusedBefore)
-        let methods = router.order(adapter.methodOrder, for: focus.bundleID)
+        // N16 — in a newline-safe plan paste never jumps ahead of keystrokes.
+        let methods = router.order(adapter.methodOrder, for: focus.bundleID,
+                                   keepKeystrokeBeforePaste: adapter is NewlineSafeAdapter)
         var attempts: [InjectionMethod] = []
         Log.injection.debug("inject \(text.count) chars into \(focus.bundleID) via \(adapter.id): \(methods.map(\.rawValue))")
 
@@ -227,6 +232,16 @@ public final class TextInjector: Injector {
         return try? system.focusedElement()
     }
 
+    /// N5 — the structural facts the write plan is chosen from (resolver kind, web-area ancestor,
+    /// runtime sniffed from the bundle). Each probe is optional: a system that cannot answer is
+    /// treated as "no evidence", which keeps the bundle-id adapter.
+    private func writeContext(_ request: InjectionRequest, focus: FocusSnapshot, focused: FocusedElementInfo?) -> SurfaceWriteContext {
+        SurfaceWriteContext(kind: request.surfaceKind,
+                            isInWebArea: (system as? WebAreaProbing)?.focusedIsInWebArea() ?? false,
+                            runtime: (system as? AppRuntimeReading)?.appRuntime(pid: focus.pid),
+                            hints: focused?.hints ?? [])
+    }
+
     /// N4 — the pre-write safety check (password field; secure input on with no readable field).
     private func secureBlock(_ focused: FocusedElementInfo?) -> SecureInputGuard.Block? {
         SecureInputGuard.blocksWrite(focused: focused, secureInput: SecureInputGuard.isActive(on: system))
@@ -298,9 +313,10 @@ public final class TextInjector: Injector {
             return false
         case .keystroke:
             guard system.isAccessibilityTrusted else { return false }
-            // Q1 — in a send-on-↩ app a line break is ⇧↩ (⌥↩ in a sheet cell), never a bare ↩.
-            if let safe = adapter as? NewlineSafeAdapter, text.contains("\n") {
-                try NewlineSafety.type(text, newline: safe.newlineCombo(focused: focused), toPID: focus.pid, system: system)
+            // Q1 / N5 — a line break is ⇧↩ (⌥↩ in a sheet cell), never a bare ↩, in every plan.
+            if text.contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" || $0 == "\u{2028}" || $0 == "\u{2029}" }) {
+                try NewlineSafety.type(text, newline: WritePlanner.newlineCombo(adapter: adapter, focused: focused),
+                                       toPID: focus.pid, system: system)
                 return true
             }
             try system.postUnicodeKeystrokes(text, toPID: focus.pid)
