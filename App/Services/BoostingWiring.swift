@@ -17,7 +17,8 @@ enum BoostingWiring {
                            modelManager: ModelManager?,
                            surface: (@Sendable () -> SurfaceResolution?)? = nil,
                            turnCandidates: (@Sendable () -> [ContextCandidate])? = nil,
-                           weights: (@Sendable () -> RubricWeights)? = nil) -> BoostingController? {
+                           weights: (@Sendable () -> RubricWeights)? = nil,
+                           learning: ContextLearningTap? = nil) -> BoostingController? {
         guard let modelManager else { return nil }   // mock / unavailable engine: nothing to boost
         let source = ManagedCTCBoostingSource(manager: modelManager)
         // Authored-only harvester: corrections + Dictionary (as harvested) + learned lexicon. No AX,
@@ -28,7 +29,7 @@ enum BoostingWiring {
         if let learned { authored.add(learned) }
         let ranker = ContextRanker()
         let rubric = surface.map { rubricRanking(database: database, learned: learned, surface: $0,
-                                                 turnCandidates: turnCandidates, weights: weights) }
+                                                 turnCandidates: turnCandidates, weights: weights, learning: learning) }
         return BoostingController(
             context: { now in ranker.rank(harvesting: authored, now: now) },
             // N1: Dictionary rows keep their origin; Contacts imports never enter the boost list.
@@ -45,7 +46,7 @@ enum BoostingWiring {
     }
 
     /// N28 — learned per-surface source weights (JSON under the support dir). Pass as `weights:`;
-    /// after each landed turn call `SourceWeightLearner.shared.record(TurnContextOutcome(...))`.
+    /// the app records each landed turn through `ContextLearningTap.shared.land(...)`.
     static let learnedWeights: @Sendable () -> RubricWeights = { SourceWeightLearner.shared.weights() }
 
     /// N11/N14 — the turn's rubric ranking. The boost list reads its layers; the cleanup prompt
@@ -54,22 +55,26 @@ enum BoostingWiring {
     static func rubricRanking(database: AppDatabase?, adaptation: AdaptationService?,
                               surface: @escaping @Sendable () -> SurfaceResolution?,
                               turnCandidates: (@Sendable () -> [ContextCandidate])? = nil,
-                              weights: (@Sendable () -> RubricWeights)? = nil) -> @Sendable (Date) -> RankedContext? {
+                              weights: (@Sendable () -> RubricWeights)? = nil,
+                              learning: ContextLearningTap? = nil) -> @Sendable (Date) -> RankedContext? {
         rubricRanking(database: database, learned: adaptation.map { LearnedLexiconSource(loop: $0.loop) },
-                      surface: surface, turnCandidates: turnCandidates, weights: weights)
+                      surface: surface, turnCandidates: turnCandidates, weights: weights, learning: learning)
     }
 
     static func rubricRanking(database: AppDatabase?, learned: LearnedLexiconSource?,
                               surface: @escaping @Sendable () -> SurfaceResolution?,
                               turnCandidates: (@Sendable () -> [ContextCandidate])?,
-                              weights: (@Sendable () -> RubricWeights)?) -> @Sendable (Date) -> RankedContext? {
+                              weights: (@Sendable () -> RubricWeights)?,
+                              learning: ContextLearningTap? = nil) -> @Sendable (Date) -> RankedContext? {
         { now in
             guard let resolved = surface() else { return nil }
             var candidates = authoredCandidates(database: database)
             candidates += ContextCandidates.entries(learned?.harvest(now: now) ?? [])
             candidates += turnCandidates?() ?? []
-            return ContextRubric(config: rubricConfig, weights: weights?() ?? RubricWeights())
+            let ranked = ContextRubric(config: rubricConfig, weights: weights?() ?? RubricWeights())
                 .ranked(candidates: candidates, surface: resolved, now: now)
+            learning?.remember(ranked, surface: resolved.kind, at: now)
+            return ranked
         }
     }
 
@@ -103,5 +108,49 @@ enum BoostingWiring {
         let corrected = (try? DatabaseCorrectionStore(database: database, limit: 500).correctedTerms()) ?? []
         out += ContextCandidates.corrections(corrected)
         return out
+    }
+}
+
+/// N28 — the live learning loop's tap. The rubric closure remembers the turn's latest ranking
+/// (boost list and cleanup prompt both run it); the lander hands over the final text, and the
+/// offered terms + final text are recorded as one `TurnContextOutcome`. One record per ranking;
+/// a ranking older than `maxAge` (or from a secure surface) is never recorded. Persisting runs off
+/// the landing path.
+final class ContextLearningTap: @unchecked Sendable {
+    static let shared = ContextLearningTap(learner: .shared)
+
+    let learner: SourceWeightLearner
+    let maxAge: TimeInterval
+    private let queue: DispatchQueue?
+    private let lock = NSLock()
+    private var pending: (ranked: RankedContext, surface: SurfaceKind, at: Date)?
+
+    /// - Parameter queue: where `record` runs; nil records synchronously (tests).
+    init(learner: SourceWeightLearner, maxAge: TimeInterval = 120,
+         queue: DispatchQueue? = DispatchQueue(label: "voiceplus.context-learning", qos: .utility)) {
+        self.learner = learner
+        self.maxAge = maxAge
+        self.queue = queue
+    }
+
+    func remember(_ ranked: RankedContext, surface: SurfaceKind, at: Date) {
+        lock.withLock { pending = surface == .secure ? nil : (ranked, surface, at) }
+    }
+
+    /// Records the turn when a fresh, non-secure ranking with offered terms is pending. Returns
+    /// whether a record was scheduled.
+    @discardableResult
+    func land(finalText: String, rawText: String? = nil, app: String? = nil, now: Date = Date()) -> Bool {
+        guard let turn = lock.withLock({ () -> (ranked: RankedContext, surface: SurfaceKind, at: Date)? in
+            defer { pending = nil }
+            return pending
+        }) else { return false }
+        guard turn.surface != .secure, now.timeIntervalSince(turn.at) <= maxAge,
+              !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let outcome = TurnContextOutcome(surface: turn.surface, app: app, ranked: turn.ranked,
+                                         rawText: rawText, finalText: finalText)
+        guard !outcome.offered.isEmpty else { return false }
+        if let queue { queue.async { [learner] in learner.record(outcome) } } else { learner.record(outcome) }
+        return true
     }
 }

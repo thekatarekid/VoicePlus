@@ -263,9 +263,15 @@ public final class AppContainer {
         self.turnSurface = turnSurface
         boosting = BoostingWiring.controller(database: database, adaptation: adaptationService, modelManager: built.modelManager,
                                              surface: { [turnSurface] in turnSurface.surface() },
-                                             turnCandidates: { [turnSurface] in turnSurface.candidates() })
+                                             turnCandidates: { [turnSurface] in turnSurface.candidates() },
+                                             weights: BoostingWiring.learnedWeights, learning: .shared)
         // V5 B2 (X2) — the ranked list now has a caller: one session over the same harvester.
         contextPrompt = ContextPromptSession(harvester: harvester, idleDiscardAfter: 120)
+        // N14 — the cleanup prompt gets the rubric's spell list + screen terms (secure → none).
+        contextPrompt.rubric = BoostingWiring.rubricRanking(database: database, adaptation: adaptationService,
+                                                            surface: { [turnSurface] in turnSurface.surface() },
+                                                            turnCandidates: { [turnSurface] in turnSurface.candidates() },
+                                                            weights: BoostingWiring.learnedWeights, learning: .shared)
 
         // Voice repair (P1.6, Bet 3): AX replace-range + correction log + zero-edit decrement.
         let dictionary = (try? database?.dictionaryTerms().map(\.term)) ?? []
@@ -322,7 +328,12 @@ public final class AppContainer {
         let codeSwitchService = CodeSwitchService(router: built.codeSwitch)
         codeSwitch = codeSwitchService
         sync = SyncService(database: database, snippets: snippetStore, settings: settings)
-        lander.textFinalizer = { [weak codeSwitchService] spans in codeSwitchService?.finalize(spans) }
+        lander.textFinalizer = { [weak codeSwitchService] spans in
+            let text = codeSwitchService?.finalize(spans)
+            // N28 — the turn's offered rubric terms vs the final text feed the learned source weights.
+            ContextLearningTap.shared.land(finalText: text ?? spans.renderedText)
+            return text
+        }
         lander.actClaimConsumer = { [weak actHook, weak latchController] in
             let act = actHook?.consumeClaim() ?? false
             let notYou = latchController?.consumeClaim() ?? false
