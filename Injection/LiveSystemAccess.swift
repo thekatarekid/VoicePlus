@@ -45,18 +45,57 @@ public final class LiveSystemAccess: SystemAccess {
 
     public var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
-    /// Q2 — turns on Electron's / Chromium's accessibility tree (`AppAccessibilityEnabling`).
+    /// Q2 / N10 — turns on Electron's / Chromium's accessibility tree by trying (`AppAccessibilityEnabling`).
     public let appAccessibility = AppAccessibilityEnabler(
         lookup: { pid in
             NSRunningApplication(processIdentifier: pid).map {
-                AppAccessibilityEnabler.App(bundleID: $0.bundleIdentifier, bundleURL: $0.bundleURL)
+                let info = $0.bundleURL.flatMap { Bundle(url: $0)?.infoDictionary }
+                let version = (info?["CFBundleVersion"] as? String) ?? (info?["CFBundleShortVersionString"] as? String)
+                return AppAccessibilityEnabler.App(bundleID: $0.bundleIdentifier, bundleURL: $0.bundleURL, version: version)
             }
         },
         setAttribute: { pid, attribute in
             guard AXIsProcessTrusted() else { return false }
             let app = AXUIElementCreateApplication(pid)
             return AXUIElementSetAttributeValue(app, attribute as CFString, kCFBooleanTrue) == .success
-        })
+        },
+        probe: { pid in LiveSystemAccess.probeFocusedElement(pid: pid) })
+
+    /// N10 — one bounded read of `pid`'s focused element: editable (self or ≤ 4 ancestors), and an
+    /// `AXWebArea` ancestor (≤ 40 levels). Never called for our own process (the enabler skips it).
+    static func probeFocusedElement(pid: Int32) -> AppAccessibilityProbe? {
+        guard AXIsProcessTrusted() else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        func copy(_ e: AXUIElement, _ name: String) -> CFTypeRef? {
+            var v: CFTypeRef?
+            return AXUIElementCopyAttributeValue(e, name as CFString, &v) == .success ? v : nil
+        }
+        func parent(_ e: AXUIElement) -> AXUIElement? {
+            guard let p = copy(e, kAXParentAttribute), CFGetTypeID(p) == AXUIElementGetTypeID() else { return nil }
+            return (p as! AXUIElement)   // swiftlint:disable:this force_cast
+        }
+        guard let f = copy(app, kAXFocusedUIElementAttribute), CFGetTypeID(f) == AXUIElementGetTypeID() else { return nil }
+        let focused = f as! AXUIElement   // swiftlint:disable:this force_cast
+        let editableRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"]
+        var editable = false
+        var node: AXUIElement? = focused
+        var depth = 0
+        while let n = node, depth <= 4, !editable {
+            let role = copy(n, kAXRoleAttribute) as? String
+            var settable = DarwinBoolean(false)
+            let valueSettable = AXUIElementIsAttributeSettable(n, kAXValueAttribute as CFString, &settable) == .success && settable.boolValue
+            editable = role.map(editableRoles.contains) == true || (valueSettable && role != "AXStaticText")
+            node = parent(n); depth += 1
+        }
+        var inWeb = false
+        node = focused; depth = 0
+        while let n = node, depth < 40, !inWeb {
+            inWeb = (copy(n, kAXRoleAttribute) as? String) == "AXWebArea"
+            node = parent(n); depth += 1
+        }
+        return AppAccessibilityProbe(editable: editable, inWebArea: inWeb)
+    }
 
     /// Every AX text write / keystroke / key combo that reached `postToPid`. See the protocol doc:
     /// the injector uses this to know whether a method posted before it threw.
@@ -276,6 +315,10 @@ public final class LiveSystemAccess: SystemAccess {
 extension LiveSystemAccess: AppAccessibilityEnabling {
     @discardableResult
     public func enableAppAccessibility(pid: Int32) -> Bool { appAccessibility.enable(pid: pid) }
+}
+
+extension LiveSystemAccess: AppAccessibilityOutcomeReading {
+    public func accessibilityOutcome(pid: Int32) -> AppAccessibilityOutcome? { appAccessibility.outcome(pid: pid) }
 }
 
 // MARK: - Q1 — the web document around the focused element

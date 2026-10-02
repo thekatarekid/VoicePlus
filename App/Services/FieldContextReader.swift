@@ -135,7 +135,10 @@ public final class FieldContextReader: @unchecked Sendable {
             let labels = details.focusedFieldLabels(pid: pid)
             if !labels.isEmpty { field.hints = FocusedElementInfo.hints(from: (field.hints + labels).map { Optional($0) }) }
         }
-        if Self.isBrowser(bundle) {
+        // N10 (4) — "web content" comes from the tree: the focused element's `AXWebArea` ancestor.
+        // Only a proved `true` is written; `nil` keeps the URL fallback in `FieldContext`.
+        if field.isInWebArea == nil, (system as? WebAreaProbing)?.focusedIsInWebArea() == true { field.isInWebArea = true }
+        if Self.isBrowser(bundle) || field.isInWebArea == true {
             if let reader = system as? FocusedDocumentURLReading { field.documentURL = reader.focusedDocumentURL() }
             // V5 E5 — the page title routes the sub-app when the web area hides its URL.
             if field.documentURL == nil, let details, let pid {
