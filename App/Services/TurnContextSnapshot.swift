@@ -393,3 +393,18 @@ public final class TurnContextSnapshot: @unchecked Sendable {
         phase = .idle
     }
 }
+
+/// N7 verify — open-turn counter behind `AppContainer.begin/endTurnContext`. A latched press can
+/// begin turn 2 before turn 1 ends; only the end of the last open turn may reset the snapshot.
+public final class TurnContextLease: @unchecked Sendable {
+    private let lock = NSLock()
+    private var open = 0
+    public init() {}
+    public var count: Int { lock.withLock { open } }
+    public func begin() { lock.withLock { open += 1 } }
+    /// Returns true when this end closed the last open turn (the caller resets the snapshot).
+    @discardableResult
+    public func end() -> Bool {
+        lock.withLock { open = max(0, open - 1); return open == 0 }
+    }
+}

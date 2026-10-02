@@ -533,6 +533,7 @@ public final class AppContainer {
     /// N7 — key-down: bind this turn's context to the app (and its focused window) the user started
     /// in and start the one bounded read. Never blocks; no read when contextual reading is off.
     public func beginTurnContext() {
+        turnContextLease.begin()
         let app = system.frontmostApp()
         turnContext.start(app: app)
         // INT-wiring — the surface resolves in the background; the boost list is built once it is
@@ -541,10 +542,16 @@ public final class AppContainer {
     }
 
     /// The turn ended (landed, dropped or cancelled): the surface and the snapshot are spent.
+    ///
+    /// N7 verify — counted: a latched press can begin turn 2 before turn 1 ends, and turn 1's end
+    /// must not reset the snapshot turn 2 is reading. Only the end of the last open turn resets.
     public func endTurnContext() {
+        guard turnContextLease.end() else { return }
         turnContext.end()
         turnSurface.end()
     }
+
+    private let turnContextLease = TurnContextLease()
 
     /// Kept for callers that prepare without a turn (the booster is otherwise installed when the
     /// turn's surface is ready, by `beginTurnContext`).

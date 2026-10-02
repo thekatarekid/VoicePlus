@@ -19,6 +19,9 @@ public final class LiveThreadParticipants: ThreadParticipantsReading, @unchecked
     public var timeout: Float = 0.15
     public var maxNodes = 600
     public var maxDepth = 14
+    /// N7 verify — a wall-clock cap on the whole walk (600 nodes × 0.15 s messaging timeout could
+    /// otherwise stall a landing for many seconds on a slow app).
+    public var maxDuration: TimeInterval = 0.25
 
     public init() {}
 
@@ -29,15 +32,16 @@ public final class LiveThreadParticipants: ThreadParticipantsReading, @unchecked
         guard let window = element(app, kAXFocusedWindowAttribute) else { return .init() }
         var observation = ThreadParticipants.Observation(title: string(window, kAXTitleAttribute))
         var budget = maxNodes
-        walk(window, depth: 0, budget: &budget, category: category, into: &observation)
+        let deadline = Date().addingTimeInterval(maxDuration)
+        walk(window, depth: 0, budget: &budget, deadline: deadline, category: category, into: &observation)
         return observation
     }
 
     private static let fieldRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXTokenField", "AXList", "AXGroup"]
 
-    private func walk(_ node: AXUIElement, depth: Int, budget: inout Int,
+    private func walk(_ node: AXUIElement, depth: Int, budget: inout Int, deadline: Date,
                       category: AppCategory, into out: inout ThreadParticipants.Observation) {
-        guard budget > 0, depth <= maxDepth else { return }
+        guard budget > 0, depth <= maxDepth, Date() < deadline else { return }
         budget -= 1
         AXUIElementSetMessagingTimeout(node, timeout)
         let role = string(node, kAXRoleAttribute) ?? ""
@@ -53,7 +57,7 @@ public final class LiveThreadParticipants: ThreadParticipantsReading, @unchecked
            text.count <= ThreadParticipants.maxNameLength {
             out.heading = text
         }
-        for child in children(node) { walk(child, depth: depth + 1, budget: &budget, category: category, into: &out) }
+        for child in children(node) { walk(child, depth: depth + 1, budget: &budget, deadline: deadline, category: category, into: &out) }
     }
 
     private func label(of node: AXUIElement) -> String? {

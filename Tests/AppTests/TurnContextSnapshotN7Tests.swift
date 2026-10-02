@@ -157,4 +157,15 @@ struct TurnContextSnapshotN7Tests {
         #expect(!snapshot.start(app: FocusSnapshot(pid: OwnProcess.pid, bundleID: "x")))
         #expect(reader.targets.isEmpty)
     }
+
+    // N7 verify — a late end of turn 1 must not reset the snapshot a latched turn 2 started.
+    @Test func leaseResetsOnlyWhenTheLastOpenTurnEnds() {
+        let lease = TurnContextLease()
+        lease.begin()          // turn 1 key-down
+        lease.begin()          // latched turn 2 key-down before turn 1 lands
+        #expect(!lease.end())  // turn 1 ends: turn 2 still reading
+        #expect(lease.end())   // turn 2 ends: reset
+        #expect(lease.end())   // stray end never goes negative and still resets
+        #expect(lease.count == 0)
+    }
 }

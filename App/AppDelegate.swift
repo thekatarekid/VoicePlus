@@ -1,5 +1,6 @@
 import Actions
 import AppKit
+import Combine
 import Engine
 import Lab
 import Pipeline
@@ -28,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var transformPill: TransformPillDriver?
     /// R2.4 — delivery rows on the pill plus the held-text queue the menu recovers from.
     private var deliveryPill: DeliveryPillDriver?
+    /// N7 verify — ends the turn context on every turn end (cancel and empty included).
+    private var turnContextEndSink: AnyCancellable?
     private var correctionOverlay: CorrectionOverlayController?
     private var inkOverlay: InkOverlayController?
     private var actSession: ActSessionController?
@@ -189,8 +192,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = container?.injector.focusGuard.discard(item.id)
         }
         self.deliveryPill = delivery
-        coordinator.onLanded = { [weak delivery, weak container] result in
-            container?.endTurnContext()   // N7 / INT-wiring: the turn's snapshot and surface are spent
+        // N7 verify — the turn's snapshot and surface are spent when the turn *ends* (landed, held,
+        // cancelled, empty, failed), not only when it lands; the container counts open turns so a
+        // late end of turn 1 never wipes the snapshot a latched turn 2 already started.
+        turnContextEndSink = coordinator.turnEnded.sink { [weak container] _ in container?.endTurnContext() }
+        coordinator.onLanded = { [weak delivery, weak container, weak coordinator] result in
+            // Direct (turn-less) landings have no turn end; they end their context here.
+            if coordinator?.turns == nil { container?.endTurnContext() }
             // The injector has already held this text if it is held at all; adopt its id.
             let heldID = container?.injector.focusGuard.held.last { $0.text == result.text }?.id
             delivery?.handle(result, destination: result.destinationName, heldID: heldID)
