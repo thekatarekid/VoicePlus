@@ -21,4 +21,8 @@ public struct DatabaseCorrectionStore: CorrectionStore {
     public func dictionaryTerms() throws -> [(term: String, weight: Double)] {
         try database.dictionaryTerms().map { (term: $0.term, weight: $0.weight) }
     }
+
+    public func dictionaryEntries() throws -> [DictionaryEntry] {
+        try DictionaryOrigins.entries(database)
+    }
 }

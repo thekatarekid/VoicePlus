@@ -81,7 +81,12 @@ public struct PromptBuilder: Sendable {
     public func prompt(for context: RankedContext) -> String { build(context).prompt }
 
     /// The prompt plus the counts.
-    public func build(_ context: RankedContext) -> Result { build(terms: context.texts) }
+    public func build(_ context: RankedContext) -> Result {
+        // N1: a term only Contacts produced never reaches the cleanup context.
+        build(terms: context.terms.filter { term in
+            term.sources.isEmpty || term.sources.contains { ContactsChannelPolicy.admits($0, channel: .cleanupContext) }
+        }.map(\.text))
+    }
 
     public func build(terms: [String]) -> Result {
         var result = Result(prompt: "", included: 0, rejected: 0, elided: 0, hitCharacterCap: false)

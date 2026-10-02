@@ -137,6 +137,8 @@ public struct ContextRanker: Sendable {
         }
         var merged: [String: Accumulator] = [:]
         for entry in entries {
+            // N1: Contacts never reach the boost list or the cleanup context (until N11).
+            guard ContactsChannelPolicy.admits(entry.source, channel: .cleanupContext) else { continue }
             let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty, text.count <= maxTermCharacters else { continue }
             let key = text.lowercased()

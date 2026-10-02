@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Shared
 
 /// V5 F2 — what the user taught VoicePlus, in one shape every generative prompt reads: the app's
@@ -110,5 +111,19 @@ public struct StaticPersonalDictionary: PersonalDictionarySource {
 }
 
 extension DatabasePersonaStore: PersonalDictionarySource {
-    public func personalTerms() throws -> [String] { try database.dictionaryTerms().map(\.term) }
+    /// N1: Contacts-origin rows (`dictionary_term_meta.source = 'contacts'`) are left out of the
+    /// spell-exactly list; every other origin (personal, imported, earlier) is kept.
+    public func personalTerms() throws -> [String] {
+        let records = try database.dictionaryTerms()
+        let contacts = (try? Self.contactsTermIDs(database)) ?? []
+        return records.filter { !contacts.contains($0.id) }.map(\.term)
+    }
+
+    /// Ids of Dictionary rows imported from Contacts. Empty when the side table does not exist yet.
+    static func contactsTermIDs(_ database: AppDatabase) throws -> Set<String> {
+        try database.reader.read { db in
+            guard try db.tableExists("dictionary_term_meta") else { return [] }
+            return Set(try String.fetchAll(db, sql: "SELECT termID FROM dictionary_term_meta WHERE source = 'contacts'"))
+        }
+    }
 }

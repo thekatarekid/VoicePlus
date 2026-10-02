@@ -78,17 +78,35 @@ public protocol CorrectionStore: Sendable {
     func correctedTerms() throws -> [(term: String, at: Date)]
     /// Dictionary terms with their weight (0…∞; ≥1 typical).
     func dictionaryTerms() throws -> [(term: String, weight: Double)]
+    /// N1 — Dictionary rows with their real origin (personal / contacts / imported / earlier).
+    func dictionaryEntries() throws -> [DictionaryEntry]
+}
+
+extension CorrectionStore {
+    /// A store that records no origins: every row counts as typed by the user.
+    public func dictionaryEntries() throws -> [DictionaryEntry] {
+        try dictionaryTerms().map { DictionaryEntry(term: $0.term, weight: $0.weight, origin: .personal) }
+    }
 }
 
 public struct MockCorrectionStore: CorrectionStore {
     public var corrections: [(term: String, at: Date)]
     public var dictionary: [(term: String, weight: Double)]
-    public init(corrections: [(term: String, at: Date)] = [], dictionary: [(term: String, weight: Double)] = []) {
+    /// N1 — rows with an explicit origin (e.g. Contacts imports), after `dictionary`'s personal rows.
+    public var entries: [DictionaryEntry]
+    public init(corrections: [(term: String, at: Date)] = [], dictionary: [(term: String, weight: Double)] = [],
+                entries: [DictionaryEntry] = []) {
         self.corrections = corrections
         self.dictionary = dictionary
+        self.entries = entries
     }
     public func correctedTerms() throws -> [(term: String, at: Date)] { corrections }
-    public func dictionaryTerms() throws -> [(term: String, weight: Double)] { dictionary }
+    public func dictionaryTerms() throws -> [(term: String, weight: Double)] {
+        dictionary + entries.map { (term: $0.term, weight: $0.weight) }
+    }
+    public func dictionaryEntries() throws -> [DictionaryEntry] {
+        dictionary.map { DictionaryEntry(term: $0.term, weight: $0.weight, origin: .personal) } + entries
+    }
 }
 
 public struct CorrectionSource: ContextSource {
@@ -103,8 +121,10 @@ public struct CorrectionSource: ContextSource {
                 out.append(ContextEntry(text: String(w), source: .corrections, observedAt: c.at, salience: 1.0))
             }
         }
-        for d in (try? store.dictionaryTerms()) ?? [] {
-            out.append(ContextEntry(text: d.term, source: .dictionary, observedAt: now, salience: min(1, d.weight)))
+        // N1: each row keeps its real origin — a Contacts import is tagged `.contacts`, never
+        // `.dictionary`, so it cannot enter the authored tier (and `ContextRanker` drops it).
+        for d in (try? store.dictionaryEntries()) ?? [] {
+            out.append(ContextEntry(text: d.term, source: d.origin.contextSource, observedAt: now, salience: min(1, d.weight)))
         }
         return out
     }

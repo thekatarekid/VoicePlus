@@ -18,7 +18,11 @@ enum BoostingWiring {
         let ranker = ContextRanker()
         return BoostingController(
             context: { now in ranker.rank(harvesting: authored, now: now) },
-            dictionary: { (try? database?.dictionaryTerms().map(\.term)) ?? [] },
+            // N1: Dictionary rows keep their origin; Contacts imports never enter the boost list.
+            dictionary: {
+                guard let database, let entries = try? DictionaryOrigins.entries(database) else { return [] }
+                return ContactsChannelPolicy.terms(entries, channel: .boost)
+            },
             corrections: {
                 guard let database else { return [] }
                 return (try? DatabaseCorrectionStore(database: database, limit: 500).correctedTerms().map(\.term)) ?? []

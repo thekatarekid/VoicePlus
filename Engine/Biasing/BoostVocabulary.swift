@@ -32,7 +32,8 @@ public enum BoostVocabulary {
         // The ranked context's authored tier: Dictionary entries as-is; correction-derived words
         // only when entity-like (the harvester splits corrections into every word).
         let authored = context.terms(in: .authored).filter {
-            $0.sources.contains(.dictionary) || EntityExtractor.isEntityLike($0.text)
+            $0.sources.contains { ContactsChannelPolicy.admits($0, channel: .boost) }
+                && ($0.sources.contains(.dictionary) || EntityExtractor.isEntityLike($0.text))
         }.map(\.text)
         for raw in dictionary + correctionTerms + authored {
             guard out.count < cap else { break }

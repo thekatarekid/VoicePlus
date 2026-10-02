@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import GRDB
 import Shared
 @testable import Pipeline
 
@@ -84,5 +85,25 @@ import Shared
         let m = PersonaManager(store: DatabasePersonaStore(database: db), styles: DatabaseStyleProfileStore(database: db))
         let c = m.decorate(StageContext(appBundleID: Self.slack))
         #expect(c.extra[Personalisation.dictionaryKey] == "Muesli")
+    }
+
+    /// N1 — Contacts-origin rows never reach the cleanup spell-exactly list (or its prompt block).
+    @Test func spellListExcludesContactsImports() throws {
+        let db = try AppDatabase.inMemory()
+        try db.writer.write { d in
+            try d.execute(sql: "CREATE TABLE IF NOT EXISTS dictionary_term_meta (termID TEXT PRIMARY KEY NOT NULL, language TEXT NOT NULL, source TEXT NOT NULL)")
+            for (w, src) in [("Kothari", "personal"), ("Paperclip", "imported"), ("Akash", "contacts"), ("DOCUBE", "contacts"),
+                             ("Bucket", "contacts"), ("Cab", "contacts"), ("Cleaning", "contacts"), ("Code", "contacts")] {
+                let r = DictionaryRecord(term: w); try r.save(d)
+                try d.execute(sql: "INSERT INTO dictionary_term_meta VALUES (?, 'any', ?)", arguments: [r.id, src])
+            }
+            try DictionaryRecord(term: "Muesli").save(d)   // saved before origins: kept
+        }
+        let terms = try DatabasePersonaStore(database: db).personalTerms()
+        #expect(Set(terms) == ["Kothari", "Paperclip", "Muesli"])
+        let m = PersonaManager(store: DatabasePersonaStore(database: db), styles: DatabaseStyleProfileStore(database: db))
+        let block = m.personalisation(for: StageContext(appBundleID: Self.slack)).promptBlock
+        for w in ["Akash", "DOCUBE", "Bucket", "Cab", "Cleaning", "Code"] { #expect(!block.contains(w)) }
+        #expect(block.contains("Kothari"))
     }
 }
