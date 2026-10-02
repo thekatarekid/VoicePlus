@@ -17,6 +17,12 @@ public struct SurfaceWriteContext: Equatable, Sendable {
         self.kind = kind; self.isInWebArea = isInWebArea; self.runtime = runtime; self.hints = hints
     }
 
+    /// N9 — from the resolver's answer (kind + its web-area verdict, which already folds in the
+    /// runtime and an empty tree).
+    public init(surface: SurfaceResolution, hints: [String] = []) {
+        self.init(kind: surface.kind, isInWebArea: surface.isWebArea, runtime: nil, hints: hints)
+    }
+
     /// Return may send, submit or run here: ⇧↩ for a line break, never a bare ↩.
     public var isWebContent: Bool {
         isInWebArea || (runtime?.isWebContent ?? false) || kind == .chatComposer

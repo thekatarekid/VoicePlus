@@ -133,3 +133,50 @@ public protocol FocusedWindowReading: AnyObject {
     func focusedWindowToken(pid: Int32) -> String?
     func windowExists(pid: Int32, token: String) -> Bool
 }
+
+// MARK: - N15 — canvas holds by role, not by app
+
+/// N15 — "Click into a text box first", made structural. In a drawing / slide / whiteboard canvas
+/// (Figma, Slides, Canva, Miro, Freeform…) letters typed with no text edit active are tool
+/// shortcuts. The hold is decided from the focused element alone — its role, subrole and role
+/// description — never from the app's name. Refuse only when certain: an unfamiliar role is
+/// not a canvas, and an element that accepts text is never held.
+public enum CanvasFocus {
+    /// Roles that accept text. Any of these, or a settable value / selection, is "editable text".
+    public static let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField",
+                                                FocusedElementInfo.secureRole]
+    /// Roles / subroles that are a drawing surface by definition.
+    public static let canvasRoles: Set<String> = ["AXCanvas", "AXLayoutArea"]
+
+    /// The focused element accepts text: a text role, or a settable value or selection.
+    public static func isEditableText(_ focused: FocusedElementInfo) -> Bool {
+        textRoles.contains(focused.role) || focused.isValueSettable || focused.isSelectedTextSettable
+    }
+
+    /// The focused element is a canvas: a canvas role or subrole, or a role description / ARIA
+    /// role that names one (`<canvas>` in web content reports "canvas"). Word-level: "Canvas
+    /// settings" as a button title is not a canvas element.
+    public static func isCanvasElement(_ focused: FocusedElementInfo) -> Bool {
+        if canvasRoles.contains(focused.role) || focused.subrole.map(canvasRoles.contains) == true { return true }
+        return focused.hints.contains { hint in
+            let h = hint.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return h == "canvas" || h == "drawing canvas" || h == "slide canvas" || h == "whiteboard"
+        }
+    }
+
+    /// A canvas element with no editable text focused: hold, never type.
+    public static func isCanvasLike(_ focused: FocusedElementInfo?) -> Bool {
+        guard let focused else { return false }
+        return isCanvasElement(focused) && !isEditableText(focused)
+    }
+
+    /// What the ladder's `editable` argument should say: `true` only for editable text that also
+    /// proves itself (its value reads back — a hidden keyboard-capture field in a canvas app does
+    /// not get the benefit of the doubt), `false` for a canvas with nothing editable, `nil`
+    /// (unknown — never refused on its own, but not enough to lift a key-down canvas) otherwise.
+    public static func editable(_ focused: FocusedElementInfo?) -> Bool? {
+        guard let focused else { return nil }
+        if isEditableText(focused) { return focused.isReadable ? true : nil }
+        return isCanvasElement(focused) ? false : nil
+    }
+}

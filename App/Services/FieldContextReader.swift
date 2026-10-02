@@ -145,6 +145,7 @@ public final class FieldContextReader: @unchecked Sendable {
                 field.documentTitle = details.focusedDocumentTitle(pid: pid).map { String($0.prefix(200)) }
             }
         }
+        resolveSurface(&field, info: info, pid: pid)
         if FieldRole.classify(field) == .spreadsheetCell, let details, let pid {
             field.columnHeader = details.focusedCellColumnHeader(pid: pid).map { String($0.prefix(80)) }
         }
@@ -159,16 +160,34 @@ public final class FieldContextReader: @unchecked Sendable {
         }
     }
 
-    /// Browsers whose web area carries the document URL (release-channel suffixes included).
-    public static let browserBundleIDs: Set<String> = [
-        "com.google.Chrome", "com.apple.Safari", "company.thebrowser.Browser", "com.brave.Browser",
-        "com.microsoft.edgemac", "org.mozilla.firefox", "com.operasoftware.Opera", "com.vivaldi.Vivaldi",
-        "com.kagi.kagimacOS", "app.zen-browser.zen", "com.apple.SafariTechnologyPreview", "org.chromium.Chromium",
-    ]
-
+    /// N9 — a browser per the one seed table (release-channel suffixes included). No private
+    /// list: an unlisted browser's web content is found by its `AXWebArea` ancestor instead.
     public static func isBrowser(_ bundleID: String?) -> Bool {
-        guard let bundleID else { return false }
-        return browserBundleIDs.contains(bundleID) || browserBundleIDs.contains { bundleID.hasPrefix($0 + ".") }
+        SeedHints.hint(for: bundleID)?.family == .browser
+    }
+
+    // MARK: N9 — AX evidence into the resolver
+
+    /// N9 — the field's own evidence (`FieldContext.surfaceEvidence`) plus what only the live
+    /// tree knows: whether the element accepts text, and how the app is built (bundle sniff,
+    /// N5/N10). Secure input is deliberately *not* fed here: it is a write-time check (N4), and a
+    /// terminal with Secure Keyboard Entry holds it all day without being a password field.
+    public static func surfaceEvidence(field: FieldContext, info: FocusedElementInfo,
+                                       runtime: SurfaceRuntime?) -> SurfaceEvidence {
+        var evidence = field.surfaceEvidence
+        evidence.isEditable = CanvasFocus.isEditableText(info) ? true : (CanvasFocus.isCanvasElement(info) ? false : nil)
+        if let runtime, runtime != .unknown { evidence.runtime = runtime }
+        return evidence
+    }
+
+    /// N9 — resolves with the AX evidence. When it changes the field-only answer (a canvas the
+    /// role says is not editable, an unlisted Chromium/Electron app's composer) the richer answer
+    /// is pinned as `upstreamSurface`, so every reader of `field.surface` agrees with the injector.
+    public func resolveSurface(_ field: inout FieldContext, info: FocusedElementInfo, pid: Int32?) {
+        guard field.upstreamSurface == nil, !info.isSecure else { return }
+        let runtime = pid.flatMap { (system as? AppRuntimeReading)?.appRuntime(pid: $0) }
+        let full = SurfaceResolver.resolve(Self.surfaceEvidence(field: field, info: info, runtime: runtime))
+        if full.kind != field.surface.kind { field.upstreamSurface = full.kind }
     }
 
     /// The caret rungs for the element `info` describes.

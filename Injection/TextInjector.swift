@@ -254,7 +254,8 @@ public final class TextInjector: Injector {
     /// treated as "no evidence", which keeps the bundle-id adapter.
     private func writeContext(_ request: InjectionRequest, focus: FocusSnapshot, focused: FocusedElementInfo?) -> SurfaceWriteContext {
         SurfaceWriteContext(kind: request.surfaceKind,
-                            isInWebArea: (system as? WebAreaProbing)?.focusedIsInWebArea() ?? false,
+                            isInWebArea: (system as? WebAreaProbing)?.focusedIsInWebArea() == true
+                                || request.surface?.isWebArea == true,
                             runtime: (system as? AppRuntimeReading)?.appRuntime(pid: focus.pid),
                             hints: focused?.hints ?? [])
     }
@@ -273,10 +274,12 @@ public final class TextInjector: Injector {
         return DeliveryLadder.decide(focusSame: true, window: window,
                                      secureInput: SecureInputGuard.isActive(on: system),
                                      fieldReadable: SecureInputGuard.isReadable(focused),
-                                     surface: request.surfaceKind ?? (context.isTerminal ? .terminal : nil),
+                                     surface: CanvasFocus.isCanvasLike(focused) ? .canvas
+                                        : request.surfaceKind ?? (context.isTerminal ? .terminal : nil),
                                      multiline: request.text.contains(where: \.isNewline),
                                      webContent: context.isWebContent,
-                                     passwordField: focused?.isSecure == true)
+                                     passwordField: focused?.isSecure == true,
+                                     editable: CanvasFocus.editable(focused))
     }
 
     /// N4 — the pre-write safety check (password field; secure input on with no readable field).

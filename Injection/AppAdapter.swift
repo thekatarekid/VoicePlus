@@ -1,4 +1,5 @@
 import Foundation
+import Shared
 
 /// What readback could prove about a method that already posted (R2.3).
 ///
@@ -160,12 +161,12 @@ enum SmartPunctuation {
 /// wrapped in bracketed-paste markers so the shell never auto-executes a newline. Keystrokes first —
 /// terminals have no meaningful AX value to set, and paste goes through the shell's own paste handling.
 public final class TerminalAdapter: AppAdapter {
-    public static let bundleIDs: Set<String> = ["com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty",
-                                               "dev.warp.Warp-Stable", "net.kovidgoyal.kitty", "io.alacritty", "org.alacritty",
-                                               "com.github.wez.wezterm", "co.zeit.hyper", "org.tabby", "com.raphaelamorim.rio"]
+    /// N9 — no private list: the one seed table (`SeedHints`, terminal family) is the hint. Any
+    /// other app with a shell on a pty reaches this adapter through its surface kind instead.
+    public static var bundleIDs: Set<String> { SeedHints.bundleIDs(.terminal) }
     public let id = "terminal"
     public init() {}
-    public func matches(bundleID: String) -> Bool { Self.bundleIDs.contains(bundleID) }
+    public func matches(bundleID: String) -> Bool { SeedHints.hint(for: bundleID)?.family == .terminal }
     public var methodOrder: [InjectionMethod] { [.adapter, .paste] }
     public func prepare(_ text: String, focused: FocusedElementInfo?) -> String { SmartPunctuation.strip(text) }
 
@@ -189,12 +190,15 @@ public final class TerminalAdapter: AppAdapter {
 /// desync this adapter exists to avoid.
 public final class ElectronAdapter: NewlineSafeAdapter {
     public static let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
-    public static let bundleIDs: Set<String> = ["com.tinyspeck.slackmacgap", "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders",
-                                               "com.hnc.Discord", "notion.id", "md.obsidian", "com.figma.Desktop",
-                                               claudeDesktopBundleID]
+    /// N9 — no private list: every seed-table app hinted as Electron (chat, code, notes, mail…).
+    /// Unlisted Electron apps get the same plan from the runtime sniff (`WritePlanner`, N5/N10).
+    public static var bundleIDs: Set<String> { Set(SeedHints.table.filter { isElectronEditor($0.value) }.map(\.key)) }
     public let id = "electron"
     public init() {}
-    public func matches(bundleID: String) -> Bool { Self.bundleIDs.contains(bundleID) }
+    public func matches(bundleID: String) -> Bool { SeedHints.hint(for: bundleID).map(Self.isElectronEditor) ?? false }
+    static func isElectronEditor(_ hint: SeedHints.Hint) -> Bool {
+        hint.runtime == .electron && hint.family != .terminal && hint.family != .browser
+    }
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
 
     /// Q1 — a typed `\n` is ↩, and ↩ sends the message in Claude / Slack / Discord. ⇧↩ everywhere.
@@ -215,7 +219,12 @@ public final class ElectronAdapter: NewlineSafeAdapter {
 public final class CursorAdapter: NewlineSafeAdapter {
     public let id = "cursor"
     public init() {}
-    public func matches(bundleID: String) -> Bool { bundleID == "com.todesktop.230313mzl4w4u92" || bundleID.lowercased().contains("cursor") }
+    /// N9 — word-level, not a substring: a bundle-id component that *is* "cursor"
+    /// (`com.anysphere.cursor`), never one that merely contains it.
+    public static let toDesktopBundleID = "com.todesktop.230313mzl4w4u92"
+    public func matches(bundleID: String) -> Bool {
+        bundleID == Self.toDesktopBundleID || bundleID.lowercased().split(separator: ".").contains("cursor")
+    }
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
 
     /// Q1 — ↩ submits the AI composer. ⇧↩ is a line break in both the composer and the editor.
@@ -243,16 +252,17 @@ public final class CursorAdapter: NewlineSafeAdapter {
 /// Order is `[.keystroke, .paste]`: AX value writes desync Blink's own model exactly as they do in
 /// Electron, and paste only ever runs when keystrokes threw before posting anything.
 public final class ChromiumAdapter: NewlineSafeAdapter {
-    public static let bundleIDs: Set<String> = ["com.brave.Browser", "com.google.Chrome",
-                                                "com.microsoft.edgemac", "company.thebrowser.Browser"]
+    /// N9 — no private list: the seed table's Chromium browsers. An unlisted Chromium wrapper
+    /// (ChatGPT/Owl, Dia, Comet) gets `WebContentAdapter` from the runtime sniff instead.
+    public static var bundleIDs: Set<String> { Set(SeedHints.table.filter { isChromiumBrowser($0.value) }.map(\.key)) }
     public let id = "chromium"
     public init() {}
 
-    /// Exact ids, plus the release-channel siblings that suffix them
-    /// (`com.google.Chrome.canary`, `com.brave.Browser.beta`, `com.microsoft.edgemac.Dev`).
-    public func matches(bundleID: String) -> Bool {
-        Self.bundleIDs.contains(bundleID) || Self.bundleIDs.contains { bundleID.hasPrefix($0 + ".") }
-    }
+    /// Seed ids, plus the release-channel siblings that suffix them
+    /// (`com.google.Chrome.canary`, `com.brave.Browser.beta`, `com.microsoft.edgemac.Dev`) —
+    /// `SeedHints.hint` resolves those.
+    public func matches(bundleID: String) -> Bool { SeedHints.hint(for: bundleID).map(Self.isChromiumBrowser) ?? false }
+    static func isChromiumBrowser(_ hint: SeedHints.Hint) -> Bool { hint.family == .browser && hint.runtime == .chromium }
 
     public var methodOrder: [InjectionMethod] { [.keystroke, .paste] }
 
@@ -276,10 +286,11 @@ public final class ChromiumAdapter: NewlineSafeAdapter {
 /// enters edit mode automatically; newlines must become ⌥↩ or the cell commits. Paste of multi-line
 /// text would spill across rows, so paste is only allowed in single-line form.
 public final class SpreadsheetAdapter: AppAdapter {
-    public static let bundleIDs: Set<String> = ["com.microsoft.Excel", "com.apple.iWork.Numbers"]
+    /// N9 — the seed table's spreadsheet family (no private list).
+    public static var bundleIDs: Set<String> { SeedHints.bundleIDs(.spreadsheet) }
     public let id = "spreadsheet"
     public init() {}
-    public func matches(bundleID: String) -> Bool { Self.bundleIDs.contains(bundleID) }
+    public func matches(bundleID: String) -> Bool { SeedHints.hint(for: bundleID)?.family == .spreadsheet }
     public var methodOrder: [InjectionMethod] { [.adapter, .ax, .paste] }
 
     static func isCell(_ focused: FocusedElementInfo?) -> Bool {
@@ -357,5 +368,19 @@ public final class AdapterRegistry {
 
     public func adapter(for bundleID: String) -> AppAdapter {
         adapters.first { $0.matches(bundleID: bundleID) } ?? DefaultAdapter()
+    }
+
+    /// N9 — the write plan is chosen by the resolver's surface kind; the bundle id only names the
+    /// starting adapter (and its quirks). `nil` surface → the bundle adapter, as before.
+    /// * `.terminal` (any app: an IDE's terminal pane, an unlisted emulator) → bracketed paste;
+    /// * `.spreadsheetCell` outside a native spreadsheet → keystrokes with ⌥↩;
+    /// * web content — an `AXWebArea`, a web runtime, an empty tree, a chat composer → ⇧↩
+    ///   keystrokes, never an AX write, never a bare ↩;
+    /// * anything else (native prose, code, forms) → the bundle adapter.
+    /// `.canvas` / `.secure` keep the bundle adapter: the delivery ladder holds those before any write.
+    public func adapter(for bundleID: String, surface: SurfaceResolution?) -> AppAdapter {
+        let base = adapter(for: bundleID)
+        guard let surface else { return base }
+        return WritePlanner.adapter(base: base, context: SurfaceWriteContext(surface: surface))
     }
 }
