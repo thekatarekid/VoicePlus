@@ -19,8 +19,22 @@ public final class ClipboardPaster {
 
     @discardableResult
     public func paste(_ text: String, toPID pid: Int32) throws -> RestoreResult {
+        try paste(toPID: pid) { PasteboardMarkers.writeTransient(text, to: system) }
+    }
+
+    /// N24 — pastes a rich payload (TSV + HTML table, or Markdown). Falls back to the payload's plain
+    /// text on a system that cannot write several types. Same markers, settle and restore as `paste`.
+    @discardableResult
+    public func paste(_ payload: RichPastePayload, toPID pid: Int32) throws -> RestoreResult {
+        try paste(toPID: pid) {
+            if let writer = system as? RichPasteboardWriting { return writer.writeTransientPasteboard(types: payload.types) }
+            return PasteboardMarkers.writeTransient(payload.plainText ?? "", to: system)
+        }
+    }
+
+    private func paste(toPID pid: Int32, write: () -> Int) throws -> RestoreResult {
         let saved = system.readPasteboard()
-        let ours = PasteboardMarkers.writeTransient(text, to: system)
+        let ours = write()
         do {
             try system.postKeyCombo(.paste, toPID: pid)
         } catch {

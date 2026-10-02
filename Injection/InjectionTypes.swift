@@ -26,6 +26,9 @@ public struct InjectionRequest: Equatable, Sendable {
     /// it picks the write plan (`AdapterRegistry.adapter(for:surface:)`); `surfaceKind` defaults to
     /// its kind.
     public var surface: SurfaceResolution?
+    /// N24 — the speaker said "equals": a rich table paste keeps a leading `=` as a formula.
+    /// Default `false`: such cells are guarded with `'` so dictated text never runs.
+    public var allowsFormulas: Bool = false
 
     public init(text: String, utteranceID: String? = nil, expectedFocus: FocusSnapshot? = nil, surfaceKind: SurfaceKind? = nil,
                 expectedWindowToken: String? = nil, surface: SurfaceResolution? = nil) {

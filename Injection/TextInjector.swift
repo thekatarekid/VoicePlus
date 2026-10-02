@@ -161,6 +161,14 @@ public final class TextInjector: Injector {
                                               reason: reason == .notEditable ? reason.rawValue : DeliveryReason.destinationChanged))
             }
         }
+        // N24 — rich paste by surface kind (a table into a sheet cell, Markdown into a Markdown
+        // editor). Only after the focus, secure and ladder checks; only when the plan has paste.
+        let rich = own ? nil : RichPaste.payload(for: text, surface: request.surfaceKind, allowFormulas: request.allowsFormulas)
+        if let rich, let i = methods.firstIndex(of: .paste) {
+            methods.remove(at: i)
+            methods.insert(.paste, at: 0)
+            Log.injection.notice("N24: rich paste (\(rich.kind.rawValue)) for \(request.surfaceKind?.id ?? "-")")
+        }
         var attempts: [InjectionMethod] = []
         Log.injection.debug("inject \(text.count) chars into \(focus.bundleID) via \(adapter.id): \(methods.map(\.rawValue))")
 
@@ -187,7 +195,7 @@ public final class TextInjector: Injector {
             let started = clock()
             var claimed = false
             var thrown: Error?
-            do { claimed = try perform(method, text: text, focus: focus, focused: before, adapter: adapter) }
+            do { claimed = try perform(method, text: text, focus: focus, focused: before, adapter: adapter, rich: rich) }
             catch { thrown = error }
             let posted = system.postCount > postsBefore
 
@@ -334,7 +342,8 @@ public final class TextInjector: Injector {
     }
 
     /// Returns `false` when the method is not applicable to this element (skipped silently).
-    private func perform(_ method: InjectionMethod, text: String, focus: FocusSnapshot, focused: FocusedElementInfo?, adapter: AppAdapter) throws -> Bool {
+    private func perform(_ method: InjectionMethod, text: String, focus: FocusSnapshot, focused: FocusedElementInfo?, adapter: AppAdapter,
+                         rich: RichPastePayload? = nil) throws -> Bool {
         switch method {
         case .ax:
             guard system.isAccessibilityTrusted, let focused else { return false }
@@ -367,7 +376,7 @@ public final class TextInjector: Injector {
             guard system.isAccessibilityTrusted || adapter is OwnProcessAdapter else { return false }
             return try adapter.injectViaAdapter(text, focus: focus, focused: focused, system: system)
         case .paste:
-            try paster.paste(text, toPID: focus.pid)
+            if let rich { try paster.paste(rich, toPID: focus.pid) } else { try paster.paste(text, toPID: focus.pid) }
             return true
         }
     }

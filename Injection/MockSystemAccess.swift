@@ -296,6 +296,16 @@ extension MockSystemAccess: TransientPasteboardWriting {
     }
 }
 
+/// N24 — the multi-type marked write rich paste uses.
+extension MockSystemAccess: RichPasteboardWriting {
+    @discardableResult
+    public func writeTransientPasteboard(types: [String: Data]) -> Int {
+        var all = types
+        for marker in PasteboardMarkers.all { all[marker] = Data() }
+        return writeOurs(PasteboardItemSnapshot(types: all))
+    }
+}
+
 extension MockSystemAccess: WebAreaProbing {
     public func focusedIsInWebArea() -> Bool { inWebArea }
 }

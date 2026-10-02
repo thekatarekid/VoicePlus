@@ -475,6 +475,20 @@ extension LiveSystemAccess: TransientPasteboardWriting {
     }
 }
 
+// N24 — rich paste: several representations in one marked item (TSV + HTML, Markdown).
+extension LiveSystemAccess: RichPasteboardWriting {
+    @discardableResult
+    public func writeTransientPasteboard(types: [String: Data]) -> Int {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        let item = NSPasteboardItem()
+        for (type, data) in types { item.setData(data, forType: NSPasteboard.PasteboardType(type)) }
+        for marker in PasteboardMarkers.all { item.setData(Data(), forType: NSPasteboard.PasteboardType(marker)) }
+        pb.writeObjects([item])
+        return pb.changeCount
+    }
+}
+
 // MARK: - N5 — web area ancestor and runtime, by structure
 
 extension LiveSystemAccess: WebAreaProbing {
