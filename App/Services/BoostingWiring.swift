@@ -1,5 +1,6 @@
 import Engine
 import Foundation
+import Lab
 import Shared
 
 /// V5 B1 — builds the app's `BoostingController`: the user's Dictionary, their confirmed
@@ -32,7 +33,7 @@ enum BoostingWiring {
                 var candidates = authoredCandidates(database: database)
                 candidates += ContextCandidates.entries(learned?.harvest(now: now) ?? [])
                 candidates += turnCandidates?() ?? []
-                return ContextRubric(weights: weights?() ?? RubricWeights())
+                return ContextRubric(config: rubricConfig, weights: weights?() ?? RubricWeights())
                     .ranked(candidates: candidates, surface: resolved, now: now)
             }
         }
@@ -49,6 +50,28 @@ enum BoostingWiring {
             },
             rubric: rubric,
             makeBooster: { terms in CTCVocabularyBooster(terms: terms, source: source) })
+    }
+
+    /// N11-lab (F27) — screen terms join the per-turn boost layer only when a measured Lab report
+    /// (`screen-terms-lab.json` in the support folder) passes; off by default. Read once per launch.
+    static let rubricConfig: ContextRubric.Config = {
+        var c = ContextRubric.Config()
+        c.screenTermsInBoost = ScreenTermsDefault.enabled()
+        return c
+    }()
+
+    /// N11-lab — the Engine experiment's metrics as the counts-only Lab report.
+    static func screenTermsReport(_ metrics: [ScreenTermsExperiment.Arm: BiasingMetrics],
+                                  corpus: String, recognizer: String, measuredAt: Date = Date()) -> ScreenTermsReport {
+        func counts(_ arm: ScreenTermsExperiment.Arm) -> ContextRecallCounts {
+            let m = metrics[arm] ?? BiasingMetrics()
+            return ContextRecallCounts(utterances: m.utterances, entitiesExpected: m.entitiesExpected,
+                                       entitiesRecalled: m.entitiesRecalled, falseInsertions: m.falseInsertions,
+                                       hypothesisWords: m.hypothesisWords)
+        }
+        return ScreenTermsReport(corpus: corpus, recognizer: recognizer, measuredAt: measuredAt,
+                                 noScreen: counts(.noScreen), matchingScreen: counts(.matchingScreen),
+                                 distractorScreen: counts(.distractorScreen))
     }
 
     /// N11 — the user's own candidates: Dictionary rows with their origin (Contacts rows become
