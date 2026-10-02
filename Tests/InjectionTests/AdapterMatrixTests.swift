@@ -19,7 +19,7 @@ import Shared
         Row(bundleID: "com.apple.Terminal", adapter: "terminal", method: .adapter, readable: false, ax: false, keys: true),
         Row(bundleID: "com.googlecode.iterm2", adapter: "terminal", method: .adapter, readable: false, ax: false, keys: true),
         Row(bundleID: "com.mitchellh.ghostty", adapter: "terminal", method: .adapter, readable: false, ax: false, keys: true),
-        Row(bundleID: "com.tinyspeck.slackmacgap", adapter: "electron", method: .keystroke, readable: false, ax: false, keys: true),
+        Row(bundleID: "com.tinyspeck.slackmacgap", adapter: "electron", method: .paste, readable: false, ax: false, keys: true),
         Row(bundleID: "com.microsoft.VSCode", adapter: "electron", method: .keystroke, readable: false, ax: false, keys: true),
         Row(bundleID: "com.todesktop.230313mzl4w4u92", adapter: "cursor", method: .keystroke, readable: false, ax: false, keys: true),
         Row(bundleID: "com.microsoft.Excel", adapter: "spreadsheet", method: .adapter, readable: true, ax: false, keys: true),

@@ -57,9 +57,12 @@ import Shared
         }
         let outcome = injector.inject(InjectionRequest(text: "there", expectedFocus: mock.frontmost))
         guard case let .injected(method, verified) = outcome else { Issue.record("\(outcome)"); return }
-        #expect(method == .keystroke)
+        // N3 + N9 verify — the injector now resolves Claude's composer as a chat composer (web
+        // content): with no readable value the ladder pastes (one event, no Return), as it already
+        // did live where the bundle sniff says Electron. The caret still confirms the write.
+        #expect(method == .paste)
         #expect(verified, "the caret moved by exactly the text: delivered *and* verified")
-        #expect(outcome.delivery == .delivered(verified: true, method: "keystroke"))
+        #expect(outcome.delivery == .delivered(verified: true, method: "paste"))
         #expect(store.outcomes(appBundleID: Self.claudeBundleID, limit: 5).first?.detail == "verified")
     }
 

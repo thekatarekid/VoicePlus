@@ -135,6 +135,17 @@ public final class TextInjector: Injector {
             return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
         }
 
+        // N9-integrate verify — the live landing passes no surface, so the injector resolves one
+        // from the same live evidence (role, hints, editable, web area, URL, runtime). The kind then
+        // picks the plan (⌥↩ sheet cell, bracketed paste, ⇧↩), the ladder and N24's rich paste.
+        var request = request
+        if !own, request.surfaceKind == nil {
+            let inferred = inferSurface(focus: focus, focused: focusedBefore)
+            request.surface = inferred
+            request.surfaceKind = inferred.kind
+            Log.injection.debug("N9: inferred surface \(inferred.kind.id) for \(focus.bundleID)")
+        }
+
         // FX1 — our own window never gets the AX-first default: it gets the in-process path.
         // N5 — the bundle-id adapter is only the starting point: a terminal surface gets the
         // terminal plan, web content the ⇧↩ keystroke plan (never a bare ↩, never an AX write).
@@ -154,6 +165,10 @@ public final class TextInjector: Injector {
                 Log.injection.notice("N3 ladder: deliver via \(method.rawValue)\(verify ? "" : " (unverified)") into \(focus.bundleID)")
                 methods = DeliveryLadder.order(methods, ladder: method, fieldReadable: SecureInputGuard.isReadable(focusedBefore),
                                                adapter: adapter)
+            case .hold(.passwordField):
+                // X1 — a password field (role, or the resolver's password-label veto): refused, never held.
+                Log.injection.notice("N3 ladder: passwordField; refused, nothing written")
+                return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
             case .hold(let reason), .notes(let reason):
                 // Only window changes reach here (focus and secure checks ran above): hold, never write.
                 Log.injection.notice("N3 ladder: \(reason.rawValue); held, nothing written")
@@ -266,6 +281,24 @@ public final class TextInjector: Injector {
                                 || request.surface?.isWebArea == true,
                             runtime: (system as? AppRuntimeReading)?.appRuntime(pid: focus.pid),
                             hints: focused?.hints ?? [])
+    }
+
+    /// N9-integrate verify — the surface from the injector's own live evidence, for a request whose
+    /// caller passed none. Secure input is not fed (a write-time check, N4); the URL is read only
+    /// inside a web area (one AX attribute).
+    func inferSurface(focus: FocusSnapshot, focused: FocusedElementInfo?) -> SurfaceResolution {
+        let inWeb = (system as? WebAreaProbing)?.focusedIsInWebArea() == true
+        var url = focused?.documentURL
+        if inWeb, url == nil { url = (system as? FocusedDocumentURLReading)?.focusedDocumentURL() }
+        var editable: Bool?
+        if let focused {
+            editable = CanvasFocus.isEditableText(focused) ? true : (CanvasFocus.isCanvasElement(focused) ? false : nil)
+        }
+        let runtime = (system as? AppRuntimeReading)?.appRuntime(pid: focus.pid)
+        return SurfaceResolver.resolve(SurfaceEvidence(bundleID: focus.bundleID, role: focused?.role,
+                                                       subrole: focused?.subrole, isEditable: editable,
+                                                       hints: focused?.hints ?? [], isInWebArea: inWeb, url: url,
+                                                       runtime: runtime == .unknown ? nil : runtime))
     }
 
     /// N3 — the last ladder decision (diagnostics and tests).
