@@ -17,6 +17,29 @@ public enum ContextPromptKeys {
     /// `PromptBuilder.prompt(for:)` of the utterance's `RankedContext`. Absent when empty.
     /// D2's `CleanupStage` reads it into the `<context>…</context>` block (D4).
     public static let prompt = "context.prompt"
+    /// N14 — the rubric's "spell exactly" list (`RankedContext.spellList`), newline-separated.
+    /// Same string as `Pipeline.CleanupPrompt.spellListKey`.
+    public static let spell = "context.spell"
+    /// N14 — the rubric's top screen terms (`RankedContext.promptTerms`), newline-separated.
+    /// Same string as `Pipeline.CleanupPrompt.screenTermsKey`.
+    public static let terms = "context.terms"
+
+    /// N14 — writes (or removes) the rubric's two cleanup lists. A tier-ranked list has none, so
+    /// both keys are removed and cleanup falls back to the Dictionary and `context.prompt`.
+    public static func writeRubricLists(_ ranked: RankedContext?, into context: inout StageContext) {
+        let spellList = ranked?.spellList ?? [], promptTerms = ranked?.promptTerms ?? []
+        let hasRubric = ranked.map { !$0.stableLayer.isEmpty || !$0.perTurnLayer.isEmpty || !spellList.isEmpty || !promptTerms.isEmpty } ?? false
+        guard hasRubric else {
+            context.extra.removeValue(forKey: spell)
+            context.extra.removeValue(forKey: terms)
+            return
+        }
+        func clean(_ xs: [String]) -> String {
+            xs.compactMap { PromptBuilder.sanitized($0) }.joined(separator: "\n")
+        }
+        context.extra[spell] = clean(spellList)
+        context.extra[terms] = clean(promptTerms)
+    }
 }
 
 /// Additive seam for consumers that want the ranked list itself rather than the string (D2's
@@ -42,6 +65,9 @@ public final class ContextPromptSession: RankedContextProviding, @unchecked Send
     public var builder: PromptBuilder
     public let sessionGap: TimeInterval
     public let idleDiscardAfter: TimeInterval?
+    /// N14 — the turn's rubric ranking (`ContextRubric`), when the app wired one. Its spell list
+    /// and screen terms go to the cleanup prompt (`ContextPromptKeys.spell` / `.terms`).
+    public var rubric: (@Sendable (Date) -> RankedContext?)?
 
     private let lock = NSLock()
     private var prompt = ""
@@ -94,6 +120,7 @@ public final class ContextPromptSession: RankedContextProviding, @unchecked Send
         } else {
             context.extra[ContextPromptKeys.prompt] = built
         }
+        ContextPromptKeys.writeRubricLists(rubric?(now), into: &context)
     }
 
     /// End of session: list, prompt and the harvest behind them are dropped.

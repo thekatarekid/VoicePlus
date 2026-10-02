@@ -27,16 +27,8 @@ enum BoostingWiring {
         let learned = adaptation.map { LearnedLexiconSource(loop: $0.loop) }
         if let learned { authored.add(learned) }
         let ranker = ContextRanker()
-        let rubric: (@Sendable (Date) -> RankedContext?)? = surface.map { surface in
-            { now in
-                guard let resolved = surface() else { return nil }
-                var candidates = authoredCandidates(database: database)
-                candidates += ContextCandidates.entries(learned?.harvest(now: now) ?? [])
-                candidates += turnCandidates?() ?? []
-                return ContextRubric(config: rubricConfig, weights: weights?() ?? RubricWeights())
-                    .ranked(candidates: candidates, surface: resolved, now: now)
-            }
-        }
+        let rubric = surface.map { rubricRanking(database: database, learned: learned, surface: $0,
+                                                 turnCandidates: turnCandidates, weights: weights) }
         return BoostingController(
             context: { now in ranker.rank(harvesting: authored, now: now) },
             // N1: Dictionary rows keep their origin; Contacts imports never enter the boost list.
@@ -50,6 +42,31 @@ enum BoostingWiring {
             },
             rubric: rubric,
             makeBooster: { terms in CTCVocabularyBooster(terms: terms, source: source) })
+    }
+
+    /// N11/N14 — the turn's rubric ranking. The boost list reads its layers; the cleanup prompt
+    /// reads its spell list and screen terms when the app sets it as `ContextPromptSession.rubric`
+    /// (`promptSession.rubric = BoostingWiring.rubricRanking(...)`). nil when no surface resolved.
+    static func rubricRanking(database: AppDatabase?, adaptation: AdaptationService?,
+                              surface: @escaping @Sendable () -> SurfaceResolution?,
+                              turnCandidates: (@Sendable () -> [ContextCandidate])? = nil,
+                              weights: (@Sendable () -> RubricWeights)? = nil) -> @Sendable (Date) -> RankedContext? {
+        rubricRanking(database: database, learned: adaptation.map { LearnedLexiconSource(loop: $0.loop) },
+                      surface: surface, turnCandidates: turnCandidates, weights: weights)
+    }
+
+    static func rubricRanking(database: AppDatabase?, learned: LearnedLexiconSource?,
+                              surface: @escaping @Sendable () -> SurfaceResolution?,
+                              turnCandidates: (@Sendable () -> [ContextCandidate])?,
+                              weights: (@Sendable () -> RubricWeights)?) -> @Sendable (Date) -> RankedContext? {
+        { now in
+            guard let resolved = surface() else { return nil }
+            var candidates = authoredCandidates(database: database)
+            candidates += ContextCandidates.entries(learned?.harvest(now: now) ?? [])
+            candidates += turnCandidates?() ?? []
+            return ContextRubric(config: rubricConfig, weights: weights?() ?? RubricWeights())
+                .ranked(candidates: candidates, surface: resolved, now: now)
+        }
     }
 
     /// N11-lab (F27) — screen terms join the per-turn boost layer only when a measured Lab report
