@@ -718,7 +718,9 @@ public final class PillViewModel: ObservableObject {
         default:
             onAction?(action, shown)
             // A row the user acted on comes down; the handler has taken the next step.
-            if PillDwell.staysUntilAction(shown), [.check, .review, .copy, .models, .permissions].contains(action) {
+            // N22 — a Done row with a ⚠ clears on its own, but an action on it still takes it down now.
+            if PillDwell.staysUntilAction(shown) || shown.turnFace() == .done,
+               [.check, .review, .copy, .models, .permissions].contains(action) {
                 dismissNotice()
             }
         }

@@ -50,6 +50,8 @@ public final class PresenceIndicatorController {
     private let container = PresenceContainerView()
     private var hosting: NSHostingView<PresenceIndicatorView>
     private var inputs = PresenceInputs()
+    /// N22 — held texts waiting (Insert here / Copy): a resting chin shows Needs you.
+    private var heldWaiting = 0
     private var state: PresenceState = .off
     private var hovered = false
     private var hoverTimer: Timer?
@@ -127,9 +129,27 @@ public final class PresenceIndicatorController {
                                                                object: nil, queue: .main) { [weak self] _ in
             self?.refresh()
         })
+        // N22 — the held queue (`DeliveryPillDriver`) says how many texts are waiting.
+        observers.append(NotificationCenter.default.addObserver(forName: .voicePlusHeldWaitingChanged,
+                                                               object: nil, queue: .main) { [weak self] note in
+            self?.setHeldWaiting(note.userInfo?["count"] as? Int ?? 0)
+        })
         startHoverPolling()
         refresh(force: true)
     }
+
+    /// N22 — the number of held texts waiting; above zero a resting chin reads Needs you.
+    public func setHeldWaiting(_ count: Int) {
+        onMain {
+            guard count != self.heldWaiting else { return }
+            self.heldWaiting = max(0, count)
+            Log.app.notice("presence held waiting: \(self.heldWaiting)")
+            self.refresh(force: true)
+        }
+    }
+
+    /// N22 — the face the chin shows now (one of five visible, or off).
+    var face: PresenceFace { PresenceFace.of(reducedState, heldWaiting: heldWaiting) }
 
     /// Mutate the inputs and re-render. Every setter below funnels through here.
     public func update(_ mutate: (inout PresenceInputs) -> Void) {
@@ -299,18 +319,24 @@ public final class PresenceIndicatorController {
         // The target is the surface that is drawn right now — the chin at rest, the hint row once it
         // has expanded — and nothing more. `hovered` (not `rowWidth`) decides which, so an expanded
         // row keeps its own bigger target and a resting chin never inherits it.
+        // N22 — Needs you draws as a badge over the resting chin; it is sized and hovered like the
+        // other badges (paused/blocked), and its row names what is waiting.
+        let needsYou = PresenceFace.of(next, heldWaiting: heldWaiting) == .needsYou
+        let shape = needsYou ? PresenceState.paused : next
         let pointerOn = next.isVisible
             && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics,
-                                              state: next, expandedRowWidth: hovered ? rowWidth : nil)
+                                              state: shape, expandedRowWidth: hovered ? rowWidth : nil)
         let hint = readyHint()
-        let presentation = PresenceHover.presentation(state: next, pointerOn: pointerOn, readyHint: hint)
+        let presentation = PresenceHover.presentation(state: shape, pointerOn: pointerOn, readyHint: hint)
         let expanded = presentation != .chin && presentation != .none
 
         // Fit the message to the display *before* placing the panel: the row is sized to its text.
         let width: PresenceRow.Fit?
         switch presentation {
         case .hint(let text): width = Self.fittedHint(text, on: metrics)
-        case .row: width = Self.fittedRow(state: next, hint: hotkeyHint(), on: metrics)
+        case .row: width = needsYou ? Self.fittedRow(detail: PresenceFace.needsYouDetail(heldWaiting), state: shape,
+                                                     hint: hotkeyHint(), on: metrics)
+                                    : Self.fittedRow(state: next, hint: hotkeyHint(), on: metrics)
         case .chin, .none: width = nil
         }
         guard force || next != state || expanded != hovered || width?.width != rowWidth else { return }
@@ -326,7 +352,7 @@ public final class PresenceIndicatorController {
             return
         }
 
-        let layout = PresenceGeometry.layout(for: metrics, state: next, hovered: expanded, rowWidth: width?.width)
+        let layout = PresenceGeometry.layout(for: metrics, state: shape, hovered: expanded, rowWidth: width?.width)
         // The panel can never swallow a click meant for the app underneath: it only takes the mouse
         // while the pointer is provably on it.
         panel.ignoresMouseEvents = PresenceInteraction.ignoresMouse(hovering: pointerOn)
@@ -343,7 +369,8 @@ public final class PresenceIndicatorController {
         hosting.frame = container.bounds
         hosting.rootView = PresenceIndicatorView(state: next, hovered: expanded,
                                                  cornerRadius: layout.cornerRadius, hint: hotkeyHint(),
-                                                 rowText: width?.text, attached: layout.attached, readyHint: hint, backgroundCap: cap)
+                                                 rowText: width?.text, attached: layout.attached, readyHint: hint, backgroundCap: cap,
+                                                 heldWaiting: needsYou ? heldWaiting : 0)
         panel.displayIfNeeded()
         // `orderFrontRegardless`, never `makeKeyAndOrderFront` and never `NSApp.activate`: the
         // indicator must never take focus from whatever the user is typing into.
@@ -402,8 +429,12 @@ public final class PresenceIndicatorController {
     /// The row's text and the panel width it needs, measured in the real font. `PresenceRow` does
     /// the choosing; this only supplies the ruler.
     static func fittedRow(state: PresenceState, hint: String, on metrics: ScreenMetrics) -> PresenceRow.Fit {
+        fittedRow(detail: state.detail, state: state, hint: hint, on: metrics)
+    }
+
+    static func fittedRow(detail: String, state: PresenceState, hint: String, on metrics: ScreenMetrics) -> PresenceRow.Fit {
         let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        return PresenceRow.fit(detail: state.detail,
+        return PresenceRow.fit(detail: detail,
                                hint: PresenceRow.hint(hint, for: state),
                                maxWidth: PresenceGeometry.maxRowWidth(on: metrics)) { text in
             ceil((text as NSString).size(withAttributes: [.font: font]).width) + 1

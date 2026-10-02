@@ -45,8 +45,9 @@ struct LandingVerdictQ4Tests {
             let state = PillState.landed(LandedPillInfo(text: "hi", verdict: verdict))
             let rule = PillDwell.rule(for: state)
             if verdict == .unconfirmed {
-                #expect(rule == .untilAction)
-                #expect(PillDwell.staysUntilAction(state))
+                // N22 — the ⚠ Done row clears on its own too, after the longer notice dwell.
+                #expect(rule == .minimum(PillDwell.transientNotice))
+                #expect(!PillDwell.staysUntilAction(state))
             } else {
                 #expect(rule == .minimum(PillDwell.inserted), "\(verdict)")
                 #expect(!PillDwell.staysUntilAction(state))
@@ -70,7 +71,9 @@ struct LandingVerdictQ4Tests {
 
         var sticky = PillPresenter()
         _ = sticky.request(.landed(LandedPillInfo(text: "hi", verdict: .unconfirmed)), now: t)
-        #expect(sticky.request(.hidden, now: t.addingTimeInterval(5)) == .hold(until: .distantFuture))
+        // N22 — held for the notice dwell, then it goes.
+        #expect(sticky.request(.hidden, now: t.addingTimeInterval(1)) == .hold(until: t.addingTimeInterval(PillDwell.transientNotice)))
+        #expect(sticky.request(.hidden, now: t.addingTimeInterval(5)) == .show(.hidden))
     }
 
     @Test func routerReadsTheLedgerAndFallsBackToTheWarning() {

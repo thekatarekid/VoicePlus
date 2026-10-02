@@ -178,9 +178,11 @@ struct PillWiringTests {
         var seen: [PillActionKind] = []
         model.onAction = { action, _ in seen.append(action) }
         model.apply(.starting)
-        model.present(Self.preview)
+        // N22 — only a preview that waits (Manual review) carries Edit draft; an automatic one is
+        // the Inserting face with no buttons.
+        model.present(.finalPreview(FinalPreviewInfo(text: "Can we meet?", dwellRemaining: 0.9, manual: true)))
         #expect(model.content().buttons.map(\.action) == [.commit, .editDraft, .cancel])
-        #expect(model.content().helper == "Final preview · hover to pause")
+        #expect(model.content().helper == "Manual review · insert when ready")
         model.perform(.editDraft)
         #expect(seen.isEmpty && model.isEditingDraft)
         let review = model.content()

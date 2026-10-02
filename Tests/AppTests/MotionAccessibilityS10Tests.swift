@@ -220,7 +220,7 @@ struct MotionAccessibilityS10Tests {
         #expect(viewport.frame.height == lanes.wordsLane.height)
         #expect(viewport.text.frame.height > viewport.scroll.contentSize.height)
         #expect(!viewport.track.isHidden)
-        let content = PillContent.make(.finalPreview(FinalPreviewInfo(text: text, dwellRemaining: 0.9)),
+        let content = PillContent.make(.finalPreview(FinalPreviewInfo(text: text, dwellRemaining: 0.9, manual: true)),
                                        context: PillTurnContext(destination: "Mail"))
         #expect(PillReadingOrder.focusChain(content).map(\.action) == [.commit, .editDraft, .cancel])
     }

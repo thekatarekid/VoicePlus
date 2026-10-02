@@ -134,8 +134,11 @@ public final class PillPanelController {
         Self.logPlacementDiagnostics()
         // V5 Q13 — dwell pause/resume diagnostics carry the pill frame at that moment (main thread
         // only; an off-main read records no frame rather than touching AppKit).
+        // A pill that is gone or not on screen defers to whatever reader was installed before it
+        // (none in the app; a test's fixed frame under parallel tests).
+        let previous = TurnEventDiagnostics.frame
         TurnEventDiagnostics.frame = { [weak panel] in
-            guard Thread.isMainThread, let panel, panel.isVisible else { return nil }
+            guard Thread.isMainThread, let panel, panel.isVisible else { return previous() }
             return DiagnosticsRect(panel.frame)
         }
     }

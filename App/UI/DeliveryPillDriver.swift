@@ -19,7 +19,12 @@ public final class DeliveryPillDriver {
     public init(pill: PillViewModel, held: HeldTextStore = HeldTextStore()) {
         self.pill = pill
         self.held = held
-        self.held.onChange = { [weak self] items in self?.onHeldChanged?(items) }
+        self.held.onChange = { [weak self] items in
+            self?.onHeldChanged?(items)
+            // N22 — the notch's Needs you face follows the held queue.
+            NotificationCenter.default.post(name: .voicePlusHeldWaitingChanged, object: nil,
+                                            userInfo: ["count": items.count])
+        }
         pill.onHeldAction = { [weak self] info, action in self?.perform(action, on: info.id) }
         pill.onHeldDraftApplied = { [weak self] id, text in _ = self?.held.revise(id, text: text) }
     }

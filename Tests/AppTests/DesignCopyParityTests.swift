@@ -84,8 +84,9 @@ struct DesignCopyParityTests {
             ("listening", PillContent.make(.listening(level: 0.4), context: c), "Release Right Control to finish"),
             ("quiet", PillContent.make(.listeningQuiet, context: c), "Still listening while you hold"),
             ("latched", PillContent.make(.latched(elapsed: 6), context: c), "Tap Right Control to finish"),
+            // N22 — the design's finishing row is absorbed by Inserting (checked in `finishingIsInserting`).
             ("finishing", PillContent.make(.finishing(elapsedWarning: false), context: closed),
-             "Microphone closed · nothing inserted yet"),
+             "Same text · one insertion attempt"),
             ("preview", PillContent.make(.finalPreview(final), context: closed), "Manual review · insert when ready"),
             ("uncertain", PillContent.make(.finalPreview(uncertain), context: closed), "Manual review · insert when ready"),
             ("inserting", PillContent.make(.inserting(text: sample), context: closed), "Same text · one insertion attempt"),
@@ -120,15 +121,20 @@ struct DesignCopyParityTests {
         ]
     }
 
+    /// N22 — design rows the five-state pill absorbed, and the row each now draws.
+    static let absorbed: [String: String] = ["finishing": "inserting"]
+
     @Test func everyTurnStateMatchesTheFixture() throws {
         let fixture = try Self.fixture()
         let rows = Self.rendered()
         // Every fixture state except the chin and the hint (tested below) is rendered here.
         #expect(Set(rows.map(\.key)).union(["idle", "ready"]) == Set(fixture.keys))
         for row in rows {
-            let entry = try #require(fixture[row.key], "\(row.key)")
+            // N22 — a row the five-state model absorbed draws the face it collapsed onto.
+            let drawn = Self.absorbed[row.key] ?? row.key
+            let entry = try #require(fixture[drawn], "\(row.key)")
             let content = row.content
-            #expect(content.designKey == row.key, "\(row.key) drew \(content.designKey)")
+            #expect(content.designKey == drawn, "\(row.key) drew \(content.designKey)")
             // Status: the fixture's, verbatim ("Ready for Mail · " + the review count for F2).
             let status = try #require(entry.status)
             if row.key == "uncertain" {
@@ -173,8 +179,11 @@ struct DesignCopyParityTests {
         c.destination = "Notes"
         #expect(PillContent.make(.listening(level: 0.3), context: c).helper == "Release fn / 🌐 to finish")
         #expect(PillContent.make(.latched(elapsed: 3), context: c).helper == "Tap fn / 🌐 to finish")
-        let preview = FinalPreviewInfo(text: "hi", dwellRemaining: 0.9, destination: "Notes")
+        let preview = FinalPreviewInfo(text: "hi", dwellRemaining: 0.9, manual: true, destination: "Notes")
         #expect(PillContent.make(.finalPreview(preview), context: c).status == "Ready for Notes")
+        // N22 — an automatic preview is the Inserting face.
+        let auto = FinalPreviewInfo(text: "hi", dwellRemaining: 0, destination: "Notes")
+        #expect(PillContent.make(.finalPreview(auto), context: c).status == "Inserting in Notes…")
         #expect(PillContent.make(.inserting(text: "hi"), context: c).status == "Inserting in Notes…")
         #expect(PillContent.make(.landed(LandedPillInfo(text: "hi", verified: true)), context: c).status == "✓ Inserted in Notes")
         #expect(PillContent.make(.undoAvailable, context: c).status == "✓ Updated in Notes")
@@ -230,6 +239,7 @@ struct DesignCopyParityTests {
         #expect(content.designKey == "unconfirmed")
         #expect(content.status == fixture["unconfirmed"]?.status)
         #expect(!content.status.contains("✓"))
-        #expect(PillDwell.staysUntilAction(state))
+        // N22 — the Done face's ⚠ row clears on its own (a little longer than a verified one).
+        #expect(PillDwell.rule(for: state) == .minimum(PillDwell.transientNotice))
     }
 }

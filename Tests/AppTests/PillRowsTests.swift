@@ -90,16 +90,18 @@ struct PillRowsTests {
         var c = Self.context("half a sentence", open: false)
         c.finishingSince = Self.t0
         c.now = Self.t0.addingTimeInterval(1)
-        #expect(PillContent.make(.finishing(elapsedWarning: false), context: c).status == "Finishing…")
+        // N22 — finishing is the Inserting face from the first frame; no "Still finishing".
+        #expect(PillContent.make(.finishing(elapsedWarning: false), context: c).status == "Inserting in Mail…")
         c.now = Self.t0.addingTimeInterval(2.1)
-        #expect(PillContent.make(.finishing(elapsedWarning: false), context: c).status == "Still finishing your text")
+        #expect(PillContent.make(.finishing(elapsedWarning: false), context: c).status == "Inserting in Mail…")
         #expect(PillContent.make(.finishing(elapsedWarning: true), context: c).buttons.isEmpty)
         c.now = Self.t0.addingTimeInterval(10)
         #expect(PillContent.make(.finishing(elapsedWarning: true), context: c).buttons.isEmpty,
                 "N2: the pill's own clock never puts up buttons; only the turn's offer does")
         c.offer = .useAvailableText
         let offer = PillContent.make(.finishing(elapsedWarning: true), context: c)
-        #expect(offer.buttons == [PillButton("Use available text", .useAvailable, primary: true), PillButton("Cancel", .cancel)])
+        // N22 — one Cancel only (N2: it keeps the live words as held text, never drops them).
+        #expect(offer.buttons == [PillButton("Cancel", .cancel, primary: true)])
         c.liveText = ""
         #expect(PillContent.make(.finishing(elapsedWarning: true), context: c).buttons == [PillButton("Cancel", .cancel, primary: true)])
         c.offer = .cancel
@@ -161,14 +163,19 @@ struct PillRowsTests {
         #expect(RecoveryCatalog.fadeWindow.contains(quiet))
         let sticky: [PillState] = [
             .held(HeldPillInfo(text: "x", destination: "Mail", reason: "destination changed")),
-            .landed(LandedPillInfo(text: "x", verified: false)), .landedPartial(text: "x"),
             .error(message: "Text was not typed — Try again"), .unavailable(reason: "x"), .muted,
         ]
         for state in sticky {
             #expect(PillDwell.staysUntilAction(state), "\(state.caseName)")
             #expect(PillDwell.minimum(for: state) == .infinity)
         }
-        for key in ["held", "unconfirmed", "partial", "error", "unavailable", "blocked"] {
+        // N22 — the ⚠ Done rows clear on their own after the notice dwell.
+        for state in [PillState.landed(LandedPillInfo(text: "x", verified: false)), .landedPartial(text: "x")] {
+            #expect(PillDwell.minimum(for: state) == PillDwell.transientNotice, "\(state.caseName)")
+        }
+        #expect(PillDwell.rule(forDesignKey: "unconfirmed") == .minimum(PillDwell.transientNotice))
+        #expect(PillDwell.rule(forDesignKey: "partial") == .minimum(PillDwell.transientNotice))
+        for key in ["held", "error", "unavailable", "blocked"] {
             #expect(PillDwell.rule(forDesignKey: key) == .untilAction, "\(key)")
         }
         #expect(PillDwell.rule(forDesignKey: "inserted") == .minimum(0.65))

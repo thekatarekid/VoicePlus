@@ -19,11 +19,14 @@ struct PresenceIndicatorView: View {
     /// The I1 hint for the configured key; also the chin's accessible description (design §4).
     let readyHint: String
     let backgroundCap: CGFloat
+    /// N22 — held texts waiting; above zero the resting chin is the Needs you badge.
+    let heldWaiting: Int
     /// S10 — Reduce Motion (system or Settings › Appearance).
     @ObservedObject private var motion = MotionPreference.shared
 
     init(state: PresenceState, hovered: Bool, cornerRadius: CGFloat, hint: String, rowText: String? = nil,
-         attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint(), backgroundCap: CGFloat = 0) {
+         attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint(), backgroundCap: CGFloat = 0,
+         heldWaiting: Int = 0) {
         self.state = state
         self.hovered = hovered
         self.cornerRadius = cornerRadius
@@ -31,7 +34,10 @@ struct PresenceIndicatorView: View {
         self.attached = attached
         self.readyHint = readyHint
         self.backgroundCap = backgroundCap
+        let needsYou = PresenceFace.of(state, heldWaiting: heldWaiting) == .needsYou
+        self.heldWaiting = needsYou ? heldWaiting : 0
         self.rowText = rowText
+            ?? (needsYou ? PresenceFace.needsYouDetail(heldWaiting) : nil)
             ?? (state == .ready ? readyHint : nil)
             ?? PresenceRow.candidates(detail: state.detail, hint: PresenceRow.hint(hint, for: state)).first
             ?? state.detail
@@ -47,13 +53,19 @@ struct PresenceIndicatorView: View {
             .clipShape(UnevenRoundedRectangle(cornerRadii: corners))
             .foregroundStyle(Tokens.Pill.Token.ink.color)
             .animation(motion.policy.transition, value: hovered)   // S10: none under Reduce Motion
-            .accessibilityIdentifier("presence.\(state.caseName)")
-            .accessibilityLabel(state == .ready ? readyHint : state.detail)
+            .accessibilityIdentifier("presence.\(needsYou ? PresenceFace.needsYou.rawValue : state.caseName)")
+            .accessibilityLabel(needsYou ? PresenceFace.needsYouDetail(heldWaiting)
+                                         : state == .ready ? readyHint : state.detail)
     }
 
     /// FX6 — the seam the tests read: which body this view renders, and therefore whether a dot is
     /// in the presentation at all.
-    var contentKind: PresenceContent { PresenceContent.kind(state: state, hovered: hovered) }
+    var contentKind: PresenceContent { PresenceContent.kind(state: state, hovered: hovered, needsYou: needsYou) }
+
+    /// N22 — the chin is the Needs you face.
+    var needsYou: Bool { heldWaiting > 0 }
+    private var symbol: String { needsYou ? PresenceFace.needsYouSymbol : state.symbol }
+    private var badge: String? { needsYou ? PresenceFace.needsYouBadge : state.badge }
 
     private var corners: RectangleCornerRadii {
         attached && (hovered || state != .ready)
@@ -70,7 +82,7 @@ struct PresenceIndicatorView: View {
     /// and `.transition(.opacity)` says the only thing that may animate is opacity: the dot
     /// cross-fades out where it stands and is genuinely absent from the hint layout.
     @ViewBuilder private var content: some View {
-        let kind = PresenceContent.kind(state: state, hovered: hovered)
+        let kind = PresenceContent.kind(state: state, hovered: hovered, needsYou: needsYou)
         ZStack {
             switch kind {
             case .empty:
@@ -90,7 +102,7 @@ struct PresenceIndicatorView: View {
                     .accessibilityIdentifier("presence.hint")
             case .row:
                 HStack(spacing: 6) {
-                    Image(systemName: state.symbol).font(.system(size: 10, weight: .semibold))
+                    Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
                     // No `truncationMode`: the panel was sized to this exact string by `PresenceRow`.
                     Text(rowText).font(.system(size: 11, weight: .medium)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 }
@@ -104,8 +116,8 @@ struct PresenceIndicatorView: View {
 
     private var badgeBody: some View {
         HStack(spacing: 4) {
-            Image(systemName: state.symbol).font(.system(size: 9, weight: .bold))
-            if let badge = state.badge {
+            Image(systemName: symbol).font(.system(size: 9, weight: .bold))
+            if let badge {
                 Text(badge).font(.system(size: 9, weight: .bold)).lineLimit(1).minimumScaleFactor(0.8)
             }
         }
@@ -114,6 +126,7 @@ struct PresenceIndicatorView: View {
 
     /// Idle and the hint are the pill's own black (`Pill.background`); the badges keep their colours.
     private var background: some ShapeStyle {
+        if needsYou { return AnyShapeStyle(Color.orange.opacity(0.9)) }
         switch state {
         case .off: return AnyShapeStyle(Color.clear)
         case .ready, .listening, .processing, .paused: return AnyShapeStyle(Tokens.Pill.Token.background.color)
@@ -138,8 +151,10 @@ enum PresenceContent: Equatable {
     case hint
     case row
 
-    static func kind(state: PresenceState, hovered: Bool) -> PresenceContent {
+    static func kind(state: PresenceState, hovered: Bool, needsYou: Bool = false) -> PresenceContent {
         guard state != .off else { return .empty }
+        // N22 — Needs you is a badge at rest and its row on hover (never the ready dot or hint).
+        if needsYou { return hovered ? .row : .badge }
         if hovered { return state == .ready ? .hint : .row }
         switch state {
         case .off: return .empty

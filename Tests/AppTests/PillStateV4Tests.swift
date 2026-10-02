@@ -196,7 +196,8 @@ struct PillStateV4Tests {
         // No destination name: no invented status, only the helper is sized.
         let anonymous = FinalPreviewInfo(text: "x", dwellRemaining: 0.9)
         #expect(anonymous.status == nil)
-        #expect(PillState.finalPreview(anonymous).messageLines == [PillCopy.previewHelperAuto])
+        // N22 — an automatic preview is the Inserting face (no dwell).
+        #expect(PillState.finalPreview(anonymous).messageLines == [PillCopy.insertingHelper])
         #expect(FinalPreviewInfo(text: "x", dwellRemaining: 0.9, destination: "  ").status == nil)
     }
 
@@ -214,8 +215,10 @@ struct PillStateV4Tests {
                               encoding: .utf8)
         #expect(spec.contains("After 2 s of finalization say “\(PillCopy.finishingSlowStatus)”"))
         #expect(PillState.finishingWarningDelay == 2)
-        #expect(PillState.finishing(elapsedWarning: true).messageLines.first == PillCopy.finishingSlowStatus)
-        #expect(PillState.finishing(elapsedWarning: false).messageLines.first == PillCopy.finishingStatus)
+        // N22 — "Still finishing" is gone: slow or not, finishing is the Inserting face.
+        #expect(PillState.finishing(elapsedWarning: true).messageLines.first == PillCopy.insertingHelper)
+        #expect(PillState.finishing(elapsedWarning: false).messageLines.first == PillCopy.insertingHelper)
+        #expect(PillState.finishing(elapsedWarning: true).designStateKey == "inserting")
     }
 
     @Test func meetingRowsReadAsThePrototype() throws {
@@ -268,7 +271,8 @@ struct PillStateV4Tests {
         // partial insertion stays until the user acts.
         #expect(PillDwell.minimum(for: .cancelled) == PillDwell.cancelled)
         #expect(PillDwell.minimum(for: .undoAvailable) == PillDwell.undoWindow)
-        #expect(PillDwell.isNotice(.landedPartial(text: "x")))
+        // N22 — partial is the Done face with a ⚠: it clears on its own, a little later.
+        #expect(PillDwell.minimum(for: .landedPartial(text: "x")) == PillDwell.transientNotice)
         // I2: muted leaves only on an explicit Unmute.
         #expect(PillDwell.staysUntilAction(.muted))
     }
@@ -289,7 +293,11 @@ struct PillStateV4Tests {
         let produced = Set(everyPillState.map(\.designStateKey))
         #expect(produced.isSubset(of: designKeys), "unknown keys: \(produced.subtracting(designKeys))")
         // E1 "blocked" is a named blocker routed by the recovery catalogue (S9), not a case of its own.
-        #expect(designKeys.subtracting(produced) == ["blocked"])
+        // N22 — the design's "finishing" row is absorbed by Inserting; Manual review still draws
+        // "preview" / "uncertain".
+        let manual = [PillState.finalPreview(FinalPreviewInfo(text: "x", dwellRemaining: 0, manual: true)),
+                      .finalPreview(FinalPreviewInfo(text: "x", uncertainCount: 1, dwellRemaining: 0, manual: true))]
+        #expect(designKeys.subtracting(produced.union(manual.map(\.designStateKey))) == ["blocked", "finishing"])
         #expect(Set(copy.pill.keys) == designKeys)
     }
 
@@ -297,9 +305,11 @@ struct PillStateV4Tests {
         #expect(PillState.starting.designStateKey == "starting")
         #expect(PillState.listeningQuiet.designStateKey == "quiet")
         #expect(PillState.latched(elapsed: 0).designStateKey == "latched")
-        #expect(PillState.finishing(elapsedWarning: true).designStateKey == "finishing")
-        #expect(PillState.finalPreview(FinalPreviewInfo(text: "", dwellRemaining: 0)).designStateKey == "preview")
-        #expect(PillState.finalPreview(FinalPreviewInfo(text: "", uncertainCount: 1, dwellRemaining: 0)).designStateKey
+        // N22 — finishing and an automatic preview are the Inserting face.
+        #expect(PillState.finishing(elapsedWarning: true).designStateKey == "inserting")
+        #expect(PillState.finalPreview(FinalPreviewInfo(text: "", dwellRemaining: 0)).designStateKey == "inserting")
+        #expect(PillState.finalPreview(FinalPreviewInfo(text: "", dwellRemaining: 0, manual: true)).designStateKey == "preview")
+        #expect(PillState.finalPreview(FinalPreviewInfo(text: "", uncertainCount: 1, dwellRemaining: 0, manual: true)).designStateKey
                 == "uncertain")
         #expect(PillState.landedPartial(text: "").designStateKey == "partial")
         #expect(PillState.undoAvailable.designStateKey == "undo")

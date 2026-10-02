@@ -16,8 +16,8 @@ public enum PillRetention {
     /// (`.landing`, `.finishing`, …) and rows that stay until the user acts are never touched.
     public static func applies(to state: PillState) -> Bool {
         switch state {
-        case .landed(let info): return info.clearsOnItsOwn
-        case .cancelled, .undoAvailable: return true
+        // N22 — every Done row is timed now, the ⚠ ones included.
+        case .landed, .landedPartial, .cancelled, .undoAvailable: return true
         default: return false
         }
     }

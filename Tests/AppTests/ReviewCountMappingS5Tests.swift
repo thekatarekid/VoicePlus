@@ -51,7 +51,9 @@ struct ReviewCountMappingS5Tests {
         pill.present(.finalPreview(info))
         let row = pill.content()
         #expect(pill.marks(for: row.words).count == info.uncertainCount, "count == marks drawn")
-        #expect(row.status.hasSuffix(PillCopy.statusSeparator + "Review this phrase"))
+        // N22 — no dwell: an automatic preview is the Inserting face; the marks stay on its words,
+        // and the review line moves to the inserted row below.
+        #expect(row.designKey == "inserting")
         #expect(!row.status.contains("word to review"))
         // … and in the inserted row.
         pill.present(.landed(LandedPillInfo(text: info.text, verified: true)))

@@ -46,10 +46,13 @@ public enum PillDwell {
             return .none
         case .landing: return .minimum(acknowledgement)
         // Q4 — verified and unreadable rows clear after the landed dwell; only unconfirmed is sticky.
-        case .landed(let info): return info.clearsOnItsOwn ? .minimum(inserted) : .untilAction
+        // N22 — every Done row clears on its own; an unconfirmed or partial one (⚠) stays a little
+        // longer so it can be read. The text is in history either way.
+        case .landed(let info): return info.clearsOnItsOwn ? .minimum(inserted) : .minimum(transientNotice)
+        case .landedPartial: return .minimum(transientNotice)
         case .cancelled: return .minimum(cancelled)
         case .undoAvailable: return .minimum(undoWindow)
-        case .held, .landedPartial, .unavailable, .muted: return .untilAction
+        case .held, .unavailable, .muted: return .untilAction
         case .error(let message):
             return PillNotice.isQuietReturn(message) ? .minimum(quietReturn) : .untilAction
         }
@@ -62,7 +65,8 @@ public enum PillDwell {
         case "inserted": return .minimum(inserted)
         case "cancelled": return .minimum(cancelled)
         case "undo": return .minimum(undoWindow)
-        case "held", "unconfirmed", "partial", "error", "unavailable", "blocked", "muted": return .untilAction
+        case "unconfirmed", "partial": return .minimum(transientNotice)
+        case "held", "error", "unavailable", "blocked", "muted": return .untilAction
         default: return .none
         }
     }
@@ -396,13 +400,18 @@ public struct PillContent: Equatable, Sendable {
             return PillContent(designKey: "warning", status: PillDeck.warningStatus, tone: .warn,
                                trailing: .timer(c.elapsed), words: .live(liveOrListening(c)),
                                helper: PillDeck.warningHelper, buttons: PillDeck.warningButtons)
-        case .landing:
-            return finishing(slow: false, c)
-        case .finishing(let slow):
-            return finishing(slow: slow, c)
+        case .landing, .finishing:
+            // N22 — finishing, slow finishing and landing are one face: "Inserting in <App>…".
+            return inserting(words: c.liveText.isEmpty ? .none : .live(c.liveText), c)
         case .finalPreview(let info):
             var named = c
             if let d = info.destination { named.destination = d }
+            // N22 — no dwell (owner decision 2): an automatic preview is the Inserting face, with
+            // the final words and no countdown. Only Manual review (or a preview the user froze)
+            // is the "needs you" row that waits for Insert.
+            guard info.manual || info.paused else {
+                return inserting(words: .final(info.text), named)
+            }
             let review = info.needsReview
             let manual = info.manual
             return PillContent(designKey: review ? "uncertain" : "preview",
@@ -411,13 +420,12 @@ public struct PillContent: Equatable, Sendable {
                                                             phrase: info.needsPhraseReview),
                                trailing: destinationTrailing(named), words: .final(info.text),
                                helper: PillCopy.previewHelper(pause: info.pauseReason, needsReview: false, manual: manual),
-                               buttons: [PillButton(info.paused || manual ? "Insert now" : String(format: "Insert in %.1fs", info.dwellRemaining), .commit),
+                               buttons: [PillButton("Insert now", .commit),
                                          PillButton("Edit draft", .editDraft),
                                          PillButton("Cancel", .cancel)],
                                spoolKey: review ? "uncertain" : "preview")
         case .inserting(let text):
-            return PillContent(designKey: "inserting", status: PillDeck.insertingStatus(destination: c.destinationName),
-                               trailing: destinationTrailing(c), words: .final(text), helper: PillDeck.insertingHelper)
+            return inserting(words: .final(text), c)
         case .landed(let info):
             if info.verified {
                 return PillContent(designKey: "inserted", status: PillDeck.insertedStatus(destination: c.destinationName),
@@ -433,6 +441,8 @@ public struct PillContent: Equatable, Sendable {
                                    helper: PillDeck.insertedHelper(uncertain: c.uncertainCount,
                                                                    phrase: c.needsPhraseReview))
             }
+            // N22 — the Done face with its ⚠: it keeps Check destination but clears on its own
+            // like the other Done rows (`PillDwell`); the text is in history either way.
             return PillContent(designKey: "unconfirmed", status: PillDeck.unconfirmedStatus, tone: .warn,
                                trailing: destinationTrailing(c), words: .final(info.text),
                                helper: PillDeck.unconfirmedHelper, buttons: PillDeck.unconfirmedButtons, notice: true)
@@ -504,20 +514,15 @@ public struct PillContent: Equatable, Sendable {
                     escapeHint: true)
     }
 
-    private static func finishing(slow: Bool, _ c: PillTurnContext) -> PillContent {
-        let waited = c.finishingSince.map { c.now.timeIntervalSince($0) } ?? 0
-        // N2 — the buttons follow the turn's real stage: only an offer the controller raised (it
-        // never raises one after the payload started) puts them up.
-        let canUseWords = c.offer == .useAvailableText && !c.liveText.isEmpty
-        let buttons: [PillButton] = c.offer == nil ? []
-            : (canUseWords ? [PillButton(PillDeck.useAvailableText, .useAvailable, primary: true)] : [])
-                + [PillButton(PillDeck.cancelLabel, .cancel, primary: !canUseWords)]
-        return PillContent(designKey: "finishing",
-                           status: slow || waited >= PillState.finishingWarningDelay
-                               ? PillDeck.finishingSlowStatus : PillDeck.finishingStatus,
-                           trailing: destinationTrailing(c),
-                           words: c.liveText.isEmpty ? .none : .live(c.liveText),
-                           helper: PillDeck.finishingHelper, buttons: buttons)
+    /// N22 — the Inserting face: landing, finishing, the automatic final preview and the write
+    /// itself are one row, "Inserting in <App>…" with the words. No buttons except the one Cancel
+    /// the controller raised (N2: it is never raised after the payload started, and it skips only
+    /// optional work — recognised text is kept). The 10 s offer and "Still finishing" are gone.
+    private static func inserting(words: Words, _ c: PillTurnContext) -> PillContent {
+        let buttons: [PillButton] = c.offer == nil ? [] : [PillButton(PillDeck.cancelLabel, .cancel, primary: true)]
+        return PillContent(designKey: "inserting", status: PillDeck.insertingStatus(destination: c.destinationName),
+                           trailing: destinationTrailing(c), words: words, helper: PillDeck.insertingHelper,
+                           buttons: buttons)
     }
 
     private static func held(_ info: HeldPillInfo, _ c: PillTurnContext) -> PillContent {

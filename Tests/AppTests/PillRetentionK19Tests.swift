@@ -17,8 +17,9 @@ struct PillRetentionK19Tests {
         #expect(PillRetention.applies(to: .landed(LandedPillInfo(text: "hi", verified: true))))
         #expect(PillRetention.applies(to: .cancelled))
         #expect(PillRetention.applies(to: .undoAvailable))
-        // Sticky D06 (a readback ran and the text is absent) stays until the user acts.
-        #expect(!PillRetention.applies(to: .landed(LandedPillInfo(text: "hi", verified: false))))
+        // N22 — the ⚠ Done rows (D06 unconfirmed, partial) are timed too now.
+        #expect(PillRetention.applies(to: .landed(LandedPillInfo(text: "hi", verified: false))))
+        #expect(PillRetention.applies(to: .landedPartial(text: "hi")))
         #expect(!PillRetention.applies(to: .landing))
         #expect(!PillRetention.applies(to: .finishing(elapsedWarning: false)))
         #expect(!PillRetention.applies(to: .listening(level: 0)))
@@ -57,16 +58,18 @@ struct PillRetentionK19Tests {
         #expect(events.contains(.orderOut(window: "pill", reason: "retentionBackstop:inserted")))
     }
 
-    @Test func aStickyUnconfirmedRowIsLeftForTheUser() {
+    /// N22 — an unconfirmed row is the Done face with a ⚠: it clears on its own after the notice
+    /// dwell, and the backstop owns it like any other timed row.
+    @Test func anUnconfirmedRowClearsOnItsOwn() {
         let clock = Clock()
         let model = PillViewModel()
         model.now = { clock.now }
         model.apply(.starting)
         model.present(.landed(LandedPillInfo(text: "hello", verified: false)))
-        #expect(model.retentionDeadline == nil)
+        #expect(model.retentionDeadline != nil)
         clock.now = Self.t0.addingTimeInterval(60)
-        #expect(!model.enforceRetention())
-        #expect(model.state.isVisible)
+        #expect(model.enforceRetention())
+        #expect(!model.state.isVisible)
     }
 
     @Test func aNewRowReplacesTheDeadline() {

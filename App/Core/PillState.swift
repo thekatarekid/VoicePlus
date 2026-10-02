@@ -126,8 +126,10 @@ public enum PillState: Equatable, Sendable {
         case .listeningQuiet: return [PillCopy.quietStatus, PillCopy.quietHelper]
         case .latched: return [PillCopy.latchedStatus]
         case .cancelled: return [PillCopy.cancelledStatus, PillCopy.cancelledWords, PillCopy.cancelledHelper]
-        case .finishing(let slow):
-            return [slow ? PillCopy.finishingSlowStatus : PillCopy.finishingStatus, PillCopy.finishingHelper]
+        // N22 — finishing is the Inserting face; "Still finishing" is gone.
+        case .finishing: return [PillCopy.insertingHelper]
+        // N22 — an automatic preview is the Inserting face (no dwell); Manual / frozen keeps its row.
+        case .finalPreview(let info) where !(info.manual || info.paused): return [PillCopy.insertingHelper]
         case .finalPreview(let info): return [info.status, info.helper].compactMap { $0 }
         case .inserting: return [PillCopy.insertingHelper]
         case .landedPartial: return [PillCopy.partialStatus, PillCopy.partialHelper]
@@ -202,7 +204,8 @@ public enum PillState: Equatable, Sendable {
         case .hidden: return "idle"
         case .idle, .starting: return "starting"
         case .listening, .preview: return "listening"
-        case .landing, .finishing: return "finishing"
+        // N22 — landing and finishing are the Inserting face.
+        case .landing, .finishing: return "inserting"
         case .landed(let info): return info.clearsOnItsOwn ? "inserted" : "unconfirmed"
         case .held: return "held"
         case .warning: return "warning"
@@ -214,6 +217,8 @@ public enum PillState: Equatable, Sendable {
         case .listeningQuiet: return "quiet"
         case .latched: return "latched"
         case .cancelled: return "cancelled"
+        // N22 — an automatic preview (no dwell) is the Inserting face; Manual / frozen waits.
+        case .finalPreview(let info) where !(info.manual || info.paused): return "inserting"
         case .finalPreview(let info): return info.needsReview ? "uncertain" : "preview"
         case .inserting: return "inserting"
         case .landedPartial: return "partial"

@@ -179,7 +179,8 @@ struct RecoveryCatalogWiringTests {
 
         for outcome in [DeliveryOutcome.delivered(verified: false, method: "paste"), .partial(method: "paste")] {
             let state = driver.handle(outcome, text: Self.words, destination: "Mail")
-            #expect(PillDwell.staysUntilAction(state), "no timer can ever act on it")
+            // N22 — a ⚠ Done row clears on its own (the text is in history); no timer ever writes.
+            #expect(!PillDwell.staysUntilAction(state) && PillDwell.minimum(for: state) == PillDwell.transientNotice)
             let row = model.content()
             #expect(!row.buttons.contains { Self.isRetryLabel($0.label) }, "\(row.buttons.map(\.label))")
             #expect(!row.buttons.contains { [.insert, .commit].contains($0.action) })
