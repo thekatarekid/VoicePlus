@@ -19,7 +19,8 @@ import Shared
 
 /// Everything Notes needs to know about one finished utterance.
 public struct NotesRouteSignals: Equatable, Sendable {
-    /// A text field is focused and accepts dictation.
+    /// There is somewhere to type: a readable field, or (N3 delivery ladder) an unreadable one in
+    /// an app that still has a focused window. False only when there is no window at all.
     public var hasFocusedField: Bool
     /// The frontmost app changed between the start and the end of the segment.
     public var appSwitchedMidSegment: Bool

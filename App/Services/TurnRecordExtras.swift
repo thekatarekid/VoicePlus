@@ -74,6 +74,8 @@ public struct TurnRecordExtras: Codable, Equatable, Sendable {
         public static let recognisedToTyped = "recognised_to_typed"
         /// N8 — the one pre-write check (focus, window, password field), including any pull-back.
         public static let preWriteCheck = "pre_write_check"
+        /// N7 — context gathering at landing (augmenters over the turn snapshot + field read).
+        public static let context = "context"
         /// Owner decision — raising and re-focusing the key-down window.
         public static let pullBack = "pull_back"
     }

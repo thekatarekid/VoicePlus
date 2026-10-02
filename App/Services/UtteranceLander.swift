@@ -44,6 +44,13 @@ public struct LandingResult: Sendable {
     /// V5 N2 — the utterance was stored in Notes instead of typed (`UtteranceLander.notesClaim`),
     /// with the route that sent it there. Nothing was offered to the injector.
     public var noted: NoteSource?
+    /// N3 — the delivery ladder's answer for a field the reader could not read (`nil` when the
+    /// field was readable or no reader is wired). `.deliver` = typed anyway; `.notes(.noWindow)` =
+    /// there never was a destination.
+    public var ladder: DeliveryLadder.Decision?
+    /// N7 — ms spent gathering context before the pipeline ran (augmenter chain + field read). With
+    /// the turn snapshot this is bounded by its budget, whatever the source does.
+    public var contextMs: Double = 0
 
     public var landed: Bool { injection?.succeeded ?? false }
 
@@ -157,6 +164,10 @@ public final class UtteranceLander: @unchecked Sendable {
     /// transform / repair claims and after the secure-field refusal (a password is never a note).
     /// Not copied to the holding sibling: text held for a named destination stays held.
     public var notesClaim: ((_ text: String, _ hasFocusedField: Bool) -> NoteSource?)?
+    /// N3 — whether the destination app has a focused window (`nil` = cannot tell). Defaults to the
+    /// system's `FocusedWindowReading`. Only consulted when the field reader found nothing readable:
+    /// the ladder then delivers anyway while there is a window, and only "no window" is Notes.
+    public var windowPresence: ((FocusSnapshot?) -> Bool?)?
     /// P6.3 — script-aware text assembly (code-switch merger); nil result keeps the rendered text.
     public var textFinalizer: (([TranscriptSpan]) -> String?)?
     /// V4 gate "cold launch → first landing": told of every write that posted text; logs only the
@@ -220,6 +231,9 @@ public final class UtteranceLander: @unchecked Sendable {
         let id = UUID()
         let bundleID = focus?.bundleID ?? system.frontmostApp()?.bundleID
         var ctx = context(bundleID: bundleID)
+        // N7 — the augmenters read the turn's bounded snapshot (`AXWindowText.snapshot`), never a
+        // live walk; the time is measured so the turn record shows it.
+        let contextStarted = clock()
         if let contextAugmenter { ctx = contextAugmenter(spans, ctx) }
         // R4.2 — the field context goes in last so nothing else can overwrite its keys.
         // D1 — a wired reader that finds no readable element means the caret is `unknown`, and
@@ -234,6 +248,7 @@ public final class UtteranceLander: @unchecked Sendable {
                                    focusDestination: Self.destinationName(focus: focus, bundleID: bundleID),
                                    repair: nil, pipelineMs: 0, totalMs: 0)
         result.caret = field?.caret.kind
+        result.contextMs = ms(since: contextStarted)
         guard !spans.isEmpty, !spans.renderedText.trimmingCharacters(in: .whitespaces).isEmpty else { return result }
 
         var outSpans = spans
@@ -349,8 +364,18 @@ public final class UtteranceLander: @unchecked Sendable {
         // A wired reader that found no focused element is "no field"; no reader means "unknown",
         // which is never routed (tests, headless runs).
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // N3 — an unreadable field is not "no field": the delivery ladder decides. Same app with a
+        // window → deliver anyway (verified later when readable, else neutral); Notes only when
+        // there is no window at all. Focus moves and password fields are held/refused elsewhere.
+        var hasDestination = fieldContextProvider == nil || readField != nil
+        if !hasDestination, !words.isEmpty {
+            let ladder = unreadableFieldLadder(focus: focus, multiline: words.contains(where: \.isNewline))
+            result.ladder = ladder
+            hasDestination = !Self.isNotes(ladder)
+            Log.app.info("N3 lander: unreadable field, ladder \(String(describing: ladder))")
+        }
         if let notesClaim, !words.isEmpty,
-           let source = notesClaim(words, fieldContextProvider == nil || readField != nil) {
+           let source = notesClaim(words, hasDestination) {
             result.route = Utterance.Route.none
             result.text = words
             result.noted = source
@@ -496,6 +521,32 @@ public final class UtteranceLander: @unchecked Sendable {
     /// removed filler none. One mapping for the pill, the count and `TurnRecord.uncertainSpans`.
     public static func uncertainRanges(of spans: [TranscriptSpan], in text: String) -> [Range<Int>] {
         UncertaintyMarkMapper.map(source: spans, finalText: text).uncertainRanges
+    }
+
+    /// N3 — the ladder for a field the reader could not read: focus is the key-up app (the turn
+    /// gate pulls back / holds on a move), secure input and password fields are checked again
+    /// right before the write. What is left is the window: present → deliver, none → Notes.
+    func unreadableFieldLadder(focus: FocusSnapshot?, multiline: Bool) -> DeliveryLadder.Decision {
+        let present = windowPresence.map { $0(focus) } ?? defaultWindowPresence(focus)
+        let window: DeliveryLadder.WindowState
+        switch present {
+        case true?: window = .same
+        case false?: window = .none
+        case nil: window = .unknown
+        }
+        return DeliveryLadder.decide(focusSame: true, window: window, secureInput: false, fieldReadable: false,
+                                     surface: nil, multiline: multiline)
+    }
+
+    private func defaultWindowPresence(_ focus: FocusSnapshot?) -> Bool? {
+        guard let reader = system as? FocusedWindowReading,
+              let target = focus ?? system.frontmostApp() else { return nil }
+        return reader.focusedWindowToken(pid: target.pid) != nil
+    }
+
+    static func isNotes(_ decision: DeliveryLadder.Decision) -> Bool {
+        if case .notes = decision { return true }
+        return false
     }
 
     private func ms(since t0: Date) -> Double { clock().timeIntervalSince(t0) * 1000 }
