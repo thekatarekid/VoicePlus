@@ -69,10 +69,23 @@ public struct AppRuleDefaults: Codable, Equatable, Sendable {
     /// On by default: reading text near the words (window text, boxes the user draws) is what the
     /// app already does; a rule turns it off.
     public var contextualReading: Bool
+    /// N25 — the user's preset per surface group (`SurfacePresets.groups` → preset id). A group
+    /// not listed uses its built-in default (the first preset).
+    public var presets: [String: String]
 
-    public init(style: AppWritingStyle = .natural, contextualReading: Bool = true) {
+    public init(style: AppWritingStyle = .natural, contextualReading: Bool = true, presets: [String: String] = [:]) {
         self.style = style
         self.contextualReading = contextualReading
+        self.presets = presets
+    }
+
+    private enum CodingKeys: String, CodingKey { case style, contextualReading, presets }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        style = try c.decode(AppWritingStyle.self, forKey: .style)
+        contextualReading = try c.decode(Bool.self, forKey: .contextualReading)
+        presets = try c.decodeIfPresent([String: String].self, forKey: .presets) ?? [:]
     }
 
     public static let standard = AppRuleDefaults()
@@ -86,22 +99,25 @@ public struct AppRule: Codable, Equatable, Sendable, Identifiable {
     public var name: String?
     public var style: AppWritingStyle?
     public var contextualReading: Bool?
+    /// N25 — this app's own preset per surface group; a group not listed uses the default.
+    public var presets: [String: String]
     /// Stored in `InjectionSettingsKeys.neverInject`, which `Injection` reads on every utterance.
     public var neverInject: Bool
 
     public init(bundleID: String, name: String? = nil, style: AppWritingStyle? = nil,
-                contextualReading: Bool? = nil, neverInject: Bool = false) {
+                contextualReading: Bool? = nil, neverInject: Bool = false, presets: [String: String] = [:]) {
         self.bundleID = bundleID
         self.name = name
         self.style = style
         self.contextualReading = contextualReading
         self.neverInject = neverInject
+        self.presets = presets
     }
 
     /// Nothing of its own: the app uses the defaults.
-    public var usesDefaults: Bool { style == nil && contextualReading == nil && !neverInject }
+    public var usesDefaults: Bool { style == nil && contextualReading == nil && !neverInject && presets.isEmpty }
 
-    private enum CodingKeys: String, CodingKey { case bundleID, name, style, contextualReading }
+    private enum CodingKeys: String, CodingKey { case bundleID, name, style, contextualReading, presets }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -109,6 +125,7 @@ public struct AppRule: Codable, Equatable, Sendable, Identifiable {
         name = try c.decodeIfPresent(String.self, forKey: .name)
         style = try c.decodeIfPresent(AppWritingStyle.self, forKey: .style)
         contextualReading = try c.decodeIfPresent(Bool.self, forKey: .contextualReading)
+        presets = try c.decodeIfPresent([String: String].self, forKey: .presets) ?? [:]
         neverInject = false
     }
 
@@ -118,6 +135,7 @@ public struct AppRule: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(style, forKey: .style)
         try c.encodeIfPresent(contextualReading, forKey: .contextualReading)
+        if !presets.isEmpty { try c.encode(presets, forKey: .presets) }
     }
 }
 
@@ -129,6 +147,15 @@ public struct ResolvedAppRule: Equatable, Sendable {
     public var contextualReading: Inherited<Bool>
     /// False when the app is on the never-inject list: dictation is held there, never typed.
     public var mayInsert: Bool
+    /// N25 — the preset id per surface group: the app's own, else the user's default, else the
+    /// built-in default. Only valid ids survive (`AppRuleBook.resolved`).
+    public var presets: [String: Inherited<String>] = [:]
+
+    /// The preset this app uses on `kind`; nil for a kind with no presets (secure, canvas).
+    public func preset(for kind: SurfaceKind) -> Inherited<String>? {
+        guard let group = SurfacePresets.group(for: kind) else { return nil }
+        return presets[group] ?? SurfacePresets.defaultPreset(forGroup: group).map { Inherited($0.id, usesDefault: true) }
+    }
 
     /// A code or terminal app's style cannot be changed.
     public var styleIsLocked: Bool { profile.isVerbatim }
@@ -148,6 +175,12 @@ public struct ResolvedAppRule: Equatable, Sendable {
             ctx.extra[CleanupStage.skipKey] = "true" // N26 — Verbatim also skips cleanup, explicitly
             ctx.extra.removeValue(forKey: PersonaManager.promptKey)
         }
+        // N25 — the presets travel as data; each stage resolves the run's surface kind lazily.
+        // Only choices that differ from the built-in default are written: an app with none leaves
+        // the run's context exactly as it was.
+        let selection = presets.filter { SurfacePresets.defaultPreset(forGroup: $0.key)?.id != $0.value.value }
+            .mapValues(\.value)
+        if !selection.isEmpty { ctx.extra[SurfacePresets.selectionKey] = SurfacePresets.encode(selection) }
         if !contextualReading.value {
             ctx.extra.removeValue(forKey: DeixisService.windowTextKey)
             ctx.extra.removeValue(forKey: DeixisService.contextLineKey)
@@ -181,7 +214,41 @@ public struct AppRuleBook: Equatable, Sendable {
         return ResolvedAppRule(bundleID: bundleID, profile: profile, style: style,
                                contextualReading: Inherited(rule.contextualReading ?? defaults.contextualReading,
                                                             usesDefault: rule.contextualReading == nil),
-                               mayInsert: !rule.neverInject)
+                               mayInsert: !rule.neverInject,
+                               presets: resolvedPresets(rule))
+    }
+
+    /// Every group's preset for `rule`: the app's own valid choice, else the default's valid
+    /// choice, else the built-in first preset. An id that names no preset (a stale setting) is
+    /// ignored rather than trusted.
+    func resolvedPresets(_ rule: AppRule) -> [String: Inherited<String>] {
+        var out: [String: Inherited<String>] = [:]
+        for group in SurfacePresets.groups {
+            if let id = rule.presets[group], SurfacePresets.preset(id, inGroup: group) != nil {
+                out[group] = Inherited(id, usesDefault: false)
+            } else if let id = defaults.presets[group], SurfacePresets.preset(id, inGroup: group) != nil {
+                out[group] = Inherited(id, usesDefault: true)
+            } else if let first = SurfacePresets.defaultPreset(forGroup: group) {
+                out[group] = Inherited(first.id, usesDefault: true)
+            }
+        }
+        return out
+    }
+
+    /// N25 — sets (or, with nil, clears) the preset for `group`: the app's own when `bundleID` is
+    /// given, else the default every app inherits. Returns false, changing nothing, for an id the
+    /// group does not have.
+    @discardableResult
+    public mutating func setPreset(_ id: String?, group: String, bundleID: String? = nil) -> Bool {
+        if let id, SurfacePresets.preset(id, inGroup: group) == nil { return false }
+        if let bundleID {
+            var rule = rule(for: bundleID)
+            rule.presets[group] = id
+            rules[bundleID] = rule
+        } else {
+            defaults.presets[group] = id
+        }
+        return true
     }
 }
 

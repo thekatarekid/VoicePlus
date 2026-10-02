@@ -107,7 +107,12 @@ public struct PersonaManager: Sendable {
     /// that has one. Without an app there is no persona.
     public func resolve(context: StageContext) throws -> ResolvedPersona? {
         guard let bundle = context.appBundleID, !bundle.isEmpty else { return nil }
-        let base = try persona(for: bundle, register: context.register)
+        var base = try persona(for: bundle, register: context.register)
+        // N25 — a surface preset's instruction replaces an auto-drafted persona for this run only
+        // (nothing is stored); a persona the user wrote always wins.
+        if base.isAutoDrafted, let instruction = SurfacePresets.active(in: context)?.instruction {
+            base.text = instruction
+        }
         for who in participants.participants(context: context) {
             if let o = base.recipientOverrides[PersonaRecipient.key(who)] {
                 return ResolvedPersona(base: base, recipient: who, override: o)

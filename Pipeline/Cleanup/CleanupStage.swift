@@ -138,6 +138,7 @@ public struct CleanupStage: PipelineStage {
         if !hasGenerator { return "noModel" }
         if spans.renderedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "empty" }
         if context.extra[Self.skipKey] == "true" { return "verbatim" }
+        if SurfacePresets.active(in: context)?.allowsCleanup == false { return "preset" } // N25 "Exact"
         if context.register == .code || context.register == .terminal { return "register" }
         switch FieldRole.classify(FieldContext(stageContext: context)) {
         case .terminal, .codeEditor, .secure: return "fieldRole"

@@ -23,7 +23,8 @@ public struct StyleStage: PipelineStage {
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
         var cells = spans.map { $0.isLowConfidence ? $0.flaggedForRepair(by: id) : $0.touched(by: id) }
         guard context.extra[Self.enabledKey] != "false", Self.caretAllowsStyle(context), !cells.isEmpty else { return cells }
-        let profile = try resolveProfile(context: context)
+        // N25 — the surface preset can pin either edit; `.learned` keeps the profile's rate.
+        let profile = SurfacePresets.applying(SurfacePresets.active(in: context), to: try resolveProfile(context: context))
         guard profile.category != .code, profile.category != .terminal,
               context.register != .code, context.register != .terminal else { return cells }
         Self.applyCapitalization(&cells, profile: profile, by: id)
