@@ -157,6 +157,12 @@ enum TapeFlightGeometry {
         CGPoint(x: rect.midX, y: rect.midY)
     }
 
+    /// N19 (F18) — the aim point of an AX rect is on some display of the arrangement.
+    static func isOnDisplay(axRect: CGRect, displays: [DisplayFrame]) -> Bool {
+        guard let rect = appKitRect(fromAX: axRect, displays: displays) else { return false }
+        return display(containing: caretPoint(rect), in: displays) != nil
+    }
+
     /// The path from the mouth (AppKit screen point) to the caret (AX rect), or why there is none.
     static func path(mouth: CGPoint?, caretAX: CGRect?, displays: [DisplayFrame]) -> Result<TapeFlightPath, TapeFlightSuppression> {
         guard let caretAX, caretAX.height > 0, caretAX.width >= 0,
@@ -182,10 +188,12 @@ enum TapeFlightCaretLocator {
         guard index >= 0 else { return nil }
         // A real insertion caret preserves RTL affinity; a character's left edge cannot.
         if let caret = measured(bounds(index ..< index)), caret.width <= 2 { return caret }
-        if let after = measured(bounds(index ..< index + 1)), after.width > 0 {
+        // N19 (F17) — a zero-width rect with positive height is still a caret: an empty Chromium
+        // composer (Claude's AXValue is exactly "\n") measures its next character with width 0.
+        if let after = measured(bounds(index ..< index + 1)) {
             return CGRect(x: after.minX, y: after.minY, width: 0, height: after.height)
         }
-        if index > 0, let before = measured(bounds(index - 1 ..< index)), before.width > 0 {
+        if index > 0, let before = measured(bounds(index - 1 ..< index)) {
             return CGRect(x: before.maxX, y: before.minY, width: 0, height: before.height)
         }
         return nil

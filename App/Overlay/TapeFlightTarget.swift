@@ -62,20 +62,68 @@ enum TapeFlightRung: Int, CaseIterable, Comparable, Sendable {
 struct TapeFlightFix: Equatable, Sendable {
     var rect: CGRect
     var rung: TapeFlightRung
+    /// N19 — better rungs that answered with geometry off every display, in ladder order (diagnostics).
+    var skippedOffDisplay: [TapeFlightRung] = []
+
+    init(rect: CGRect, rung: TapeFlightRung, skippedOffDisplay: [TapeFlightRung] = []) {
+        self.rect = rect; self.rung = rung; self.skippedOffDisplay = skippedOffDisplay
+    }
+
+    /// N19 (F17) — where the ribbon aims. A caret (precise rung, or a caret-narrow text marker) is aimed
+    /// at as measured. A coarse box (an element frame, or a box-wide text marker) is aimed at the leading
+    /// edge of its first line — the trailing edge in right-to-left — never its centre, which lands
+    /// mid-box in an empty Claude / x.com composer. The window frame stays centred: a window's
+    /// first-line edge is its title bar. AX coordinates in, AX coordinates out.
+    func aim(rightToLeft: Bool = false) -> CGRect {
+        switch rung {
+        case .boundsForRange, .windowFrame: return rect
+        case .textMarker where rect.width <= 2: return rect
+        case .textMarker, .elementFrame: return TapeFlightTargetLadder.leadingEdge(of: rect, rightToLeft: rightToLeft)
+        }
+    }
 }
 
 /// Q5 — the ribbon is independent of verification: it aims at the best geometry the destination will
 /// give, rung by rung, and only a missing destination (no rung at all) or a contradicted one
 /// (`.targetChanged`, decided by the planner) suppresses it.
 enum TapeFlightTargetLadder {
-    static func resolve(insertionIndex: Int?, caret: TapeFlightCaretReading) -> TapeFlightFix? {
-        if let index = insertionIndex, let rect = usable(caret.caretRect(at: index)) {
-            return TapeFlightFix(rect: rect, rung: .boundsForRange)
+    /// N19 (F18) — `accept` sees each rung's fix (aim it with `TapeFlightFix.aim`) and may refuse it —
+    /// geometry off every display, e.g. Docs' hidden textarea — and the ladder falls through to the next
+    /// rung instead of suppressing the ribbon. Rungs are read lazily: a rung below the first accepted one
+    /// is never asked.
+    static func resolve(insertionIndex: Int?, caret: TapeFlightCaretReading,
+                        accept: (TapeFlightFix) -> Bool = { _ in true }) -> TapeFlightFix? {
+        var skipped: [TapeFlightRung] = []
+        func take(_ rect: CGRect?, _ rung: TapeFlightRung) -> TapeFlightFix? {
+            guard let rect = usable(rect) else { return nil }
+            let fix = TapeFlightFix(rect: rect, rung: rung, skippedOffDisplay: skipped)
+            guard accept(fix) else { skipped.append(rung); return nil }
+            return fix
         }
-        if let rect = usable(caret.textMarkerCaretRect()) { return TapeFlightFix(rect: rect, rung: .textMarker) }
-        if let rect = usable(caret.focusedElementFrame()) { return TapeFlightFix(rect: rect, rung: .elementFrame) }
-        if let rect = usable(caret.focusedWindowFrame()) { return TapeFlightFix(rect: rect, rung: .windowFrame) }
+        if let index = insertionIndex, let fix = take(caret.caretRect(at: index), .boundsForRange) { return fix }
+        if let fix = take(caret.textMarkerCaretRect(), .textMarker) { return fix }
+        if let fix = take(caret.focusedElementFrame(), .elementFrame) { return fix }
+        if let fix = take(caret.focusedWindowFrame(), .windowFrame) { return fix }
         return nil
+    }
+
+    /// The first line's leading edge of a box: a zero-width, line-high rect just inside its top-leading
+    /// corner (the text inset most fields use).
+    static func leadingEdge(of rect: CGRect, rightToLeft: Bool) -> CGRect {
+        let line = min(rect.height, lineHeight)
+        let inset = min(horizontalInset, rect.width / 4)
+        let top = rect.minY + max(0, min(verticalInset, (rect.height - line) / 2))
+        let x = rightToLeft ? rect.maxX - inset : rect.minX + inset
+        return CGRect(x: x, y: top, width: 0, height: line)
+    }
+    static let lineHeight: CGFloat = 20
+    static let horizontalInset: CGFloat = 10
+    static let verticalInset: CGFloat = 8
+
+    /// The writing direction the ribbon assumes for a coarse box: the user's first preferred language.
+    static var prefersRightToLeft: Bool {
+        guard let first = Locale.preferredLanguages.first else { return false }
+        return Locale.Language(identifier: first).characterDirection == .rightToLeft
     }
 
     /// Finite, non-negative width, positive height: anything else is not geometry.
@@ -117,12 +165,14 @@ final class TapeFlightReader: @unchecked Sendable {
     }
 
     /// Q5 — verify, then aim by the caret ladder (`TapeFlightTargetLadder`).
-    func locateFix(insertedLength: Int) -> Result<TapeFlightFix, TapeFlightSuppression> {
+    func locateFix(insertedLength: Int,
+                   accept: (TapeFlightFix) -> Bool = { _ in true }) -> Result<TapeFlightFix, TapeFlightSuppression> {
         switch TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {
         case .failure(let reason):
             return .failure(reason)
         case .success(let target):
-            guard let fix = TapeFlightTargetLadder.resolve(insertionIndex: target.insertionIndex, caret: caret) else {
+            guard let fix = TapeFlightTargetLadder.resolve(insertionIndex: target.insertionIndex, caret: caret,
+                                                           accept: accept) else {
                 return .failure(.caretUnavailable)
             }
             if case .failure(let reason) = TapeFlightPlanner.verify(arming, now: prober.probe(), insertedLength: insertedLength) {

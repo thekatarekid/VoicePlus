@@ -193,10 +193,20 @@ final class TapeFlightController {
     private var landing: Landing?
     private var lineReadPending = false
     private var cueRefreshTimer: TurnTimer?
+    /// N19 — the ribbon's one Q13 event per insertion (`RibbonDiagnostics`).
+    private let diagnostics: (RibbonReport) -> Void
+    private enum RibbonReporting { case none, pending, flew, done }
+    private var ribbonReporting = RibbonReporting.none
+    private var locateStart: Date?
+    private var lastFix: TapeFlightFix?
+    /// Every ribbon report, in order (tests).
+    private(set) var ribbonReports: [RibbonReport] = []
 
     init(reader: TapeFlightReader, mouth: @escaping () -> CGPoint?, displays: @escaping () -> [DisplayFrame],
          reduceMotion: @escaping () -> Bool, surface: TapeFlightSurface, clock: TurnClock, queues: TapeFlightQueues,
-         markStrips: @escaping () -> [CGRect] = { [] }) {
+         markStrips: @escaping () -> [CGRect] = { [] },
+         diagnostics: @escaping (RibbonReport) -> Void = { _ in }) {
+        self.diagnostics = diagnostics
         self.reader = reader
         self.mouth = mouth
         self.displays = displays
@@ -238,17 +248,21 @@ final class TapeFlightController {
             landedVerified = false
             landedAcknowledged = false
             aimRung = nil
+            lastFix = nil
+            locateStart = clock.now
+            ribbonReporting = .pending
             cueRequested = false
             landing = nil
             lineReadPending = false
             flightDisplay = nil
             takeDownCue()
+            let accept = onDisplayFilter()
             if reduceMotion(), armed {
                 insertedLength = text.utf16.count
                 suppress(.reduceMotion)
                 let turn = generation, length = insertedLength
                 queues.read { [reader, queues] in
-                    let aim = reader.locateFix(insertedLength: length)
+                    let aim = reader.locateFix(insertedLength: length, accept: accept)
                     queues.deliver { [weak self] in
                         guard let self, turn == self.generation else { return }
                         let fix = self.aimed(aim)
@@ -266,7 +280,7 @@ final class TapeFlightController {
             insertedLength = text.utf16.count
             let turn = generation, start = clock.now, length = insertedLength
             queues.read { [reader, queues] in
-                let aim = reader.locateFix(insertedLength: length)
+                let aim = reader.locateFix(insertedLength: length, accept: accept)
                 queues.deliver { [weak self] in
                     guard let self else { return }
                     self.located(self.aimed(aim), generation: turn, start: start, text: text)
@@ -321,6 +335,7 @@ final class TapeFlightController {
             suppress(reason)
         case .success(let path):
             let remaining = start.addingTimeInterval(SpoolFlight.duration).timeIntervalSince(clock.now)
+            reportRibbon(.flew)
             flightDisplay = path.display
             guard remaining > 0 else {
                 phase = .finished
@@ -339,9 +354,35 @@ final class TapeFlightController {
     }
 
     /// Q5 — remember which rung aimed this flight, and hand on its rect.
+    /// N19 — coarse rungs aim at the leading edge of the first line (`TapeFlightFix.aim`).
     private func aimed(_ aim: Result<TapeFlightFix, TapeFlightSuppression>) -> Result<CGRect, TapeFlightSuppression> {
-        if case .success(let fix) = aim { aimRung = fix.rung }
-        return aim.map(\.rect)
+        if case .success(let fix) = aim { aimRung = fix.rung; lastFix = fix }
+        return aim.map { $0.aim(rightToLeft: TapeFlightTargetLadder.prefersRightToLeft) }
+    }
+
+    /// N19 (F18) — a rung whose aim point is off every display is passed over for the next rung. The
+    /// arrangement is read here, on the main thread; the ladder runs on the read queue.
+    private func onDisplayFilter() -> (TapeFlightFix) -> Bool {
+        let shown = displays(), rtl = TapeFlightTargetLadder.prefersRightToLeft
+        return { TapeFlightGeometry.isOnDisplay(axRect: $0.aim(rightToLeft: rtl), displays: shown) }
+    }
+
+    /// N19 — one ribbon event per insertion: its first outcome, plus an invalidation after it flew.
+    private func reportRibbon(_ outcome: RibbonReport.Outcome) {
+        switch (ribbonReporting, outcome) {
+        case (.pending, .flew): ribbonReporting = .flew
+        case (.pending, .suppressed): ribbonReporting = .done
+        case (.flew, .invalidated): ribbonReporting = .done
+        default: return
+        }
+        let fix = lastFix
+        let onDisplay = fix.map { TapeFlightGeometry.isOnDisplay(axRect: $0.aim(rightToLeft: TapeFlightTargetLadder.prefersRightToLeft),
+                                                                 displays: displays()) }
+        let ms = locateStart.map { Int((clock.now.timeIntervalSince($0) * 1000).rounded()) }
+        let report = RibbonReport(outcome: outcome, rung: fix?.rung, onDisplay: onDisplay, locateMs: ms,
+                                  skippedOffDisplay: fix?.skippedOffDisplay ?? [])
+        ribbonReports.append(report)
+        diagnostics(report)
     }
 
     private func plan(_ fix: Result<CGRect, TapeFlightSuppression>) -> Result<TapeFlightPath, TapeFlightSuppression> {
@@ -351,9 +392,9 @@ final class TapeFlightController {
     private func scheduleRefresh(_ turn: Int) {
         refreshTimer = clock.schedule(after: Self.refreshInterval) { [weak self] in
             guard let self, turn == self.generation, case .flying = self.phase else { return }
-            let length = self.insertedLength
+            let length = self.insertedLength, accept = self.onDisplayFilter()
             self.queues.read { [reader = self.reader, queues = self.queues] in
-                let aim = reader.locateFix(insertedLength: length)
+                let aim = reader.locateFix(insertedLength: length, accept: accept)
                 queues.deliver { [weak self] in
                     guard let self else { return }
                     self.refreshed(self.aimed(aim), generation: turn)
@@ -494,6 +535,7 @@ final class TapeFlightController {
     /// Invalidate pending reads as well as all visible decoration; an unconfirmed write cannot
     /// finish later from a queued successful AX response.
     private func invalidate(_ reason: TapeFlightSuppression) {
+        reportRibbon(.invalidated(reason))
         generation += 1
         if landedVerified { cueSuppressions.append(reason) }
         takeDown()
@@ -571,6 +613,7 @@ final class TapeFlightController {
     }
 
     private func suppress(_ reason: TapeFlightSuppression) {
+        reportRibbon(.suppressed(reason))
         phase = .suppressed(reason)
         suppressions.append(reason)
         Log.app.info("tape flight suppressed: \(reason.rawValue)")
@@ -592,7 +635,8 @@ enum TapeFlightWiring {
             surface: TapeFlightOverlay(),
             clock: MainQueueTurnClock(),
             queues: .live,
-            markStrips: { DestinationMarksOverlay.visibleStrips })
+            markStrips: { DestinationMarksOverlay.visibleStrips },
+            diagnostics: RibbonDiagnostics.record)
         controller.follow(pill.$state.eraseToAnyPublisher())
         tracker.subscriber = controller
     }
