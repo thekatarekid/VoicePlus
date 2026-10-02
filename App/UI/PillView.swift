@@ -332,12 +332,28 @@ public final class PillViewModel: ObservableObject {
                         heldID: UUID = UUID(), tookFocus: String? = nil) -> PillState {
         let next = PillDeliveryRouter.state(for: delivery, text: text, destination: destination, heldID: heldID,
                                             tookFocus: tookFocus)
+        // N23 — the previous turn's outcome arrived while a newer hold capture is open: the live
+        // row stays. A verified landing needs no word; anything else is a note on the live row (the
+        // text is in history, a held one in the held queue with Insert / Copy).
+        if turn.captureOpen, !latched {
+            if let note = Self.previousTurnNote(for: delivery) { laneNote = note; laneNoteAction = nil }
+            return next
+        }
         if !text.isEmpty { turn.liveText = text }
         let name = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { turn.destination = name }
         route(next)
         scheduleRetractionIfTimed(next)
         return next
+    }
+
+    /// N23 — the lane note for an older turn's outcome under a newer capture (nil: say nothing).
+    static func previousTurnNote(for delivery: DeliveryOutcome) -> String? {
+        switch delivery {
+        case .delivered, .partial: return nil
+        case .held: return PillDeck.previousTextHeld
+        case .failed: return PillDeck.previousTextNotTyped
+        }
     }
 
     /// A notice row nothing else will take down (R2.5's repair suggestions): retracted after its own

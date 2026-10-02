@@ -212,6 +212,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var onFinalSpans: (([TranscriptSpan], String) -> Void)?
     /// A recovery-catalogue notice (K04 busy, A06 no speech, K02 interrupted, D10 stale undo).
     public var onNotice: ((RecoveryEntry) -> Void)?
+    /// N17 — a too-short tap: no turn was kept; show how to dictate instead of a failure.
+    public var onTapHint: (() -> Void)?
+    /// N17 — how long a tap waits before its hint, so the first tap of a double-tap never flashes it.
+    public var tapHintDelay: TimeInterval = HotkeyStateMachine.Timing.default.doubleTapWindow
     /// The 10 s finishing offer appeared (or went away: `nil`).
     public var onOffer: ((TurnID, FinishingOffer?) -> Void)?
     /// Escape or Cancel before the write: stop capture and drop what is in flight (the session
@@ -286,6 +290,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// cannot say: live words are drawn as `.preview`, which is also the notice channel).
     public var escapePhase: EscapeTurnPhase {
         lock.withLock {
+            // N23 — a new capture that began while the previous text was being typed: Escape
+            // cancels the capture, never the write behind it.
+            if let id = captureID, turns[id]?.stage.isCapturing == true { return .beforeWrite }
             if turns.values.contains(where: { $0.stage == .inserting }) { return .writing }
             return turns.values.contains(where: { $0.stage.isBeforeWrite }) ? .beforeWrite : .none
         }
@@ -458,6 +465,22 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         guard lock.withLock({ turns[id]?.stage.isCapturing ?? false }) else { return }
         end(id, stage: .cancelled)
         retract()
+    }
+
+    /// N17 — the key came up before the hold threshold (a tap, or the first tap of a double-tap).
+    /// Not a failure and not a turn: the turn is dropped from the store (no "cancelled" row in
+    /// history or `turn_records`), and once the double-tap window has passed with no new press the
+    /// pill says how to dictate. Key down/up times stay in the log only.
+    public func captureTapped(_ id: TurnID) {
+        guard lock.withLock({ turns[id]?.stage.isCapturing ?? false }) else { return }
+        Log.app.info("turn \(id.description): tap under the hold threshold — hint, no turn record")
+        end(id, stage: .cancelled)
+        store.remove(id)
+        retract()
+        _ = clock.schedule(after: tapHintDelay) { [weak self] in
+            guard let self, self.lock.withLock({ self.captureID == nil }) else { return }
+            self.ui { [weak self] in self?.onTapHint?() }
+        }
     }
 
     /// The session entered latch. Sticky for the turn: the latched session's last words are aimed
@@ -1335,7 +1358,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turn.record.writeAttempted = true
             turn.record.capture.writeDispatched = now
             fx.save(turn)
-            fx.present(.inserting(text: payload.text))
+            if !newerCaptureOpenLocked(than: id) { fx.present(.inserting(text: payload.text)) }
             return true
         }
         guard proceed else { return payload }
@@ -1517,7 +1540,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// Draws the Undo row for `id` once its outcome row is up (called on the UI queue right after
     /// the outcome is handed over), so the order on screen is outcome → Undo, never the reverse.
     private func presentUndo(for id: TurnID) {
-        guard lock.withLock({ undo?.turnID == id }) else { return }
+        guard lock.withLock({ undo?.turnID == id && !newerCaptureOpenLocked(than: id) }) else { return }
         onPresent?(.undoAvailable)
     }
 
@@ -1608,11 +1631,30 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     private func busyTurnLocked() -> TurnID? {
         turns.values.first { turn in
             switch turn.stage {
-            case .finalPreview, .inserting: return true
+            // N23 — once the previous text is final and its write is decided (no dwell: typed as
+            // soon as ready, or already being typed), a new press is allowed; its own text queues
+            // behind at the gate, so landings stay in start order. A preview still waiting on the
+            // user (Manual, or a dwell) or a final pass still running refuses (K04).
+            case .finalPreview: return !(turn.immediate && !turn.manual)
+            case .inserting: return false
             case .finishing: return turn.origin == .hold
             default: return false
             }
         }?.id
+    }
+
+    /// N23 — a capture (not latched) that began after `id`: the pill belongs to it.
+    private func newerCaptureOpenLocked(than id: TurnID) -> Bool {
+        guard let open = captureID, open != id, let turn = turns[open] else { return false }
+        return turn.stage.isCapturing && !turn.latched
+    }
+
+    /// N23 — a hold capture is open (the pill shows it; an older turn's ending must not touch it).
+    public var hasOpenCapture: Bool {
+        lock.withLock {
+            guard let id = captureID, let turn = turns[id] else { return false }
+            return turn.stage.isCapturing && !turn.latched
+        }
     }
 
     private func representBusyTurn(_ id: TurnID) {
@@ -1638,6 +1680,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     }
 
     private func retract() {
+        // N23 — an older turn's quiet end never takes down a newer, open capture's row.
+        guard !hasOpenCapture else { return }
         ui { [weak self] in self?.onRetract?() }
     }
 
@@ -1888,6 +1932,10 @@ public final class TurnWiring {
         controller.onFinalSpans = { [weak pill] spans, text in pill?.setFinalSpans(spans, text: text) }
         // N2 — the finishing row's buttons come from the turn's own offer, never the pill's clock.
         controller.onOffer = { [weak pill] _, offer in pill?.setFinishingOffer(offer) }
+        // N17 — a tap shows how to dictate (a transient line that fades), never a failure.
+        controller.onTapHint = { [weak pill] in
+            pill?.present(.preview(text: Self.tapHint(latchEnabled: LatchGestureSettings.isEnabled(settings))))
+        }
         controller.onNotice = { [weak wiring, weak pill] entry in
             wiring?.show(entry, on: pill)
             // N20 — a refused press names why: the previous text is still being typed.
@@ -1920,6 +1968,8 @@ public final class TurnWiring {
             refreshEscape()
             // Cancel is the deixis key controller's own; a latch keeps its boxes per segment.
             guard stage != .cancelled, !(session?.isLatched ?? false) else { return }
+            // N23 — the previous turn ended under a newer capture: its boxes are the new turn's.
+            if controller.hasOpenCapture { return }
             deixis.endTurn()
         }
         container.lander.gate = controller
@@ -1973,6 +2023,17 @@ public final class TurnWiring {
         entry.id == .K04 ? PillDeck.previousStillLanding : nil
     }
 
+    /// N17 — the row a notice draws: A06 (no speech) reads "Didn’t hear anything"; every other
+    /// entry its catalogue headline.
+    static func noticeHeadline(for entry: RecoveryEntry) -> String {
+        entry.id == .A06 ? PillDeck.didntHearAnything : entry.headline
+    }
+
+    /// N17 — the tap hint, naming the latch only when the double-tap latch is on.
+    static func tapHint(latchEnabled: Bool) -> String {
+        latchEnabled ? PillDeck.tapHint : PillDeck.tapHintNoLatch
+    }
+
     /// A pill button the turn owns. `true` when it was the turn's.
     static func route(_ action: PillActionKind, shown: PillState, to controller: TurnController,
                       finishLatch: (() -> Void)?) -> Bool {
@@ -2020,11 +2081,12 @@ public final class TurnWiring {
     /// detected") goes after its fade; the rest stay until the next state or the user. Main queue.
     private func show(_ entry: RecoveryEntry, on pill: PillViewModel?) {
         guard let pill else { return }
-        pill.present(.error(message: entry.headline))
+        let headline = Self.noticeHeadline(for: entry)
+        pill.present(.error(message: headline))
         noticeFade?.cancel()
         guard entry.dismissal == .fades else { return }
         let fade = DispatchWorkItem { [weak pill] in
-            guard let pill, case .error(let message) = pill.state, message == entry.headline else { return }
+            guard let pill, case .error(let message) = pill.state, message == headline else { return }
             pill.retractDelivery()
         }
         noticeFade = fade

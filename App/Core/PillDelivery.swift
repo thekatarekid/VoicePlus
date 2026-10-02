@@ -164,6 +164,16 @@ public enum PillDeck {
     public static let notTypedStatus = "Not typed · saved to history"
     /// N20 — the refused press (K04): the previous dictation is still being typed.
     public static let previousStillLanding = "Previous text still landing"
+    /// N17 — a tap under the hold threshold is not a failed turn: it is a hint how to dictate.
+    public static let tapHint = "Hold to talk · double-tap to lock"
+    /// N17 — the same hint when the double-tap latch is off.
+    public static let tapHintNoLatch = "Hold to talk"
+    /// N17 — a press that heard no speech (A06) says so plainly; nothing was typed.
+    public static let didntHearAnything = "Didn’t hear anything"
+    /// N23 — a new press began while the previous text was still being typed: its outcome is
+    /// noted on the live row instead of replacing it (the text is in history / the held queue).
+    public static let previousTextHeld = "Previous text held · Insert or Copy from the menu"
+    public static let previousTextNotTyped = "Previous text couldn’t be typed · saved to history"
     public static let notTypedHelper = "Insert it here or copy it when you are ready"
 
     // C5 warning

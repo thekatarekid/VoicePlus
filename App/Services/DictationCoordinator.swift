@@ -266,7 +266,7 @@ public final class DictationCoordinator {
         self.paused = paused
         if paused {
             endLatch()
-            cancel()
+            cancel(tapped: false)
         }
     }
 
@@ -281,7 +281,8 @@ public final class DictationCoordinator {
             // not touch the mode.
             if latched { endLatch() }
             finalize()
-        case .cancelCapture: cancel()
+        // N17 — the gesture's own cancel is a key released under the hold threshold: a tap.
+        case .cancelCapture: cancel(tapped: true)
         case .enterLatch:
             latched = true
             pill.model.latched = true
@@ -567,7 +568,17 @@ public final class DictationCoordinator {
     /// utterance inside a latched session (a stray tap, a swap, a preflight failure) is not the user
     /// asking to leave latch. The paths that *must* end the mode — hard mute, lock/sleep, an
     /// explicit stop — call `endLatch()` themselves (`SessionCoordinator`).
+    ///
+    /// N17 — the hotkey's too-short press reaches here through `SessionCoordinator.cancel(.hotkey)`,
+    /// which says nothing about why; a cancel inside the hold threshold of this press's key-down is
+    /// that tap. Mute and other shutdowns call `cancel(tapped: false)`.
     public func cancel() {
+        cancel(tapped: Date().timeIntervalSince(startedAt) < HotkeyStateMachine.Timing.default.holdThreshold)
+    }
+
+    /// `tapped`: N17 — the key came up under the hold threshold. The turn is dropped without a
+    /// record and the pill hints how to dictate; any other cancel ends the turn quietly as before.
+    public func cancel(tapped: Bool) {
         // S3 — the capture turn ends quietly (a too-short tap is not news; Escape shows its own
         // "Cancelled"). A turn already past key-up is not capture any more: it is left to finish.
         if let turns, let id = sessionLock.withLock({ () -> TurnID? in
@@ -576,7 +587,7 @@ public final class DictationCoordinator {
             refusedPress = false
             return id
         }) {
-            turns.captureCancelled(id)
+            if tapped, !latched { turns.captureTapped(id) } else { turns.captureCancelled(id) }
         }
         enqueue { [weak self] in
             guard let self else { return }
