@@ -758,14 +758,14 @@ Effort: S is under a day, M is 1-3 days, L is more than 3 days. The new numbers 
 | **N5** | Line breaks can send or run in unlisted apps | Merges F5 and F6, by structure. Inside a web area or any Electron/Chromium runtime, type line breaks as ⇧↩ and never let the fallback post a bare one. On any surface the resolver calls a terminal, use the terminal adapter (bracketed paste). Never press Return | Injection/AppAdapter.swift, TextInjector.swift | S-M | Low | Default adapter in a web area emits ⇧↩; every terminal id and pty-backed field gets the terminal adapter | Early send in Gemini, Safari; commands run in WezTerm, Warp |
 | **N6** | Final pass can take 17 s; about 1 s reloads after idle | Section D: bundle or onboard the CTC model, compile at launch and after updates ("Preparing speech models"), always resident with a stable key, exempt from idle and warning unloads. Stable rescorer rebuilt in the background. 1.5 s rescoring deadline → land unboosted. Per-stage ms and pre-boost raw text in `turn_records`. Replaces F14 (the key-down load is dropped) | Engine/Decoder/CTCVocabularyBooster.swift, FluidAudioTDTDecoder.swift, ResidencyPlan.swift, Shared/Services/ModelResidency.swift, App/Services/TurnController.swift, TurnStore.swift, Packaging/make_app.sh | M | Low-medium: about 100 MB more resident on a Mac with nearly full swap; installer grows by 98 MB | A slow fake booster lands within the deadline; no model load inside a turn; residency tests | E1F62700; slow first dictation after a pause |
 | **N7** | 17 s context stall; reads from the wrong app | Unchanged from F4: one bounded turn snapshot started at key-down, tied to the starting app and window, about 250 ms. It now also feeds the rubric (E2) | App/Services/UtteranceLander.swift, AppContainer.swift, AXContextProviders.swift, DeixisService.swift, ActStack.swift, Injection/AXReader/* , WindowContentCache.swift | M-L | Medium | A mock 10 s source lands in about 400 ms; no read when contextual reading is off | "Still finishing", lost Notes text |
-| **N8** | 1.25 s median (up to 17 s) from "recognised" to "typed" | New. Time every step between landing and the write (formatting, cleanup, focus checks, adapter, readback), find the tails, fix | App/Services/UtteranceLander.swift, TurnController.swift, Injection/* | M | Low | Timing in `turn_records`; target a median under 0.4 s | General slowness compared with Kivi |
+| **N8** | 1.25 s median (up to 17 s) from "recognised" to "typed" | New. Time every step between landing and the write (formatting, cleanup, focus checks, adapter, readback), find the tails, fix. **Round 4: the first cause is found.** The fixed 0.6 s preview dwell takes a median 0.63 s of it, on every dictation. Proposal: insert as soon as the text is ready, keep the preview for Manual mode, and merge the pre-write checks into one (R4 Q1). The dwell default is an **owner decision** | App/Services/UtteranceLander.swift, TurnController.swift, Injection/* | M | Low | Timing in `turn_records`; target a median under 0.4 s | General slowness compared with Kivi |
 
 #### P1: general intelligent input
 
 | # | Problem | Change | Files | Effort | Risk | Tests | Symptom fixed |
 |---|---|---|---|---|---|---|---|
 | **N9** | Three disagreeing app lists; first-match substrings ("codex" → code, "console" → terminal) | **Surface resolver** (E1): evidence added up, confidence, safe fallback, seed tables as hints, your per-app override, profile and signals saved in `turn_records`. Fix the `"code"` substring and the first-match field hints. Reset the auto persona for `com.openai.codex`. Replaces F10, the category part of F3 and the Gemini line of F9 | Pipeline/Style/AppCategory.swift, Pipeline/Formatters/FieldRole/*, App/Services/FieldContextReader.swift, Injection/AppAdapter.swift, App/Services/TurnStore.swift | M-L | Medium | Table test across known and **unknown** apps; an unknown app gets safe prose; no list disagreement | Wrong format per app and tab; code style in ChatGPT |
-| **N10** | Chromium apps hide their text (ChatGPT, unnamed wrappers) | Section B: runtime detected from the bundle; `AXManualAccessibility` then `AXEnhancedUserInterface`, chosen by probing the focused element; cache per process and version; honour the Chromium setting plus a per-app off switch; enable lazily; measure CPU and window-manager side effects | Injection/AppAccessibilityEnabler.swift | M | Medium: side effects of the enhanced attribute | Fake Owl-style bundle → Chromium; probe-driven attribute choice. **Read-only live probe first** | No screen context or readback in ChatGPT |
+| **N10** | Chromium apps hide their text (ChatGPT, Dia, Comet, unnamed wrappers) | **Revised in round 4 (R4 Q2): turn accessibility on by trying, not by recognising the app.** (1) At key-down, set the harmless `AXManualAccessibility` on any app, once per app version; native apps ignore it. (2) Probe the focused element: is it editable, and is it inside an `AXWebArea`? (3) Only if nothing editable is found *and* the bundle contains a "… (Renderer).app" helper (one cached structural check, no lists), set `AXEnhancedUserInterface` and probe again. (4) "Web content" (keystrokes, ⇧↩, read the URL) comes from the `AXWebArea` ancestor, not from the runtime. (5) If the tree stays empty, use the safe defaults (N3, N4, N5). Cache per process and version; honour the Chromium setting plus a per-app off switch; log which switch worked; measure CPU and window-manager side effects | Injection/AppAccessibilityEnabler.swift, App/Services/FieldContextReader.swift | M | Medium: side effects of the enhanced attribute, now limited to apps where the probe proves it is needed | Fake bundles in the ChatGPT/Owl, Dia (ArcCore) and Comet layouts → enhanced only after a failed probe; a native app never gets the enhanced attribute; web-area detection drives ⇧↩. **Read-only live probe first (S0)** | No screen context or readback in ChatGPT; Dia and Comet unrecognised |
 | **N11** | Strict tiers; one list for every app; screen words never used | **Context rubric** (E2-E4): typed candidates, one scoring formula, per-source quotas, collision penalty, stable plus per-turn boost layers, boosted words tagged and lower-confidence. Includes F27 (on-screen words) behind a Lab measurement. Replaces F7 and the confidence part of F8 | Engine/Biasing/ContextRanker.swift, Ranker.swift, BoostVocabulary.swift, ContextHarvester.swift, Engine/Decoder/VocabularyBooster.swift, Lab | L | Medium | Ranking tests; corrections survive a full budget; Lab accuracy with and without screen terms; collision words need evidence | Contacts noise; screen words ignored |
 | **N12** | Hardcoded terminal and symbol tables | **Surface grammars** (E5): symbols need structure or a cue; command-line grammar validated against your real commands; formulas; URL versus search; label-typed form fields; Markdown where accepted. Replaces F8's symbol list and F9 | Pipeline/Formatters/TerminalFormatter.swift, Pipeline/Formatters/* | M-L | Low-medium | Replay 11:34:44; "c plus plus" → c++; "voice plus" stays words; "equals sum a one to a ten" → formula; "google dot com" in a URL bar → google.com | Terminal output; "Akash" for slash |
 | **N13** | Terminal can't use the folder you're in (approved) | F26: the focused shell's current folder through the process tree; one-time permission in Settings; silent match only when close, otherwise suggest; never Return | new App/Services/ShellContextProvider.swift, Engine/Biasing/Sources.swift, TerminalFormatter.swift | M | Low-medium (permission prompt; ask once in Settings) | Fake process tree and folder listing; no listing without permission | `cd documents/voiceplus` |
@@ -830,6 +830,12 @@ Effort: S is under a day, M is 1-3 days, L is more than 3 days. The new numbers 
 7. **N10** after a read-only probe. Then **N11 → N12 → N13 → N14**, which share the rubric's candidate types.
 8. **N15-N17 and N20**, then P2. **N28** last, once there is data to learn from.
 
+**Live tests in this order (added in round 4; the full plan is in R4 Q4):**
+- **S0, the read-only accessibility probe, can run now** with your OK. It feeds N10 (step 7) and N9 (step 6).
+- **S1a, the scripted landing, safety and speed tests,** runs after steps 1-6 and the confidence gate below, plus your decision on the preview dwell (N8).
+- **S1b, the format, canvas, ribbon and terminal-folder tests,** runs after steps 7-8.
+- **S2, the dogfood day,** runs after S1b passes. N28 starts from its data.
+
 #### Confidence gate: what must be true before the live tests in ChatGPT, Gemini, Figma and WezTerm
 
 You were right to defer them. A live test is only worth running when a failure points to one cause. All of the following must hold first:
@@ -858,3 +864,311 @@ Only then run the live session, with you present.
 - Per-model RAM, and whether the 800 MB of working memory is mostly CoreML buffers (Instruments).
 - The cause of the memory-pressure warnings every 30 minutes on this Mac.
 - Whether `AXEnhancedUserInterface` slows window movement or costs noticeable CPU in practice.
+
+---
+
+## Round 4: owner questions and live test plan
+
+Same build (V5 1.13.0), code at HEAD `fe6f23e`, the same read-only DB. Evidence comes from the code, the installed app bundles (Info.plist, framework and helper names, string counts in the binaries; nothing was launched), the FluidVoice source and the `turn_records` timestamps. No app was controlled or typed into, and no VoicePlus code was changed. Confidence labels are the same as in earlier rounds.
+
+### R4.0 New facts found while answering
+
+1. **Every dictation waits 0.6 s on purpose before it types.** The "final preview" dwell defaults to 0.6 s (App/Settings/SettingsStore+Turns.swift:17-32), and this Mac has no override. In all 16 landed turns, the gap from "preview drawn" to "write sent" was 0.61-0.64 s (median 0.63 s; one outlier at 4.37 s, when the dwell was paused). That is about half of round 3's 1.25 s median from "recognised" to "typed" (N8). From key-up: text ready after a median of 1.02 s (p90 2.63 s), written after a median of 1.77 s (p90 4.94 s). **Confirmed** (`turn_records` capture timestamps).
+2. **Dia and Comet are invisible to VoicePlus's browser logic.** Neither is on the browser list (App/Services/FieldContextReader.swift:160-164) or the Chromium adapter's list (Injection/AppAdapter.swift:245-246). The runtime check also misses both: Comet's engine is "Comet Framework", and Dia's Chromium sits inside "ArcCore.framework" (AppAccessibilityEnabler.swift:42-52 looks only for "Electron Framework"). So in Dia and Comet: no accessibility switch, no URL or page title, and the default adapter, whose keystroke fallback can type a bare Return. Code and bundles: **confirmed**. Whether dictations there end up in Notes the way ChatGPT's did: **hypothesis**, because there are no Dia or Comet turns in the DB.
+3. **Chromium-based apps respond only to `AXEnhancedUserInterface`.** The engine binaries of Chrome, Brave, Comet, Dia (ArcCore) and ChatGPT (Codex Framework) contain that string and contain `AXManualAccessibility` 0 times. Claude's Electron Framework contains both. **Confirmed** (string counts).
+4. **One bundle marker identifies every app on this Mac that ships a Chromium engine:** a helper named "… (Renderer).app". It is present in Chrome, Brave, Comet, Dia, ChatGPT and Claude, and absent in Gemini, Telegram, Warp and WezTerm. **Confirmed.**
+5. **Kivi also has a small web-app layer.** This corrects round 3's "plus one URL". See Q3. **Confirmed** for the mechanism; the exact host list is **likely**.
+6. **VoicePlus already declares the Apple Events permission but never uses it.** The usage string is in App/Resources/Info.plist:58-60, and the signed app has the automation entitlement, but no code sends Apple Events. **Confirmed.**
+7. **FluidVoice pulls you back when focus has moved.** It raises the remembered window, re-focuses the element (activating the app if needed), then pastes (FluidVoice TypingService.swift:311-330). It checks for a password field only before its optional spoken "send" action (TypingService.swift:47-74). Its editability gate even lists `AXSecureTextField` as editable (DeliveryTargetAssessment.swift). So a plain paste into a password field is not blocked. **Likely**: the plain path was read but not traced end to end.
+
+---
+
+### Q1. "Is ours not simple?"
+
+**No, it is not.** Between "final text ready" and "text in the app", VoicePlus runs about **12 decisions and 5 waits**. FluidVoice runs about **4 decisions and no deliberate wait before the text appears**. Most of our extra steps were added one incident at a time: Brave double-typing, a chat message sent early, the preview, the hold. A few of them really protect you. Several are ceremony that costs time on every dictation.
+
+**VoicePlus today, in order (happy path, readable native field):**
+
+| # | Step | Kind | Where | Verdict |
+|---|---|---|---|---|
+| 1 | Drop the result if the turn was cancelled or already claimed | Gate | TurnController.swift:624-635 | Keep (cheap) |
+| 2 | Context gathering ("this/her" lookup, ranked harvest) | **Wait, unbounded** (0 to 17 s) | UtteranceLander.swift:216 | Keep, with a hard deadline (N7) |
+| 3 | Read the focused field: role, caret, labels, URL, title, participants | Read | UtteranceLander.swift:220; FieldContextReader.swift:128-157 | Keep (it decides format and safety) |
+| 4 | Formatting pipeline, including an LLM cleanup capped at 0.5 s | Wait (bounded) | UtteranceLander.swift:235 | Keep |
+| 5 | Four possible diversions: act, transform, undo of a correction, repair | Gates | UtteranceLander.swift:250-297 | Keep (they are features, and cheap) |
+| 6 | Password field → refuse (check 1 of 3) | Gate | UtteranceLander.swift:327-338 | Keep **one** password check, the last one |
+| 7 | Notes routing: 8 possible reasons, including "no field found" | Gate | NotesRouting.swift:77-103; UtteranceLander.swift:345-353 | Shrink: "no field" goes away with the delivery ladder (N3) |
+| 8 | Dropped if the turn ended while formatting | Gate | TurnController.swift:655-659 | Keep, but Cancel must keep the text (N2) |
+| 9 | One turn at a time through the gate | Wait (queue) | TurnController.swift:790-817 | Keep (it keeps dictations in order) |
+| 10 | Preview: wait for the pill to draw it (up to 1 s, median 0.02 s) | Wait | TurnController.swift:180, 844-876 | Fold into step 11 |
+| 11 | **Dwell 0.6 s**; frozen by 6 pause reasons (hover, focus, selection, review, editing, composition); Manual mode waits for a click | **Wait, fixed** | SettingsStore+Turns.swift:27-28; TurnController.swift:137-141, 914-938 | **Remove by default** (see below) |
+| 12 | Revalidation: same app, not a password field (check 2), text unchanged, caret unchanged → else hold | Gate | FocusGuard.swift:187-195; TurnController.swift:1157-1161 | Keep "same app and window" and the password check. The text- and caret-changed holds are only worth it when there is a dwell |
+| 13 | One insert per turn | Gate | TextInjector.swift:382-413 | Keep (cheap; stops double typing) |
+| 14 | Injector: focus still matches (again), a frontmost app exists, not on the never-inject list, turn the accessibility switch on, password field (check 3) | Gates | TextInjector.swift:117-134 | Merge with step 12 into **one** pre-write check |
+| 15 | Pick 1 of 7 adapters by bundle id, then reorder methods by what worked in this app before | Decision | AppAdapter.swift:348-359; MethodRouter.swift:16-18, 41-44 | Replace with a write plan chosen from the surface kind (N5, N9); keep the history only as a tie-break (N16) |
+| 16 | Per method: focus check (again); read the page URL for the line-break key; write | Gate + read | TextInjector.swift:143-166 | Keep the write; the URL comes from step 3 |
+| 17 | Readback: poll every 30 ms for up to 400 ms | Wait (after the text is in) | ReadbackSettler.swift:43-58; TextInjector.swift:180-183 | Keep, but take "Done" off its critical path; "can't tell" stays neutral |
+
+On screen, the pill steps through finishing → "Still finishing" (after 2 s) → the 10 s offer (PillPresentation.swift:504-516) → final preview → inserting → landed (verified, neutral or warning), held, or consumed. That is 5 to 8 states for one dictation.
+
+**FluidVoice, in order** (design only, GPLv3, nothing copied):
+1. Optional AI cleanup.
+2. Is the remembered app, window and element still focused? If not, raise and re-focus them (TypingService.swift:311-330).
+3. Refuse only when the focused element is *certainly* not text: a button, a menu (DeliveryTargetAssessment.swift).
+4. Paste with ⌘V, wait 500 ms, restore the clipboard. Read back; "unknown" counts as fine (PasteVerifier.swift:77-120).
+
+**What earns its keep:**
+- **Never send by accident.** VoicePlus never presses Return. When it types, a line break is ⇧↩ (⌥↩ in a sheet cell), and in a terminal multi-line text goes in as bracketed paste. One wrongly sent message costs more than every millisecond this list saves. Note that it only matters on the keystroke path: inserting through Accessibility posts no key at all, so it cannot send.
+- **The password-field refusal, and macOS secure input (N4).** FluidVoice most likely does not block a plain paste into a password field (R4.0 #7). We should.
+- **Hold when you have moved to another app.** VoicePlus is right not to copy FluidVoice here. FluidVoice yanks you back to the old window and types there. Holding and naming the app is the safer behaviour.
+- **One insert per turn, and readback that treats "can't tell" as neutral.** Both are cheap and stop double typing.
+- **Ordering:** one dictation lands at a time, in order.
+
+**What should go, or shrink:**
+- **The fixed 0.6 s dwell** costs about 0.6 s on every dictation. It is half of the delay you feel, and the ≤0.4 s target in the confidence gate cannot be met while it exists. Proposal: insert as soon as the text is ready. Keep the preview for Manual mode, and optionally as a non-blocking display that still offers Undo. **Owner decision.** It belongs to N8.
+- **Three password checks and three focus checks** become one check right before the write: same app and window as key-up, not a password field, secure input off. Merge into N3/N4.
+- **The holds for "text changed" and "caret changed".** They protect the dwell window. With no dwell, that window is milliseconds long, and they cause false holds in apps that redraw their own field (Docs' hidden text target is a likely case). Keep them only in Manual mode.
+- **Seven adapters chosen by bundle id, with learned method order,** become four write plans chosen by surface kind: native text (Accessibility, then keystrokes), web or Chromium content (keystrokes with ⇧↩, paste for long text), terminal (bracketed paste), sheet cell (⌥↩). This is N5 plus N9; N16 stays as a tie-break only.
+- **The unbounded context step** gets a hard deadline (N7).
+- **"No field, so it goes to Notes"** becomes "deliver anyway when the same app and window are still focused" (N3).
+- **The 10 s offer and the "Still finishing" states** go (N2, N22).
+
+**Simplified target path:** final text (context and formatting have already run under deadlines) → **one pre-write check** (same app and window as key-up? not a password field? secure input off?) → **write by surface kind** (never a bare Return) → readback in the background → Done. That is 3 decisions and no deliberate wait. **Likely** to bring the median from "recognised" to "typed" under 0.4 s, once the dwell is gone and N7 is in. It has to be measured in S1 below.
+
+---
+
+### Q2. "Why do we need to recognise how the app is built?"
+
+**What knowing the runtime is used for today. Three things, all decided from bundle names or lists:**
+1. **Which accessibility switch to flip.** Electron and Chromium apps build no accessibility tree until someone asks for one. Without the tree, VoicePlus cannot read the field, the caret, the URL or the text around the caret. Electron listens to `AXManualAccessibility`. Chromium browsers and the ChatGPT/Owl runtime listen only to `AXEnhancedUserInterface` (R4.0 #3). Today the choice comes from a framework-name check plus bundle-id lists (AppAccessibilityEnabler.swift:42-52).
+2. **How to write.** Web editors (React, ProseMirror, Draft.js) keep their own copy of the text. An Accessibility write changes what is on screen but not the editor's copy, so it gets lost or garbled. So web content gets keystrokes or paste, not an Accessibility write. And in web content Return usually *sends* (chat) or *submits* (forms), so line breaks must be ⇧↩. Today both rules hang off bundle-id lists (AppAdapter.swift:189-272).
+3. **Formatting category.** Bundle id substrings, for example "codex" → code. That one is already being replaced by the surface resolver (N9).
+
+**The two switches and their costs:**
+
+| Switch | Who listens | Side effects | Confidence |
+|---|---|---|---|
+| `AXManualAccessibility` | Electron apps only | The Electron app builds its full accessibility tree, which costs some CPU and memory in that app. Electron added this attribute precisely so that tools could switch accessibility on without the side effects of the other one. Native apps ignore it (the call simply fails), so trying it on any app is harmless. | **Likely** (general knowledge; harmlessness on native apps follows from the AX API) |
+| `AXEnhancedUserInterface` | Chromium browsers, ChatGPT/Owl, and Electron | It tells the app "a screen reader is running." Known effects: **window managers (Rectangle, Magnet, yabai, Amethyst) see laggy, animated or wrongly sized window moves**, and some of them switch the attribute off around every move for this reason. Chromium switches to full accessibility for every tab and frame, which costs CPU and memory on heavy pages such as Docs and Sheets. VoicePlus sets it and never sets it back (AppAccessibilityEnabler.swift:103-124), so it stays on until the app quits. | Window-manager effect: **likely** (well known in window-manager projects; not measured here; this Mac runs no window manager). CPU cost: **likely**, not measured. Never reset: **confirmed** |
+
+**How line breaks behave in web content:** a page sees a synthetic Return as a real Enter key. Chat apps send on it, forms submit on it, and Sheets commits the cell. ⇧↩ is a line break in text areas and in almost every rich editor. In Docs and Notion it is a *soft* break rather than a new paragraph, which is a small formatting difference, not a safety problem. In Sheets the in-cell break is ⌥↩. Accessibility inserts send no key, so native fields never have this problem. **Likely** (general web behaviour; checked live in S1).
+
+**Can we avoid recognising the runtime? Mostly yes.** The minimal approach:
+1. **At key-down, try the harmless switch on every app** the first time VoicePlus sees that app version: set `AXManualAccessibility`. Native apps ignore it. Cache the result per process.
+2. **Probe the focused element** with one bounded read: is there an editable element, and does it sit inside an `AXWebArea`?
+3. **Only if the probe finds nothing editable *and* the app ships a Chromium engine,** set `AXEnhancedUserInterface` and probe again. "Ships a Chromium engine" is one cached check for a "… (Renderer).app" helper anywhere in the bundle (R4.0 #4). That check needs no list of names, and it covers Dia's and Comet's unusual layouts, which today's framework-name check misses. Honour the "Expose text in Chromium browsers" setting (App/Settings/InsertionSettings.swift:7-13), add a per-app off switch, and log which switch worked.
+4. **Decide "web content" from the tree, not from the runtime.** The rule is "the focused element has an `AXWebArea` ancestor." That covers browsers, Electron apps, Gemini's WebKit view and unknown wrapper apps alike, and it drives keystroke-not-Accessibility, ⇧↩, and reading the page URL.
+5. **When the tree stays empty, use the safe default:** deliver as for web content (keystrokes, ⇧↩, never Return), under the N3 ladder's same-app check and the N4 secure-input check. In practice an unreadable field in a native app is rare. Those apps almost always draw their own text (terminals, canvases), and the terminal and canvas rules (N5, N15) still apply.
+
+So the runtime is kept for exactly one decision: whether to flip the switch that has side effects. It is decided by structure, not by a list. N10 in round 3's fix list is reworded to match.
+
+---
+
+### Q3. "Do Kivi's ~45 built-in apps include web apps? Can we recognise which website is open and act on it? Using what?"
+
+**Kivi: yes, a small number.** **Confirmed** from strings in KiviKit:
+- It has a `BrowserDocumentDetection` component.
+- Per-site detectors: `googleDocsAXURL`, `googleSheetsAXURL`, `notionAXURL`, plus title fallbacks `googleDocsTitleHeuristic` and `googleSheetsTitleHeuristic`.
+- A diagnostic, `browser_place_expected_but_no_url_or_title_found`.
+- Rich-copy probes for Gmail, Sheets and Linear.
+- Visible host strings: `docs.google.com/spreadsheets`, `coda.io`, `outlook.live.com`, `outlook.office.com`, `teams.microsoft.com` and `web.whatsapp.com`, plus fragments of Slack, Discord, Linear and Notion hosts.
+
+So Kivi reads the page URL from the web area's `AXURL` and falls back to the window title. That is the same method VoicePlus uses. It knows about a dozen web apps. Swift keeps short strings inside the code, which hides some names, so the exact list is **likely**, not complete. There is no AppleScript or Apple Events code, and no Firefox, Comet, Vivaldi or Opera strings. It does know Safari, Chrome, Brave, Edge, Arc and Dia.
+
+**VoicePlus today already knows more web apps than Kivi.** **Confirmed** from code:
+- **How the URL is read.** The reader walks up from the focused element, at most 40 parents, to the first node that has an `AXURL`, which is the web area (Injection/LiveSystemAccess.swift:286-301). If there is no URL, it uses the web area's title or the window title (FieldContextReader.swift:369-380).
+- **When.** Only when the frontmost app is on a 12-browser list (FieldContextReader.swift:137-143, 160-169). The same URL read also runs at write time, to choose ⌥↩ for a Sheets cell (TextInjector.swift:150-153; AppAdapter.swift:262-264).
+- **What it maps to.** 56 host-and-path routes and 13 title names lead to a sub-app category: mail, chat, sheet, document, code or terminal (Pipeline/Formatters/FieldRole/BrowserSubApp.swift:57-103). That category picks the persona and the field role.
+- **Gaps:**
+  - Dia and Comet are not on the list (R4.0 #2).
+  - Chromium browsers expose `AXURL` only when the enhanced switch is on, so turning off "Expose text in Chromium" also turns off site recognition.
+  - Web views inside other apps (Gemini, Electron apps) are never asked for a URL, because they are not "browsers".
+
+**Options for knowing the site:**
+
+| Option | What it gives | Permission cost | Pros | Cons |
+|---|---|---|---|---|
+| `AXURL` on the web area (today's method) | Full URL of the page holding the focused field | None beyond Accessibility, which VoicePlus already has | Exact; reads the frame the caret is actually in; no prompts; already built | Chromium needs the enhanced switch on; Firefox is weak (below) |
+| Web area or window title | Page title ("Inbox - Gmail") | None | Always there | Titles vary, are localised and are user content; good only as a fallback |
+| Address bar value | What the toolbar shows | None | Works when the web area hides its URL | Brittle: Safari shows only the domain by default; the bar holds your half-typed text while focused; layouts differ per browser and version, and Arc/Dia hide the bar; finding the bar needs a tree walk. Not recommended |
+| Apple Events ("URL of the active tab") | Front tab URL | **One macOS prompt per browser** ("VoicePlus wants to control Brave"); revocable in Privacy & Security → Automation | Works with the tree off | It asks the *front window*, which may not be the one with the caret; a call can stall if the browser is busy, so it needs a timeout; a prompt during a dictation would steal focus, so it could only be enabled from Settings; Dia, Firefox and Opera are unreliable or unsupported |
+
+**Per-browser coverage:**
+
+| Browser | On this Mac | Engine | URL through Accessibility | URL through Apple Events |
+|---|---|---|---|---|
+| Safari | Yes | WebKit | Yes, tree always on | Yes (scripting dictionary present) |
+| Chrome, Brave | Yes | Chromium | Yes, once the enhanced switch is on | Yes (dictionary present) |
+| Comet | Yes | Chromium 148 | Yes once the switch is on, **but VoicePlus doesn't treat it as a browser** | Yes (dictionary present) |
+| Dia | Yes | Chromium inside ArcCore | Same as Comet | **No** (no scripting dictionary in the bundle) |
+| Edge, Arc, Vivaldi | No | Chromium | Yes once the switch is on (**likely**) | Yes (**likely**) |
+| Opera | No | Chromium | Same (**likely**) | Partial (**likely**) |
+| Firefox | No | Gecko | Weak: Firefox builds its tree only when it detects assistive software, and many fields are poorly exposed (**likely**) | No URL |
+
+**What the field itself tells us, inside the page.** This is what should decide the behaviour:
+- **Role and subrole:** text field or text area (one line or several), search field, password field. Already read.
+- **The field's name:** aria-label (exposed as its description), placeholder, attached label, help text. For example "Message", "Search", "To", "Subject", "Email", "Ask anything". Already read for text roles (FieldContextReader.swift:134-137).
+- **Is it rich-text editable (contenteditable)?** WebKit and Chromium expose an "editable ancestor" attribute. Not read today.
+- **The element's id and class names in the page** (`AXDOMIdentifier`, `AXDOMClassList`, exposed by WebKit and Chromium). Examples: ChatGPT's composer id, a "ProseMirror" class, Docs' editor classes, Sheets' cell editor. Strong but site-specific, so a hint only and never required. Not read today. **Likely** available; S0 confirms.
+- **Inside a grid with column headers** → a spreadsheet cell. Already read (column header).
+- **Inside an `AXWebArea` or not.** This is also how the URL bar (a toolbar field, outside any web area) is told apart from page fields.
+
+**Canvas apps** draw their own text, so Accessibility sees little:
+- **Google Docs:** the page is drawn on a canvas, and keys go to a hidden text target. That is why round 1 saw an unchanging value and no ribbon. Its text becomes readable only when Docs' own screen-reader support is turned on (Tools → Accessibility). VoicePlus should not flip that for you, because it changes Docs' behaviour. Typing still works; only reading the context and aiming the ribbon suffer.
+- **Sheets:** the grid is a canvas, but the cell editor and the formula bar are real editable elements while you edit.
+- **Slides, Figma, Canva, Miro:** canvas. A text box being edited has a focused editable target. With nothing being edited, typed letters are tool shortcuts. That is N15's hold.
+- **Status:** the Docs and Sheets mechanics are **likely**; Figma and Slides need the S0 probe (**hypothesis**).
+
+**Recommendation:**
+1. **The domain is a hint, not the decision.** It feeds the surface resolver (N9) with medium weight, as section E1 already says. The field's own signals decide: role, multi-line, label and placeholder, editable, grid, inside a web area. An unknown site with a "Message" box behaves like a chat box. An unknown site's search box behaves like a search box. Anything else gets safe prose with ⇧↩.
+2. **Read `AXURL` whenever the focused element sits inside a web area, in any app.** No browser list. That fixes Dia, Comet, Gemini and future browsers at once.
+3. **Store only the host and the first path segment** in `turn_records`, never full URLs.
+4. **Keep the 56 routes as seed hints.** Add Slides, Figma, Canva, Linear and Miro as round 2 proposed.
+5. **No Apple Events for now.** Accessibility covers every installed browser once the switch is on. Revisit only if S0 shows `AXURL` missing in a browser you use.
+6. Add `AXDOMIdentifier`, `AXDOMClassList` and the editable-ancestor attribute to the field read, as low-weight hints.
+
+---
+
+### Q4. Live test plan
+
+**Goal.** Prove, app by app, that text lands in the right field, in the right format, never sends or runs anything, and is fast. Every failure must trace to one cause in one `turn_records` row.
+
+#### Stages
+
+| Stage | When | What | Who |
+|---|---|---|---|
+| **S0: read-only probe** | **Now.** Needs your OK; needs no P0 code | For each app and field in the matrix, you click into the field; a small read-only probe tool records the field's role, subrole, label and placeholder, editable ancestor, page id and class, whether it sits in a web area, the URL host, the caret rectangle, and **which switch was needed** (none / manual / enhanced). It never types, and never reads text values (lengths and hashes only). Its only change to an app is flipping that app's accessibility switch, which VoicePlus already does today. | Agent writes the probe (new tooling) and reads the output; you focus each field |
+| **S1a: scripted landing and safety** | After the round-3 confidence gate items 1-4 (N1, N3, N4, N5, N6, N7, N8, N9, N21 built, unit and table tests green, replay clean) and your dwell decision | About 10 scripted utterances per matrix cell, delivered by a **replay harness** (new, debug-only: after a 3 s countdown it plays a recorded utterance through the real engine and landing path into whatever is focused, as if the hotkey were held). Without the harness, you read the script aloud. Checks: lands, safety, latency, surface picked | You open scratch documents and place the caret; the agent triggers replays and scores from the DB and logs |
+| **S1b: format and polish** | After N10, N12, N13, N15, N17, N19, N20 | Same harness. Checks: format grammar per surface, canvas hold, ribbon, terminal folder names, tap and silence hints, Chromium switch choice | Same |
+| **S2: dogfood day** | After S1b passes | One normal working day of your real use. Logging on; text logging off unless you opt in. The agent reviews `turn_records` at the end of the day and files each miss with its traced cause | You use it; the agent reviews |
+
+#### Safety rules (all stages)
+
+- **Scratch only.** Use a new Notes note called "VoicePlus test", a new TextEdit document, scratch Google Doc, Sheet and Slides files, a scratch Figma file, a scratch Notion page and a scratch folder `~/VoicePlusTest` for terminals. You trash them afterwards.
+- **No sending.** VoicePlus never presses Return, and the tests never press it either.
+  - Chat composers: a new, empty chat. Messages: a new message with **no recipient**. Gmail: a draft with no recipient. x.com: a draft, discarded afterwards.
+  - Slack web and Telegram only if you choose a conversation with yourself.
+  - **Any send, any command that runs, or any text typed into a password field stops the session.** It is fixed before testing continues.
+- **No real accounts beyond what you open.** The agent never clicks, types or logs in anywhere. It only triggers VoicePlus and reads its own DB and logs.
+- **Password and form tests use a local test page** (a file on disk with name, email, phone, search, text area and password fields), never a real login page.
+- **Terminals:** only harmless commands (`echo`, `cd`, `ls`) in the scratch folder; never `rm` or anything with sudo.
+- **Clipboard:** the paste path uses the clipboard. N18 restores it; check that in X11.
+
+#### Checked in every cell
+
+| Check | Pass bar (per cell, 10 utterances) | Logged in |
+|---|---|---|
+| C1 Lands in the field the dictation started in, or is held with the right app named | 10/10 never in the wrong app; ≥ 9/10 landed, with any miss traced to one logged cause | `turn_records`: destination, outcome, verification verdict |
+| C2 Surface kind picked | ≥ 9/10 as expected for that field | Surface kind, top signals and confidence (N9) |
+| C3 Format matches the surface's grammar (S1b) | ≥ 8/10, with no forbidden output (a period in a URL, a capital in a command, a trailing period in a cell) | Pre-boost raw text and final text (scratch content only, text logging on in S1) |
+| C4 Line-break safety | **10/10**: nothing sent or run; breaks appear as breaks | Write method and line-break key used |
+| C5 Ribbon on the caret line (S1b) | ≥ 8/10 where the field exposes a caret | Ribbon event: which method placed it, or why it was suppressed (N19) |
+| C6 Speed | Across all of S1: from "recognised" to "written", **median ≤ 0.4 s and p95 ≤ 1 s**; no final pass over 1.5 s; no model load inside a turn | Per-stage ms (N6, N7, N8) |
+
+**Script (scratch content):**
+- U1 a plain sentence.
+- U2 two paragraphs ("… new paragraph …").
+- U3 money and numbers.
+- U4 a Contacts name plus collision words ("Ask Akash about the budget in the next tab").
+- U5 "google dot com slash maps".
+- U6 an email address.
+- U7 "cd documents slash voice input" (terminals only).
+- U8 "equals sum a one to a ten" (sheets only).
+- U9 a 60 s dictation.
+- U10 a Hinglish line.
+
+Each cell uses the subset that fits it.
+
+#### App matrix
+
+Stage marks show the earliest stage at which a check can run. "Validates" lists the fixes the cell proves.
+
+**A. Native AppKit and SwiftUI**
+
+| # | App and field | Specific checks | Stage | Validates |
+|---|---|---|---|---|
+| A1 | Notes: a new empty note, and a long note | Lands in the long note in under 1.5 s from key-up (the 17 s case); real paragraph breaks | S1a | N7, N8, N3 |
+| A2 | TextEdit: a plain and a rich document | Verified Accessibility write; ribbon exactly on the line (reference case) | S1a / S1b | Regression reference |
+| A3 | Mail compose (no recipient): To, Subject, body | Address format in To; no line break in Subject; paragraphs in the body | S1a lands; S1b format | N9, N12 |
+| A4 | Messages, new message, no recipient | Two paragraphs never send | S1a | N5 |
+| A5 | Spotlight search field | No trailing period, no capital; ribbon exactly on the line | S1b | N12 |
+| A6 | Telegram (native), a chat with yourself only if you choose | Never sends | S1a | N5 |
+
+**B. Chromium and Electron apps**
+
+| # | App and field | Specific checks | Stage | Validates |
+|---|---|---|---|---|
+| B1 | ChatGPT (Codex app), new chat composer | Lands, **not in Notes**; never sends; verified or neutral; chat style, not code style; which switch was needed | S1a delivery; S1b style and switch | N3, N4, N5, N9, N10 |
+| B2 | Claude, new chat composer | Lands; empty-composer ribbon at the caret | S1a; S1b ribbon | N5, N19 |
+| B3 | Cursor: a scratch file, the AI composer, the built-in terminal | Composer: ⇧↩, never submits. Editor: identifiers kept, no trailing period. Terminal pane: command grammar, bracketed paste | S1a safety; S1b format | N5, N9, N12 |
+| B4 | VS Code: a scratch file and the built-in terminal | As B3 | S1a; S1b | N5, N9, N12 |
+| B5 | Figma desktop, scratch file: canvas with nothing being edited, a text layer being edited, a comment box | Canvas → held with "Click into a text box first", and no tool shortcut fires; text layer → lands; comment → line break does not post | S1b | N15, N5 |
+| B6 | Obsidian (Electron), scratch note | Prose with Markdown cues | S1b | N9, N12 |
+| — | Slack and Notion desktop | **Not installed.** Covered by the web rows; untested as desktop apps | — | — |
+
+**C. Native app with a web view**
+
+| # | App and field | Specific checks | Stage | Validates |
+|---|---|---|---|---|
+| C1 | Gemini, new chat composer | Web area detected without any switch (WebKit); ⇧↩; no early send; chat style | S1a safety; S1b style | N5, N9, N10 |
+
+**D. Terminals**
+
+| # | App | Specific checks | Stage | Validates |
+|---|---|---|---|---|
+| D1 | Terminal, zsh at an empty prompt in `~/VoicePlusTest` | A one-line command lands with no Return; two lines never run (bracketed paste); "cd documents" comes out as `cd Documents/`; folder names matched only after your Settings OK | S1a safety; S1b grammar and folders | N5, N12, N13 |
+| D2 | Warp | As D1 (Warp's input box is its own editor, not a classic prompt) | S1a; S1b | N5, N12 |
+| D3 | WezTerm | As D1; it uses the default adapter today | S1a | N5 |
+| — | iTerm, Ghostty | **Not installed.** Table tests only; untested live | — | N5 |
+
+**E. Browsers and web apps.** The full set runs in **Brave** (your main browser). The rows marked ★ also run in **Safari, Chrome, Comet and Dia**, to show that the behaviour does not depend on the browser. Firefox, Arc, Edge, Vivaldi and Opera are not installed and are untested live.
+
+| # | Web app and field | Specific checks | Stage | Validates |
+|---|---|---|---|---|
+| E1 ★ | Google Docs, scratch document | Prose; paragraph breaks; a ribbon appears | S1a; S1b ribbon | N9, N19 |
+| E2 | Google Sheets, scratch sheet: a selected cell, the cell editor, the formula bar | No trailing period; a break inside a cell is ⌥↩ and never commits the cell; "equals sum…" becomes a formula | S1a ⌥↩; S1b formula | N5, N12 |
+| E3 | Google Slides, scratch deck: nothing being edited, and a text box | Nothing being edited → held with a hint; text box → lands | S1b | N15 |
+| E4 ★ | Gmail draft, no recipient: To, Subject, body | Never sends; email format in To | S1a; S1b format | N5, N9, N12 |
+| E5 | x.com compose box (draft, discarded) | Never posts; empty-box ribbon | S1a; S1b ribbon | N5, N19 |
+| E6 ★ | ChatGPT web, new chat | Never sends; chat style | S1a | N5, N9 |
+| E7 | Figma web, scratch file | As B5 | S1b | N15 |
+| E8 | Notion web, scratch page | ⇧↩ gives a soft break (noted, not a failure); Markdown cues | S1b | N9, N12 |
+| E9 ★ | Local test form: name, email, phone, search, text area | The label decides the format | S1b | N9, N12 |
+| E10 ★ | Address bar | "google dot com" becomes `google.com`; a search phrase has no capital and no period; Return is never pressed | S1b | N12 |
+| E11 | Slack web, a chat with yourself (optional) | Never sends | S1a | N5 |
+| E12 | Brave with "Expose text in Chromium" **off** | Still lands (unverified); safe line breaks; no URL, so generic surface | S1b | N3, N10 |
+
+#### Edge cases
+
+Each runs in the 2-3 surfaces named, not in every cell.
+
+| # | Case | Where | Pass | Stage | Validates |
+|---|---|---|---|---|---|
+| X1 | Password field | Local form in Safari and Brave | Refused; nothing typed, held or recorded | S1a | N4 |
+| X2 | Empty field | Claude, x.com, a new note, Spotlight | No leading space; correct capital; ribbon at the start | S1a; S1b ribbon | N19 |
+| X3 | Two paragraphs into a chat | ChatGPT app and web, Claude, Gemini, Messages, Gmail body, x.com | Breaks present; **nothing sent** | S1a | N5 |
+| X4 | Switching apps mid-dictation, (a) before releasing the key and (b) after releasing it but before the text lands | Notes → Claude; Brave → Terminal | Never typed into the new app; held, naming the app that took focus; Insert here works when you return | S1a | N3, N20 |
+| X5 | Cancel after recognition | Notes, ChatGPT | Nothing typed; text kept in history with Insert and Copy | S1a | N2 |
+| X6 | A tap under 250 ms, and a 2 s silent press | Any | Hint shown; no "cancelled" or "empty" turn stored | S1b | N17 |
+| X7 | 60 s dictation | Notes, Docs | All the text lands; final pass ≤ 1.5 s; no context stall | S1a | N6, N7 |
+| X8 | First dictation after 30 min idle | Notes | Adds ≤ 0.2 s | S1a | N6 |
+| X9 | Two dictations back to back | TextEdit, Claude | Both land, in order; the second press is never silently refused | S1b | N20, N23 |
+| X10 | Escape during the write | TextEdit | Undo is offered and removes exactly the inserted text | S1a | Existing |
+| X11 | Clipboard restore | Any paste-path cell, after copying a known string | The known string is still on the clipboard afterwards | S1a | N18 |
+| X12 | Contacts collision words (U4) | Brave, Terminal | "budget", "tab", "code" and "slash" come out right | S1a | N1 |
+
+#### Order, and where it sits in the fix list
+
+1. **S0 now**, after your OK. Its results settle N10's switch choice (gate item 5) and seed N9's field signals.
+2. **Build P0 and N9 → confidence gate items 1-4 → your dwell decision → S1a.**
+3. **Build the P1 items → S1b.**
+4. **S1b passes → S2 dogfood day.**
+5. **N28** (the learning loop) starts from S2's data.
+
+S1a must not start before the gate. A failure would then have several possible causes, which is exactly what the gate prevents.
+
+**Tooling this needs.** Both are new, small, debug-only and outside the product path:
+- the read-only probe, for S0;
+- the replay harness, for S1. Without it, S1 still works with you reading the script aloud, but it is slower and less repeatable.
+
+**Untested after this plan:** iTerm, Ghostty, Firefox, Arc, Edge, Vivaldi, Opera, and the Slack and Notion desktop apps (none installed). The window-manager side effect of the enhanced switch (no window manager on this Mac). Its CPU cost is measured only if you keep Activity Monitor open during E1 and E2.
