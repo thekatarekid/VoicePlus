@@ -48,6 +48,8 @@ public final class AppContainer {
     /// P3 — timeline recorder + deixis/referent resolution + AX window text feed.
     public let deixis: DeixisService
     public let axWindowText: AXReaderWindowText
+    /// N7 — the one bounded context snapshot per turn (started at key-down).
+    public let turnContext: TurnContextSnapshot
     /// V5 B2 + E1 — the ranked context, rebuilt per utterance, as `StageContext.extra["context.prompt"]`.
     public let contextPrompt: ContextPromptSession
     /// P4 — act domain: catalogue + consent + executor + agent behind the second key.
@@ -225,6 +227,15 @@ public final class AppContainer {
         recentWords = RecentWordsRing()
         let axWindowText = AXReaderWindowText(system: system)
         self.axWindowText = axWindowText
+        // N7 — every screen-context consumer (harvest, deixis, cleanup prompt, dictionaries) reads
+        // the turn's snapshot instead of walking the frontmost window at landing.
+        let turnContext = TurnContextSnapshot(reader: (system as? AXReaderProviding).map { provider in
+            AXTurnContextReader(reader: provider.axReader, enableAccessibility: { [system] pid in
+                (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: pid)
+            })
+        })
+        self.turnContext = turnContext
+        axWindowText.snapshot = turnContext
         let harvester = ContextHarvester(sources: [
             AXTreeSource(provider: axWindowText),
             recentWords,
@@ -490,6 +501,12 @@ public final class AppContainer {
     }
 
     /// Called at hotkey-down: refresh the decoder's bias list from the current screen/context.
+    /// N7 — key-down: bind this turn's context to the app (and its focused window) the user started
+    /// in and start the one bounded read. Never blocks; no read when contextual reading is off.
+    public func beginTurnContext() {
+        turnContext.start(app: system.frontmostApp())
+    }
+
     public func prepareForUtterance() {
         guard let recognizerProvider, let boosting else { return }
         let booster = boosting.makeBoosterForUtterance()

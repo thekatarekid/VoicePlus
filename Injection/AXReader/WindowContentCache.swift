@@ -113,10 +113,47 @@ public final class CachedAXReader: AXReading {
 
     public func windows(pid: Int32) -> [AXWindowID] { reader.windows(pid: pid) }
 
+    /// N7 — one walk at a time per window: a second reader of a window already being walked waits
+    /// for that walk (until its own deadline, or `joinTimeout` without one) and reuses the result.
+    /// If the walk is still running then, it gets an empty `interrupted` content instead of a
+    /// second concurrent walk.
+    public var joinTimeout: TimeInterval = 1.0
+    private struct FlightKey: Hashable { let window: AXWindowID; let scrollback: Bool }
+    private let flight = NSCondition()
+    private var inFlight: Set<FlightKey> = []
+    /// Walks that started (cache misses that reached the underlying reader). Test/diagnostic hook.
+    public private(set) var walksStarted = 0
+
     public func readWindow(_ id: AXWindowID, options: AXReadOptions) throws -> WindowContent {
         if let cached = cache.get(id, scrollback: options.includeScrollback), fits(cached, options) { return cached }
+        let key = FlightKey(window: id, scrollback: options.includeScrollback)
+        flight.lock()
+        if inFlight.contains(key) {
+            let until = options.limits.deadline ?? Date().addingTimeInterval(joinTimeout)
+            while inFlight.contains(key) {
+                if !flight.wait(until: until) && inFlight.contains(key) {
+                    flight.unlock()
+                    return WindowContent(window: id, title: nil, blocks: [], truncated: true, nodesVisited: 0,
+                                         readAt: Date(), interrupted: true)
+                }
+            }
+            if let cached = cache.get(id, scrollback: options.includeScrollback), fits(cached, options) {
+                flight.unlock()
+                return cached
+            }
+        }
+        inFlight.insert(key)
+        walksStarted += 1
+        flight.unlock()
+        defer {
+            flight.lock()
+            inFlight.remove(key)
+            flight.broadcast()
+            flight.unlock()
+        }
         let content = try reader.readWindow(id, options: options)
-        cache.put(content, scrollback: options.includeScrollback)
+        // N7 — a walk cut short by its deadline or a cancel is partial: never served to the next reader.
+        if !content.interrupted { cache.put(content, scrollback: options.includeScrollback) }
         cache.observe(id, via: access)
         return content
     }

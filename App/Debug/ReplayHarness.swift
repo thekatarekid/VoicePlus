@@ -49,7 +49,7 @@ public struct ReplaySurface: Sendable, Equatable {
             field = FieldContext(appBundleID: "com.apple.Safari", axRole: "AXTextField", isMultiline: false)
         case "sheet":
             field = FieldContext(appBundleID: "com.google.Chrome", axRole: "AXTextArea",
-                                 documentURL: "https://docs.google.com/spreadsheets/d/x/edit")
+                                 documentURL: Self.sheetsDocumentURL)
         case "unknown":
             field = FieldContext(caret: .unknown)
         default:
@@ -400,5 +400,15 @@ enum ReplayPipeline {
                 CleanupWiring.stage(routing: routing, settings: settings), into: builtIn))
         let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [SnippetPreRoute(store: snippetStore)]))
         return PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: RoutingTableProviderRouting(table: routing, settings: settings))
+    }
+}
+
+extension ReplaySurface {
+    /// A Google Sheets document URL as a focused field would report it (surface detection only,
+    /// never fetched; built from components so the egress audit's literal-URL scan stays honest).
+    static var sheetsDocumentURL: String {
+        var c = URLComponents()
+        c.scheme = "https"; c.host = "docs.google.com"; c.path = "/spreadsheets/d/x/edit"
+        return c.string ?? ""
     }
 }

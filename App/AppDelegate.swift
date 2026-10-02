@@ -155,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.lander = container.lander
         coordinator.onPrepare = { [weak container] in
             ModelPrewarmer.shared.hotkeyDown()   // V5 D5: start loading the cleanup LLM while the user speaks
+            container?.beginTurnContext()          // N7: one bounded context read, tied to this app
             container?.prepareForUtterance()
         }
         coordinator.focusSnapshot = { [weak container] in container?.injector.focusGuard.snapshot() }
@@ -189,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.deliveryPill = delivery
         coordinator.onLanded = { [weak delivery, weak container] result in
+            container?.turnContext.end()   // N7: the turn's snapshot is spent
             // The injector has already held this text if it is held at all; adopt its id.
             let heldID = container?.injector.focusGuard.held.last { $0.text == result.text }?.id
             delivery?.handle(result, destination: result.destinationName, heldID: heldID)

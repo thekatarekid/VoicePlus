@@ -37,6 +37,8 @@ public final class MockAXTree: AXNodeAccess {
 
     public var isTrusted = true
     public var observersAvailable = true
+    /// N7 — simulated slowness: each `children(of:)` call sleeps this long (a slow, huge AX tree).
+    public var perNodeDelay: TimeInterval = 0
     public private(set) var windows: [AXWindowID: MockAXNode] = [:]
     public var focused: [Int32: AXWindowID] = [:]
     /// Every `AXStringForRange` request, for asserting chunking/stitching.
@@ -81,7 +83,10 @@ public final class MockAXTree: AXNodeAccess {
 
     public func role(of node: AXNodeRef) -> String { mock(node)?.role ?? "unknown" }
     public func title(of node: AXNodeRef) -> String? { mock(node)?.title }
-    public func children(of node: AXNodeRef) -> [AXNodeRef] { mock(node)?.children.map(\.ref) ?? [] }
+    public func children(of node: AXNodeRef) -> [AXNodeRef] {
+        if perNodeDelay > 0 { Thread.sleep(forTimeInterval: perNodeDelay) }
+        return mock(node)?.children.map(\.ref) ?? []
+    }
     public func value(of node: AXNodeRef) -> String? { mock(node)?.value }
 
     public func numberOfCharacters(of node: AXNodeRef) -> Int? {

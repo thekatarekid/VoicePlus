@@ -67,7 +67,29 @@ public struct AXReadLimits: Equatable, Sendable {
     public var rangeChunk: Int = 8_192
     public var maxNodes: Int = 5_000
     public var maxDepth: Int = 64
+    /// N7 — wall-clock deadline for one walk. Checked before every node: past it the walk stops,
+    /// returns what it has and marks the content `interrupted`. `nil` = no deadline.
+    public var deadline: Date?
     public init() {}
+
+    /// N7 — the turn-snapshot budget: about 800 nodes, visible text only, a hard deadline.
+    public static func turnSnapshot(deadline: Date, maxNodes: Int = 800, maxCharacters: Int = 20_000) -> AXReadLimits {
+        var limits = AXReadLimits()
+        limits.maxNodes = maxNodes
+        limits.maxCharacters = maxCharacters
+        limits.deadline = deadline
+        return limits
+    }
+}
+
+/// N7 — cooperative cancellation for a walk in flight. The walker checks it before every node, so a
+/// discarded turn snapshot stops reading at the next node instead of running to the end.
+public final class AXReadCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    public init() {}
+    public var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    public func cancel() { lock.lock(); cancelled = true; lock.unlock() }
 }
 
 public enum TruncationPolicy: Equatable, Sendable {
@@ -82,10 +104,17 @@ public struct AXReadOptions: Equatable, Sendable {
     public var includeScrollback: Bool
     public var limits: AXReadLimits
     public var truncation: TruncationPolicy
-    public init(includeScrollback: Bool = false, limits: AXReadLimits = AXReadLimits(), truncation: TruncationPolicy = .keepHead) {
+    /// N7 — checked per node; not part of equality.
+    public var cancellation: AXReadCancellation?
+    public init(includeScrollback: Bool = false, limits: AXReadLimits = AXReadLimits(), truncation: TruncationPolicy = .keepHead,
+                cancellation: AXReadCancellation? = nil) {
         self.includeScrollback = includeScrollback
         self.limits = limits
         self.truncation = truncation
+        self.cancellation = cancellation
+    }
+    public static func == (lhs: AXReadOptions, rhs: AXReadOptions) -> Bool {
+        lhs.includeScrollback == rhs.includeScrollback && lhs.limits == rhs.limits && lhs.truncation == rhs.truncation
     }
     public static let visible = AXReadOptions()
     public static let full = AXReadOptions(includeScrollback: true)
@@ -116,13 +145,17 @@ public struct WindowContent: Equatable, Sendable {
     public var truncated: Bool
     public var nodesVisited: Int
     public var readAt: Date
-    public init(window: AXWindowID, title: String?, blocks: [TextBlock], truncated: Bool, nodesVisited: Int, readAt: Date) {
+    /// N7 — the walk stopped early on its deadline or a cancellation (partial content; never cached).
+    public var interrupted: Bool
+    public init(window: AXWindowID, title: String?, blocks: [TextBlock], truncated: Bool, nodesVisited: Int, readAt: Date,
+                interrupted: Bool = false) {
         self.window = window
         self.title = title
         self.blocks = blocks
         self.truncated = truncated
         self.nodesVisited = nodesVisited
         self.readAt = readAt
+        self.interrupted = interrupted
     }
     /// All blocks joined by blank lines — what we hand to the deixis resolver / LLM context.
     public var text: String { blocks.map(\.text).joined(separator: "\n\n") }

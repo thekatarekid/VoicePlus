@@ -19,12 +19,41 @@ public final class AXReaderWindowText: FocusedWindowTextProvider, @unchecked Sen
         self.reader = (system as? AXReaderProviding)?.axReader
     }
 
-    /// Focused-window content, visible portion only (cache-backed).
+    /// N7 — the turn's bounded snapshot. While a turn is in progress every read below is served
+    /// from it (bound to the turn's starting app/window, ~250 ms budget); nothing is walked live.
+    public var snapshot: TurnContextSnapshot?
+    /// N7 — budget for a read made outside a turn (act stack, agent, settings previews).
+    public var liveBudget: TimeInterval = 0.25
+    public var liveMaxNodes = 800
+
+    private enum Source { case turn(TurnContextContents?), live }
+
+    private func source() -> Source {
+        guard let snapshot else { return .live }
+        switch snapshot.lookup(frontmost: system.frontmostApp()) {
+        case .noTurn: return .live
+        case .contents(let contents): return .turn(contents)
+        }
+    }
+
+    /// Focused-window content, visible portion only: the turn snapshot during a turn, otherwise a
+    /// bounded live read (deadline + node cap) of the frontmost app.
     public func content() -> WindowContent? {
+        switch source() {
+        case .turn(let contents): return contents?.content
+        case .live: return liveContent()
+        }
+    }
+
+    private func liveContent() -> WindowContent? {
         guard let reader, let front = system.frontmostApp() else { return nil }
+        guard !OwnProcess.owns(front) else { return nil }
+        guard ContextualReadingRule.allows(front.bundleID) else { return nil }
         // Q2 / E1 — Electron and Chromium build their AX tree only when asked (cached per pid).
-        if !OwnProcess.owns(front) { (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: front.pid) }
-        return try? reader.readFocusedWindow(pid: front.pid, options: .visible)
+        (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: front.pid)
+        let options = AXReadOptions(limits: .turnSnapshot(deadline: Date().addingTimeInterval(liveBudget), maxNodes: liveMaxNodes,
+                                                          maxCharacters: 50_000))
+        return try? reader.readFocusedWindow(pid: front.pid, options: options)
     }
 
     /// V5 E1 — how much of the document behind the visible part is read: the **tail**, bounded.
@@ -34,33 +63,50 @@ public final class AXReaderWindowText: FocusedWindowTextProvider, @unchecked Sen
     public var documentTailSalience = 0.5
 
     /// V5 E1 — the focused window's document text, scrollback included, keeping only the last
-    /// `limit` characters (`readDocument`'s keep-tail policy with a 2 k cap instead of 200 k).
+    /// `limit` characters. During a turn this is the snapshot's tail (never a second walk).
     /// `nil` when there is no reader or nothing to read.
     public func documentTail(of window: AXWindowID, limit: Int? = nil) -> String? {
-        guard let reader else { return nil }
         let cap = max(0, limit ?? documentTailCharacters)
         guard cap > 0 else { return nil }
-        var limits = AXReadLimits()
+        if case .turn(let contents) = source() {
+            guard let tail = contents?.documentTail, contents?.content.window == window else { return nil }
+            return tail.count > cap ? String(tail.suffix(cap)) : tail
+        }
+        guard let reader else { return nil }
+        var limits = AXReadLimits.turnSnapshot(deadline: Date().addingTimeInterval(liveBudget), maxNodes: liveMaxNodes)
         limits.maxCharacters = cap
         let options = AXReadOptions(includeScrollback: true, limits: limits, truncation: .keepTail)
-        guard let document = try? reader.readWindow(window, options: options) else { return nil }
+        guard let document = try? reader.readWindow(window, options: options), !document.interrupted else { return nil }
         let text = document.text
         guard !text.isEmpty else { return nil }
         return text.count > cap ? String(text.suffix(cap)) : text
     }
 
     /// Biasing source: title at full salience, body blocks decaying with tree depth, then (E1) the
-    /// bounded document tail. Electron apps answer here because `content()` enables their AX tree
+    /// bounded document tail. Electron apps answer here because the read enables their AX tree
     /// first (Q2).
     public func visibleStrings() -> [(String, Double)] {
-        guard let content = content() else { return [] }
-        var out: [(String, Double)] = []
-        if let title = content.title, !title.isEmpty { out.append((title, 1.0)) }
-        for block in content.blocks.prefix(maxBlocks) where !block.text.isEmpty {
-            out.append((block.text, max(0.4, 1.0 - Double(block.depth) * 0.08)))
+        switch source() {
+        case .turn(let contents):
+            return contents?.visibleStrings(maxBlocks: maxBlocks, tailSalience: documentTailSalience) ?? []
+        case .live:
+            guard let content = liveContent() else { return [] }
+            let tail = documentTail(of: content.window)
+            return TurnContextContents(target: TurnContextTarget(pid: content.window.pid, bundleID: ""), content: content,
+                                       documentTail: tail, startedAt: content.readAt, readMs: 0)
+                .visibleStrings(maxBlocks: maxBlocks, tailSalience: documentTailSalience)
         }
-        if let tail = documentTail(of: content.window) { out.append((tail, documentTailSalience)) }
-        return out
+    }
+
+    /// N7 / E2 — typed screen-term candidates for the rubric (snapshot during a turn).
+    public func candidates(cap: Int = 150) -> [SnapshotTermCandidate] {
+        switch source() {
+        case .turn(let contents): return contents?.candidates(cap: cap) ?? []
+        case .live:
+            guard let content = liveContent() else { return [] }
+            return TurnContextContents(target: TurnContextTarget(pid: content.window.pid, bundleID: ""), content: content,
+                                       startedAt: content.readAt, readMs: 0).candidates(cap: cap)
+        }
     }
 
     /// Flattened window text for `StageContext.extra` (transform / pipeline prompts).
@@ -92,19 +138,8 @@ public final class AXReferentContext: ParticipantProviding, ArtifactProviding {
 
     public func visibleArtifacts() -> [VisibleArtifact] {
         guard let content = text.content() else { return [] }
-        var out: [VisibleArtifact] = []
-        if let title = content.title, !title.isEmpty {
-            out.append(VisibleArtifact(title: title, kind: .window, salience: 1.0))
-        }
-        for block in content.blocks.prefix(80) {
-            let line = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, line.count <= 120 else { continue }
-            if let kind = Self.artifactKind(for: line, role: block.role) {
-                out.append(VisibleArtifact(title: line, kind: kind,
-                                           salience: max(0.3, 1.0 - Double(block.depth) * 0.1)))
-            }
-        }
-        return out
+        return TurnContextContents(target: TurnContextTarget(pid: content.window.pid, bundleID: ""), content: content,
+                                   startedAt: content.readAt, readMs: 0).visibleArtifacts()
     }
 
     static func artifactKind(for text: String, role: String) -> ArtifactKind? {
@@ -133,10 +168,7 @@ public enum ContextPromptAugmenter {
     public static func applying(
         after base: @escaping ([TranscriptSpan], StageContext) -> StageContext,
         session: ContextPromptSession,
-        contextualReading: @escaping (String?) -> Bool = { bundleID in
-            guard let bundleID, !bundleID.isEmpty else { return true }
-            return AppRules.current().resolved(for: bundleID).contextualReading.value
-        },
+        contextualReading: @escaping (String?) -> Bool = { ContextualReadingRule.allows($0) },
         now: @escaping () -> Date = Date.init
     ) -> ([TranscriptSpan], StageContext) -> StageContext {
         { spans, context in
@@ -148,5 +180,13 @@ public enum ContextPromptAugmenter {
             session.write(into: &ctx, now: now())
             return ctx
         }
+    }
+}
+
+/// N7 — the per-app "contextual reading" rule, checked before any screen read.
+public enum ContextualReadingRule {
+    public static func allows(_ bundleID: String?) -> Bool {
+        guard let bundleID, !bundleID.isEmpty else { return true }
+        return AppRules.current().resolved(for: bundleID).contextualReading.value
     }
 }

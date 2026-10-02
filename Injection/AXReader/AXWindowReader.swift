@@ -45,6 +45,7 @@ public final class AXWindowReader: AXReading {
         var chars = 0
         var nodes = 0
         var truncated = false
+        var interrupted = false
     }
 
     private func read(node root: AXNodeRef, id: AXWindowID, options: AXReadOptions) -> WindowContent {
@@ -57,10 +58,17 @@ public final class AXWindowReader: AXReading {
             walkTree(root, depth: 0, options: options, budget: options.limits.maxCharacters, into: &walk)
         }
         return WindowContent(window: id, title: access.title(of: root), blocks: walk.blocks,
-                             truncated: walk.truncated, nodesVisited: walk.nodes, readAt: now())
+                             truncated: walk.truncated || walk.interrupted, nodesVisited: walk.nodes, readAt: now(),
+                             interrupted: walk.interrupted)
     }
 
     private func walkTree(_ node: AXNodeRef, depth: Int, options: AXReadOptions, budget: Int, into walk: inout Walk) {
+        // N7 — per-node deadline / cancel check: a slow tree returns what it has instead of running on.
+        if walk.interrupted { return }
+        if options.cancellation?.isCancelled == true || options.limits.deadline.map({ now() >= $0 }) == true {
+            walk.interrupted = true
+            return
+        }
         guard walk.nodes < options.limits.maxNodes, depth <= options.limits.maxDepth else {
             walk.truncated = true
             return
@@ -78,6 +86,7 @@ public final class AXWindowReader: AXReading {
             walk.truncated = true
         }
         for child in access.children(of: node) {
+            if walk.interrupted { return }
             if walk.chars >= budget { walk.truncated = true; return }
             walkTree(child, depth: depth + 1, options: options, budget: budget, into: &walk)
         }

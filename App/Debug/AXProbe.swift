@@ -2,6 +2,7 @@ import ApplicationServices
 import AppKit
 import CryptoKit
 import Foundation
+import Shared
 
 // T-probe (Round 4 Q4, stage S0; "Tooling this needs") — the read-only accessibility probe.
 //
@@ -314,7 +315,11 @@ public enum AXProbeCLI {
             return AXProbe.record(focused: nil, bundleID: nil, appName: nil, pid: nil, rendererHelper: false, switchNeeded: .unresolved)
         }
         let pid = app.processIdentifier
-        let appElement = AXUIElementCreateApplication(pid)
+        // K18 — AX roots only through the guard (refuses our own pid).
+        guard let appElement = AXGuard.application(pid: pid) else {
+            return AXProbe.record(focused: nil, bundleID: app.bundleIdentifier, appName: app.localizedName, pid: pid,
+                                  rendererHelper: false, switchNeeded: .unresolved)
+        }
         func focused() -> LiveAXProbeNode? {
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &value) == .success,
