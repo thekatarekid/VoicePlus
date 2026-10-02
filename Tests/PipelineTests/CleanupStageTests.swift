@@ -189,7 +189,7 @@ private func stage(_ gen: ScriptedCleanup?, mode: CleanupMode = .automatic, dead
         var terminal = StageContext(); terminal.register = .terminal
         var code = StageContext(); code.extra["field.hints"] = "monaco"
         var secure = StageContext(); secure.extra["field.axSubrole"] = "AXSecureTextField"
-        var verbatim = StageContext(); verbatim.extra[StyleStage.enabledKey] = "false"
+        var verbatim = StageContext(); verbatim.extra[CleanupStage.skipKey] = "true"
         for ctx in [terminal, code, secure, verbatim] {
             #expect(try await stage(gen, mode: .always).process(input, context: ctx).renderedText == "git push 2")
         }

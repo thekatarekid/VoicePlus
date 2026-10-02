@@ -39,6 +39,9 @@ public enum FieldRolePipeline {
         let plan = FieldRoleFormatter().plan(for: field)
         if !plan.rules.trailingPeriod || !plan.continuation.capitalizeFirstWord {
             context.extra[StyleStage.enabledKey] = "false"
+            // N26 — style off is not "skip cleanup": cleanup still runs, but keeps the edges the
+            // field rules just decided (no re-capitalized first word, no re-added period).
+            context.extra[CleanupStage.keepEdgesKey] = "true"
         }
     }
 

@@ -138,13 +138,14 @@ public struct ResolvedAppRule: Equatable, Sendable {
     public var pressesReturn: Bool { false }
 
     /// The rule applied to one pipeline run. Verbatim switches the style pass off for the run
-    /// (`StyleStage.enabledKey`) and drops the writing instructions (`PersonaManager.promptKey`);
+    /// (`StyleStage.enabledKey`), skips cleanup (`CleanupStage.skipKey`, N26) and drops the writing instructions (`PersonaManager.promptKey`);
     /// contextual reading off drops what was read from the screen (`DeixisService` window text and
     /// box lines). Everything else in `context` is untouched.
     public func apply(to context: StageContext) -> StageContext {
         var ctx = context
         if style.value == .verbatim {
             ctx.extra[StyleStage.enabledKey] = "false"
+            ctx.extra[CleanupStage.skipKey] = "true" // N26 — Verbatim also skips cleanup, explicitly
             ctx.extra.removeValue(forKey: PersonaManager.promptKey)
         }
         if !contextualReading.value {

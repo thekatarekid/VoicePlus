@@ -6,8 +6,10 @@ import Shared
 // Position: after the formatters/ITN and the dictionary stages, before style (the last pass, Bet 8).
 // It runs the model only when:
 // - the mode is Always, or Automatic and the rules see a cue (`CleanupCueDetector`);
-// - the destination is prose (never a terminal, code editor or secure field; never under a
-//   Verbatim app rule, which switches the style pass off);
+// - the destination is prose (never a terminal, code editor or secure field; never when the run
+//   says `cleanup.skip` — a Verbatim app rule or an "exact" surface preset). N26: switching the
+//   *style* pass off (a mid-document insertion) no longer skips cleanup; it only asks the stage to
+//   keep the first word's case and the terminal punctuation as the field rules decided them;
 // - a generator is wired (the app's `RoutingTable` adapter; Lab/tests inject a mock).
 //
 // Deadline 500 ms (p95 target on M2 Pro). On timeout, a thrown error, a guard rejection or an
@@ -49,6 +51,12 @@ public enum CleanupOutcome: Sendable, Equatable {
 public struct CleanupStage: PipelineStage {
     public let id: StageID = .cleanup
     public static let defaultDeadline: TimeInterval = 0.5
+    /// N26 — `StageContext.extra` key; "true" skips the model for this run (Verbatim app rule,
+    /// an "exact" surface preset). Independent of `StyleStage.enabledKey`.
+    public static let skipKey = "cleanup.skip"
+    /// N26 — `StageContext.extra` key; "true" keeps the first word's case and the terminal
+    /// punctuation of the rules output (the field rules decided them: a mid-sentence insertion).
+    public static let keepEdgesKey = "cleanup.keepEdges"
 
     public var generator: (any CleanupGenerating)?
     public var mode: @Sendable () -> CleanupMode
@@ -109,7 +117,9 @@ public struct CleanupStage: PipelineStage {
         if accepted == request.transcript {
             report(.unchanged(ms: elapsed())); return untouched
         }
-        guard let mapped = Self.map(accepted, onto: spans, by: id) else {
+        let edged = context.extra[Self.keepEdgesKey] == "true"
+            ? Self.keepingEdges(of: request.transcript, in: accepted) : accepted
+        guard let mapped = Self.map(edged, onto: spans, by: id) else {
             report(.unmappable(ms: elapsed())); return untouched
         }
         report(.accepted(cues: cues, ms: elapsed()))
@@ -127,12 +137,34 @@ public struct CleanupStage: PipelineStage {
         if mode == .off { return "off" }
         if !hasGenerator { return "noModel" }
         if spans.renderedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "empty" }
-        if context.extra[StyleStage.enabledKey] == "false" { return "verbatim" }
+        if context.extra[Self.skipKey] == "true" { return "verbatim" }
         if context.register == .code || context.register == .terminal { return "register" }
         switch FieldRole.classify(FieldContext(stageContext: context)) {
         case .terminal, .codeEditor, .secure: return "fieldRole"
         default: return nil
         }
+    }
+
+    /// N26 — `output` with the first letter's case and the terminal sentence punctuation put back
+    /// to what `input` had. Only those two edges change; everything in between is the model's.
+    static func keepingEdges(of input: String, in output: String) -> String {
+        var out = output
+        let inTrim = input.trimmingCharacters(in: .whitespaces)
+        // First letter case.
+        if let a = inTrim.first(where: \.isLetter), let i = out.firstIndex(where: \.isLetter),
+           out[i].lowercased() == a.lowercased(), out[i] != a {
+            out.replaceSubrange(i...i, with: String(a))
+        }
+        // Terminal sentence punctuation.
+        let enders: Set<Character> = [".", "!", "?"]
+        let inEnd = inTrim.last.map { enders.contains($0) } ?? false
+        var trimmed = out
+        while let l = trimmed.last, l == " " { trimmed.removeLast() }
+        if !inEnd {
+            while let l = trimmed.last, enders.contains(l) { trimmed.removeLast() }
+            out = trimmed
+        }
+        return out
     }
 
     static func errorCode(_ error: Error) -> String {
