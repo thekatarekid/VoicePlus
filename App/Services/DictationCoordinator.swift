@@ -523,6 +523,7 @@ public final class DictationCoordinator {
         }
         do {
             let spans = try await engine.stop()
+            if let turn { FinalPassTimingRecorder.record(engine: engine, turn: turn) }   // N6: stage ms + pre-boost text
             if let turn, let turns {
                 // S3 — the controller formats the final payload, previews it for its dwell,
                 // revalidates the destination and inserts it once; `onLanded` follows from there.

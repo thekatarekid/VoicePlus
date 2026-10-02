@@ -402,6 +402,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             ledgerOpen = true
             feedLive = false
             stopReason = nil
+            finalPassTiming = nil   // N6: never attribute the previous turn's final pass to this one
         }
         // V4.21 — subscribe before capture opens, so the session's first VAD edge is not missed.
         startVADFeed()
@@ -942,7 +943,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
 
 extension RealEngine: AudioLevelPublishing {}
 
-extension RealEngine: EngineStopReporting {
+extension RealEngine: EngineStopReporting, FinalPassTimingReporting {
     public var lastStopReason: EngineStopReason? { lock.withLock { stopReason } }
 
     /// N6 — per-stage ms and pre-boost raw text of the most recent final pass (key-release or
