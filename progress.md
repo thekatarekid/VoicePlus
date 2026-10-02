@@ -1934,3 +1934,14 @@ Initial checkpoint (superseded by the dated entries below):
 - `FULL_INSTALLER=1 verify_install.sh` **OK**: bundled TDT/EOU/speaker/Silero inference from the read-only mount (empty cache, no fetchers); version 1.13.0; LSMinimumSystemVersion 15.0; 9 TCC usage strings incl. camera; build-independent designated requirement; self-contained; owner-writable; no quarantine; headless launch of its own temp copy, stopped by pid only.
 - Not installed to `/Applications`, user's running copy untouched. DMG local + gitignored; CHECKSUMS entry added; public appcast/cask unchanged (release.sh edits reverted). Tag `release/V5/v1.13.0`.
 - Not verified: notarization/Developer ID (J4, owner), Gatekeeper first-open on a clean Mac, in-app update to 1.13.0 (feed host not live), real dictation with this build.
+
+## 2026-10-02 — Fixes N1–N28 build
+- N1 done (Contacts out of boost/spell/cleanup + repair alternates; replay 0 swaps) · N2 done · N3 done · N4 done · N5 done · N6 done (CTC resident at launch, 1.5 s deadline, stage ms in turn_records) · N7 done (snapshot + lease, AX deadlines)
+- N8 done (no dwell, pull-back) · N9 done (resolver live everywhere) · N10 done · N11 done (rubric + learned weights; screen terms gated off) · N12 done · N13 done · N14 done (rubric in live prompt)
+- N15–N27 done (see Investigation "Build status") · N28 partial (offered-vs-landed learning live; correction-based learning not wired)
+- Tools: T-replay, T-probe, T-schema done.
+- Gate 99378d9: AXGuard in pull-back, Contacts out of repair alternates, stale bundle test, mock torn-read crash fixed.
+- **Full suite:** `--no-parallel`, .build-v6a: 4799 passed, 0 failed, 455 s.
+- **Replay:** 41 recordings, 0 swaps, no Contacts in any channel. Open: "one, two, three." → "123  ".
+- **New deps:** none.
+- **Needs live test (S0–S2, deferred):** AX probe in real apps, ribbon in Claude/x.com/Docs, OCR rung (Screen Recording), pull-back across apps, shell process trees, rich paste in Sheets, Figma hold, clipboard managers honouring markers, first-launch CTC compile time + ~100 MB memory, FULL_INSTALLER DMG with CTC model.

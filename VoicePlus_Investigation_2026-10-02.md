@@ -1180,3 +1180,41 @@ S1a must not start before the gate. A failure would then have several possible c
   - the pull-back fails its focus check.
 - **No preview pause.** Type as soon as the final text is ready; remove the ~0.6 s dwell. The preview may still show, but it never delays insertion.
 - **Live tests run at the end.** S0–S2 run after all of N1–N28 are built and the confidence gate passes. Until then, validation uses unit tests and replays of recorded dictations (the replay tool) only.
+
+## Build status (N1–N28)
+
+Gate 2026-10-02. Format: id · status · what · tests. Live checks S0–S2 deferred by owner decision 3; "unit" = met in unit tests only.
+
+- N1 · done · Dictionary rows carry origin; Contacts out of boost, spell-exactly, cleanup context and (gate fix) voice-repair alternates · ContactsChannelExclusionTests, PersonalisationTests; gate T-replay of all 41 recordings: 0 swaps, 0 Contacts terms in any channel
+- N2 · done · Cancel after recognition keeps text (held, history, Insert/Copy); pill buttons follow the turn's offer · L3 lane tests
+- N3 · done (unit) · DeliveryLadder in TextInjector + lander: unreadable field in same app with window → deliver unverified; Notes only with no window · ladder, AdapterMatrix, ClaudeDesktop tests
+- N4 · done (unit) · SecureInputGuard before stack and each method; password-label veto refuses, never holds · SecureInputGuardTests, InferredSurfaceVerifyTests
+- N5 · done (unit) · WritePlanner: web → shift-Return, terminal → bracketed paste, never bare Return · WritePlanN5Tests, NewlineSafety
+- N6 · done (unit) · CTC booster resident at launch, never loaded in a turn, 1.5 s rescoring deadline; per-stage final-pass ms + pre-boost raw text in turn_records · FinalPassTimingRecorderN6, BoostDeadlineResidencyN6, CTCBoostingResidency
+- N7 · done (unit) · Per-turn context snapshot at key-down (250+150 ms), app-bound, ended on every turn end with open-turn lease; AXReader per-node deadlines; participants walk capped 0.25 s · TurnContextSnapshotN7Tests, AXReaderDeadlineN7Tests
+- N8 · done (unit) · No preview dwell (Manual review still waits); one pre-write check; pull-back to key-down window on app switch, hold only if window gone/password/refocus fails · L3 lane tests
+- N9 · done · Evidence-weighted SurfaceResolver, one seed table, secure veto, safe prose for unknown apps; consumed by TurnSurfaceContext, injector inference, boost/prompt rubric, FieldRole; codex persona reset at startup · SurfaceLaneVerifyTests, Surface*/FieldRole suites
+- N10 · done (unit) · App accessibility enabler at key-down; enhanced attribute only for Renderer-helper bundles · AppAccessibilityEnablerTests
+- N11 · done (unit) · ContextRubric quotas + collision rule + learned weights in live boost list; screen-terms Lab gate (off until a passing report) · ContextRubricN11Tests, ScreenTerms/Lab gate tests
+- N12 · done · Spoken-symbol, command-line, formula, URL/search, form-field, Markdown grammars via FieldRoleFormatterStage · SurfaceGrammarN12Tests
+- N13 · done (unit) · ShellContextProvider (process tree, PATH, opt-in aliases/folder listing) + PathMatcher in TerminalFormatter · ShellContextProviderN13Tests, PathMatcherN13Tests
+- N14 · done · Surface-aware cleanup prompt (field kind, caret text, spell list, screen terms; 1,000-char split; none for secure) wired live via contextPrompt.rubric · CleanupPromptN14Tests, CleanupContextListsN14Tests
+- N15 · done (unit) · Canvas with nothing editable focused → hold, no write · SurfaceWritePlanN9N15Tests
+- N16 · done · Unconfirmed readback neutral; paste never jumps ahead of keystrokes in newline-safe plans · MethodRouterN16Tests
+- N17 · done (unit) · Tap < 250 ms → hint after double-tap window, no turn record; "Didn't hear anything" · L3 lane tests
+- N18 · done (unit) · Transient/concealed pasteboard markers, 200 ms restore with changeCount guard · TransientPasteboardTests, ClipboardRestoreTests
+- N19 · done (unit) · Ribbon: zero-width caret, leading-edge coarse rungs, off-display fall-through, geometry-only diagnostics · RibbonN19Tests, TapeFlight*
+- N20 · done · Notch Working until write/held; held row names app that took focus; "Previous text still landing" · L3 lane tests
+- N21 · done · One full-UUID turn id across turn_diagnostics and turn_records · TurnDiagnostics tests
+- N22 · done · Pill 5 faces / notch 5 faces state model · state-mapping table + parity tests
+- N23 · done (unit) · New press allowed once previous text is final; lands in start order; older turn never takes pill/Escape/deixis · L3 lane tests
+- N24 · done (unit) · Rich paste (TSV+HTML sheet cell, Markdown editor) after focus/secure/ladder checks; formula guard always on · RichPasteN24Tests
+- N25 · done · 2–3 presets per surface kind, per-app override wins · SurfacePresetsN25Tests, SurfacePresetRulesN25
+- N26 · done · cleanup.skip separate from style off; mid-document insert keeps edges · CleanupSkipN26Tests
+- N27 · done (unit) · Opt-in OCR caret-band ribbon rung, geometry only, 0.8 s deadline · RibbonOCRRungN27Tests
+- N28 · partial · SourceWeightLearner fed live by ContextLearningTap (offered vs landed); learned weights feed boost + prompt rubric · ContextLearningTapN28Tests, SourceWeightLearnerN28Tests
+- Tools: T-replay (`--replay`, never injects), T-probe (`--ax-probe`, read-only), T-schema (surface + stage ms in turn_records) · ReplayHarnessTests, AXProbeTests
+
+**Deviations / open:** N28 "corrected away" learning and heard aliases from later corrections not wired (tap records empty corrections). N24 "equals" command that frees formulas has no live caller. N7: if turn 2 starts before turn 1 lands in the same app, turn 1 reads turn 2's snapshot. N6: a rescore past the deadline keeps running on the runtime actor; only the key-release final pass is timed. N9-integrate: lander passes no surface; injector infers its own (TurnSurfaceContext's shell/placeholder detail not forwarded). Injection/AppAdapter keeps its own bundle-id sets. T-replay copies AppContainer's stage list (no act key/latch/wake verb); 3 s "play into field" mode not built. No live S0–S2 validation (owner decision 3).
+
+**Gate (99378d9):** fixes — pull-back AX roots via AXGuard (K18 audit), Contacts out of voice-repair alternates, bundle-path test expects the N6 CTC model, onboarding mock install set locked (torn-read SIGABRT in the full suite). Full suite : 4799/4799 passed, 455 s. Integration: N9 resolver consumed by TurnSurfaceContext → boost rubric (N11), FieldRole grammars (N12), cleanup prompt rubric (N14), injector plan/ladder/N24; pull-back () and no-dwell live in TurnController; CTC booster prepared at launch (N6). T-replay over 41 recordings (~/Library/Application Support/VoicePlus/Recordings): 35 with speech, 6 silent/empty, 0 boost swaps, boost/spell/cleanup channels empty on every turn (no Contacts). Observed: "one, two, three." → "123  " (number run collapsed, trailing spaces, period lost) — open, not an N item.
