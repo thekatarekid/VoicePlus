@@ -189,6 +189,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     private let targets: TurnTargetReading
     /// The dwell setting, read per payload.
     public var dwell: () -> PreviewDwell
+    /// Owner decision — pull back to the key-down app and window before typing (nil: hold instead).
+    public var pullBack: FocusPullBacking?
     /// Range-safe replace for Undo (`ReplaceRangeEditor` over the live `SystemAccess`).
     public var replaceRange: ((ReplaceRangeRequest) -> ReplaceRangeOutcome)?
     /// Where the key-down snapshot's AX read runs. Live: off the key-down path.
@@ -234,7 +236,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     private var busyCount = 0
 
     public init(lander: UtteranceLander, focusGuard: FocusGuard, store: TurnStore, clock: TurnClock = MainQueueTurnClock(),
-                targets: TurnTargetReading? = nil, dwell: @escaping () -> PreviewDwell = { .standard }) {
+                targets: TurnTargetReading? = nil, dwell: @escaping () -> PreviewDwell = { .immediate }) {
         self.lander = lander
         self.focusGuard = focusGuard
         self.store = store
@@ -360,7 +362,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             Log.app.info("turn \(id.description): key down")
             snapshotQueue { [weak self] in
                 guard let self else { return }
-                self.applySnapshot(id, self.targets.read(at: now))
+                let target = self.targets.read(at: now)
+                self.applySnapshot(id, target, anchor: self.anchor(for: target))
             }
         case .busy(let id):
             Log.app.notice("turn: key down while \(id.description) is still in progress — K04")
@@ -373,11 +376,17 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         return verdict
     }
 
-    private func applySnapshot(_ id: TurnID, _ target: TurnTarget) {
+    /// Owner decision — what to pull back to: the snapshot's app and window (nil without a pull-back).
+    private func anchor(for target: TurnTarget) -> PullBackAnchor? {
+        target.focus.flatMap { pullBack?.remember($0) }
+    }
+
+    private func applySnapshot(_ id: TurnID, _ target: TurnTarget, anchor: PullBackAnchor?) {
         var fx = Effects()
         lock.withLock {
             guard let turn = turns[id], turn.target == nil else { return }
             turn.target = target
+            turn.anchor = anchor
             turn.record.destination = target.destination
             fx.save(turn)
         }
@@ -544,9 +553,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         // A latched session's last words close now: aim them at where focus is now.
         if lock.withLock({ turns[id]?.latched ?? false }) {
             let target = targets.read(at: now)
+            let anchor = self.anchor(for: target)
             lock.withLock {
                 guard let turn = turns[id] else { return }
                 turn.target = target
+                turn.anchor = anchor
                 turn.record.destination = target.destination
             }
         }
@@ -774,6 +785,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         defer { busy(-1) }
         let now = clock.now
         let read = targets.read(at: now)
+        let anchor = (payload.pending?.focus ?? read.focus).flatMap { pullBack?.remember($0) }
         var fx = Effects()
         let id = lock.withLock { () -> TurnID in
             let turn = Turn(id: TurnID(), origin: .admitted, startedAt: payload.pending?.startedAt ?? now)
@@ -782,6 +794,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             if let focus = payload.pending?.focus { revision.focus = focus }
             let target = TurnTarget(revision: revision, displayID: read.displayID, takenAt: now)
             turn.target = target
+            turn.anchor = anchor
             turn.record.destination = target.destination
             turn.record.rawText = payload.pending?.rawText ?? ""
             turn.record.capture.captureClosed = now
@@ -907,6 +920,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turn.payload = payload
             turn.stage = .finalPreview
             turn.manual = setting == .manual
+            turn.immediate = setting == .immediate
             turn.dwellTotal = setting.seconds(lowConfidence: lowConfidence)
             turn.dwellRemaining = turn.dwellTotal ?? 0
             turn.uncertainCount = uncertain
@@ -916,7 +930,13 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turn.record.capture.finalPublished = now
             fx.save(turn)
             fx.present(.finalPreview(previewInfoLocked(turn)))
-            turn.renderTimer = clock.schedule(after: renderAckTimeout) { [weak self] in self?.renderAckTimedOut(id) }
+            if turn.immediate {
+                // N8 / owner decision — no preview pause: the preview may show, but the insert is
+                // decided now, not after a rendered frame or a dwell.
+                if turn.pendingExit == nil { turn.pendingExit = .insert }
+            } else {
+                turn.renderTimer = clock.schedule(after: renderAckTimeout) { [weak self] in self?.renderAckTimedOut(id) }
+            }
         }
         // The spans reach the pill before the preview that draws them (its red-dotted words).
         if let spans = payload.pending?.spans {
@@ -1209,19 +1229,87 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     // MARK: Revalidate and insert once
 
     private func insert(_ id: TurnID, _ payload: LandingResult, lander: UtteranceLander) async -> LandingResult {
-        guard let target = lock.withLock({ turns[id]?.target }) else {
+        let started = clock.now
+        guard let (target, reviewed, anchor) = lock.withLock({ turns[id].flatMap { t in t.target.map { ($0, !t.immediate, t.anchor) } } }) else {
             // No snapshot ever arrived (the read is still running, or AX was unreadable): aim at the
             // payload's own focus; the injector still refuses a moved focus before posting.
             let fallback = TurnTarget(revision: TargetRevision(focus: payload.pending?.focus), takenAt: clock.now)
             return await write(id, payload, lander: lander, target: fallback)
         }
-        let verdict = focusGuard.revalidate(target.revision, ownLandingSinceSnapshot: ownLandingSince(target, lander: lander))
-        guard verdict.isSafe else {
-            Log.app.notice("turn \(id.description): destination \(verdict.rawValue) during the preview — held (D01)")
-            return hold(id, payload, lander: lander, reason: DeliveryReason.destinationChanged, actual: focusGuard.snapshot())
+        let check = preWriteCheck(id, target: target, reviewed: reviewed, anchor: anchor, lander: lander)
+        store.setExtras(id, save: false) { extras in
+            extras.setStage(TurnRecordExtras.Stage.preWriteCheck, ms: Self.ms(started, self.clock.now))
+            if let pulled = check.pullBackMs { extras.setStage(TurnRecordExtras.Stage.pullBack, ms: pulled) }
         }
-        return await write(id, payload, lander: lander, target: target)
+        if let reason = check.holdReason {
+            return hold(id, payload, lander: lander, reason: reason, actual: focusGuard.snapshot())
+        }
+        // Aim the write at the key-down destination (the app may have been switched before key-up)
+        // and its window, so the delivery ladder's window check compares against the right one.
+        var aimed = payload
+        if check.pulledBack, let focus = target.focus { aimed.pending?.focus = focus; aimed.pending?.bundleID = focus.bundleID }
+        if let token = anchor?.windowToken { aimed.pending?.windowToken = token }
+        return await write(id, aimed, lander: lander, target: target)
     }
+
+    struct PreWriteCheck {
+        var holdReason: String?
+        var pulledBack = false
+        var pullBackMs: Int?
+    }
+
+    /// N8 + owner decision — the ONE check right before the write: same app and window as the
+    /// key-down snapshot (else pull back), not a password field. Text- and caret-changed holds only
+    /// protect a review window, so they apply only when there was one (Manual review; the legacy
+    /// timed dwell) — never to a turn typed right away. Secure input and the
+    /// readable-field question stay with the injector's delivery ladder (N3/N4).
+    private func preWriteCheck(_ id: TurnID, target: TurnTarget, reviewed: Bool, anchor: PullBackAnchor?,
+                               lander: UtteranceLander) -> PreWriteCheck {
+        var check = PreWriteCheck()
+        let own = !reviewed || ownLandingSince(target, lander: lander)
+        var verdict = focusGuard.revalidate(target.revision, ownLandingSinceSnapshot: own)
+        if verdict == .unchanged, let anchor, let pullBack {
+            switch pullBack.windowState(anchor) {
+            case .changed, .gone: verdict = .focusChanged
+            case .same, .none, .unknown: break
+            }
+        }
+        if verdict == .focusChanged {
+            guard let anchor, let pullBack else {
+                Log.app.notice("turn \(id.description): destination changed and no pull-back — held (D01)")
+                check.holdReason = DeliveryReason.destinationChanged
+                return check
+            }
+            let t0 = clock.now
+            let outcome = pullBack.pullBack(anchor)
+            check.pullBackMs = Self.ms(t0, clock.now)
+            Log.app.notice("turn \(id.description): pull back to \(anchor.focus.bundleID) — \(String(describing: outcome))")
+            switch outcome {
+            case .windowGone:
+                check.holdReason = PullBackReason.windowGone
+                return check
+            case .failed:
+                check.holdReason = PullBackReason.refocusFailed
+                return check
+            case .refocused:
+                check.pulledBack = true
+                // The refocus check: the same app is focused again, and it is not a password field.
+                verdict = focusGuard.revalidate(target.revision, ownLandingSinceSnapshot: true)
+                if verdict == .focusChanged { check.holdReason = PullBackReason.refocusFailed; return check }
+            }
+        }
+        switch verdict {
+        case .unchanged: break
+        case .secureField: check.holdReason = DeliveryReason.secureField
+        case .focusChanged: check.holdReason = DeliveryReason.destinationChanged
+        case .textChanged, .selectionChanged:
+            Log.app.notice("turn \(id.description): destination \(verdict.rawValue) during the preview — held (D01)")
+            check.holdReason = DeliveryReason.destinationChanged
+        }
+        return check
+    }
+
+    static func ms(_ a: Date, _ b: Date) -> Int { max(0, Int((b.timeIntervalSince(a) * 1000).rounded())) }
 
     /// "Caret still inside our landing memory": our own landing into this same element happened
     /// after the snapshot and nothing has touched the field since (`LandingMemory` is cleared by any
@@ -1597,6 +1685,8 @@ final class Turn {
     var stage: TurnStage = .starting
     var record: TurnRecord
     var target: TurnTarget?
+    /// Owner decision — the key-down app/window/element to pull back to.
+    var anchor: PullBackAnchor?
     var latched = false
     var speaking = false
     var partialText: String?
@@ -1605,6 +1695,8 @@ final class Turn {
     var slow = false
     var offer: FinishingOffer?
     var manual = false
+    /// N8 — typed as soon as the final text is ready (no dwell).
+    var immediate = false
     var dwellTotal: TimeInterval?
     var dwellRemaining: TimeInterval = 0
     var dwellStartedAt: Date?
@@ -1741,8 +1833,10 @@ public final class TurnWiring {
         let store = TurnStore(database: container.database, persistsRecovery: { TurnSettings.persistsRecovery(settings) })
         TurnStore.current = store
         let controller = TurnController(lander: container.lander, focusGuard: container.injector.focusGuard, store: store,
-                                        dwell: { TurnSettings.previewDwell(settings) })
+                                        dwell: { TurnSettings.landingDwell(settings) })
         controller.useReplaceRange(over: container.system)
+        // Owner decision — switched apps mid-dictation: pull back to the key-down window, then type.
+        controller.pullBack = SystemFocusPullBack.live(system: container.system)
         let wiring = TurnWiring(controller: controller, store: store, escape: escape)
         current = wiring
 

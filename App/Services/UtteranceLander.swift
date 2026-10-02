@@ -102,6 +102,9 @@ public struct PendingInsertion: Sendable {
     /// A rewrite forced a phrase or the whole result to be marked: the rows read "Review this phrase"
     /// (T05) instead of a word count.
     public var needsPhraseReview: Bool = false
+    /// Owner decision (pull back) — the key-down window's token (`FocusedWindowReading`), set by the
+    /// turn gate; the delivery ladder holds if another window has focus at write time.
+    public var windowToken: String? = nil
 
     public var rawText: String { rawSpans.joinedText }
     public var uncertainCount: Int { uncertainRanges.count }
@@ -387,7 +390,8 @@ public final class UtteranceLander: @unchecked Sendable {
         let id = result.utteranceID
         let focus = pending.focus
         let bundleID = pending.bundleID
-        let request = InjectionRequest(text: text, utteranceID: id.uuidString, expectedFocus: focus)
+        let request = InjectionRequest(text: text, utteranceID: id.uuidString, expectedFocus: focus,
+                                       expectedWindowToken: pending.windowToken)
         // FX1 — a write into VoicePlus's own window (the onboarding practice field) runs on the main
         // actor: AppKit may only be touched there, and an AX write aimed at ourselves from this
         // background task deadlocked TextKit 2 (the 1.11 onboarding freeze). Awaited, so no thread
@@ -469,7 +473,7 @@ public final class UtteranceLander: @unchecked Sendable {
                                        expectedFocus: pending.focus)
         focusGuard.hold(request, reason: reason, destination: pending.focus, turnID: turnID)
         result.injection = .abortedFocusChanged(expected: pending.focus, actual: actual)
-        if reason == DeliveryReason.keptByUser { result.heldReason = reason }
+        if reason == DeliveryReason.keptByUser || PullBackReason.all.contains(reason) { result.heldReason = reason }
         let utterance = Utterance(id: result.utteranceID, spans: pending.spans, startedAt: pending.startedAt,
                                   endedAt: clock(), register: result.register, route: result.route)
         recordHistory(utterance, text: result.text, bundleID: pending.bundleID)

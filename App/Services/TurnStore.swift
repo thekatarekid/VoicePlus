@@ -305,7 +305,10 @@ public final class TurnStore: @unchecked Sendable {
     /// verification, L6 surface kind and signals). Before the turn's first save the change waits for
     /// it; afterwards the row is rewritten under the same rules as `save` (history off: only a
     /// recoverable row reaches the database).
-    public func setExtras(_ id: TurnID, _ change: (inout TurnRecordExtras) -> Void) {
+    ///
+    /// `save: false` only updates the row in memory; the turn's next transition writes it (the
+    /// gate's own timings, so they add no extra row write).
+    public func setExtras(_ id: TurnID, save persist: Bool = true, _ change: (inout TurnRecordExtras) -> Void) {
         // A row from an earlier session (database only) is brought into memory first.
         if lock.withLock({ memory[id] == nil }),
            let row = stored(where: "id = ?", arguments: [id.rawValue.uuidString], limit: 1).first {
@@ -325,7 +328,7 @@ public final class TurnStore: @unchecked Sendable {
             memory[id] = entry
             return entry
         }
-        guard let current else { return }
+        guard let current, persist else { return }
         save(current.record, stage: current.stage)
     }
 

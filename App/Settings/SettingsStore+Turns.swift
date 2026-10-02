@@ -20,6 +20,11 @@ public enum PreviewDwell: String, CaseIterable, Equatable, Sendable {
     case long = "1500"
     /// Nothing is inserted until the Insert action.
     case manual
+    /// N8 / owner decision (2026-10-02): no preview pause — typed as soon as the final text is
+    /// ready. The preview may still show, but it never delays insertion. What dictation uses unless
+    /// Manual review is on (`TurnSettings.landingDwell`); the timed cases above are legacy values
+    /// still read for transforms and older stored settings.
+    case immediate = "0"
 
     /// Seconds before insertion; `nil` for manual review.
     public var seconds: TimeInterval? {
@@ -28,6 +33,7 @@ public enum PreviewDwell: String, CaseIterable, Equatable, Sendable {
         case .standard: return 0.6
         case .long: return 1.2
         case .manual: return nil
+        case .immediate: return 0
         }
     }
 
@@ -46,6 +52,7 @@ public enum PreviewDwell: String, CaseIterable, Equatable, Sendable {
         case .standard: return "600 ms"
         case .long: return "1200 ms"
         case .manual: return "Until I insert"
+        case .immediate: return "Right away"
         }
     }
 }
@@ -54,6 +61,12 @@ public enum TurnSettings {
     /// The dwell in force: `.standard` when unset or unreadable.
     public static func previewDwell(_ store: SettingsStore?) -> PreviewDwell {
         store?.string(SettingsKeys.previewDwell).flatMap(PreviewDwell.init(rawValue:)) ?? .standard
+    }
+
+    /// N8 — what a dictation turn does with its final preview: wait for Insert under Manual review,
+    /// otherwise type right away. A stored timed dwell (600 / 900 / 1500) no longer delays a turn.
+    public static func landingDwell(_ store: SettingsStore?) -> PreviewDwell {
+        previewDwell(store) == .manual ? .manual : .immediate
     }
 
     public static func setPreviewDwell(_ dwell: PreviewDwell, store: SettingsStore?) {
