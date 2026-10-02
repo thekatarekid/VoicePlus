@@ -628,7 +628,7 @@ enum TapeFlightWiring {
         let tracker = pill.spoolAnchors
         guard tracker.subscriber == nil else { return }
         let controller = TapeFlightController(
-            reader: TapeFlightReader(probe: AXTapeFlightProbe(), caret: AXTapeFlightCaret()),
+            reader: TapeFlightReader(probe: AXTapeFlightProbe(), caret: AXTapeFlightCaret(ocr: OCRBandRibbonSource.live())),
             mouth: { [weak tracker] in tracker?.mouthOnScreen },
             displays: { DisplayNormalizer.current().displays },
             reduceMotion: { AppearanceSettings.effectiveReduceMotion(UserDefaultsSettingsStore()) },

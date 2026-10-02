@@ -10,15 +10,17 @@ import Shared
 // and no text. With the user's switch on and Screen Recording granted, the focused field (or
 // window) is captured, a three-line band around the caret is recognised, and the caret is found
 // by the text we last landed or, failing that, by the caret's blink (two frames, diffed). The
-// band fills `textBefore` / `textAfter` — the last rung of K10's ladder — and its caret rect is
-// what Q5's ribbon anchors to. Frames live in memory for the read only; nothing is written.
+// band fills `textBefore` / `textAfter` — the last rung of K10's ladder. Separately, N27's opt-in
+// ribbon rung (`OCRBandRibbonSource`, App/Overlay/TapeFlightOCRRung.swift) uses only the caret rect
+// to aim the ribbon; that read's text is discarded and never feeds context. Frames live in memory for
+// the read only; nothing is written.
 
 /// What one band read found.
 public struct CaretBandReading: Equatable, Sendable {
     public enum Method: String, Sendable, Equatable { case landedText, blink }
     public var before: String
     public var after: String
-    /// The caret in global AppKit points (Q5 anchors the ribbon here).
+    /// The caret in global AppKit points (N27's opt-in ribbon rung aims here).
     public var caretRect: CGRect
     public var method: Method
 

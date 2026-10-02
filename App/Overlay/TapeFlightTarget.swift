@@ -29,12 +29,15 @@ protocol TapeFlightCaretReading: AnyObject {
     func focusedElementFrame() -> CGRect?
     /// Q5 rung 4 — the focused element's window frame. AX coordinates.
     func focusedWindowFrame() -> CGRect?
+    /// N27 — opt-in OCR caret band (canvas editors). AX coordinates; geometry only, never text.
+    func ocrBandCaretRect() -> CGRect?
 }
 
 extension TapeFlightCaretReading {
     func textMarkerCaretRect() -> CGRect? { nil }
     func focusedElementFrame() -> CGRect? { nil }
     func focusedWindowFrame() -> CGRect? { nil }
+    func ocrBandCaretRect() -> CGRect? { nil }
     func lineMeasurements(_ range: Range<Int>) -> [TapeFlightLineMeasurement] {
         lineRects(range).map { TapeFlightLineMeasurement(rect: $0) }
     }
@@ -49,6 +52,9 @@ enum TapeFlightRung: Int, CaseIterable, Comparable, Sendable {
     case boundsForRange
     /// Chromium / WebKit text-marker caret.
     case textMarker
+    /// N27 — the opt-in OCR caret band (Q14 switch + Screen Recording): a real caret in canvas editors
+    /// that expose none through Accessibility. Never asked while the switch is off.
+    case ocrBand
     /// The focused element's frame.
     case elementFrame
     /// The focused window's frame.
@@ -76,7 +82,7 @@ struct TapeFlightFix: Equatable, Sendable {
     /// first-line edge is its title bar. AX coordinates in, AX coordinates out.
     func aim(rightToLeft: Bool = false) -> CGRect {
         switch rung {
-        case .boundsForRange, .windowFrame: return rect
+        case .boundsForRange, .ocrBand, .windowFrame: return rect
         case .textMarker where rect.width <= 2: return rect
         case .textMarker, .elementFrame: return TapeFlightTargetLadder.leadingEdge(of: rect, rightToLeft: rightToLeft)
         }
@@ -102,6 +108,7 @@ enum TapeFlightTargetLadder {
         }
         if let index = insertionIndex, let fix = take(caret.caretRect(at: index), .boundsForRange) { return fix }
         if let fix = take(caret.textMarkerCaretRect(), .textMarker) { return fix }
+        if let fix = take(caret.ocrBandCaretRect(), .ocrBand) { return fix }
         if let fix = take(caret.focusedElementFrame(), .elementFrame) { return fix }
         if let fix = take(caret.focusedWindowFrame(), .windowFrame) { return fix }
         return nil
@@ -281,7 +288,10 @@ final class AXTapeFlightProbe: TapeFlightProbing {
 /// `TapeFlightCaretLocator`. Unlike `AXWordRectProvider` it keeps zero-width caret rects and leaves the
 /// result in AX coordinates (its conversion reads `NSScreen`, which belongs to the main thread).
 final class AXTapeFlightCaret: TapeFlightCaretReading {
-    init() {}
+    /// N27 — the opt-in OCR rung's source; `nil` disables the rung.
+    let ocr: TapeFlightOCRCaretSource?
+
+    init(ocr: TapeFlightOCRCaretSource? = nil) { self.ocr = ocr }
 
     func caretRect(at index: Int) -> CGRect? {
         guard let element = TapeFlightAX.focusedElement() else { return nil }
