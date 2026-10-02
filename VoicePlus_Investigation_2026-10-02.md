@@ -152,3 +152,258 @@ Rejected proposals:
 - **ChatGPT turn linkage:** `turn_records` and `turn_diagnostics` use different turn ids, and the ChatGPT `turn_records` were partly pruned, so the bundle-to-decision link rests on timestamps.
 - **Empty or cancelled ChatGPT turns (6):** cause unknown, possibly gating or VAD on short presses.
 - **Things that are never persisted today:** ribbon outcomes (info-level only), the Notes-routing claim (info), the actual frontmost app at a hold, and per-step lander timing. Move all four to notice level or Q13 events.
+
+---
+
+## Round 2 (same day): Terminal, app-aware input, coverage, context latency, Cancel, short presses
+
+Same build (V5 1.13.0, pid 12840), code at HEAD `7eb07bc`, the same read-only DB and the same unified log. Four parallel investigations (terminal, Kivi comparison, app coverage, context latency) were each cross-checked against the code, the DB and the log before they went into this section. Confidence labels are the same as in round 1. Nothing was edited, and no app was controlled.
+
+### R2.0 Corrections to round 1
+
+1. **ChatGPT is not a renamed Electron app.** It is a Chromium browser runtime with OpenAI's "Owl" Electron-compatibility layer. Its framework is `com.openai.codex.framework` (Chromium 154 branch 8037), it ships `app.asar`, and its 272 MB framework binary contains `AXEnhancedUserInterface` but **no `AXManualAccessibility` string**. Round 1's P0-1 would have set an attribute this runtime does not read. The corrected fix is F3 below. **Confirmed.**
+2. **ChatGPT text gets code formatting, not generic formatting.** The bundle id contains "codex", and AppCategory's substring rule maps "code" to `.code` (Pipeline/Style/AppCategory.swift:97). The DB shows it: "Code two and three" became "Code 2 and 3", and the first letter was lowercased. An auto persona saying "Terse, technical voice" was also generated for it. **Confirmed.**
+3. **"Allow submit" protects nothing today.** `allowSubmit` is computed (UtteranceLander.swift:325), but no production code reads it, and nothing ever presses Return to send. The only way a dictation can send a message early is the keystroke fallback typing a bare line break in an app whose adapter is not newline-safe (TextInjector.swift:290-294). **Confirmed.**
+4. **Brave did not "promote" paste.** Paste has only 2 samples and promotion needs 3. Keystrokes fell to 1 success in 4 and were demoted below paste (MethodRouter.swift:16-18, 41-44). The effect is the same: Brave now pastes first in every tab. **Confirmed.**
+5. **The Notes stall is about four window walks per turn, not two** (section C2). **Likely.**
+6. **The "6 empty or cancelled ChatGPT turns" are four different things.** Only one is a real engine bug (section C7). **Confirmed / likely per item.**
+
+---
+
+### A. The Terminal case: what happened to "cd documents/voiceplus"
+
+Turn **AD658237**, 11:34:36 IST, Terminal (`com.apple.Terminal`, AXTextArea, not secure). What landed was `c didi reputation. docube akash voice plus.`, written by the terminal adapter. It was verified, and no Return was pressed.
+
+| Stage | What it produced | Verdict |
+|---|---|---|
+| 1. Speech | 7.46 s recording (`2026-10-02-113444-118-raw.wav`) with 3-4 bursts and pauses of up to 2.4 s. | Long pauses make the recogniser end sentences, so it adds periods. **Likely.** |
+| 2. Recogniser (TDT) | Offline repro: "C Dinda reputation. Document slash voice plus." "cd" was heard as "C" plus the start of the next word. | Recogniser miss. Nothing app-specific could fix "C Dinda" at this point. **Confirmed (repro).** |
+| 3. Vocabulary boosting (CTC) | Swapped Dinda→**Didi**, Document→**DOCUBE**, slash→**Akash**, giving "C Didi reputation. DOCUBE Akash voice plus." | **This is the main damage.** All three are Contacts names imported at 09:16. The boost list is the dictionary's first 400 terms in alphabetical (uppercase-first) order (AppDatabase+Queries.swift:116-118, BoostVocabulary.swift:25-46). The swap guard accepted each pair at similarity ≥ 0.6 (VocabularyBooster.swift:171-185). **Confirmed.** |
+| 4. Confidence | Each swapped word inherited the *highest* confidence of the words it replaced (VocabularyBooster.swift:130-138). So "Didi" and "Akash" were stored as confident. | Mistakes were hidden from every later repair step. **Confirmed.** |
+| 5. Terminal formatter | Lowercased the text, but left "reputation." and the final period. Low-confidence words are never rewritten (TerminalFormatter.swift:12-13, 51-80), and a word's confidence includes its attached period (WordConfidence.swift:27-52). | Formatter ran correctly by its own rules, but those rules are wrong for a shell. **Confirmed.** |
+| 6. Spoken symbols | "plus" is always turned into "+" in terminals (TerminalFormatter.swift:132-133). Even a perfect transcript would have become `cd documents/voice+`. | Formatter bug. **Confirmed.** |
+| 7. Injection | Bracketed paste, no Return. 3.25 s from key-up to write. | Correct. **Confirmed.** |
+
+Also worth knowing:
+- **There is no `~/Documents/voiceplus` folder.** The repo is `~/Documents/VoiceInput`. So even a perfect `cd documents/voiceplus` would fail in the shell. VoicePlus should type what you said. Offering "did you mean VoiceInput?" as a choice is fine, but it must never silently change "voice plus" to "VoiceInput".
+- **The Contacts boost list damages dictation in every app, not only Terminal.** Since the 09:16 import, stored transcripts include "There is no **Bucket**" (budget, Codex 09:18:22), "which **Cab** it this is" (tab, Brave 09:34:09), "google dot **Comp**" (com, Brave 09:37), "Is there any **Cleaning** happening" (Codex 09:30:17) and "both **Code** two and three" (Codex 09:35:13). Bucket, Cab, Comp, Cleaning and Code are all Contacts name parts inside the first 400 boost terms. **Likely** (each swap passes the guard's arithmetic; offline replay of these recordings is the confirming step). This is the top fix (F1).
+- Because the 1,466 Contacts terms fill the 400-term cap first, corrections and learned words are never boosted (BoostVocabulary.swift:37-44). There are no corrections yet, so this has no effect today. **Confirmed.**
+- "Teach the recogniser cd and ls" cannot work through boosting: terms shorter than 3 letters are dropped (BoostVocabulary.swift:14-16). Short commands have to be recovered after recognition, in the terminal formatter. **Confirmed.**
+
+---
+
+### B. App-aware input: "input profiles"
+
+**Goal.** The same words should land differently in a terminal, a sheet, a document, a chat box and so on, in native apps and in browser tabs alike.
+
+**What VoicePlus already has.** Most of the pieces exist but disagree with each other:
+- an app category table (Pipeline/Style/AppCategory.swift);
+- field roles and browser routes by URL or window title (Pipeline/Formatters/FieldRole/, BrowserSubApp.swift:57-125);
+- a terminal formatter;
+- per-app personas (19 rows in the `personas` table);
+- injection adapters chosen by bundle id (Injection/AppAdapter.swift:343-359);
+- a field reader that knows 12 browsers (FieldContextReader.swift:160-164).
+
+There are three separate lists of terminals and browsers, and they disagree. For example, WezTerm is a "terminal" for formatting but gets the default adapter for typing. Dia and Comet are not known as browsers at all.
+
+**The design: one profile per turn, decided in two steps.**
+
+1. **At key-down (free, no window read):** use the frontmost app's bundle id, plus a runtime kind (native, Electron, Chromium app, browser) sniffed once per app version from its bundle on disk, plus the profile that app's window had on the previous turn. This gives a **provisional profile**. It picks the boosting vocabulary, because boosting is set up at key-down (AppContainer.swift:493-498; DictationCoordinator.swift:364). It also starts the bounded context read (section C2).
+2. **At key-up (the focus snapshot is already taken here, DictationCoordinator.swift:472):** add the focused element's role and subrole, whether it sits inside a web area, the page URL (from the web area or the address bar), the window title as a fallback, single- or multi-line, and the secure flag. This gives the **final profile**. It drives symbol conversion, punctuation, cleanup, line-break keys and the write method. If it differs from the provisional profile, only boosting used the wrong guess; that is acceptable.
+3. **Persist the profile and the signals that chose it** in `turn_records`, so a wrong choice can be traced.
+
+**Signal priority:** secure field (always wins: refuse) > focused element role and web-area URL > window title > bundle id > runtime kind > unknown. An unknown app falls back to **prose with safe line breaks**.
+
+**What each profile changes:**
+
+| Profile | Typical surfaces | Boost vocabulary | Spoken symbols | Punctuation and caps | Cleanup / LLM | Line break / submit | Write method |
+|---|---|---|---|---|---|---|---|
+| Terminal / shell | Terminal, iTerm, Ghostty, Warp, WezTerm, kitty, VS Code terminal | Commands of 3+ letters (git, npm, grep, brew); never Contacts | slash, dot, dash, tilde, pipe, "dash dash"; "plus" only as in c++ | Lowercase; no sentence punctuation at all; recover cd/ls in command position | None | Never Return; bracketed paste strips line breaks | Bracketed paste |
+| Code editor | VS Code, Xcode, Cursor, Zed, JetBrains | Identifiers from the user's dictionary and corrections | Same as terminal, plus brackets and "camel case" / "snake case" | Keep identifier casing as spoken; no trailing period | Light; never rewrite identifiers | Bare line break is fine inside the editor | AX, then keystroke |
+| Spreadsheet cell | Sheets, Excel, Numbers | Numbers, units, months | "equals" only at the start means a formula | No trailing period; numbers as digits | None | ⌥↩ inside a cell; never Return (moves cell) | Keystroke; table paste later (P2) |
+| Document / notes prose | Notes, Docs, Pages, Word, Notion page, Bear | Dictionary, corrections; Contacts only as full names | Symbols only when spoken as commands | Full sentence punctuation and caps | Full cleanup with the doc template | Paragraph break allowed only when the role proves a document body | AX, then keystroke |
+| Chat / message | Slack, WhatsApp, Telegram, Messages, Discord, ChatGPT, Claude, Gemini | Contacts (thread participants first), dictionary | Emoji words, @mentions | Casual; trailing period optional | Light chat template | **Always ⇧↩; Return never sends** | Keystroke for web composers |
+| Email | Mail, Gmail, Outlook | Contacts, dictionary | Email addresses ("at", "dot") | Full prose; greeting and sign-off on their own lines | Email template | Body: line break; subject: none | AX, then keystroke |
+| Search / URL bar | Address bar, Spotlight, in-app search | Site names, dictionary | "dot com", slashes | No trailing period, no capitalised first letter | None | Never Return | AX |
+| Form field (single line) | Name, phone, address fields | Contacts for name fields | Digits, "at", "dot" | No trailing period | None | Never a line break | AX |
+| Canvas apps | Figma, Slides, Canva, Miro, FigJam | Dictionary | As prose | As prose | Light | ⇧↩ in comments; plain line break only in a text layer | **Hold unless a text box is being edited**; on canvas, letters are tool shortcuts |
+
+**Browser tabs.** A tab is classified by its URL first and by its window title second (BrowserSubApp.swift:91-125, FieldRole.swift:77-80). Missing today:
+- **No URL route:** Slides (`docs.google.com/presentation` falls into the Docs prose route), figma.com, canva.com, linear.app, miro.com.
+- **No window-title name:** Google Slides, Notion, Gemini, Canva. `gemini.google.com` does have a URL route.
+- **Web content anywhere** (any browser, any web view inside a native app) should get safe line breaks by structure: if the focused element sits inside a web area, use ⇧↩ and the keystroke path. That one rule covers Safari, Firefox, Dia, Comet, Vivaldi, Opera, Gemini desktop and unknown wrapper apps.
+
+**Lessons from Kivi.** This comparison comes from the installed `/Applications/Kivi.app` bundle (strings and type names). The YouTube demo was not reviewed.
+- *Worth copying:*
+  - One "surface profile" from several signals.
+  - A persona per app with 2-3 named presets per category. VoicePlus has the per-app table; it lacks the presets.
+  - Context capture that starts while you speak and stops at a budget.
+  - Rich paste per surface: an HTML table into Sheets, Markdown into Notion.
+  - A browser list paired with an accessibility switch. This is plausible but inferred.
+- *Not copying:*
+  - Cloud recognition and server-side formatting.
+  - Bundled analytics and crash reporting (PostHog, PLCrashReporter). These are against VoicePlus's no-cloud, no-telemetry rules.
+  - Screen text fed into the recogniser. VoicePlus deliberately bans this: Engine/Biasing/README.md:5 says "never screen text", and decode-time context biasing was removed in V5 A1 after the Lab measured no gain. Reversing that is an owner decision (F27).
+
+---
+
+### C. Owner questions, answered plainly
+
+#### C1. Does the ChatGPT/Electron fix also cover Gemini, Figma, other native apps, and web apps in Brave or Chrome?
+
+**No.** It only fixes ChatGPT and other Chromium-based apps that hide their runtime. Everything else needs its own fix:
+
+| Surface | Does the ChatGPT fix help? | Today | What fixes it |
+|---|---|---|---|
+| ChatGPT desktop | **Yes**, this is what it is for | Nothing typed; text goes to Notes | F3 (with a live probe first) |
+| Unnamed Electron apps (Antigravity, ClickUp, Granola, Littlebird, Factory, Wispr Flow) | **Partly.** The "route by runtime kind" part sends them to the safe Electron path | Default adapter, keystroke fallback can type a bare Return | F3 + F6 |
+| Claude desktop | Not needed (already Electron and typing) | Types; ribbon aims at the box, not the caret | F17 (ribbon aim) |
+| **Gemini desktop** (`com.google.GeminiMacOS`) | **No.** It is a native SwiftUI app with a WebKit view, not Electron | Default adapter. AX insert is safe; the keystroke fallback could send early. Not tested live (no Gemini turns today) | F6 (web-area rule), add to chat category (F9) |
+| Other native apps (Notes, Mail, Messages, Telegram, Spotlight) | Not relevant | Type correctly; Notes is slow | F4 (context) |
+| **Figma desktop** | **No.** Already detected as Electron, but its own adapter is checked first and is not newline-safe | Line break in a comment box could post it; on the canvas, letters trigger tools | F11 |
+| Brave / Chrome / Edge / Arc: Docs, Sheets, Gmail, x.com | **No**, and not needed for line breaks: these are already newline-safe (⇧↩, ⌥↩ in Sheets) | Type; Docs shows no ribbon; Brave now pastes first in every tab | F12 (router), F18 (ribbon) |
+| **Google Slides (web)** | No | No route: treated as Docs prose; canvas | F10 + F11 canvas rule |
+| **Figma web** | No | No route; canvas shortcut risk | F10 + F11 |
+| Notion / Gemini web / Canva / Linear / Miro | No | Missing routes or title names | F10 |
+| Safari, Firefox, Dia, Comet, Vivaldi, Opera | No | Default adapter: not newline-safe | F6 + F10 (one shared browser list) |
+| Terminal, iTerm | No | Typing is fine; the words were wrong (ASR plus boosting) | F1, F7, F8, F9 |
+| WezTerm, Hyper, Tabby, Termius, Warp (`dev.warp.Warp`) | No | Default adapter: **a multi-line dictation can run commands line by line** | F5 |
+
+#### C2. Why did the context step take 17 seconds?
+
+After recognition finished (in about 0.5 s), VoicePlus gathered "context" before formatting, synchronously, with no time limit (UtteranceLander.swift:216).
+- **Where the time went:** in Notes that meant about four accessibility walks of the whole window. Two came from the "this/her" lookup and two from the ranked-context harvest (AXContextProviders.swift:88-94; AppContainer.swift:228-236).
+- **Why each walk is slow:**
+  - The walker has no clock limit, only a 5,000-node cap (AXReading.swift:63-69).
+  - It sets no accessibility timeout (LiveAXNodeAccess.swift:87-90).
+  - In "tail" mode it reads every text node in full before trimming to 2,000 characters (AXWindowReader.swift:50-55).
+- **Why walks repeat:** the cache lasts 2 s, but it is stamped at the *end* of a roughly 4 s walk, so the next read often misses (WindowContentCache.swift:23, 45, 117-121).
+- **Result:** two gaps of about 8.4 s each. The Contacts reads in between take only 25-30 ms.
+- **Ruled out:** cleanup (0.5 s deadline) and the recogniser.
+- **Confidence:** the overall cause is **confirmed** (log thread silence between the two Contacts fetches and `landing diff`). The four-walk split is **likely**; per-walk timing is not logged.
+- **Separate:** ChatGPT turn E1F62700's 17.6 s was the speech engine, not context (C7).
+
+#### C3. What does "read the window once per dictation" mean?
+
+- **A dictation** is one turn: one hold-and-release of the hotkey, or one segment in Latch mode, from key-down until the text lands, is held or is dropped.
+- **When the window is read today:**
+  - A small, fast read of just the focused field at key-up and again just before typing (secure field, caret, safety checks). This stays as it is.
+  - Several whole-window walks *after* recognition and *before* formatting. That is where the 17 s went.
+- **The fix (F4):** one bounded snapshot per turn, shared by everything that wants context.
+  - It starts at key-down, so it runs while you speak.
+  - It is tied to the app and window you started in. Today it reads whatever app is frontmost when landing, which can be the wrong app (AXContextProviders.swift:24).
+  - It reads the text around the caret first and the window second.
+  - It stops at about 250 ms and lands with whatever it has.
+- **Dictating again in the same window:**
+  - Today: yes, everything is re-read (the cache lives only 2 s).
+  - After the fix: each new dictation takes a fresh snapshot, started at key-down. It may reuse the previous one if the window's text has not changed, and it is thrown away on cancel, an empty turn, an app switch or idle.
+
+#### C4. Is "only look up when you say 'this' or 'her'" enough?
+
+**No, not on its own.** You are right that references take many forms: "reply saying yes", "fix the error above", "send it to the team", "isko bhej do". Screen context also does more than resolve pronouns. The better design separates three jobs:
+1. **Recognition biasing** (which words the recogniser favours). This comes from the input profile and your own words: dictionary, corrections, the profile's command list, and chat participants for chat. It does not depend on trigger words. Screen text stays out unless you decide otherwise (F27).
+2. **Formatting and cleanup context** (text before the caret, field role, thread). One bounded snapshot is **always** taken for every dictation, at key-down, under the deadline.
+3. **Referent resolution** (working out what "this", "her" or "the error above" points to). It uses the same snapshot. Only the *extra* expensive lookups, the Contacts scan and the full on-screen item list, are gated on a broad trigger list. That list covers pronouns, "above/below/that error/this message", and Hinglish forms (isko, usko, ye, woh). The LLM or agent path can also request one.
+
+Missing a trigger then costs a little accuracy, never 17 s.
+
+One more catch: the agent ("act") path currently reuses the last "this/her" result as a side effect (DeixisService.swift:361-378 → ActStack.swift:287-288). If the lookup becomes lazy, that path must do its own lookup, or it will use stale screen lines from an earlier turn. **Confirmed.**
+
+#### C5. What does the pill-button fix mean?
+
+- **Today:** after about 10 s the pill shows "Still finishing your text … nothing inserted yet" with **Use available text** and **Cancel**. It does this on its own timer (PillPresentation.swift:504-516), regardless of where the turn actually is.
+- **The problem:** by then the text has usually been recognised and is being formatted. At that point "Use available text" does nothing (TurnController.swift ~583-592), and "Cancel" ends the turn and **throws the recognised text away**.
+- **The fix (F2):**
+  - The pill shows only buttons that the turn's real stage can honour.
+  - Before recognition finishes, Cancel means "stop, there is nothing to keep".
+  - After recognition, Cancel means "**don't type it here**". The text is still saved to history (and to VoicePlus Notes if that setting is on), with Insert and Copy actions.
+  - "Use available text" appears only while recognition itself is slow, and it lands the unboosted text.
+
+#### C6. Does Cancel still send the text to Notes today?
+
+**No.** Notes turn 42AB2F4E has its recognised text in `turn_records` ("Is the dictation working in Apple notes?"), but nothing was written, and it is in neither dictation history nor Notes. The cancelled ChatGPT turn E1F62700 is missing from history too. The text is lost. **Confirmed.**
+
+#### C7. The "6 empty or cancelled ChatGPT dictations": root cause, investigated now
+
+| Turn | What happened | Cause | Confidence |
+|---|---|---|---|
+| 97D650A3 (09:13:35) | Failed, no audio | First run: microphone permission had not been requested yet. Log 09:13:36.127 says "engine start failed: microphone access is not requested yet". Permission was granted at 09:13:39. | **Confirmed.** A one-off. |
+| AD105A9F (09:16:54) and 62987E1F (09:17:16) | Cancelled about 100 ms and 220 ms after starting | **Key held for less than 250 ms.** By design, a press shorter than the hold threshold cancels, and a very quick tap arms the double-tap Latch (HotkeyStateMachine.swift:7-11, 82-99). Each tap is stored as a "cancelled" turn, with no on-screen hint about why. | **Likely** (timing from the log; the actual key-up times are not logged) |
+| 2A89FC5E, DF355876, 9376334E | Empty | Holds of about 0.6-2.7 s with **no speech in the audio**. The no-speech gate logged "speech 0.00 s", and the recordings sit at about -50 dBFS of room noise (real speech today is about -35 to -25). The mic was working. Most of these came right after ChatGPT failed to type or right after a refused press, so these were retry presses. The same pattern appears in Claude and Notes. | **Likely** |
+| **E1F62700** (09:17:59) | Cancelled after speech was recognised | **The real bug.** The words were recognised (pill "previewing"), but the final pass took 17.6 s, you pressed Cancel, and the text was dropped as a "late final pass" (TurnController.swift:632-634). The final pass mapped a ~100 MB model into memory at 09:18:01.851. That was the first such load in this app session. It is most likely the CTC boosting model, which loads only once the dictionary is non-empty. The Contacts import at 09:16 had just made it non-empty, and the load and the 400-term setup run inside the final pass with no deadline (CTCVocabularyBooster.swift:49-58, 123-132, 151-153). | Stall and loss **confirmed**; the model-load cause is **likely** |
+
+The same ~100 MB model was mapped again at 09:29, 09:45, 10:25 and 11:34. That suggests it is unloaded when idle and reloaded on demand, which adds roughly 1 s to the first dictation after a pause (**likely**).
+
+**So:** two were taps that were too short, three were silent presses, one was a first-run permission, and one was a real engine stall plus text loss. Fixes: F2 (Cancel keeps text), F14 (engine deadline and warm model), F15 (tap and silence feedback).
+
+---
+
+### D. Final consolidated fix list (round 1 + round 2)
+
+Effort: S is under a day, M is 1-3 days, L is more than 3 days. "Symptom" names what you saw.
+
+#### P0: stop losing or corrupting text
+
+| # | Problem | Change | Files | Effort | Risk | Tests | Symptom fixed |
+|---|---|---|---|---|---|---|---|
+| **F1** | Contacts names swap ordinary words in every app | Keep Contacts-sourced terms out of the boost list now (filter on `dictionary_term_meta.source`). **Ship this alone, first.** | App/Services/BoostingWiring.swift, Engine/Biasing/BoostVocabulary.swift | S | Low (Contacts names lose boosting until F7) | Boost list has no Contacts terms; offline replay of the 11:34:44, 09:18:22 and 09:34:09 recordings no longer shows Akash/DOCUBE/Bucket/Cab | Terminal garble; "Bucket", "Cab", "Comp" in Codex/Brave |
+| **F2** | Cancel throws away recognised text; pill offers buttons that do nothing | Pill buttons follow the turn's real stage (TurnController offer + payloadStarted), not the pill's 10 s timer. After recognition, Cancel = "don't type here": save to history (and Notes if enabled) with Insert / Copy. Discard only by Esc during capture. (Round-1 P0-3, extended.) | App/Core/PillPresentation.swift, App/Services/TurnController.swift, dictation history writer | S-M | Low | Cancel after recognition never logs "payload dropped"; the text appears in history; no "Use available text" after payloadStarted | Lost Notes text (42AB2F4E), lost ChatGPT text (E1F62700), dead button |
+| **F3** | ChatGPT gets nothing typed | New runtime kind "Chromium app" (Chromium framework + app.asar, not a browser). Route it, and every Electron app, by runtime kind to the safe Electron path (⇧↩, keystrokes first). Turn on its accessibility with `AXEnhancedUserInterface` (try `AXManualAccessibility` too). Check success by probing the focused element, not the call's return code, and cache the result per process. Respect the visible "Expose text in Chromium" setting. Map `com.openai.codex` to chat and regenerate its persona. (Round-1 P0-1, corrected.) | Injection/AppAccessibilityEnabler.swift, Injection/AppAdapter.swift, Pipeline/Style/AppCategory.swift | M | Medium: unproven that the attribute builds the composer tree; costs some Chromium CPU | Fake ChatGPT-like bundle → Chromium app → safe adapter; registry routes unnamed Electron apps correctly. **Live probe first** | ChatGPT nothing typed / sent to Notes; code formatting in ChatGPT |
+| **F4** | 17 s context stall in Notes; wrong-app reads; privacy rule checked too late | One bounded **turn context**: started at key-down, tied to the starting app and window, caret text first, about 250 ms deadline. AX timeout 0.1-0.25 s, node cap about 800, a per-node cancel check, one walk at a time per window, tail mode reads only the end of the focused text. Check the app's "contextual reading" rule *before* any read. Contacts and full lookups only on the broad trigger list (C4). The agent path does its own lookup and receives screen lines as labelled data, not inside its goal text. Throw the snapshot away on cancel, empty turn, app switch or idle. (Round-1 P0-2 + P2-2.) | App/Services/UtteranceLander.swift, AppContainer.swift, DeixisService.swift, AXContextProviders.swift, ActStack.swift, Injection/AXReader/AXWindowReader.swift, AXReading.swift, WindowContentCache.swift | M-L | Medium: a stop-waiting deadline without cancellation would leave walks running and slow the safety reads | A mock 10 s context source lands within about 400 ms; no Contacts or window read when the rule is off; a read is bound to the target pid; no stale act lines. **Manual:** Notes in a long note lands in under 1.5 s | "Still finishing", "Destination changed", K04 refusals, lost Notes dictation |
+| **F5** | WezTerm, Hyper, Tabby, Termius, Warp get the default adapter: line breaks can run commands | The terminal adapter matches every app the category table calls a terminal, from one shared list | Injection/AppAdapter.swift, Pipeline/Style/AppCategory.swift | S | Low | Every terminal id resolves to the terminal adapter. **Live:** WezTerm | Safety (no symptom reported yet) |
+| **F6** | Web content outside known browsers can get a bare Return (Gemini, Safari, Dia, Comet, Vivaldi, Opera, unnamed wrapper apps) | Structural rule: if the focused element sits inside a web area, or the app is Electron or Chromium, type line breaks as ⇧↩ and never post a bare line break from the keystroke fallback | Injection/TextInjector.swift, Injection/AppAdapter.swift | S | Low | Default adapter in a web area emits ⇧↩. **Live:** Gemini, Safari | Early-send risk in Gemini and other browsers |
+
+#### P1: right words and right format per app
+
+| # | Problem | Change | Files | Effort | Risk | Tests | Symptom fixed |
+|---|---|---|---|---|---|---|---|
+| **F7** | Boost list is alphabetical; one list for all apps | Rank terms: corrections and learned words first, then dictionary terms by use, then Contacts (full names and uncommon name parts only, chat/mail/prose profiles only). Choose the list at key-down from the frontmost app's provisional profile. Keep one cached rescorer per profile class (terminal/code, prose, chat) so switching apps does not rebuild it | Engine/Biasing/BoostVocabulary.swift, App/Services/BoostingWiring.swift, AppContainer.swift, Engine/Decoder/CTCVocabularyBooster.swift | M | Medium | Ranking tests; corrections survive a full cap; per-class cache | Contacts noise; future corrections never boosted |
+| **F8** | Boosting can eat spoken symbols and hide its own mistakes | Protect symbol words (slash, dot, dash, plus, at, colon, tilde) from swaps unless the letters are identical ("voice plus" → "VoicePlus" still allowed). A swapped word takes the *lower* confidence and is tagged as boosted, so later stages and the UI treat it as uncertain | Engine/Decoder/VocabularyBooster.swift | S-M | Low | slash→Akash rejected; compound merge still works; boosted words appear in uncertain spans | "Akash" for "slash"; hidden errors |
+| **F9** | Terminal formatting leaves periods, misses cd, turns "plus" into + | In terminal and code profiles only: strip sentence punctuation from every word, including low-confidence ones; recover "C D"/"see dee"/"CD" as `cd` (and ls etc.) in command position; "plus" is + only after a single letter or when spoken twice (c++). Never Return. Add Gemini to the chat category | Pipeline/Formatters/TerminalFormatter.swift, Pipeline/Style/AppCategory.swift | S | Low (scoped to terminal and code) | Replay of the 11:34:44 recording; c plus plus → c++; "voice plus" stays words | Terminal output |
+| **F10** | Three disagreeing app lists; missing web routes | One **input profile resolver** (section B) that formatting, cleanup, personas and injection all read. One shared browser list (add Dia, Comet, Vivaldi, Opera, Chromium, Safari, Firefox). Add routes and titles for Slides, figma.com, Notion, Gemini title, Canva, Linear, Miro. Persist profile and signals in `turn_records` | Pipeline/Formatters/FieldRole/BrowserSubApp.swift, FieldRole.swift, Pipeline/Style/AppCategory.swift, App/Services/FieldContextReader.swift, Injection/AppAdapter.swift, App/Services/TurnStore.swift | M | Medium | Table test: every known app and URL maps to one profile; no list disagrees | Wrong format per app and tab |
+| **F11** | Figma and canvas apps: line breaks can post comments; letters can trigger tools | Figma adapter becomes newline-safe. In Figma, Slides, Canva and Miro, hold with "Click into a text box first" unless an active text edit is detected | Injection/AppAdapter.swift | M | Medium | Adapter tests. **Live:** Figma desktop and web | Figma and Slides safety |
+| **F12** | Brave learned "paste first" for every tab | Never move paste ahead of keystrokes in a newline-safe adapter; an "unconfirmed" landing counts as neutral, not as a failure | Injection/MethodRouter.swift, Injection/AppAdapter.swift | S | Low | Router test | Paste into Sheets/Figma web |
+| **F13** | Unreadable field + no secure check | Before any write with no readable field, refuse or hold if macOS secure input is on (password fields turn it on). Prerequisite for F3 and F19 | Injection/TextInjector.swift | S | Low | Unit test with a fake secure-input flag | Safety |
+| **F14** | Engine final pass can take 17 s; model reloads add about 1 s | Load the boosting model in the background (at launch or key-down), never inside the final pass. Put a deadline (about 1.5 s) on boosting and land the unboosted text if it runs over. Log per-stage engine ms (recognise, model load, rescore) and store the pre-boost raw text in `turn_records` | Engine/Decoder/CTCVocabularyBooster.swift, FluidAudioTDTDecoder.swift, App/Services/TurnController.swift, TurnStore.swift | M | Low | A slow fake booster lands unboosted text within the deadline | E1F62700 stall and loss; slow first dictation |
+| **F15** | Short taps and silent presses look like failures | A tap under 250 ms shows "Hold to talk · double-tap to lock" and is not stored as a cancelled turn. A no-speech turn shows "Didn't hear anything". Log key down/up times with the turn id. Optional: a "tap to start / tap to stop" setting for people used to toggle-style apps | App/Core/HotkeyStateMachine.swift (copy only), App/Services/DictationCoordinator.swift, TurnController.swift | S | Low | Tap → hint and no turn record | "Empty/cancelled" ChatGPT turns |
+| **F16** | Clipboard managers record every pasted dictation | Mark VoicePlus's paste as transient and auto-generated (standard pasteboard markers) | Injection/ClipboardPaster.swift | S | Low | Pasteboard types test | Privacy |
+| F17 | Ribbon lands mid-box in empty Claude/x.com fields | Round-1 P1-4: accept a zero-width caret rect; aim at the leading edge on coarse rungs | App/Overlay/TapeFlightGeometry.swift, TapeFlightTarget.swift | S | Low | Geometry tests | Claude/x.com ribbon |
+| F18 | No ribbon in Docs; ribbon failures never logged | Round-1 P1-5: ribbon diagnostics event, then fall through to the next rung when a rect is off-display | App/Overlay/TapeFlightController.swift, App/Diagnostics | S | Low | Controller test | Docs ribbon |
+| F19 | Silent Notes routing when no field is found | Round-1 P1-2: field / no focus / unreadable. Unreadable in Electron or Chromium apps → safe Electron path (after F13). Visible "Saved to Notes · Insert here" row | App/Services/UtteranceLander.swift, FieldContextReader.swift, App/Settings/NotesRouting.swift | M | Medium | Routing table tests | ChatGPT text in Notes |
+| F20 | Notch says "landed" at recognition time | Round-1 P1-1: Working until the write finishes or the text is held | App/Services/TurnController.swift | S | Low | Presence sequence test | "Done" while nothing typed |
+| F21 | Held row names the wrong app | Round-1 P1-3: name the app that took focus; Insert here confirmed by hotkey or click, never Return | App/Services/TurnController.swift, App/Core/PillDelivery.swift | S | Low | Copy test | "Destination changed" confusion |
+| F22 | Presses refused silently while busy | Round-1 P1-6: "Previous text still landing" | App/Services/TurnController.swift | S | Low | Copy test | K04 swallowed presses |
+| F23 | Turn ids differ between tables | Round-1 P1-7: one turn id in diagnostics and records | App/Diagnostics, App/Services/TurnStore.swift | S | Low | Join test | Debuggability |
+
+#### P2: polish and owner decisions
+
+| # | Change | Effort | Notes |
+|---|---|---|---|
+| F24 | Collapse pill and notch to the 5-state models (round-1 P2-1) | M-L | Do it after F2, F4 and F20, so fewer states hide fewer failures |
+| F25 | Allow a new press once the previous text is final, in start order (round-1 P2-3) | M | After F4 |
+| F26 | Terminal folder-name completion from the shell's current folder. Use the cwd of the foreground shell process, offer a match as a suggestion, never trigger a Files & Folders prompt, never press Return | M | Listing `~/Documents` would trigger a macOS permission prompt (not sandboxed). If wanted, ask once in Settings. **Owner decision** |
+| F27 | Feed a small, profile-scoped set of screen terms (chat participants, file names) into boosting | M | Reverses the documented "never screen text" rule; the Lab measured no gain before. **Owner decision**; default no |
+| F28 | Rich paste: an HTML/TSV table into Sheets when the output is a table; Markdown into Notion | M | Formula guard only when you did not say "equals". Keep secure-field and no-send checks first |
+| F29 | 2-3 named presets per app category in the Apps rules UI (Kivi-style) | S-M | Uses the existing personas table |
+| F30 | Separate "skip cleanup" from "style off" for mid-document inserts (round-1 P2-5) | S | |
+| F31 | OCR caret-band ribbon rung (round-1 P2-4) | M | Opt-in |
+
+#### Order and dependencies
+
+1. **F1 now, on its own.** It is a one-line filter, it stops the word corruption everywhere, and it may also make E1F62700-style stalls rarer.
+2. **F2, F14, F23, and the logging parts of F4 and F18** next, so every later change can be measured: per-stage engine ms, per-walk context ms, ribbon outcome, pre-boost text.
+3. **F5, F6 and F13** together. They are small safety changes, and F13 must land before anything types into an unreadable field (F3, F19).
+4. **Live probes, then F3.** ChatGPT, Gemini and Figma first need a read-only accessibility probe.
+5. **F4**, then **F10** (the profile resolver reads the same turn snapshot), then **F7, F9, F11, F12**.
+6. **F24** (state collapse) last.
+
+#### Still needs a live test (cannot be proven from logs or code)
+
+- **ChatGPT:** does `AXEnhancedUserInterface` (or `AXManualAccessibility`) expose a focused composer, and do keystrokes reach it?
+- **Gemini desktop:** is the composer web content (inside a web area) or a native text view?
+- **Figma desktop and web:** what does the focused element look like on the canvas versus in a text layer versus in a comment box?
+- **WezTerm:** what does it expose over accessibility, and does F5 bracketed paste behave?
+- **Contacts damage:** replay the 09:18:22, 09:34:09 and 11:34:44 recordings with and without F1.
+- **E1F62700:** confirm the stall was the first boosting-model load, using F14's timing logs.
+- **Notes:** per-walk node count and ms, to confirm the four-walk model and size the deadline.
+- **Short presses:** key down/up times per turn (F15 logging), to confirm the tap explanation.
