@@ -591,6 +591,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         }
         guard let (id, partial) = picked else { return }
         Log.app.notice("turn \(id.description): using the available text; the late final pass will be dropped")
+        finalizeAvailable(id, partial: partial)
+    }
+
+    /// The live words become the turn's final payload (the late final pass is dropped).
+    private func finalizeAvailable(_ id: TurnID, partial: String) {
         ui { [weak self] in self?.onOffer?(id, nil) }
         // Streaming words carry no final confidence: they are neither flagged nor claimed as checked.
         let spans = [TranscriptSpan(text: partial, confidence: 0.5, audioRange: 0...0, provenance: [.asr], stability: .committed)]
@@ -601,13 +606,57 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         }
     }
 
-    /// 10 s offer → "Cancel", or Cancel on a finishing turn: nothing will be inserted, and the late
-    /// result is dropped.
+    /// Cancel on a finishing turn (or the 10 s offer's Cancel). N2 — once words exist (the payload
+    /// started, or live words were heard) Cancel means "don't type here": the text is kept as held
+    /// text (history, Insert here / Copy), never dropped. Only a turn with no words at all is
+    /// cancelled outright, its late result dropped.
     public func cancelFinishing() {
         guard let id = lock.withLock({ turns.values.first { $0.origin == .hold && $0.stage == .finishing }?.id }) else { return }
+        if keepWithoutTyping(id, awaitFinalPass: false) { return }
         cancelBeforeWrite(id, showCancelled: true)
         ui { [weak self] in self?.onOffer?(id, nil) }
         ui { [weak self] in self?.onCancelCapture?() }
+    }
+
+    /// N2 — "don't type here" after capture closed: the turn's words are held (saved to history with
+    /// Insert here / Copy) instead of typed. A preview is held now; a payload being formatted is held
+    /// when it reaches the gate; a turn still waiting for its final pass keeps the live words, or
+    /// (`awaitFinalPass`, Escape with no live words yet) keeps whatever the final pass returns.
+    /// `false` when there is nothing to keep (no words), so the caller cancels as before.
+    @discardableResult
+    func keepWithoutTyping(_ id: TurnID, awaitFinalPass: Bool) -> Bool {
+        enum Plan { case none, preview, atGate, available(String) }
+        let reason = DeliveryReason.keptByUser
+        let plan = lock.withLock { () -> Plan in
+            guard let turn = turns[id] else { return .none }
+            switch turn.stage {
+            case .finalPreview:
+                let text = turn.payload?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return text.isEmpty ? .none : .preview
+            case .finishing:
+                if turn.payloadStarted {
+                    turn.holdWhenReady = reason
+                    return .atGate
+                }
+                if let partial = turn.partialText, !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    turn.holdWhenReady = reason
+                    return .available(partial)
+                }
+                guard awaitFinalPass else { return .none }
+                turn.holdWhenReady = reason
+                return .atGate
+            default:
+                return .none
+            }
+        }
+        switch plan {
+        case .none: return false
+        case .preview: exitDwell(id, .hold(reason: reason))
+        case .atGate: ui { [weak self] in self?.onOffer?(id, nil) }
+        case .available(let partial): finalizeAvailable(id, partial: partial)
+        }
+        Log.app.notice("turn \(id.description): cancelled after recognition — kept, not typed (N2)")
+        return true
     }
 
     /// The engine's final pass for turn `id`. Formats it into the final payload and hands it to the
@@ -773,10 +822,13 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         }
         publishPreview(id, payload)
         busy(-1)
-        let exit = await dwellExit(id)
+        let decided = await dwellExit(id)
         busy(+1)
         // Freeze the latest reviewed revision only after the insertion decision.
         let payload = lock.withLock { turns[id]?.payload ?? payload }
+        // N2 — a "don't type here" that raced the preview still wins over an insert.
+        var exit = decided
+        if case .insert = exit, let kept = lock.withLock({ turns[id]?.holdWhenReady }) { exit = .hold(reason: kept) }
         switch exit {
         case .cancel:
             return payload
@@ -1100,8 +1152,17 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         exitDwell(id, .insert)
     }
 
-    /// "Cancel" on the preview.
+    /// "Cancel" on the preview. N2 — the words are recognised: kept as held text (history, Insert
+    /// here / Copy), not typed. An empty draft (nothing to keep) is cancelled.
     public func cancelPreview() {
+        guard let id = lock.withLock({ previewTurnLocked()?.id }) else { return }
+        if keepWithoutTyping(id, awaitFinalPass: false) { return }
+        cancelBeforeWrite(id, showCancelled: true)
+    }
+
+    /// V5 Q12 — the user emptied the draft and left the editor: there is nothing to keep, so the
+    /// preview is cancelled ("Nothing was typed.").
+    public func discardPreview() {
         guard let id = lock.withLock({ previewTurnLocked()?.id }) else { return }
         cancelBeforeWrite(id, showCancelled: true)
     }
@@ -1233,9 +1294,12 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// Escape (I2, design §5). Before any write: cancel capture and preview, nothing inserted,
     /// "Cancelled" for 800 ms. After the write began: never claim a cancellation — the outcome is
     /// resolved first, then a safe Undo is offered for 5 s. Returns what it did.
+    ///
+    /// N2 — Escape discards only during capture. A turn whose capture already closed (finishing,
+    /// formatting, previewing) is kept as held text instead: "don't type here", never dropped.
     @discardableResult
     public func escape() -> EscapeResolution? {
-        let (cancel, writing) = lock.withLock { () -> ([TurnID], Bool) in
+        let (candidates, writing) = lock.withLock { () -> ([TurnID], Bool) in
             var cancel: [TurnID] = []
             var writing = false
             for turn in turns.values {
@@ -1248,6 +1312,14 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             return (cancel, writing)
         }
         if writing { Log.app.notice("turn: Escape during the write — resolving the outcome, then offering Undo") }
+        let cancel = candidates.filter { id in
+            let capturing = lock.withLock { turns[id]?.stage.isCapturing ?? true }
+            return capturing || !keepWithoutTyping(id, awaitFinalPass: true)
+        }
+        let kept = candidates.count - cancel.count
+        // Only kept turns: capture is already closed and their final pass must finish — nothing to
+        // stop, nothing to show as cancelled (the held row follows).
+        if cancel.isEmpty, kept > 0 { return nil }
         for id in cancel { cancelBeforeWrite(id, showCancelled: true) }
         // Stop capture and drop whatever the latch had closed but not delivered. Nothing that has
         // already been written is touched (V3 §4.3).
@@ -1694,7 +1766,7 @@ public final class TurnWiring {
             controller?.reviseRetainedDraft(shown: shown, original: original, edited: edited, mapping: mapping) ?? false
         }
         // V5 Q12 — an empty draft left in the editor cancels the turn ("Nothing was typed.").
-        pill.onEmptyDraftLeft = { [weak controller] in controller?.cancelPreview() }
+        pill.onEmptyDraftLeft = { [weak controller] in controller?.discardPreview() }
         let learner = DraftVocabularyLearner(database: container.database)
         pill.onLearnDraft = { [weak pill] original, edited in
             if !learner.learn(original: original, edited: edited) {
@@ -1718,7 +1790,13 @@ public final class TurnWiring {
             pill.hide()
         }
         controller.onFinalSpans = { [weak pill] spans, text in pill?.setFinalSpans(spans, text: text) }
-        controller.onNotice = { [weak wiring, weak pill] entry in wiring?.show(entry, on: pill) }
+        // N2 — the finishing row's buttons come from the turn's own offer, never the pill's clock.
+        controller.onOffer = { [weak pill] _, offer in pill?.setFinishingOffer(offer) }
+        controller.onNotice = { [weak wiring, weak pill] entry in
+            wiring?.show(entry, on: pill)
+            // N20 — a refused press names why: the previous text is still being typed.
+            if let note = Self.noticeNote(for: entry) { pill?.showLaneNote(note) }
+        }
         controller.onCancelCapture = { [weak session] in session?.escape() }
 
         // I2 — Escape is registered only while a turn is live (its phase read from the controller
@@ -1791,6 +1869,12 @@ public final class TurnWiring {
             }
         }
         return wiring
+    }
+
+    /// N20 — the line under a turn notice: a press refused while the previous turn is finishing,
+    /// previewing or inserting (K04) says "Previous text still landing" instead of failing silently.
+    static func noticeNote(for entry: RecoveryEntry) -> String? {
+        entry.id == .K04 ? PillDeck.previousStillLanding : nil
     }
 
     /// A pill button the turn owns. `true` when it was the turn's.

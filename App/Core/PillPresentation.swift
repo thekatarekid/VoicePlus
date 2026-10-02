@@ -236,8 +236,11 @@ public struct PillTurnContext: Equatable, Sendable {
     public var uncertainCount: Int
     /// A rewrite marked a phrase or the whole result (T05): the rows read "Review this phrase".
     public var needsPhraseReview: Bool = false
-    /// When `.finishing` began, for the 10 s "Use available text" / "Cancel" offer.
+    /// When `.finishing` began (the "Still finishing" status reads it).
     public var finishingSince: Date?
+    /// N2 — the finishing offer the *turn* raised (`TurnController.onOffer`), never the pill's own
+    /// clock: no button is drawn that the turn would not honour (none once the payload started).
+    public var offer: FinishingOffer? = nil
     /// Deixis boxes drawn this turn (the chip row shows when > 0).
     public var chipCount: Int
     /// V5 Q12 — the Cancelled row's helper when the cancel had a named cause ("Nothing was typed."
@@ -503,11 +506,12 @@ public struct PillContent: Equatable, Sendable {
 
     private static func finishing(slow: Bool, _ c: PillTurnContext) -> PillContent {
         let waited = c.finishingSince.map { c.now.timeIntervalSince($0) } ?? 0
-        let longWait = waited >= PillDeck.finishingOfferDelay
-        let buttons: [PillButton] = longWait
-            ? (c.liveText.isEmpty ? [] : [PillButton(PillDeck.useAvailableText, .useAvailable, primary: true)])
-                + [PillButton(PillDeck.cancelLabel, .cancel, primary: c.liveText.isEmpty)]
-            : []
+        // N2 — the buttons follow the turn's real stage: only an offer the controller raised (it
+        // never raises one after the payload started) puts them up.
+        let canUseWords = c.offer == .useAvailableText && !c.liveText.isEmpty
+        let buttons: [PillButton] = c.offer == nil ? []
+            : (canUseWords ? [PillButton(PillDeck.useAvailableText, .useAvailable, primary: true)] : [])
+                + [PillButton(PillDeck.cancelLabel, .cancel, primary: !canUseWords)]
         return PillContent(designKey: "finishing",
                            status: slow || waited >= PillState.finishingWarningDelay
                                ? PillDeck.finishingSlowStatus : PillDeck.finishingStatus,
@@ -522,13 +526,24 @@ public struct PillContent: Equatable, Sendable {
         let entry = RecoveryCatalog.entry(forDeliveryReason: info.reason)
         // D01 (the destination moved) is the design's H0 row verbatim; any other hold keeps the same
         // three actions under its own catalogue headline and consequence.
+        if info.keptByUser {
+            // N2 — "don't type here": kept in history with Insert here / Copy; not a warning.
+            return PillContent(designKey: "held", status: PillDeck.notTypedStatus,
+                               trailing: destinationTrailing(named), words: .final(info.text),
+                               helper: PillDeck.notTypedHelper, buttons: PillDeck.heldButtons, notice: true)
+        }
         let isDestinationChange = entry.id == .D01 || info.reason.isEmpty
         let rendered = entry.rendered(hotkey: c.keyLabel)
-        return PillContent(designKey: "held",
-                           status: isDestinationChange ? PillDeck.heldStatus : PillDeck.warnPrefix + rendered.headline,
+        // N20 — name the app that actually took focus when we know it.
+        let status = isDestinationChange
+            ? (info.tookFocus.map(PillDeck.heldStatus(tookFocus:)) ?? PillDeck.heldStatus)
+            : PillDeck.warnPrefix + rendered.headline
+        let helper = isDestinationChange
+            ? (info.tookFocus.map(PillDeck.heldHelper(tookFocus:)) ?? PillDeck.heldHelper)
+            : rendered.consequence
+        return PillContent(designKey: "held", status: status,
                            tone: .warn, trailing: destinationTrailing(named), words: .final(info.text),
-                           helper: isDestinationChange ? PillDeck.heldHelper : rendered.consequence,
-                           buttons: PillDeck.heldButtons, notice: true)
+                           helper: helper, buttons: PillDeck.heldButtons, notice: true)
     }
 
     /// S11 — every error row is a catalogue entry (`PillContent.recovery`). A message that is not a

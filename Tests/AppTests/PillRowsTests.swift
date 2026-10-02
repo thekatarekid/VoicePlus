@@ -95,9 +95,14 @@ struct PillRowsTests {
         #expect(PillContent.make(.finishing(elapsedWarning: false), context: c).status == "Still finishing your text")
         #expect(PillContent.make(.finishing(elapsedWarning: true), context: c).buttons.isEmpty)
         c.now = Self.t0.addingTimeInterval(10)
+        #expect(PillContent.make(.finishing(elapsedWarning: true), context: c).buttons.isEmpty,
+                "N2: the pill's own clock never puts up buttons; only the turn's offer does")
+        c.offer = .useAvailableText
         let offer = PillContent.make(.finishing(elapsedWarning: true), context: c)
         #expect(offer.buttons == [PillButton("Use available text", .useAvailable, primary: true), PillButton("Cancel", .cancel)])
         c.liveText = ""
+        #expect(PillContent.make(.finishing(elapsedWarning: true), context: c).buttons == [PillButton("Cancel", .cancel, primary: true)])
+        c.offer = .cancel
         #expect(PillContent.make(.finishing(elapsedWarning: true), context: c).buttons == [PillButton("Cancel", .cancel, primary: true)])
     }
 

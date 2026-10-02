@@ -211,19 +211,21 @@ struct PresenceTurnEndTests {
         rig.coordinator.finalize()
         await rig.coordinator.settle()
         await rig.drain()
-        // Mid-turn — the payload is still dwelling in its preview, the turn has not ended — and the
-        // chin already knows the engine is at rest. Only the unfiltered feed can have told it.
+        // Mid-turn — the payload is still dwelling in its preview, the turn has not ended. N20: the
+        // engine is at rest but nothing is typed yet, so the chin stays on Working (`.finalizing`).
         #expect(rig.h.controller.stage(of: id) == .finalPreview)
-        #expect(rig.presence.currentInputs.engine == .idle,
-                "the chin heard '\(rig.presence.currentInputs.engine.caseName)', not the engine's own .idle")
+        #expect(rig.presence.currentInputs.engine == .finalizing,
+                "the chin heard '\(rig.presence.currentInputs.engine.caseName)' before the text was written")
         rig.h.controller.finalRendered(id)
         rig.h.clock.advance(1.0)
         #expect(await rig.h.wait { rig.ended(id) == .landed })
         await rig.drain()
 
         let said = rig.engineSaid.names
-        #expect(said.suffix(3) == ["finalizing", "landed", "idle"], "the engine said the turn was over: \(said)")
-        #expect(rig.presence.currentInputs.engine == .idle, "the chin heard it")
+        // N20 — the engine's landed/idle arrive while the turn is still in flight: Working, until
+        // the turn's own end brings the chin to rest.
+        #expect(said.suffix(3) == ["finalizing", "finalizing", "finalizing"], "the chin feed while in flight: \(said)")
+        #expect(rig.presence.currentInputs.engine == .idle, "the turn's end brought the chin to rest")
         // The pill is not told what would contradict the turn's own Finishing… / preview rows.
         #expect(!rig.pillSaw.names.contains("finalizing"), "pill saw \(rig.pillSaw.names)")
         #expect(!rig.pillSaw.names.contains("landed"), "pill saw \(rig.pillSaw.names)")

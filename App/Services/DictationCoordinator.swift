@@ -119,11 +119,13 @@ public final class DictationCoordinator {
         get { sessionLock.withLock { _turns } }
         set {
             sessionLock.withLock { _turns = newValue }
+            presenceGate.turnsAttached = newValue != nil
             newValue?.onLanded = { [weak self] result in self?.onLanded?(result) }
             // FX2 — chained, not replaced: `TurnWiring`'s own turn-end handler (Escape, deixis) stays.
             let previousEnd = newValue?.onTurnEnded
             newValue?.onTurnEnded = { [weak self] id, stage in
                 previousEnd?(id, stage)
+                self?.presenceGate.turnEnded()
                 self?.turnEnds.send(stage)
             }
         }
@@ -137,7 +139,18 @@ public final class DictationCoordinator {
     /// `.landed` and `.idle`, so a chin fed the admitted stream last heard `.previewing` and sat on
     /// "Working…" until the next press. The chin stands down while the pill shows, so these states
     /// only matter once the pill has gone — by which time the engine has said it is at rest.
-    public var engineStates: AnyPublisher<EngineState, Never> { engine.statePublisher }
+    ///
+    /// N20 — except that, while a turn is between key-up and its outcome, the engine's "landed"/"idle"
+    /// is reported as Working (`PresenceTurnGate`): the chin never says done before the text is typed
+    /// or held.
+    public var engineStates: AnyPublisher<EngineState, Never> {
+        let gate = presenceGate
+        return engine.statePublisher
+            .map { state in gate.map(state) }
+            .eraseToAnyPublisher()
+    }
+    /// N20 — holds the chin on Working until the turn's write finishes or its text is held.
+    let presenceGate = PresenceTurnGate()
     /// FX2 — a turn ended (landed, held, failed, cancelled, empty…), with its final stage: whatever
     /// the engine feed last said, a finished turn is not work in progress.
     public var turnEnded: AnyPublisher<TurnStage, Never> { turnEnds.eraseToAnyPublisher() }

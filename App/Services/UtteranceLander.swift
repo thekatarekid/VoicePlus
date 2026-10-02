@@ -53,8 +53,12 @@ public struct LandingResult: Sendable {
     /// R2.4 — what actually happened to this text, in the vocabulary the pill and the menu speak
     /// (`DeliveryOutcome`, R2.1). `nil` only when nothing was ever offered to the injector: a
     /// repair command, an act-domain claim, a transform, or empty spans.
+    /// N2 — the reason a held payload carries when it is not the injector's own ("kept, not typed").
+    public var heldReason: String? = nil
+
     public var delivery: DeliveryOutcome? {
         guard let injection else { return nil }
+        if let heldReason, case .abortedFocusChanged = injection { return .held(reason: heldReason) }
         if partialWrite, case let .injected(method, verified) = injection, !verified {
             return .partial(method: method.rawValue)
         }
@@ -465,6 +469,7 @@ public final class UtteranceLander: @unchecked Sendable {
                                        expectedFocus: pending.focus)
         focusGuard.hold(request, reason: reason, destination: pending.focus, turnID: turnID)
         result.injection = .abortedFocusChanged(expected: pending.focus, actual: actual)
+        if reason == DeliveryReason.keptByUser { result.heldReason = reason }
         let utterance = Utterance(id: result.utteranceID, spans: pending.spans, startedAt: pending.startedAt,
                                   endedAt: clock(), register: result.register, route: result.route)
         recordHistory(utterance, text: result.text, bundleID: pending.bundleID)

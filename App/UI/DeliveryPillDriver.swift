@@ -31,20 +31,31 @@ public final class DeliveryPillDriver {
     /// it is absent the surface still works, and the sinks fall back to text-level recovery.
     @discardableResult
     public func handle(_ outcome: DeliveryOutcome, text: String, destination: String,
-                       heldID: UUID? = nil) -> PillState {
+                       heldID: UUID? = nil, tookFocus: String? = nil) -> PillState {
         log("delivery: \(outcome) → pill (\(text.count) chars, destination \(destination.isEmpty ? "unknown" : destination))")
         guard case .held(let reason) = outcome else {
             return pill.present(delivery: outcome, text: text, destination: destination)
         }
         let item = held.hold(text: text, destination: destination, reason: reason, id: heldID ?? UUID())
-        return pill.present(delivery: outcome, text: text, destination: destination, heldID: item.id)
+        if let tookFocus, !tookFocus.isEmpty { log("held: \(tookFocus) took focus") }
+        return pill.present(delivery: outcome, text: text, destination: destination, heldID: item.id,
+                            tookFocus: tookFocus)
     }
 
     /// Convenience for the composition root: the lander already computed the outcome.
     @discardableResult
     public func handle(_ result: LandingResult, destination: String, heldID: UUID? = nil) -> PillState? {
         guard let outcome = result.delivery else { return nil }
-        return handle(outcome, text: result.text, destination: destination, heldID: heldID)
+        return handle(outcome, text: result.text, destination: destination, heldID: heldID,
+                      tookFocus: Self.tookFocus(result))
+    }
+
+    /// N20 — the app that held focus when the text was held (the hold's `actual` snapshot), named
+    /// on the held row; nil when unknown.
+    nonisolated static func tookFocus(_ result: LandingResult) -> String? {
+        guard case .abortedFocusChanged(_, let actual)? = result.injection, let actual else { return nil }
+        let name = actual.appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 
     /// Insert here / Copy / Discard, from the pill row or from the menu. The row comes down as soon

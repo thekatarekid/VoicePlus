@@ -355,13 +355,13 @@ struct TurnControllerTests {
 
     // MARK: - Stale callbacks, duplicates, K04
 
-    @Test("a final pass for a turn cancelled while finishing is dropped by TurnID")
+    @Test("a final pass for a turn cancelled during capture is dropped by TurnID")
     func staleFinalAfterCancel() async throws {
         let h = Harness()
         guard case .began(let id) = h.controller.keyDown() else { Issue.record("no turn"); return }
         h.controller.captureOpened(id)
-        #expect(h.controller.keyUp(id))
         #expect(h.controller.escape() == .cancel)
+        #expect(!h.controller.keyUp(id))
         await h.controller.finalize(id, spans: Self.words("late words"))
         h.clock.advance(5)
         #expect(h.controller.previewInfo == nil)
@@ -504,7 +504,7 @@ struct TurnControllerTests {
 
     // MARK: - Escape
 
-    @Test("Escape while listening or during the preview cancels: nothing is inserted", arguments: [false, true])
+    @Test("Escape while listening cancels: nothing is inserted (N2: a preview is kept instead)", arguments: [false])
     func escapeBeforeWrite(_ inPreview: Bool) async throws {
         let h = Harness()
         let id: TurnID

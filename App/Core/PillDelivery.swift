@@ -156,6 +156,15 @@ public enum PillDeck {
     public static let heldHelper = "Nothing was typed into the new field"
     public static let heldButtons = [PillButton("Insert here", .insert, primary: true), PillButton("Copy text", .copy),
                                      PillButton("Discard…", .discard)]
+    /// N20 — the held row names the app that actually took focus ("⚠ Safari took focus · text held").
+    public static func heldStatus(tookFocus app: String) -> String { "⚠ \(app) took focus · text held" }
+    public static func heldHelper(tookFocus app: String) -> String { "Nothing was typed in \(app)" }
+    /// N2 — Cancel (or Escape) after recognition: "don't type here". The words are kept in history
+    /// with Insert here / Copy; nothing was typed.
+    public static let notTypedStatus = "Not typed · saved to history"
+    /// N20 — the refused press (K04): the previous dictation is still being typed.
+    public static let previousStillLanding = "Previous text still landing"
+    public static let notTypedHelper = "Insert it here or copy it when you are ready"
 
     // C5 warning
     public static let warningStatus = "⚠ Microphone sounds unclear"
@@ -260,13 +269,20 @@ public struct HeldPillInfo: Equatable, Sendable {
     public var text: String
     public var destination: String
     public var reason: String
+    /// N20 — the app that held focus when the text was held, when it is not the destination.
+    public var tookFocus: String?
 
-    public init(id: UUID = UUID(), text: String, destination: String, reason: String) {
+    public init(id: UUID = UUID(), text: String, destination: String, reason: String, tookFocus: String? = nil) {
         self.id = id
         self.text = text
         self.destination = destination
         self.reason = reason
+        let other = tookFocus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.tookFocus = other.isEmpty || other == destination ? nil : other
     }
+
+    /// N2 — the user chose "don't type here" after recognition (Cancel / Escape).
+    public var keptByUser: Bool { reason == DeliveryReason.keptByUser }
 
     public init(item: HeldItem) {
         self.init(id: item.id, text: item.text, destination: item.destination, reason: item.reason)
@@ -429,7 +445,8 @@ public final class HeldTextStore: @unchecked Sendable {
 /// R2.4's acceptance criterion.
 public enum PillDeliveryRouter {
     public static func state(for outcome: DeliveryOutcome, text: String, destination: String = "",
-                             heldID: UUID = UUID(), verdicts: LandingVerdictLedger = .shared) -> PillState {
+                             heldID: UUID = UUID(), tookFocus: String? = nil,
+                             verdicts: LandingVerdictLedger = .shared) -> PillState {
         switch outcome {
         case .delivered(let verified, _):
             // Q4 — an unconfirmed delivery is sticky D06 only when a readback *ran*; when it could
@@ -441,7 +458,7 @@ public enum PillDeliveryRouter {
             // "nothing was typed". The design's partial row (G0.4, D3).
             return .landed(text: text, outcome: .partial)
         case .held(let reason):
-            return .held(HeldPillInfo(id: heldID, text: text, destination: destination, reason: reason))
+            return .held(HeldPillInfo(id: heldID, text: text, destination: destination, reason: reason, tookFocus: tookFocus))
         case .failed(let reason):
             // S11 — the reason's catalogue entry (D05 when unrecognised); the reason itself is logged
             // by the driver, never drawn.
@@ -497,4 +514,12 @@ public enum QuitGuard {
             ? "One piece of dictated text is still waiting for a destination. Quitting discards it."
             : "\(heldCount) pieces of dictated text are still waiting for a destination. Quitting discards them."
     }
+}
+
+// MARK: - N2 · kept, not typed
+
+public extension DeliveryReason {
+    /// N2 — Cancel or Escape after recognition: the text is held (history, Insert here / Copy), never
+    /// typed and never dropped. Worded so the catalogue's destination/focus matching never claims it.
+    static let keptByUser = "kept, not typed"
 }

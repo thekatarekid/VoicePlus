@@ -329,8 +329,9 @@ public final class PillViewModel: ObservableObject {
     /// partial, held and failed rows stay until the user acts (design §10).
     @discardableResult
     public func present(delivery: DeliveryOutcome, text: String, destination: String = "",
-                        heldID: UUID = UUID()) -> PillState {
-        let next = PillDeliveryRouter.state(for: delivery, text: text, destination: destination, heldID: heldID)
+                        heldID: UUID = UUID(), tookFocus: String? = nil) -> PillState {
+        let next = PillDeliveryRouter.state(for: delivery, text: text, destination: destination, heldID: heldID,
+                                            tookFocus: tookFocus)
         if !text.isEmpty { turn.liveText = text }
         let name = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { turn.destination = name }
@@ -350,6 +351,13 @@ public final class PillViewModel: ObservableObject {
     /// rendering when nil). S5 — the marks are mapped onto that text through formatting
     /// (`UncertaintyMarkMapper`, design §7), never by matching words, and "N words to review" counts
     /// exactly the marks drawn; a rewrite that marked a phrase reads "Review this phrase" (T05).
+    /// N2 — the finishing offer the turn raised (or withdrew: nil). The finishing row draws its
+    /// buttons from this only, never from its own clock.
+    public func setFinishingOffer(_ offer: FinishingOffer?) {
+        guard turn.offer != offer else { return }
+        turn.offer = offer
+    }
+
     public func setFinalSpans(_ spans: [TranscriptSpan], text: String? = nil) {
         let low = spans.filter(\.isLowConfidence)
         turn.uncertainWords = Set(low.flatMap { $0.text.split(whereSeparator: \.isWhitespace) }
@@ -797,6 +805,10 @@ public final class PillViewModel: ObservableObject {
         default: if isEditingDraft { finishDraftEditing() }
         }
         let t = now()
+        switch next {
+        case .finishing, .landing: break
+        default: turn.offer = nil
+        }
         switch next {
         case .hidden:
             turn = PillTurnContext()
