@@ -47,6 +47,8 @@ open class MockSystemAccess: SystemAccess {
 
     /// Whether AX exposes the field's value for reading (false models Electron/Figma canvases).
     public var axReadable = true
+    /// N4 — models macOS secure event input (`IsSecureEventInputEnabled`).
+    public var secureEventInput = false
     /// Whether AX exposes the caret (`AXSelectedTextRange`) and `AXSelectedText` for reading.
     /// Defaults to `axReadable`; set it explicitly to model a Chromium field whose value is
     /// unreadable but whose caret is not (or the other way round).
@@ -185,7 +187,12 @@ open class MockSystemAccess: SystemAccess {
 
     @discardableResult
     public func writePasteboard(string: String) -> Int {
-        setPasteboard([PasteboardItemSnapshot(types: ["public.utf8-plain-text": Data(string.utf8)])])
+        writeOurs(PasteboardItemSnapshot(types: ["public.utf8-plain-text": Data(string.utf8)]))
+    }
+
+    private func writeOurs(_ item: PasteboardItemSnapshot) -> Int {
+        pasteboardWrites.append(item)
+        setPasteboard([item])
         let ours = changeCount
         if let external = externalPasteboardWriteAfterOurWrite {
             setPasteboard([PasteboardItemSnapshot(types: ["public.utf8-plain-text": Data(external.utf8)])])
@@ -193,6 +200,9 @@ open class MockSystemAccess: SystemAccess {
         }
         return ours
     }
+
+    /// N18 — every pasteboard write so far, as written (before any simulated external write).
+    public private(set) var pasteboardWrites: [PasteboardItemSnapshot] = []
 
     public func restorePasteboard(_ snapshot: PasteboardSnapshot) {
         journal.append("pasteboard.restore")
@@ -260,5 +270,20 @@ extension MockSystemAccess: AppAccessibilityEnabling {
         accessibilityEvents.append("enable(\(pid))")
         accessibilityEnabledPIDs.insert(pid)
         return requiresAccessibilityEnable
+    }
+}
+
+/// N4 — the fake secure-input flag (`secureEventInput`).
+extension MockSystemAccess: SecureInputReading {
+    public var isSecureEventInputEnabled: Bool { secureEventInput }
+}
+
+/// N18 — the marked write the paste path uses.
+extension MockSystemAccess: TransientPasteboardWriting {
+    @discardableResult
+    public func writeTransientPasteboard(string: String) -> Int {
+        var types = ["public.utf8-plain-text": Data(string.utf8)]
+        for marker in PasteboardMarkers.all { types[marker] = Data() }
+        return writeOurs(PasteboardItemSnapshot(types: types))
     }
 }

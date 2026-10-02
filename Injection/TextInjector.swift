@@ -129,7 +129,9 @@ public final class TextInjector: Injector {
         // Q2 — the tree must exist before the first read (cached per pid: free after key-down).
         if !own { (system as? AppAccessibilityEnabling)?.enableAppAccessibility(pid: focus.pid) }
         let focusedBefore = readFocused(own: own)
-        if focusedBefore?.isSecure == true {
+        // N4 — a password field, or a blind write (no readable field) while macOS secure input is on.
+        if let block = secureBlock(focusedBefore) {
+            Log.injection.notice("N4: \(block.rawValue); nothing written")
             return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
         }
 
@@ -146,6 +148,11 @@ public final class TextInjector: Injector {
                 return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID))
             }
             var before = readFocused(own: own)
+            // N4 — re-checked right before each write: secure input can come on mid-turn.
+            if let block = secureBlock(before) {
+                Log.injection.notice("N4: \(block.rawValue) before \(method.rawValue); nothing written")
+                return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
+            }
             // Q1 — a browser's line break depends on the page (⌥↩ in a Sheets cell, ⇧↩ elsewhere).
             if adapter is NewlineSafeAdapter, text.contains("\n"), before != nil, before?.documentURL == nil,
                let reader = system as? FocusedDocumentURLReading {
@@ -218,6 +225,11 @@ public final class TextInjector: Injector {
     private func readFocused(own: Bool) -> FocusedElementInfo? {
         if own, let local = system as? InProcessTextDelivering, let info = local.ownFocusedText() { return info }
         return try? system.focusedElement()
+    }
+
+    /// N4 — the pre-write safety check (password field; secure input on with no readable field).
+    private func secureBlock(_ focused: FocusedElementInfo?) -> SecureInputGuard.Block? {
+        SecureInputGuard.blocksWrite(focused: focused, secureInput: SecureInputGuard.isActive(on: system))
     }
 
     /// FX1 — runs the whole stack on the main thread. If the main thread does not pick it up in

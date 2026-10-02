@@ -412,3 +412,22 @@ public enum OwnTextResponder {
     /// A secure text field's field editor: its delegate is the `NSSecureTextField` being edited.
     static func isSecure(_ view: NSText) -> Bool { view.delegate is NSSecureTextField }
 }
+
+// N4 — macOS secure event input, read live before a blind write.
+extension LiveSystemAccess: SecureInputReading {
+    public var isSecureEventInputEnabled: Bool { SecureInputGuard.isActive }
+}
+
+// N18 — dictation pastes are marked transient / auto-generated / concealed for clipboard managers.
+extension LiveSystemAccess: TransientPasteboardWriting {
+    @discardableResult
+    public func writeTransientPasteboard(string: String) -> Int {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        let item = NSPasteboardItem()
+        item.setString(string, forType: .string)
+        for marker in PasteboardMarkers.all { item.setData(Data(), forType: NSPasteboard.PasteboardType(marker)) }
+        pb.writeObjects([item])
+        return pb.changeCount
+    }
+}
