@@ -44,6 +44,10 @@ enum BoostingWiring {
             makeBooster: { terms in CTCVocabularyBooster(terms: terms, source: source) })
     }
 
+    /// N28 — learned per-surface source weights (JSON under the support dir). Pass as `weights:`;
+    /// after each landed turn call `SourceWeightLearner.shared.record(TurnContextOutcome(...))`.
+    static let learnedWeights: @Sendable () -> RubricWeights = { SourceWeightLearner.shared.weights() }
+
     /// N11/N14 — the turn's rubric ranking. The boost list reads its layers; the cleanup prompt
     /// reads its spell list and screen terms when the app sets it as `ContextPromptSession.rubric`
     /// (`promptSession.rubric = BoostingWiring.rubricRanking(...)`). nil when no surface resolved.
