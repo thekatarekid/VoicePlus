@@ -1172,3 +1172,11 @@ S1a must not start before the gate. A failure would then have several possible c
 - the replay harness, for S1. Without it, S1 still works with you reading the script aloud, but it is slower and less repeatable.
 
 **Untested after this plan:** iTerm, Ghostty, Firefox, Arc, Edge, Vivaldi, Opera, and the Slack and Notion desktop apps (none installed). The window-manager side effect of the enhanced switch (no window manager on this Mac). Its CPU cost is measured only if you keep Activity Monitor open during E1 and E2.
+
+## Owner decisions (2026-10-02, after Round 4)
+- **Switched apps mid-dictation → pull back.** Re-focus the original app and window, then type, as FluidVoice does. This replaces the "hold the text" behaviour. Fall back to holding (Insert / Copy) only if:
+  - the original window is gone;
+  - the target field is now a password field;
+  - the pull-back fails its focus check.
+- **No preview pause.** Type as soon as the final text is ready; remove the ~0.6 s dwell. The preview may still show, but it never delays insertion.
+- **Live tests run at the end.** S0–S2 run after all of N1–N28 are built and the confidence gate passes. Until then, validation uses unit tests and replays of recorded dictations (the replay tool) only.
