@@ -67,6 +67,22 @@ if MeetingsMCPStdio.requested(CommandLine.arguments) {
     exit(result)
 }
 
+// T-replay (debug-only, never injects): `VoicePlusApp --replay <wav|dir|stamp|HH:MM:SS|turn-id>
+// [--surface kind] [--app bundle-id] [--json out.jsonl]`. See App/Debug/ReplayHarness.swift.
+if let replay = ReplayCLI.parse(CommandLine.arguments) {
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var result: Int32 = 1
+    Task.detached { result = await ReplayCLI.run(replay); done.signal() }
+    done.wait()
+    exit(result)
+}
+
+// T-probe (debug-only, read-only): `VoicePlusApp --ax-probe [--delay s] [--watch s] [--out f.jsonl]
+// [--allow-switch]`. Never types; never reads text values. See App/Debug/AXProbe.swift.
+if let probe = AXProbeCLI.parse(CommandLine.arguments) {
+    exit(AXProbeCLI.run(probe))
+}
+
 // Explicit native visual QA; fully isolated from the live capture/insertion composition root.
 if CommandLine.arguments.contains("--design-v3-review") {
     let app = NSApplication.shared
