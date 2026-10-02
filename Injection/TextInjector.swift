@@ -139,11 +139,28 @@ public final class TextInjector: Injector {
         // N5 — the bundle-id adapter is only the starting point: a terminal surface gets the
         // terminal plan, web content the ⇧↩ keystroke plan (never a bare ↩, never an AX write).
         let base: AppAdapter = own ? ownProcessAdapter : registry.adapter(for: focus.bundleID)
-        let adapter = own ? base : WritePlanner.adapter(base: base, context: writeContext(request, focus: focus, focused: focusedBefore))
+        let context = own ? SurfaceWriteContext() : writeContext(request, focus: focus, focused: focusedBefore)
+        let adapter = own ? base : WritePlanner.adapter(base: base, context: context)
         let text = adapter.prepare(request.text, focused: focusedBefore)
         // N16 — in a newline-safe plan paste never jumps ahead of keystrokes.
-        let methods = router.order(adapter.methodOrder, for: focus.bundleID,
+        var methods = router.order(adapter.methodOrder, for: focus.bundleID,
                                    keepKeystrokeBeforePaste: adapter is NewlineSafeAdapter)
+        // N3 — the delivery ladder: a readable field is not required to write.
+        if !own {
+            let decision = ladderDecision(request, focus: focus, focused: focusedBefore, context: context)
+            lastLadderDecision = decision
+            switch decision {
+            case .deliver(let method, let verify):
+                Log.injection.notice("N3 ladder: deliver via \(method.rawValue)\(verify ? "" : " (unverified)") into \(focus.bundleID)")
+                methods = DeliveryLadder.order(methods, ladder: method, fieldReadable: SecureInputGuard.isReadable(focusedBefore),
+                                               adapter: adapter)
+            case .hold(let reason), .notes(let reason):
+                // Only window changes reach here (focus and secure checks ran above): hold, never write.
+                Log.injection.notice("N3 ladder: \(reason.rawValue); held, nothing written")
+                return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID,
+                                              reason: reason == .notEditable ? reason.rawValue : DeliveryReason.destinationChanged))
+            }
+        }
         var attempts: [InjectionMethod] = []
         Log.injection.debug("inject \(text.count) chars into \(focus.bundleID) via \(adapter.id): \(methods.map(\.rawValue))")
 
@@ -242,6 +259,26 @@ public final class TextInjector: Injector {
                             hints: focused?.hints ?? [])
     }
 
+    /// N3 — the last ladder decision (diagnostics and tests).
+    public private(set) var lastLadderDecision: DeliveryLadder.Decision?
+
+    /// N3 — the ladder over the live facts. The focus and secure checks already passed.
+    private func ladderDecision(_ request: InjectionRequest, focus: FocusSnapshot, focused: FocusedElementInfo?,
+                                context: SurfaceWriteContext) -> DeliveryLadder.Decision {
+        var window = DeliveryLadder.WindowState.unknown
+        if let expected = request.expectedWindowToken, let reader = system as? FocusedWindowReading {
+            window = DeliveryLadder.windowState(expected: expected, current: reader.focusedWindowToken(pid: focus.pid),
+                                                expectedStillExists: reader.windowExists(pid: focus.pid, token: expected))
+        }
+        return DeliveryLadder.decide(focusSame: true, window: window,
+                                     secureInput: SecureInputGuard.isActive(on: system),
+                                     fieldReadable: SecureInputGuard.isReadable(focused),
+                                     surface: request.surfaceKind ?? (context.isTerminal ? .terminal : nil),
+                                     multiline: request.text.contains(where: \.isNewline),
+                                     webContent: context.isWebContent,
+                                     passwordField: focused?.isSecure == true)
+    }
+
     /// N4 — the pre-write safety check (password field; secure input on with no readable field).
     private func secureBlock(_ focused: FocusedElementInfo?) -> SecureInputGuard.Block? {
         SecureInputGuard.blocksWrite(focused: focused, secureInput: SecureInputGuard.isActive(on: system))
@@ -264,9 +301,10 @@ public final class TextInjector: Injector {
     // MARK: Internals
 
     /// Focus moved before anything was posted: hold the text and let the user place it.
-    private func abort(_ request: InjectionRequest, segmentID: SegmentID?, turnID: TurnID? = nil) -> InjectionOutcome {
+    private func abort(_ request: InjectionRequest, segmentID: SegmentID?, turnID: TurnID? = nil,
+                       reason: String = DeliveryReason.destinationChanged) -> InjectionOutcome {
         let actual = system.frontmostApp()
-        focusGuard.hold(request, reason: DeliveryReason.destinationChanged,
+        focusGuard.hold(request, reason: reason,
                         segmentID: segmentID, destination: request.expectedFocus, turnID: turnID)
         return .abortedFocusChanged(expected: request.expectedFocus, actual: actual)
     }

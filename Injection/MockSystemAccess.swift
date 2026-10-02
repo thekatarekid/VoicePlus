@@ -49,6 +49,9 @@ open class MockSystemAccess: SystemAccess {
     public var inWebArea = false
     /// N5 — the runtime each pid reports (`.native` when absent).
     public var runtimeByPID: [Int32: SurfaceRuntime] = [:]
+    /// N3 — the focused window's token (`FocusedWindowReading`), and other windows still open.
+    public var focusedWindow: String?
+    public var openWindows: Set<String> = []
 
     /// Whether AX exposes the field's value for reading (false models Electron/Figma canvases).
     public var axReadable = true
@@ -299,4 +302,11 @@ extension MockSystemAccess: WebAreaProbing {
 
 extension MockSystemAccess: AppRuntimeReading {
     public func appRuntime(pid: Int32) -> SurfaceRuntime { runtimeByPID[pid] ?? .native }
+}
+
+/// N3 — fake window identity: `focusedWindow` is the focused window's token, `openWindows` the
+/// tokens that still exist (the focused one always does).
+extension MockSystemAccess: FocusedWindowReading {
+    public func focusedWindowToken(pid: Int32) -> String? { focusedWindow }
+    public func windowExists(pid: Int32, token: String) -> Bool { token == focusedWindow || openWindows.contains(token) }
 }

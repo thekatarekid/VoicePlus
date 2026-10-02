@@ -456,3 +456,26 @@ extension LiveSystemAccess: AppRuntimeReading {
         AppRuntimeSniffer.shared.runtime(bundleURL: NSRunningApplication(processIdentifier: pid)?.bundleURL)
     }
 }
+
+// MARK: - N3 — window identity for the delivery ladder
+
+extension LiveSystemAccess: FocusedWindowReading {
+    /// `CFHash` of the app's `AXFocusedWindow` (stable while the window lives; the AX reader uses
+    /// the same identity).
+    public func focusedWindowToken(pid: Int32) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.1)
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &ref) == .success, let ref else { return nil }
+        return String(CFHash(ref))
+    }
+
+    public func windowExists(pid: Int32, token: String) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.1)
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
+              let windows = ref as? [AnyObject] else { return true }   // cannot tell → do not claim "gone"
+        return windows.contains { String(CFHash($0)) == token }
+    }
+}

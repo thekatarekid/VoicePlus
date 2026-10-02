@@ -19,12 +19,17 @@ public struct InjectionRequest: Equatable, Sendable {
     /// N5 / N9 — the resolver's surface kind at key-down, when the caller has one. Only ever moves
     /// the write plan toward a safer one (terminal → bracketed paste; chat → ⇧↩).
     public var surfaceKind: SurfaceKind?
+    /// N3 — the key-up window's token (`FocusedWindowReading`). `nil` = not recorded: the ladder
+    /// then treats the window as unknown and the app check alone stands.
+    public var expectedWindowToken: String?
 
-    public init(text: String, utteranceID: String? = nil, expectedFocus: FocusSnapshot? = nil, surfaceKind: SurfaceKind? = nil) {
+    public init(text: String, utteranceID: String? = nil, expectedFocus: FocusSnapshot? = nil, surfaceKind: SurfaceKind? = nil,
+                expectedWindowToken: String? = nil) {
         self.text = text
         self.utteranceID = utteranceID
         self.expectedFocus = expectedFocus
         self.surfaceKind = surfaceKind
+        self.expectedWindowToken = expectedWindowToken
     }
 }
 
