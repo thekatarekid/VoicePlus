@@ -17,13 +17,20 @@ public struct TerminalFormatter: PipelineStage {
     public init() {}
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
+        Self.format(spans, commands: CommandLexicon.commands(for: ShellContext(stageContext: context)), stage: id)
+    }
+
+    /// N12 — the command-line grammar. `commands` is what the first word is validated against:
+    /// the shell's real commands when the app read them (`ShellContext`), else the stand-in set.
+    static func format(_ spans: [TranscriptSpan], commands: Set<String>, stage id: StageID) -> [TranscriptSpan] {
         var toks = spans.map { Tok($0, stage: id) }
+        toks = Self.recoverCommand(toks, commands: commands)
         toks = Self.removeFillers(toks)
         toks = Self.resolveQuotes(toks, stage: id)
         toks = Self.resolveSymbols(toks)
         toks = Self.joinDigits(toks)
         toks = Self.resolveEnvVars(toks)
-        toks = Self.markCommandPositions(toks)
+        toks = Self.markCommandPositions(toks, commands: commands)
         toks = Self.glue(toks)
         return toks.map { $0.finished() }
     }
@@ -57,7 +64,12 @@ public struct TerminalFormatter: PipelineStage {
                 text = t
                 kind = t.allSatisfy(\.isNumber) && !t.isEmpty ? .number : .word
             } else {
-                text = span.text
+                // F9/N12 — a shell has no sentences: even a low-confidence word loses the
+                // recogniser's sentence punctuation (the word itself is left as heard, flagged).
+                var t = span.text
+                let edge: Set<Character> = [".", ",", "!", "?", ";"]
+                while let l = t.last, edge.contains(l), t.count > 1 { t.removeLast() }
+                text = t
                 kind = .literal
             }
         }
@@ -130,7 +142,10 @@ public struct TerminalFormatter: PipelineStage {
         "backslash": both("\\"), "back slash": both("\\"), "underscore": both("_"), "colon": both(":"),
         "equals": both("="), "equal sign": both("="), "equals sign": both("="), "star": both("*"), "asterisk": both("*"),
         "at sign": both("@"), "at": both("@"), "hash": both("#"), "pound": both("#"), "percent": both("%"),
-        "caret": both("^"), "backtick": both("`"), "plus": both("+"),
+        "caret": both("^"), "backtick": both("`"),
+        // N12 — "plus" is a symbol only with structure ("c plus plus" → `c++`) or a cue
+        // ("plus sign"); a lone "plus" stays a word ("voice plus").
+        "plus plus": leftOnly("++"), "plus sign": both("+"), "plus symbol": both("+"), "literal plus": both("+"),
         "question mark": leftOnly("?"), "bang": leftOnly("!"), "exclamation mark": leftOnly("!"), "exclamation point": leftOnly("!"),
         "semicolon": leftOnly(";"), "comma": leftOnly(","),
         "pipe": spaced("|"), "vertical bar": spaced("|"), "double pipe": spaced("||"), "or or": spaced("||"),
@@ -152,16 +167,8 @@ public struct TerminalFormatter: PipelineStage {
 
     /// Separators after which the next word is in command position.
     static let commandSeparators: Set<String> = ["|", "&&", "||", ";", "&"]
-    /// Words after which (in command position) a both-sided symbol does not glue left
-    /// ("cd dot dot" → `cd ..`, "git add dot" → `git add .`).
-    static let commandWords: Set<String> = [
-        "cd", "ls", "cat", "rm", "cp", "mv", "mkdir", "rmdir", "touch", "chmod", "chown", "grep", "rg", "find", "open", "code",
-        "vim", "nvim", "nano", "source", "echo", "export", "kill", "ps", "tar", "zip", "unzip", "curl", "wget", "ssh", "scp", "sudo",
-        "python", "python3", "node", "ruby", "go", "cargo", "swift", "make", "brew", "pip", "pip3", "npm", "npx", "yarn", "pnpm", "docker",
-        "git", "add", "commit", "push", "pull", "checkout", "branch", "merge", "rebase", "status", "diff", "log", "stash", "clone", "fetch",
-        "reset", "restore", "switch", "tag", "install", "run", "build", "test", "start", "init", "exec", "less", "more", "head", "tail",
-        "which", "man", "ln", "df", "du", "pwd", "env", "set", "unset", "alias", "xargs", "sort", "uniq", "wc", "sed", "awk", "cut", "tr",
-    ]
+    // N12 — no hardcoded command list: command position is decided against `CommandLexicon`
+    // (the shell's real commands when known), plus its sub-command and wrapper data.
 
     // MARK: - Passes
 
@@ -276,13 +283,44 @@ public struct TerminalFormatter: PipelineStage {
 
     /// A command word is in command position at the start, after a separator, or right after
     /// another command-position word ("git add", "sudo rm"). `rm -rf node_modules`: "node" is not.
-    static func markCommandPositions(_ toks: [Tok]) -> [Tok] {
+    static func markCommandPositions(_ toks: [Tok], commands: Set<String>) -> [Tok] {
         var out = toks
-        for i in out.indices where out[i].editable && out[i].kind == .word && commandWords.contains(out[i].text) {
+        var root: String?
+        for i in out.indices {
+            guard out[i].editable, out[i].kind == .word else { root = nil; continue }
+            let word = out[i].text
             let prevIsSeparator = i == 0 || commandSeparators.contains(out[i - 1].text) && out[i - 1].kind != .word && out[i - 1].kind != .quoted
-            out[i].commandPosition = prevIsSeparator || out[i - 1].commandPosition
+            if prevIsSeparator, commands.contains(word) {
+                out[i].commandPosition = true; root = word
+            } else if i > 0, out[i - 1].commandPosition, let r = root {
+                if CommandLexicon.wrappers.contains(r) || CommandLexicon.wrappers.contains(out[i - 1].text), commands.contains(word) {
+                    out[i].commandPosition = true; root = word
+                } else if CommandLexicon.subcommands[r]?.contains(word) == true {
+                    out[i].commandPosition = true
+                }
+            }
         }
         return out
+    }
+
+    /// N12 — "CD", "C D", "see dee" → `cd` because `cd` is a command this shell has (not because
+    /// of a list of fixes). Only the first word, only spelled letters, only a real command.
+    static func recoverCommand(_ toks: [Tok], commands: Set<String>) -> [Tok] {
+        guard !toks.isEmpty, toks[0].editable, !commands.contains(toks[0].text) else { return toks }
+        for length in stride(from: min(3, toks.count), through: 2, by: -1) {
+            let range = 0...(length - 1)
+            guard allEditable(toks, range) else { continue }
+            let letters = toks[range].map { SpokenNumbers.letter($0.text) }
+            guard letters.allSatisfy({ $0 != nil }) else { continue }
+            let word = letters.compactMap { $0 }.joined()
+            guard commands.contains(word) else { continue }
+            var tok = toks[0]
+            tok.text = word; tok.kind = .word
+            var out = toks
+            out.replaceSubrange(range, with: [merged(toks, range, as: tok)])
+            return out
+        }
+        return toks
     }
 
     static func attaches(_ tok: Tok, after prev: Tok, next: Tok?) -> Bool {

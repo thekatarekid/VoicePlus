@@ -49,12 +49,24 @@ public struct FieldRoleFormatterStage: PipelineStage {
         // A password field gets no formatting at all; `Injection` refuses it anyway (R2.3).
         guard !rules.refusesDictation else { return spans.map { $0.touched(by: id) } }
 
+        // N12 — the surface's grammar. A whole-utterance value (a formula, an address, a phone
+        // number) is taken as-is: no formatter, no capital, no period.
+        let surface = Self.grammarSurface(field: field, rules: rules)
+        if let value = SurfaceGrammar.verbatim(spans, surface: surface) {
+            return value.map { $0.touched(by: id) }
+        }
+
         var inner = context
         inner.register = rules.register
         var out = spans
         let digitsOnly = rules.alwaysNormalizeNumbers && rules.category != .code && rules.category != .terminal
         if let stage = digitsOnly ? valueFormatter() : formatter(rules.register) {
             out = try await stage.process(out, context: inner)
+        }
+        // N12 — structures and cues in text ("c plus plus" → c++, "google dot com" → google.com),
+        // Markdown only where the surface takes it, capitals in a name box.
+        if rules.category != .code, rules.category != .terminal {
+            out = SurfaceGrammar.post(out, surface: surface)
         }
         // V5 E3 — an email / URL box: "jo at example dot com" → "jo@example.com".
         if let kind = rules.inputKind, kind == .email || kind == .url {
@@ -67,12 +79,41 @@ public struct FieldRoleFormatterStage: PipelineStage {
         out = PunctuationProvenance.annotate(out, original: spans)
         // A cell entry that starts with a number ("5 units") is a value, never a sentence.
         let startsWithNumber = out.renderedText.first(where: { !$0.isWhitespace })?.isNumber ?? false
-        let decision = Self.decision(plan: plan, rules: rules, field: field,
+        var decision = Self.decision(plan: plan, rules: rules, field: field,
                                      wordCount: startsWithNumber && rules.role == .spreadsheetCell ? 0 : Self.wordCount(out))
+        // N12 — an address bar or search box takes a search phrase: no period, no capital; a
+        // label-typed one-line field holds a value: no period.
+        switch surface {
+        case .urlBar, .searchField:
+            decision.keepModelPeriod = false; decision.keepAddedPeriod = false; decision.firstWord = .lowercase
+        case .formField(let label) where label != "text":
+            decision.keepModelPeriod = false; decision.keepAddedPeriod = false
+        default: break
+        }
         out = Self.applyTerminalPeriod(out, original: spans, keepModel: decision.keepModelPeriod,
                                        keepAdded: decision.keepAddedPeriod && rules.trailingPeriod)
         out = Self.applyFirstWordCase(out, original: spans, action: decision.firstWord)
         return out.map { $0.touched(by: id) }
+    }
+
+    /// N12 — the surface kind the grammars use: the field role's hard answers first (a cell, a
+    /// terminal, a code editor), then the resolved surface. Below the resolver's threshold the
+    /// answer is prose (safe: structures only, no verbatim rewrite).
+    static func grammarSurface(field: FieldContext, rules: FieldRules) -> SurfaceKind {
+        switch rules.role {
+        case .secure: return .secure
+        case .spreadsheetCell: return .spreadsheetCell
+        case .terminal: return .terminal
+        case .codeEditor: return .codeEditor
+        default: break
+        }
+        let resolution = field.surface
+        guard !resolution.isFallback else { return .prose }
+        switch resolution.kind {
+        // A verbatim kind on a multi-line field is not trusted (a "Search" label over a body).
+        case .urlBar, .formField: return rules.role == .singleLineText ? resolution.kind : .prose
+        default: return resolution.kind
+        }
     }
 
     /// The continuation decision, with the V5 E2/E3 value-field overrides: a spreadsheet cell or a

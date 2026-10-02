@@ -109,11 +109,18 @@ public struct FieldRules: Sendable, Equatable {
             // that claims to submit on Return still does not get its Send pressed for it.
             let submits = field.submitsOnReturn ?? (searchField || (category == .chat && !multiline))
             // V5 E3 — an email / phone / URL box holds a value, not a sentence.
-            let valueField = inputKind == .email || inputKind == .phone || inputKind == .url
+            // N12 — so does a one-line field the surface resolver typed by its label, and an
+            // address bar / search box takes a URL or a search phrase: no period, no capital.
+            let surfaceKind = role == .singleLineText ? Self.confidentSurface(field) : nil
+            let labelKind: String? = { if case .formField(let l)? = surfaceKind { return l } else { return nil } }()
+            let valueLabel = labelKind.map { ["email", "phone", "url", "number", "recipient", "date"].contains($0) } ?? false
+            let phraseBox = surfaceKind == .urlBar || surfaceKind == .searchField
+            let valueField = inputKind == .email || inputKind == .phone || inputKind == .url || valueLabel
             return FieldRules(
                 category: category,
-                autoCapitalize: category != .code && category != .terminal && !valueField,
-                trailingPeriod: (category == .mail || category == .prose) && !searchLike && !valueField && endOfField,
+                autoCapitalize: category != .code && category != .terminal && !valueField && !phraseBox,
+                trailingPeriod: (category == .mail || category == .prose) && !searchLike && !valueField && !phraseBox
+                    && labelKind == nil && endOfField,
                 allowSubmit: submits && (searchField || category == .chat),
                 allowParagraphBreak: multiline && !valueField,
                 preserveIdentifiers: category == .code || category == .terminal,
@@ -122,6 +129,12 @@ public struct FieldRules: Sendable, Equatable {
                 inputKind: inputKind
             )
         }
+    }
+
+    /// N12 — the resolved surface when it is above the resolver's threshold.
+    static func confidentSurface(_ field: FieldContext) -> SurfaceKind? {
+        let resolution = field.surface
+        return resolution.isFallback ? nil : resolution.kind
     }
 
     /// Bundle ID first (the learned table), then the gatekeeper's register, then prose.
