@@ -17,12 +17,15 @@ public struct TerminalFormatter: PipelineStage {
     public init() {}
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
-        Self.format(spans, commands: CommandLexicon.commands(for: ShellContext(stageContext: context)), stage: id)
+        let shell = ShellContext(stageContext: context)
+        return Self.format(spans, commands: CommandLexicon.commands(for: shell), shell: shell, stage: id)
     }
 
     /// N12 — the command-line grammar. `commands` is what the first word is validated against:
     /// the shell's real commands when the app read them (`ShellContext`), else the stand-in set.
-    static func format(_ spans: [TranscriptSpan], commands: Set<String>, stage id: StageID) -> [TranscriptSpan] {
+    /// N13 — `shell.entries` (the current folder, listed only with the user's Settings OK) feed the
+    /// path matcher; without them no folder name is ever guessed.
+    static func format(_ spans: [TranscriptSpan], commands: Set<String>, shell: ShellContext? = nil, stage id: StageID) -> [TranscriptSpan] {
         var toks = spans.map { Tok($0, stage: id) }
         toks = Self.recoverCommand(toks, commands: commands)
         toks = Self.removeFillers(toks)
@@ -31,6 +34,7 @@ public struct TerminalFormatter: PipelineStage {
         toks = Self.joinDigits(toks)
         toks = Self.resolveEnvVars(toks)
         toks = Self.markCommandPositions(toks, commands: commands)
+        toks = Self.matchPaths(toks, entries: shell?.entries ?? [])
         toks = Self.glue(toks)
         return toks.map { $0.finished() }
     }
@@ -301,6 +305,76 @@ public struct TerminalFormatter: PipelineStage {
             }
         }
         return out
+    }
+
+    /// N13 — folder and file names from the shell's current folder. Only on a line that starts
+    /// with a real command, only on unquoted argument words. Silent replacement (`documents` →
+    /// `Documents/`) needs a close match *and* an argument slot (right after the command or
+    /// sub-command, after a flag, or after another matched path); anything else keeps the spoken
+    /// words and carries the entry as a `.biasing` alternate (a suggestion). Never adds a Return.
+    static func matchPaths(_ toks: [Tok], entries: [ShellContext.Entry]) -> [Tok] {
+        guard !entries.isEmpty, toks.first?.commandPosition == true else { return toks }
+        var out = toks
+        var lastMatched = -1
+        var i = 1
+        func candidate(_ k: Int) -> Bool {
+            k < out.count && out[k].editable && out[k].kind == .word && !out[k].commandPosition && !out[k].text.hasPrefix("-")
+        }
+        while i < out.count {
+            guard candidate(i), !out[i - 1].glueRight else { i += 1; continue }
+            var end = i
+            while end + 1 < out.count, end - i < 3, candidate(end + 1) { end += 1 }
+            let slot = isArgumentSlot(out, i, lastMatched: lastMatched)
+            var applied = false
+            var suggestion: ShellContext.Entry?
+            for e in stride(from: end, through: i, by: -1) {
+                let spoken = out[i...e].map(\.text).joined(separator: " ")
+                switch PathMatcher.match(spoken, in: entries) {
+                case .silent(let entry)? where slot:
+                    let nextIsSlash = e + 1 < out.count && out[e + 1].kind == .symbol && out[e + 1].text == "/"
+                    var tok = out[i]
+                    tok.text = shellEscaped(entry.name) + (entry.isDirectory && !nextIsSlash ? "/" : "")
+                    tok.kind = .word; tok.glueLeft = false; tok.glueRight = false
+                    var m = merged(out, i...e, as: tok)
+                    let original = out[i...e].map(\.span.text).joined(separator: " ")
+                    m.span.alternates = [Alternate(text: original, score: m.span.confidence, source: .repair)]
+                        + m.span.alternates.filter { $0.text != original }
+                    out.replaceSubrange(i...e, with: [m])
+                    applied = true
+                case .silent(let entry)?, .suggest(let entry)?:
+                    if suggestion == nil { suggestion = entry }
+                case nil:
+                    break
+                }
+                if applied { break }
+            }
+            if applied {
+                lastMatched = i
+            } else if let suggestion {
+                let alt = Alternate(text: shellEscaped(suggestion.displayName), score: PathMatcher.suggestionScore, source: .biasing)
+                if !out[i].span.alternates.contains(alt) { out[i].span.alternates.append(alt) }
+            }
+            i += 1
+        }
+        return out
+    }
+
+    /// An argument position a path can silently fill: right after the command or a sub-command,
+    /// after a flag (`-la`, `--all`), or right after another matched path (`cp notes documents`).
+    static func isArgumentSlot(_ toks: [Tok], _ i: Int, lastMatched: Int) -> Bool {
+        let prev = toks[i - 1]
+        if prev.commandPosition || lastMatched == i - 1 { return true }
+        if prev.text.hasPrefix("-"), prev.kind == .word || prev.kind == .symbol, prev.text.count > 1 { return true }
+        if prev.kind == .word, i >= 2, toks[i - 2].kind == .symbol, toks[i - 2].text.hasPrefix("-"), toks[i - 2].glueRight {
+            return prev.text.count <= 3
+        }
+        return false
+    }
+
+    /// Backslash-escapes the characters a shell would split or interpret in a name.
+    static func shellEscaped(_ name: String) -> String {
+        let special: Set<Character> = [" ", "(", ")", "'", "\"", "&", ";", "|", "<", ">", "$", "`", "\\", "*", "?", "[", "]", "!", "#"]
+        return String(name.flatMap { special.contains($0) ? ["\\", $0] : [$0] })
     }
 
     /// N12 — "CD", "C D", "see dee" → `cd` because `cd` is a command this shell has (not because
