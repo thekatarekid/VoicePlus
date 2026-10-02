@@ -17,7 +17,7 @@ public protocol FinalRecognizer: AnyObject, Sendable {
 }
 
 /// TDT final pass through the frozen `Decoder` interface (so P1.5 biasing and P1.6 beam plug in).
-public final class DecoderFinalRecognizer: FinalRecognizer, @unchecked Sendable {
+public final class DecoderFinalRecognizer: FinalRecognizer, FinalPassTimingReporting, @unchecked Sendable {
     public let name: String
     public let decoder: Decoder
 
@@ -31,6 +31,9 @@ public final class DecoderFinalRecognizer: FinalRecognizer, @unchecked Sendable 
         let result = try await decoder.decode(encoderFrames: FluidAudioTDTDecoder.frames(fromSamples: samples))
         return WordConfidence.spans(from: result.tokens)
     }
+
+    /// N6 — the decoder's last final-pass stages (nil for decoders that do not report them).
+    public var lastFinalPassTiming: FinalPassTiming? { (decoder as? FinalPassTimingReporting)?.lastFinalPassTiming }
 }
 
 /// V5 B1 — a final recognizer with a separate, never-boosted preview pass (the decoder's streaming
@@ -53,6 +56,7 @@ extension DecoderFinalRecognizer: PreviewPassRecognizer {
     public func installBooster(_ booster: VocabularyBooster?) -> Bool {
         guard let boostable = decoder as? VocabularyBoostable else { return false }
         boostable.booster = booster
+        (booster as? BoostReporting)?.prepare()   // N6: stable rescorer built while the user speaks
         return booster != nil
     }
 }

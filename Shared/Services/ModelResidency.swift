@@ -36,6 +36,10 @@ public enum ResidencyTier: String, Sendable, Codable, CaseIterable {
     /// Loaded only for one job (CUA-S1-4B for an act turn). Loading it evicts every unpinned
     /// `.onDemand` model first, and it is refused while a *different* `.exclusive` model is resident.
     case exclusive
+    /// N6 — kept resident once loaded (the CTC vocabulary booster): loaded at launch, never idled
+    /// out, never dropped for budget or on a memory *warning*; dropped only under *critical*
+    /// pressure, before any `.always` model. Loads over budget like `.always`.
+    case resident
 }
 
 /// Why a model was loaded, unloaded or refused. Every event is logged with one.
@@ -232,12 +236,12 @@ public actor ModelResidency {
         await enforceBudget(reserving: 0, for: nil)
     }
 
-    /// Unload every unpinned non-`.always` model unused for `idleTimeout`. Returns what was unloaded.
+    /// Unload every unpinned model that is neither `.always` nor `.resident` (N6) unused for `idleTimeout`. Returns what was unloaded.
     @discardableResult
     public func sweepIdle() async -> [String] {
         let t = now()
         let idle = entries.filter { _, e in
-            e.state == .resident && e.tier != .always && e.pins == 0
+            e.state == .resident && e.tier != .always && e.tier != .resident && e.pins == 0
                 && t.timeIntervalSince(e.lastUsed ?? .distantPast) >= idleTimeout
         }.map { $0.key }.sorted()
         for k in idle { await evict(k, reason: .idle) }
@@ -272,7 +276,9 @@ public actor ModelResidency {
         case .critical:
             setLighter(true)
             await evictUnpinned(where: { $0.tier == .onDemand }, reason: .memoryCritical)
-            await evictUnpinned(where: { $0.tier != .always && $0.lighterAlternative != nil }, reason: .lighterModel)
+            await evictUnpinned(where: { $0.tier == .resident }, reason: .memoryCritical)   // N6: before the recogniser
+            await evictUnpinned(where: { $0.tier != .always && $0.tier != .resident && $0.lighterAlternative != nil },
+                                reason: .lighterModel)
         }
     }
 
@@ -340,8 +346,8 @@ public actor ModelResidency {
         await enforceBudget(reserving: e.estimatedBytes, for: key)
         let needed = usedBytes(excluding: key) + e.estimatedBytes
         if needed > budgetBytes {
-            if e.tier == .always {
-                Log.engine.notice("residency: \(key) is .always — loading over budget (\(needed) of \(budgetBytes) bytes)")
+            if e.tier == .always || e.tier == .resident {
+                Log.engine.notice("residency: \(key) is .\(e.tier.rawValue) — loading over budget (\(needed) of \(budgetBytes) bytes)")
             } else {
                 entries[key]?.state = .unloaded
                 record(key, .refused, .overBudget, e.estimatedBytes)

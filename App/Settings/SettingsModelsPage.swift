@@ -113,7 +113,9 @@ public enum ModelsPagePhase: Equatable, Sendable {
             return "Downloading \(p.modelName) · \(bytes) · \(p.percent)%"
         case .verifying: return ModelsPageCopy.verifying
         case .loading: return ModelsPageCopy.loading
-        case .ready(let name): return ModelsPageCopy.ready(name)
+        case .ready(let name):
+            // N6: "Preparing speech models…" while the vocabulary booster loads/compiles at launch.
+            return ModelsPageCopy.ready(name) + (SpeechModelPreparation.shared.message.map { " \($0)" } ?? "")
         case .downloadFailed(let id), .loadFailed(let id): return RecoveryCatalog.entry(id).headline
         }
     }
@@ -216,6 +218,7 @@ public final class ModelsPageModel: ObservableObject {
     private let store: SettingsStore
     private var downloadTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private var preparationObserver: NSObjectProtocol?
 
     public init(models: ModelManaging, inventory: ModelInventoryReading = LiveModelInventory(),
                 store: SettingsStore,
@@ -225,6 +228,11 @@ public final class ModelsPageModel: ObservableObject {
         self.store = store
         self.load = load
         self.lastWorking = store.string(SettingsKeys.lastWorkingModel)
+        // N6: re-render the status line when the booster's preparation state changes.
+        preparationObserver = NotificationCenter.default.addObserver(
+            forName: SpeechModelPreparation.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.objectWillChange.send() }
+        }
     }
 
     /// The window's loader: the composition root's `loadModel` when wired, else re-resolve the

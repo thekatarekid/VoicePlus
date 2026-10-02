@@ -1,5 +1,6 @@
 import FluidAudio
 import Foundation
+import Shared
 
 /// Adapter over FluidAudio's greedy TDT path (`AsrManager`). See README §Implementations for
 /// the `EncoderFrames` convention: because upstream runs preprocessor+encoder+decoder as one
@@ -17,8 +18,11 @@ import Foundation
 /// top-K (K = `alternativesK`). The preview pass never does.
 /// The legacy `biaser` (decode-time `LogitBiaser`) is accepted for protocol conformance and ignored:
 /// it could only re-score the chosen token and never changed a word (V5 A1).
-public final class FluidAudioTDTDecoder: Decoder, VocabularyBoostable, PreviewDecoding, @unchecked Sendable {
+public final class FluidAudioTDTDecoder: Decoder, VocabularyBoostable, PreviewDecoding, FinalPassTimingReporting,
+                                         @unchecked Sendable {
     public static let sampleRate = 16_000
+    /// N6 — the rescoring deadline. Past it the final pass lands the unboosted text it already has.
+    public static let defaultBoostDeadline: TimeInterval = 1.5
     public let name: String
 
     private let finalManager: AsrManager
@@ -28,6 +32,7 @@ public final class FluidAudioTDTDecoder: Decoder, VocabularyBoostable, PreviewDe
     private var _biaser: LogitBiaser?
     private var _booster: VocabularyBooster?
     private var _lastBoost: BoostOutcome?
+    private var _lastTiming: FinalPassTiming?
     private var _alternativesProvider: TokenAlternativesProviding?
     private var state: TdtDecoderState
     private let decoderLayers: Int
@@ -56,6 +61,12 @@ public final class FluidAudioTDTDecoder: Decoder, VocabularyBoostable, PreviewDe
     /// What the last boosted final pass changed (nil when unboosted / nothing found). Lab + logs.
     public var lastBoost: BoostOutcome? { lock.withLock { _lastBoost } }
 
+    /// N6 — per-stage ms and the pre-boost text of the last final pass (persisted in `turn_records`).
+    public var lastFinalPassTiming: FinalPassTiming? { lock.withLock { _lastTiming } }
+
+    /// N6 — rescoring deadline for this decoder (default 1.5 s).
+    public var boostDeadline: TimeInterval = FluidAudioTDTDecoder.defaultBoostDeadline
+
     /// - Parameter models: already-loaded `AsrModels` (v3, ultra, redux or tdtCtc110m). Loading is the
     ///   `ModelManager`'s job so warm-start and unload live in one place.
     /// - Parameter alternatives: install a `JointTopKReplayer` over `models` (V5 B3) when the joint exposes top-K.
@@ -83,25 +94,27 @@ public final class FluidAudioTDTDecoder: Decoder, VocabularyBoostable, PreviewDe
         precondition(encoderFrames.hiddenSize == 1, "FluidAudioTDTDecoder expects packed samples (see README)")
         let (st0, booster, provider) = lock.withLock { (state, _booster, _alternativesProvider) }
         var st = st0
+        let t0 = DispatchTime.now()
         let result = try await finalManager.transcribe(encoderFrames.values, decoderState: &st, language: language)
         var tokens = Self.tokens(from: result.tokenTimings ?? [], timeOffset: encoderFrames.timeOffset)
+        let recogniseMs = FinalPassTiming.ms(since: t0)
         let newState = st
+        let t1 = DispatchTime.now()
         if let provider {
             tokens = await Self.attachAlternatives(tokens, samples: encoderFrames.values, timeOffset: encoderFrames.timeOffset,
                                                    provider: provider, k: alternativesK,
                                                    belowProbability: alternativesBelowProbability)
         }
-        var outcome: BoostOutcome?
-        if let booster {
-            // Rescorer works on chunk-local time (zero = first sample of `values`).
-            let local = tokens.map { Self.shift($0, by: -encoderFrames.timeOffset) }
-            if let o = await booster.boost(tokens: local, samples: encoderFrames.values) {
-                outcome = o
-                tokens = Self.carryAlternatives(from: tokens,
-                                                to: o.tokens.map { Self.shift($0, by: encoderFrames.timeOffset) })
-            }
-        }
-        lock.withLock { state = newState; _lastBoost = outcome }
+        let alternativesMs = provider == nil ? 0 : FinalPassTiming.ms(since: t1)
+        let step = await Self.finalBoost(tokens, samples: encoderFrames.values, timeOffset: encoderFrames.timeOffset,
+                                         booster: booster, deadline: boostDeadline)
+        let timing = FinalPassTiming(recogniseMs: recogniseMs, alternativesMs: alternativesMs,
+                                     modelWaitMs: step.report.modelWaitMs, rescoreMs: step.report.rescoreMs,
+                                     totalMs: FinalPassTiming.ms(since: t0), boostStatus: step.report.status,
+                                     rawPreBoostText: tokens.renderedText, finalText: step.tokens.renderedText)
+        tokens = step.tokens
+        lock.withLock { state = newState; _lastBoost = step.report.outcome; _lastTiming = timing }
+        Log.engine.info("final pass stages: \(timing.logLine)")
         return DecodeResult(tokens: tokens)
     }
 
@@ -115,8 +128,33 @@ public final class FluidAudioTDTDecoder: Decoder, VocabularyBoostable, PreviewDe
 
     public func reset() async {
         let fresh = (try? TdtDecoderState(decoderLayers: decoderLayers)) ?? TdtDecoderState.make(decoderLayers: decoderLayers)
-        lock.withLock { state = fresh; _lastBoost = nil }
+        lock.withLock { state = fresh; _lastBoost = nil; _lastTiming = nil }
         await finalManager.reset()
+    }
+
+    /// N6 — the boost step of the final pass, held to `deadline`. `tokens` are on the utterance clock
+    /// (`timeOffset`); the booster works chunk-local. Past the deadline (or with the model not
+    /// resident) the unboosted `tokens` come back unchanged — they are already in hand.
+    static func finalBoost(_ tokens: [DecodedToken], samples: [Float], timeOffset: TimeInterval,
+                           booster: VocabularyBooster?, deadline: TimeInterval) async -> (tokens: [DecodedToken], report: BoostReport) {
+        guard let booster, !booster.terms.isEmpty else { return (tokens, BoostReport(outcome: nil, status: .notApplied)) }
+        let local = tokens.map { shift($0, by: -timeOffset) }
+        let t0 = DispatchTime.now()
+        let raced = await BoostDeadlineRace.run(seconds: deadline) { () async -> BoostReport in
+            if let reporting = booster as? BoostReporting {
+                return await reporting.boostReport(tokens: local, samples: samples)
+            }
+            let t = DispatchTime.now()
+            let o = await booster.boost(tokens: local, samples: samples)
+            return BoostReport(outcome: o, status: (o?.wasModified ?? false) ? .boosted : .unchanged,
+                               rescoreMs: FinalPassTiming.ms(since: t))
+        }
+        guard let report = raced else {
+            Log.engine.notice("boost: rescoring passed the \(String(format: "%.1f", deadline)) s deadline — landing unboosted")
+            return (tokens, BoostReport(outcome: nil, status: .timedOut, rescoreMs: FinalPassTiming.ms(since: t0)))
+        }
+        guard let o = report.outcome else { return (tokens, report) }
+        return (carryAlternatives(from: tokens, to: o.tokens.map { shift($0, by: timeOffset) }), report)
     }
 
     static func shift(_ t: DecodedToken, by dt: TimeInterval) -> DecodedToken {

@@ -123,7 +123,10 @@ done
 # Explicit opt-in preserves lightweight developer builds; the release gate supplies this source.
 if [ -n "${BUNDLE_MODELS_FROM:-}" ]; then
   log "bundling verified default speech models"
-  python3 "$PKG_DIR/bundle_models.py" "$BUNDLE_MODELS_FROM" "$CONTENTS/Resources/Models"
+  # N6: a full installer must carry the CTC boosting model too (compiled at launch, never in a turn).
+  BOOST_FLAG=()
+  if [ "${FULL_INSTALLER:-0}" = "1" ]; then BOOST_FLAG=(--require-boost); fi
+  python3 "$PKG_DIR/bundle_models.py" "$BUNDLE_MODELS_FROM" "$CONTENTS/Resources/Models" ${BOOST_FLAG[@]+"${BOOST_FLAG[@]}"}
 fi
 # V5 C6 — Silero VAD ships in every bundle (thin or full): ~1 MB, MIT, checked in under
 # Packaging/vad/, hash-verified on the way in. Without it users got EnergyVAD.

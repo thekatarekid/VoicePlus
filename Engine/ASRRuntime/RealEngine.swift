@@ -278,6 +278,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     private var feedLive = false
     private var feedTask: Task<Void, Never>?
     private var stopReason: EngineStopReason?
+    private var finalPassTiming: FinalPassTiming?
     /// Longest `stop()` waits for the VAD subscription to deliver the capture's last events.
     static let vadSettleTimeout: UInt64 = 300_000_000
 
@@ -713,6 +714,8 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         do {
             let t0 = Date()
             let spans = try await final.recognize(samples)
+            let timing = (final as? FinalPassTimingReporting)?.lastFinalPassTiming
+            lock.withLock { finalPassTiming = timing }
             Log.engine.info("final pass \(final.name): \(spans.count) spans, \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms for \(String(format: "%.1f", seconds)) s audio")
             // `.final` at the span level too: this segment ended the session, so nothing further
             // will arrive for it. The recognizers already hand back spans at that default, so this
@@ -831,6 +834,8 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         var spans: [TranscriptSpan]
         do {
             spans = try await final.recognize(closure.samples)
+            let timing = (final as? FinalPassTimingReporting)?.lastFinalPassTiming
+            lock.withLock { finalPassTiming = timing }
         } catch {
             Log.engine.warning("final pass failed for segment \(id.description): \(error)")
             release(id, spans: [], stability: stability, reason: reason)
@@ -939,6 +944,10 @@ extension RealEngine: AudioLevelPublishing {}
 
 extension RealEngine: EngineStopReporting {
     public var lastStopReason: EngineStopReason? { lock.withLock { stopReason } }
+
+    /// N6 — per-stage ms and pre-boost raw text of the most recent final pass (key-release or
+    /// endpoint segment). Nil until one ran, or for recognisers that do not report stages.
+    public var lastFinalPassTiming: FinalPassTiming? { lock.withLock { finalPassTiming } }
 }
 
 /// Engines that can say how much audio the current utterance holds.

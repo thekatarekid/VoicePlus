@@ -16,6 +16,11 @@ STACK = {
     'speaker-diarization': ('speaker-diarization-coreml', ['pyannote_segmentation.mlmodelc', 'wespeaker_v2.mlmodelc']),
 }
 
+# N6 — the CTC vocabulary-boosting model (CC-BY-4.0, ~98 MB). Bundled when the source has it, and
+# required for FULL_INSTALLER (`--require-boost`), so a full install never downloads or compiles it
+# inside a dictation. Folder = FluidAudio Repo.parakeetCtc110m.folderName.
+BOOST = {'parakeet-ctc-110m-coreml': ('parakeet-ctc-110m-coreml', ['AudioEncoder.mlmodelc', 'MelSpectrogram.mlmodelc', 'vocab.json', 'tokenizer.json'])}
+
 # V5 C6 — Silero VAD (MIT, ~1 MB) is checked in under Packaging/vad/ and ships in *every* bundle,
 # thin or full, so no install ever falls back to the energy VAD. Folder = FluidAudio Repo.vad.folderName.
 VAD = {'silero-vad': ('silero-vad-coreml', ['silero-vad-unified-256ms-v6.2.1.mlmodelc'])}
@@ -66,11 +71,16 @@ def verified_notices(folder):
     return files
 
 
-def bundle(source, destination, verify_only=False):
+def bundle(source, destination, verify_only=False, require_boost=False):
     notices = Path(__file__).resolve().parent / 'model-notices'
     notice_files = verified_notices(notices)
     plans = [(name, verified_files(source / name, model_id, required))
              for name, (model_id, required) in STACK.items()]
+    for name, (model_id, required) in BOOST.items():
+        if (source / name / 'voiceplus-manifest.json').is_file():
+            plans.append((name, verified_files(source / name, model_id, required)))
+        elif require_boost:
+            raise ValueError(f'{name}: missing from {source}; FULL_INSTALLER needs the boosting model')
     if verify_only:
         return
     destination.mkdir(parents=True, exist_ok=True)
@@ -83,9 +93,9 @@ def bundle(source, destination, verify_only=False):
             target = destination / name / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / name / relative, target)
-        model_id, required = STACK[name]
+        model_id, required = {**STACK, **BOOST}[name]
         verified_files(destination / name, model_id, required)
-    (destination / 'README.txt').write_text('''VoicePlus default local speech stack\n\nParakeet TDT 0.6B v3 — NVIDIA / FluidInference — CC-BY-4.0\nhttps://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml\nParakeet realtime EOU 120M, 160ms — NVIDIA / FluidInference\nhttps://huggingface.co/FluidInference/parakeet-realtime-eou-120m-coreml\nSpeaker embedding / segmentation — WeSpeaker / pyannote / FluidInference\nhttps://huggingface.co/FluidInference/speaker-diarization-coreml\n\nConverted CoreML weights are unchanged. Each folder retains its SHA256 manifest\nand original model repository attribution. No recordings or personal vocabulary\nare included. Included Notices/ contains the upstream cards, license copies and attribution.
+    (destination / 'README.txt').write_text('''VoicePlus default local speech stack\n\nParakeet TDT 0.6B v3 — NVIDIA / FluidInference — CC-BY-4.0\nhttps://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml\nParakeet realtime EOU 120M, 160ms — NVIDIA / FluidInference\nhttps://huggingface.co/FluidInference/parakeet-realtime-eou-120m-coreml\nSpeaker embedding / segmentation — WeSpeaker / pyannote / FluidInference\nhttps://huggingface.co/FluidInference/speaker-diarization-coreml\nParakeet CTC 110M (vocabulary boosting, when present) — NVIDIA / FluidInference — CC-BY-4.0\nhttps://huggingface.co/FluidInference/parakeet-ctc-110m-coreml\n\nConverted CoreML weights are unchanged. Each folder retains its SHA256 manifest\nand original model repository attribution. No recordings or personal vocabulary\nare included. Included Notices/ contains the upstream cards, license copies and attribution.
 The notice revisions identify documentation; model bytes are pinned by SHA256 manifests.\nThe app treats this signed Models directory as read-only.\n''')
 
 def bundle_vad(destination, source=VAD_SOURCE):
@@ -113,6 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('source', type=Path)
     parser.add_argument('destination', type=Path)
     parser.add_argument('--verify-only', action='store_true')
+    parser.add_argument('--require-boost', action='store_true')
     args = parser.parse_args()
-    bundle(args.source, args.destination, args.verify_only)
+    bundle(args.source, args.destination, args.verify_only, args.require_boost)
     print('Default model stack: SHA256 verification passed' + ('' if args.verify_only else '; copied into app bundle'))
