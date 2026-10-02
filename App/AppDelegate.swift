@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.deliveryPill = delivery
         coordinator.onLanded = { [weak delivery, weak container] result in
-            container?.turnContext.end()   // N7: the turn's snapshot is spent
+            container?.endTurnContext()   // N7 / INT-wiring: the turn's snapshot and surface are spent
             // The injector has already held this text if it is held at all; adopt its id.
             let heldID = container?.injector.focusGuard.held.last { $0.text == result.text }?.id
             delivery?.handle(result, destination: result.destinationName, heldID: heldID)

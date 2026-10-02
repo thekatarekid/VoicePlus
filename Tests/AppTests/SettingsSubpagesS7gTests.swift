@@ -123,11 +123,16 @@ struct SettingsSubpagesS7gTests {
         #expect(reopened.latchDoubleTap == false && reopened.drawWithoutKey && reopened.textSize == .larger)
     }
 
-    @Test("the V3 final-preview select is 600 ms, 1200 ms, Manual review")
-    func previewSelectMatchesPrototype() throws {
-        let expected = SettingsCopy.dwellOrder.map(SettingsCopy.dwellTitle)
-        #expect(expected == ["600 ms · default", "1200 ms", "Manual review"])
-        #expect(SettingsCopy.dwellOrder.map(\.seconds) == [0.6, 1.2, nil])
+    @Test("owner decision: no preview pause — the row is one Manual review switch")
+    func previewRowIsManualReviewSwitch() throws {
+        let store = InMemorySettingsStore()
+        let general = Self.general(store)
+        #expect(general.manualReview == false)
+        general.manualReview = true
+        #expect(TurnSettings.previewDwell(store) == .manual)
+        general.manualReview = false
+        #expect(TurnSettings.previewDwell(store) == .standard)
+        #expect(SettingsCopy.previewTitle == "Manual review")
         // V3 keeps the selected delay identical at every confidence; manual remains explicit.
         #expect(PreviewDwell.standard.seconds(lowConfidence: true) == 0.6)
         #expect(PreviewDwell.manual.seconds(lowConfidence: true) == nil)
@@ -137,7 +142,7 @@ struct SettingsSubpagesS7gTests {
     func generalCopyIsThePrototypes() throws {
         let settings = try Self.prototypeScreen("settings")
         for text in [SettingsCopy.shortcutTitle, SettingsCopy.shortcutDetail, SettingsCopy.previewTitle,
-                     SettingsCopy.previewDetail, SettingsCopy.lowConfidenceTitle,
+                     SettingsCopy.lowConfidenceTitle,
                      SettingsCopy.reviewable, SettingsCopy.soundCuesTitle, SettingsCopy.launchTitle,
                      SettingsCopy.launchDetail, SettingsCopy.moreSettings] {
             #expect(settings.contains(text), "“\(text)” is not in the prototype's Settings screen")
@@ -145,7 +150,7 @@ struct SettingsSubpagesS7gTests {
         // The archived V1 screen intentionally retains its 1800 ms uncertainty extension.
         // V3 replaces that one row with the same selected delay for every transcript.
         #expect(SettingsCopy.lowConfidenceDetail == "Same preview delay for every transcript; hover pauses it.")
-        for dwell in SettingsCopy.dwellOrder {
+        for dwell in [PreviewDwell.standard, .long, .manual] {
             #expect(dwell.seconds(lowConfidence: true) == dwell.seconds(lowConfidence: false))
         }
         #expect(SettingsCopy.soundCuesDetail.hasPrefix("Subtle start and stop feedback."))

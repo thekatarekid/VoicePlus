@@ -95,9 +95,11 @@ struct GeneralSettingsPage: View {
                             .accessibilityLabel(SettingsCopy.shortcutButtonLabel(general.hotkeyLabel))
                             .accessibilityIdentifier("settings.general.shortcut")
                     }
-                    SettingsPickerRow(title: SettingsCopy.previewTitle, detail: SettingsCopy.previewDetail,
-                                      selection: $general.previewDwell, options: SettingsCopy.dwellOrder,
-                                      label: SettingsCopy.dwellTitle, identifier: "settings.previewDwell")
+                    // Owner decision (2026-10-02): no preview pause. Text is typed as soon as it is
+                    // ready; only Manual review waits (for Insert).
+                    SettingsToggleRow(title: SettingsCopy.previewTitle, detail: SettingsCopy.previewDetail,
+                                      isOn: Binding(get: { general.manualReview }, set: { general.manualReview = $0 }),
+                                      identifier: "settings.previewManualReview")
                     RowView(SettingsCopy.lowConfidenceTitle, detail: SettingsCopy.lowConfidenceDetail) {
                         StatusTag(SettingsCopy.reviewable)
                     }
@@ -130,11 +132,22 @@ struct GeneralSettingsPage: View {
                     SettingsPickerRow(title: SettingsCopy.caretTitle, detail: SettingsCopy.caretDetail(general.unknownCaretStyle),
                                       selection: $general.unknownCaretStyle, options: UnknownCaretStyle.allCases,
                                       label: SettingsCopy.caretOption, identifier: "settings.unknownCaretStyle")
+                    // N26 — skip cleanup is separate from style off.
+                    SettingsToggleRow(title: MidDocumentCleanupSettings.title, detail: MidDocumentCleanupSettings.detail,
+                                      isOn: $general.midDocumentCleanup, identifier: "settings.midDocumentCleanup")
+                    // N13 — the one-time folder permission, asked here and never mid-dictation.
+                    SettingsToggleRow(title: ShellFolderSettings.title, detail: ShellFolderSettings.detail,
+                                      isOn: $general.shellFolderNames, identifier: "settings.shellFolderNames")
                 }
+
+                // N25 — 2-3 named presets per kind of field; an app's own rule wins.
+                SurfacePresetRows(general: general)
 
                 // V5 W1 — Q2 / Q14 switches (`InsertionSettings`).
                 InsertionSettingsRows(chromiumIdentifier: "settings.insertion.exposeChromiumText",
                                       confirmIdentifier: "settings.insertion.confirmHiddenText")
+                // N10 — per-app off switch for turning on accessibility.
+                AccessibilityOffAppsRow()
 
                 GroupBox(SettingsCopy.behaviourTitle, layout: .rows) {
                     RowView(SettingsCopy.onboardingTitle, detail: SettingsCopy.onboardingDetail) {
@@ -633,18 +646,8 @@ enum SettingsCopy {
     static let shortcutTitle = "Shortcut"
     static let shortcutDetail = "Hold to talk; release to preview and insert."
     static func shortcutButtonLabel(_ key: String) -> String { "Shortcut: \(key). Change in Shortcuts." }
-    static let previewTitle = "Final preview"
-    static let previewDetail = "Shown before the first insertion attempt."
-    /// The prototype's `<select>` order: 900 ms · default, 600 ms, 1500 ms, Manual review.
-    static let dwellOrder: [PreviewDwell] = [.standard, .long, .manual]
-    static func dwellTitle(_ dwell: PreviewDwell) -> String {
-        switch dwell {
-        case .standard: return "600 ms · default"
-        case .short: return "600 ms"
-        case .long: return "1200 ms"
-        case .manual: return "Manual review"
-        }
-    }
+    static let previewTitle = "Manual review"
+    static let previewDetail = "Off: text is typed as soon as it is ready. On: every transcript waits for Insert."
     static let lowConfidenceTitle = "Low-confidence preview"
     static let lowConfidenceDetail = "Same preview delay for every transcript; hover pauses it."
     static let reviewable = "Reviewable"
@@ -748,4 +751,75 @@ struct DataRow: Identifiable {
     var bytesOut: Int { record.bytesOut }
     var bytesIn: Int { record.bytesIn }
     var purpose: String { record.purpose }
+}
+
+// MARK: - INT-wiring rows (N25, N10)
+
+/// N25 — one picker per kind of field; the first preset of each kind is the default.
+struct SurfacePresetRows: View {
+    @ObservedObject var general: GeneralSettingsViewModel
+
+    var body: some View {
+        GroupBox(SurfacePresetSettings.groupTitle, layout: .rows) {
+            ForEach(SurfacePresets.groups, id: \.self) { group in
+                let presets = SurfacePresets.presets(forGroup: group)
+                SettingsPickerRow(title: SurfacePresetSettings.groupName(group),
+                                  detail: presets.first { $0.id == general.preset(forGroup: group) }?.detail,
+                                  selection: Binding(get: { general.preset(forGroup: group) },
+                                                     set: { general.setPreset($0, forGroup: group) }),
+                                  options: presets.map(\.id),
+                                  label: { id in presets.first { $0.id == id }?.title ?? id },
+                                  identifier: "settings.preset.\(group)")
+            }
+        }
+        SettingsFootnote(SurfacePresetSettings.groupDetail)
+    }
+}
+
+/// N10 — apps that are never asked to expose their text.
+struct AccessibilityOffAppsRow: View {
+    @State private var apps: [String] = AccessibilityOffApps.list()
+
+    var body: some View {
+        GroupBox(layout: .rows) {
+            RowView(AccessibilityOffApps.title, detail: AccessibilityOffApps.detail) {
+                Menu(AccessibilityOffApps.addLabel) {
+                    ForEach(Self.runningApps(excluding: apps), id: \.id) { app in
+                        Button(app.name) { AccessibilityOffApps.add(app.id); apps = AccessibilityOffApps.list() }
+                    }
+                }
+                .fixedSize()
+                .accessibilityIdentifier("settings.accessibilityOff.add")
+            }
+            if apps.isEmpty {
+                RowView(AccessibilityOffApps.empty, detail: nil) { EmptyView() }
+            }
+            ForEach(apps, id: \.self) { id in
+                RowView(Self.name(for: id), detail: id) {
+                    Button("Remove") { AccessibilityOffApps.remove(id); apps = AccessibilityOffApps.list() }
+                        .accessibilityIdentifier("settings.accessibilityOff.remove.\(id)")
+                }
+            }
+        }
+    }
+
+    struct RunningApp { var id: String; var name: String }
+
+    static func runningApps(excluding: [String]) -> [RunningApp] {
+        let own = Bundle.main.bundleIdentifier
+        let seen = Set(excluding)
+        var out: [String: RunningApp] = [:]
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            guard let id = app.bundleIdentifier, id != own, !seen.contains(id) else { continue }
+            out[id] = RunningApp(id: id, name: app.localizedName ?? id)
+        }
+        return out.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    static func name(for bundleID: String) -> String {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+        }
+        return bundleID
+    }
 }

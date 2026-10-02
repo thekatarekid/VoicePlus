@@ -169,8 +169,41 @@ public final class GeneralSettingsViewModel: ObservableObject {
     // MARK: S7g · General (design §8.6)
 
     /// Design §5 step 4: 900 ms default, 600 / 1500 or manual review. Read by `TurnController`.
+    /// Owner decision (2026-10-02): no preview pause — the row is now one "Manual review" switch
+    /// (`manualReview`); a timed dwell is no longer offered in Settings.
     @Published public var previewDwell: PreviewDwell {
         didSet { TurnSettings.setPreviewDwell(previewDwell, store: store) }
+    }
+    /// On: every transcript waits for Insert. Off: text is typed as soon as it is ready.
+    public var manualReview: Bool {
+        get { previewDwell == .manual }
+        set { previewDwell = newValue ? .manual : .standard }
+    }
+    /// N13 — "Use folder names in Terminal". Turning it on makes the one-time protected-folder
+    /// prompt here, never mid-dictation.
+    @Published public var shellFolderNames: Bool {
+        didSet {
+            guard shellFolderNames != oldValue else { return }
+            ShellFolderSettings.setEnabled(shellFolderNames, store: store, promptOnce: shellFolderPrompt)
+        }
+    }
+    /// N26 — mid-sentence inserts keep the cleanup model (default on).
+    @Published public var midDocumentCleanup: Bool {
+        didSet { MidDocumentCleanupSettings.setEnabled(midDocumentCleanup, store: store) }
+    }
+    /// N25 — the default preset id per surface group.
+    @Published public private(set) var presetSelection: [String: String]
+    public func setPreset(_ id: String, forGroup group: String) {
+        SurfacePresetSettings.set(id, forGroup: group, store: store)
+        presetSelection = Self.presetSelection(store)
+    }
+    public func preset(forGroup group: String) -> String {
+        presetSelection[group] ?? SurfacePresets.defaultPreset(forGroup: group)?.id ?? ""
+    }
+    static func presetSelection(_ store: SettingsStore) -> [String: String] {
+        var out: [String: String] = [:]
+        for g in SurfacePresets.groups { out[g] = SurfacePresetSettings.presetID(forGroup: g, store: store) }
+        return out
     }
     /// Off by default; never a success sound before a verified insertion (`SoundCuePolicy`).
     @Published public var soundCues: Bool {
@@ -225,6 +258,7 @@ public final class GeneralSettingsViewModel: ObservableObject {
     }
 
     private let store: SettingsStore
+    private let shellFolderPrompt: () -> Void
     private let fnConflictReader: (HotkeyBinding.Kind) -> FnKeyConflict?
     private let keyboardSettingsOpener: () -> Void
     private let applyTheme: @MainActor (WindowTheme) -> Void
@@ -234,8 +268,10 @@ public final class GeneralSettingsViewModel: ObservableObject {
     public init(store: SettingsStore,
                 fnConflict: @escaping (HotkeyBinding.Kind) -> FnKeyConflict? = { HotkeyService.fnConflict(for: HotkeyBinding(kind: $0)) },
                 openKeyboardSettings: @escaping () -> Void = { NSWorkspace.shared.open(FnKeyConflict.keyboardSettingsURL) },
-                applyTheme: @escaping @MainActor (WindowTheme) -> Void = { AppearanceSettings.apply($0) }) {
+                applyTheme: @escaping @MainActor (WindowTheme) -> Void = { AppearanceSettings.apply($0) },
+                shellFolderPrompt: @escaping () -> Void = ShellFolderSettings.touchProtectedFolders) {
         self.store = store
+        self.shellFolderPrompt = shellFolderPrompt
         self.fnConflictReader = fnConflict
         self.keyboardSettingsOpener = openKeyboardSettings
         self.applyTheme = applyTheme
@@ -251,6 +287,9 @@ public final class GeneralSettingsViewModel: ObservableObject {
         presenceIndicator = PresenceSettings.isEnabled(store)
         presenceHideInFullScreen = PresenceSettings.hidesInFullScreen(store)
         previewDwell = TurnSettings.previewDwell(store)
+        shellFolderNames = ShellFolderSettings.isEnabled(store)
+        midDocumentCleanup = MidDocumentCleanupSettings.isEnabled(store)
+        presetSelection = Self.presetSelection(store)
         soundCues = SoundCueSettings.isEnabled(store)
         spacing = FormattingSettings.spacing(store)
         unknownCaretStyle = FormattingSettings.unknownCaretStyle(store)

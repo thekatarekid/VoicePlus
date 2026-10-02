@@ -50,6 +50,10 @@ public final class AppContainer {
     public let axWindowText: AXReaderWindowText
     /// N7 — the one bounded context snapshot per turn (started at key-down).
     public let turnContext: TurnContextSnapshot
+    /// INT-wiring — the turn's resolved surface (N9), shell (N13) and rubric candidates (N11).
+    public let turnSurface: TurnSurfaceContext
+    /// N13 / F26 — the focused shell of a terminal app (folder names only after the Settings OK).
+    public let shellContext: ShellContextProvider
     /// V5 B2 + E1 — the ranked context, rebuilt per utterance, as `StageContext.extra["context.prompt"]`.
     public let contextPrompt: ContextPromptSession
     /// P4 — act domain: catalogue + consent + executor + agent behind the second key.
@@ -245,7 +249,19 @@ public final class AppContainer {
         if let database { harvester.add(CorrectionSource(store: DatabaseCorrectionStore(database: database))) }
         if let adaptationService { harvester.add(LearnedLexiconSource(loop: adaptationService.loop)) }
         DictionaryWiring.install(harvester: harvester, windowText: axWindowText)   // V5 P1/P2/P7 public dictionaries
-        boosting = BoostingWiring.controller(database: database, adaptation: adaptationService, modelManager: built.modelManager)
+        // INT-wiring — one field read + (terminal only) one shell probe per turn, off the main thread;
+        // the rubric (N11) builds the boost list from the resolved surface and the turn's candidates.
+        let fieldContextReader = FieldContextReader(system: system)
+        let shellContext = ShellContextProvider(settings: settings)
+        self.shellContext = shellContext
+        let turnSurface = TurnSurfaceContext(
+            field: { [fieldContextReader] app in fieldContextReader.fieldContext(bundleID: app.bundleID) },
+            shell: { [shellContext] pid in shellContext.context(terminalPID: pid) },
+            snapshot: turnContext)
+        self.turnSurface = turnSurface
+        boosting = BoostingWiring.controller(database: database, adaptation: adaptationService, modelManager: built.modelManager,
+                                             surface: { [turnSurface] in turnSurface.surface() },
+                                             turnCandidates: { [turnSurface] in turnSurface.candidates() })
         // V5 B2 (X2) — the ranked list now has a caller: one session over the same harvester.
         contextPrompt = ContextPromptSession(harvester: harvester, idleDiscardAfter: 120)
 
@@ -283,11 +299,22 @@ public final class AppContainer {
         // S7d — the app's Dictionary & Apps rule applies last: Verbatim switches the style pass and
         // writing instructions off; contextual reading off drops what was read from the screen.
         // V5 B2 — then the ranked-context prompt for the cleanup stage (D2), after the rule.
-        lander.contextAugmenter = ContextPromptAugmenter.applying(
+        let ruledAugmenter = ContextPromptAugmenter.applying(
             after: AppRules.applying(after: { [weak deixis] spans, ctx in deixis?.augment(spans, ctx) ?? ctx }),
             session: contextPrompt)
+        // INT-wiring — after the app rule: the turn's shell (N13), the user's preset defaults under
+        // any per-app preset (N25), and the mid-sentence cleanup switch (N26, reads the field only
+        // when it is off).
+        lander.contextAugmenter = { [turnSurface, settings, fieldContextReader] spans, context in
+            var ctx = ruledAugmenter(spans, context)
+            ctx = turnSurface.augment(ctx, bundleID: ctx.appBundleID)
+            ctx = SurfacePresetSettings.apply(to: ctx, store: settings)
+            ctx = MidDocumentCleanupSettings.apply(to: ctx, store: settings) {
+                fieldContextReader.fieldContext(bundleID: ctx.appBundleID)
+            }
+            return ctx
+        }
         // R4.2 — the AX hints the field-role formatter classifies on, read once per utterance.
-        let fieldContextReader = FieldContextReader(system: system)
         lander.fieldContextProvider = { [fieldContextReader] bundleID in fieldContextReader.fieldContext(bundleID: bundleID) }
         // P6.3 — script-aware final text + pill indicator; P6.4 — sync service.
         let codeSwitchService = CodeSwitchService(router: built.codeSwitch)
@@ -504,10 +531,27 @@ public final class AppContainer {
     /// N7 — key-down: bind this turn's context to the app (and its focused window) the user started
     /// in and start the one bounded read. Never blocks; no read when contextual reading is off.
     public func beginTurnContext() {
-        turnContext.start(app: system.frontmostApp())
+        let app = system.frontmostApp()
+        turnContext.start(app: app)
+        // INT-wiring — the surface resolves in the background; the boost list is built once it is
+        // known (≤ ~0.35 s, well before the final pass), never on the key-down thread.
+        turnSurface.begin(app: app) { [weak self] in self?.installBooster() }
     }
 
+    /// The turn ended (landed, dropped or cancelled): the surface and the snapshot are spent.
+    public func endTurnContext() {
+        turnContext.end()
+        turnSurface.end()
+    }
+
+    /// Kept for callers that prepare without a turn (the booster is otherwise installed when the
+    /// turn's surface is ready, by `beginTurnContext`).
     public func prepareForUtterance() {
+        guard !turnSurface.isBegun else { return }
+        installBooster()
+    }
+
+    private func installBooster() {
         guard let recognizerProvider, let boosting else { return }
         let booster = boosting.makeBoosterForUtterance()
         recognizerProvider.install(booster)
