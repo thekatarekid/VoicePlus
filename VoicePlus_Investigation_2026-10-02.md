@@ -540,6 +540,16 @@ Same build (V5 1.13.0, pid 12840), code at HEAD `9b86614`, the same read-only DB
 - The "hey kivi" assistant slide marks "factual answers and reasoning" as *not available yet*.
 - The Sheets joining-form demo filled a column. The claim that it "inferred Father without being told" is **unverified**: the transcript does not show that the word wasn't spoken.
 - No public speed or accuracy numbers were given.
+- **Cross-check against the owner-supplied transcript (3:06–3:18):**
+  - **Form fill:** the speaker said "my dad's details" aloud, so filling a "Father" field is a light dad→Father mapping, not inference from nothing.
+  - **Stated features:**
+    - Their own ASR "with intelligence on top".
+    - Translating on-screen text ("Kiwi understands context").
+    - Custom dictionary, "speed dials" (shortcuts), personalised output, and a style chosen per app.
+    - Shareable term lists, and voice commands on selected text (for example a tone change).
+  - **Labelled "not there yet" / vision:** open a message, summarise and translate it, reply and send, email plus calendar invite, flight booking.
+  - **Platforms:** Mac now; Windows and Android later; a developer API and MCP.
+  - **Not covered:** the talk says nothing about terminals, spreadsheets as formula input, URL bars, or on-device vs cloud. So the architecture below comes from the client bundle, not from the talk.
 
 **Kivi's architecture, as far as the client shows it:**
 1. **Hotkey down.** Warm mic → audio streams to the server at once. In parallel, a budgeted Accessibility capture of the frontmost window yields typed terms.
