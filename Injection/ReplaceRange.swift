@@ -54,9 +54,13 @@ public final class ReplaceRangeEditor {
         return String(decoding: units[range], as: UTF16.self)
     }
 
+    public static let secureFieldReason = "secure field"
+
     public func replace(_ request: ReplaceRangeRequest) -> ReplaceRangeOutcome {
         let info: FocusedElementInfo
         do { info = try system.focusedElement() } catch { return .unavailable(reason: "\(error)") }
+        // Safety — a password field is never written (repair or edit), whatever AX would allow.
+        guard !info.isSecure else { return .unavailable(reason: Self.secureFieldReason) }
         guard let value = info.value else { return .unavailable(reason: "AX value unreadable") }
         guard let actual = Self.utf16Slice(value, request.range) else { return .mismatch(actual: nil) }
         guard actual == request.expected else { return .mismatch(actual: actual) }

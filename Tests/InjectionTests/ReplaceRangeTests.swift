@@ -63,6 +63,19 @@ import Shared
         #expect(mock.field.value == "text")
     }
 
+    @Test("Safety: a password field is never written, even when AX would allow it")
+    func refusesSecureField() {
+        for web in [false, true] {
+            let mock = MockSystemAccess()
+            var f = MockSystemAccess.Field.secure(webStyle: web)
+            f.value = "hunter2"; f.selection = 0..<7
+            mock.field = f
+            let ed = ReplaceRangeEditor(system: mock)
+            #expect(ed.replace(ReplaceRangeRequest(range: 0..<7, expected: "hunter2", replacement: "x")) == .unavailable(reason: ReplaceRangeEditor.secureFieldReason))
+            #expect(mock.field.value == "hunter2")
+        }
+    }
+
     @Test func unavailableWhenNotSettable() {
         let (ed, mock) = editor("text") { $0.axWriteWorks = false }
         #expect(ed.replace(ReplaceRangeRequest(range: 0..<4, expected: "text", replacement: "x")) == .unavailable(reason: "AX not settable"))
