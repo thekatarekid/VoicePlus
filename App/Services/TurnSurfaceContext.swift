@@ -144,7 +144,32 @@ public final class TurnSurfaceContext: @unchecked Sendable {
     /// shell-decided surface when the field alone could not tell.
     public func augment(_ ctx: StageContext, bundleID: String?) -> StageContext {
         guard let r = current() else { return ctx }
+        Self.installRepairPhonetics
         return Self.write(r, into: ctx, bundleID: bundleID)
+    }
+
+    /// H19 — the repair stage hears with Double Metaphone (installed once, process-wide).
+    static let installRepairPhonetics: Void = {
+        ContextRepairStage.install(phonetic: TurnSurfaceContext.phoneticCodes)
+    }()
+
+    @Sendable static func phoneticCodes(_ word: String) -> [String] {
+        let c = DoubleMetaphone.encode(word)
+        return [c.primary] + (c.secondary.map { [$0] } ?? [])
+    }
+
+    /// H19 — the near-caret terms as the repair stage's evidence (vocabulary only; secure → none).
+    static func repairEvidence(_ near: NearCaretContext?, now: Date = Date()) -> ContextRepairEvidence? {
+        guard let near else { return nil }
+        let terms = nearCandidates(near, now: now).compactMap { c -> ContextRepairEvidence.Term? in
+            guard let d = c.caretDistance else { return nil }
+            let kind: ContextRepairEvidence.Term.Kind
+            if c.text.contains(" "), c.text == c.text.lowercased(), c.heardAliases.isEmpty { kind = .phrase }
+            else if c.evidence >= 1 { kind = .entity }
+            else { kind = .word }
+            return .init(text: c.text, aliases: c.heardAliases, distance: d, kind: kind)
+        }
+        return terms.isEmpty ? nil : ContextRepairEvidence(terms: terms)
     }
 
     // MARK: - Pure parts (tests)
@@ -199,6 +224,8 @@ public final class TurnSurfaceContext: @unchecked Sendable {
         // Bound to the start app: a landing in another app gets nothing from this turn.
         if let bundleID, !bundleID.isEmpty, bundleID != r.bundleID { return context }
         var ctx = context
+        // H19 — near-caret vocabulary for the context repair stage (nothing for a secure field).
+        if r.surface.kind != .secure, let evidence = repairEvidence(r.nearCaret) { evidence.write(into: &ctx) }
         guard r.surface.kind == .terminal, let shell = r.shell else { return ctx }
         shell.write(into: &ctx)
         if r.shellDecided { FieldContext.write(r.surface, into: &ctx) }

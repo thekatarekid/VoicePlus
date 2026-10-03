@@ -5,6 +5,7 @@ import Shared
 public enum StageRegistry {
     public static let builtIn: [any PipelineStage] = [
         GatekeeperStage(), // always first; PipelineRunner runs it separately and filters it out of the stage list
+        ContextRepairStage(), // H19 — uncertain words → near-caret terms (top-K / Double Metaphone / spelling), before every formatter; inert without near-caret evidence
         ProsodyPunctuationStage(), // V5 K8 — pauses/pitch → . , ? before the formatters; off until the LibriSpeech-PC gate
         ProseListFormatter(),
         EmailFormatter(),
