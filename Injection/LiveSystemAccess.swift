@@ -109,7 +109,10 @@ public final class LiveSystemAccess: SystemAccess {
         var token: String?
         if isAccessibilityTrusted {
             token = try? onSafeThread(ownProcess: pid == OwnProcess.pid) { [self] in
-                String(CFHash(try focusedAXElement(pid: pid)))
+                let element = try focusedAXElement(pid: pid)
+                let token = String(CFHash(element))
+                remember(element, token: token)
+                return token
             }
         }
         return FocusSnapshot(pid: pid, bundleID: app.bundleIdentifier ?? "unknown",
@@ -260,6 +263,40 @@ public final class LiveSystemAccess: SystemAccess {
 
     public func settle(milliseconds: Int) {
         Thread.sleep(forTimeInterval: Double(milliseconds) / 1000)
+    }
+
+    // MARK: X7 / H30 — writing to a stored element in the background
+
+    private let elementLock = NSLock()
+    private var elementCache: [(token: String, element: AXUIElement)] = []
+    private static let elementCacheLimit = 16
+
+    /// Keeps the element behind a snapshot's token so a hands-free piece can be written to it later.
+    private func remember(_ element: AXUIElement, token: String) {
+        elementLock.withLock {
+            elementCache.removeAll { $0.token == token }
+            elementCache.append((token, element))
+            if elementCache.count > Self.elementCacheLimit { elementCache.removeFirst() }
+        }
+    }
+
+    /// X7 / H30 — inserts `text` at the caret of `target`'s stored element **without activating its
+    /// app**: an AX selected-text set. Revalidated first: the element is still the one the token
+    /// named, belongs to the target's process, is an editable text role, is not a password field,
+    /// and accepts a selected-text write. False when any of that fails (Electron apps often do) —
+    /// nothing is posted then. Never sends Return.
+    public func insertInBackground(_ text: String, into target: FocusSnapshot) -> Bool {
+        guard isAccessibilityTrusted, !text.isEmpty, target.pid != OwnProcess.pid,
+              let token = target.elementToken, !token.isEmpty,
+              let element = elementLock.withLock({ elementCache.last(where: { $0.token == token })?.element }),
+              String(CFHash(element)) == token, Self.pid(of: element) == target.pid else { return false }
+        let role = copyAttribute(element, kAXRoleAttribute) as? String ?? ""
+        let subrole = copyAttribute(element, kAXSubroleAttribute) as? String
+        guard role != FocusedElementInfo.secureRole, subrole != FocusedElementInfo.secureRole,
+              CanvasFocus.textRoles.contains(role),
+              isSettable(element, kAXSelectedTextAttribute) else { return false }
+        postCount += 1
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
     }
 
     // MARK: AX plumbing

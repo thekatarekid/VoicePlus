@@ -1,3 +1,4 @@
+import AppKit
 import Engine
 import Foundation
 import Injection
@@ -133,6 +134,22 @@ public protocol LatchDelivering: AnyObject {
     /// Keep a closed segment for `destination`, formatted as it would have landed there.
     func hold(_ spans: [TranscriptSpan], segment: SegmentID, reason: String,
               destination: FocusSnapshot?) async -> LatchDeliveryResult
+
+    // X7 / H30 — hands-free destination rule (owner Q7, round 3). A delivery that opts in
+    // (`routesHandsFree`) gets a session target and the rule below; one that does not keeps B1.
+
+    /// This delivery implements the hands-free destination rule.
+    var routesHandsFree: Bool { get }
+    /// What is focused now: an editable text field, a password field, or nothing that takes text.
+    func focusedField() -> HandsFreeField
+    /// Write a piece into `target`'s stored element without activating its app (revalidated: same
+    /// element, still editable, not secure). nil when that is not possible (common in Electron).
+    func backgroundWrite(_ spans: [TranscriptSpan], segment: SegmentID, to target: FocusSnapshot) async -> LatchDeliveryResult?
+    /// Is `target`'s app (and box) still there to switch back to?
+    func targetAlive(_ target: FocusSnapshot) -> Bool
+    /// Briefly switch back to `target`, insert, and return to `returnTo`. nil when it could not.
+    func switchBackInsertReturn(_ spans: [TranscriptSpan], segment: SegmentID, to target: FocusSnapshot,
+                                returnTo: FocusSnapshot?) async -> LatchDeliveryResult?
 }
 
 public extension LatchDelivering {
@@ -145,6 +162,52 @@ public extension LatchDelivering {
     func hold(_ spans: [TranscriptSpan], segment: SegmentID, reason: String,
               destination: FocusSnapshot?) async -> LatchDeliveryResult {
         .held(destination: hold(spans, segment: segment, reason: reason), reason: reason)
+    }
+
+    var routesHandsFree: Bool { false }
+    func focusedField() -> HandsFreeField { .editable }
+    func backgroundWrite(_ spans: [TranscriptSpan], segment: SegmentID, to target: FocusSnapshot) async -> LatchDeliveryResult? { nil }
+    func targetAlive(_ target: FocusSnapshot) -> Bool { false }
+    func switchBackInsertReturn(_ spans: [TranscriptSpan], segment: SegmentID, to target: FocusSnapshot,
+                                returnTo: FocusSnapshot?) async -> LatchDeliveryResult? { nil }
+}
+
+/// X7 / H30 — what is focused when a hands-free piece closes.
+public enum HandsFreeField: Equatable, Sendable {
+    case editable, secure, none
+
+    /// From the focused element: secure first, then editable text (`CanvasFocus`), else none.
+    public static func of(_ info: FocusedElementInfo?) -> HandsFreeField {
+        guard let info else { return .none }
+        if info.isSecure { return .secure }
+        return CanvasFocus.isEditableText(info) ? .editable : .none
+    }
+}
+
+/// X7 / H30 (owner Q7, round 3 "Hands-free destination") — where one hands-free piece goes.
+/// Session target = the field focused when hands-free started.
+public enum HandsFreeRoute: Equatable, Sendable {
+    /// Focus is in the session target's app: insert there as usual.
+    case target(FocusSnapshot)
+    /// The focused element is an editable, non-secure field in a **different** app: it becomes the
+    /// target ("Now inserting in <App>").
+    case switchTarget(FocusSnapshot)
+    /// Another app is in front with no new box: write to the stored target in the background; if
+    /// that is impossible and the old box is still there, switch back, insert, return; else Notes.
+    case background(FocusSnapshot)
+    /// No target and no box: Notes.
+    case notes
+
+    public static func decide(target: FocusSnapshot?, now: FocusSnapshot?, field: HandsFreeField) -> HandsFreeRoute {
+        guard let target else {
+            // No session target (nothing was focused at start): wherever focus is now, as before;
+            // the injector refuses a password field there.
+            if let now { return field == .editable ? .switchTarget(now) : .target(now) }
+            return .notes
+        }
+        if let now, LatchFocus.sameDestination(target, now) { return .target(now) }
+        if let now, field == .editable { return .switchTarget(now) }
+        return .background(target)
     }
 }
 
@@ -215,6 +278,10 @@ public final class LatchRuntime: @unchecked Sendable {
     public var onDeliveryPaused: ((String?) -> Void)?
     /// B4 — latch time for the pill's timer: `0` on entry, then once per whole second of audio.
     public var onElapsed: ((TimeInterval) -> Void)?
+    /// X7 / H30 — the session target moved to a field in another app ("Now inserting in <App>").
+    public var onTargetChanged: ((FocusSnapshot) -> Void)?
+    /// X7 / H30 — the hands-free session target, for tests and the pill.
+    public var latchTarget: FocusSnapshot? { lock.withLock { sessionTarget } }
     /// Where feed callbacks run. The feed calls back on capture threads; `isLatched` and the pill
     /// live on the main thread, so by default every event hops there, in arrival order.
     public var feedQueue: (@escaping () -> Void) -> Void = { work in DispatchQueue.main.async(execute: work) }
@@ -243,6 +310,8 @@ public final class LatchRuntime: @unchecked Sendable {
     /// Focus at latch entry for the segment open then; used only if no speech start is heard.
     private var provisionalFocus: [SegmentID: FocusSnapshot] = [:]
     private var lastEnqueued: SegmentID?
+    // X7 / H30 — the hands-free session target (the field focused at latch entry).
+    private var sessionTarget: FocusSnapshot?
     // B4
     private var elapsedAnchor: TimeInterval?
     private var publishedSecond = 0
@@ -335,9 +404,12 @@ public final class LatchRuntime: @unchecked Sendable {
             guard let open = openSegment, beganFocus[open] == nil, provisionalFocus[open] == nil else { return nil }
             return open
         }
-        if let segment, source == .dictation, let focus = delivery.currentFocus() {
+        let startFocus = source == .dictation ? delivery.currentFocus() : nil
+        if let segment, let focus = startFocus {
             lock.withLock { if provisionalFocus[segment] == nil { provisionalFocus[segment] = focus } }
         }
+        // X7 / H30 — the session target is the field focused when hands-free started.
+        if delivery.routesHandsFree { lock.withLock { sessionTarget = startFocus } }
         connect(newFeed)
         onElapsed?(0)
     }
@@ -347,6 +419,7 @@ public final class LatchRuntime: @unchecked Sendable {
     public func leaveLatch() {
         disconnect()
         lock.withLock {
+            sessionTarget = nil
             endpointState = endpointer
             endpointState.reset()
             elapsedAnchor = nil
@@ -699,6 +772,13 @@ public final class LatchRuntime: @unchecked Sendable {
             }
             return
         }
+        // X7 / H30 — the hands-free destination rule replaces B1 for a delivery that opts in.
+        // A piece never ends with Return (Q1): delivery inserts text only.
+        // With no session target (nothing was focused at latch entry) B1 below still applies.
+        if source == .dictation, delivery.routesHandsFree, let target = lock.withLock({ sessionTarget }) {
+            record(await routeHandsFree(job, text: text, target: target), for: segment)
+            return
+        }
         // B1 — focus moved while this segment was being spoken: the words were meant for where
         // they began, so they are held for that destination (D01) and never typed into the new one.
         if let began = job.began, !LatchFocus.sameDestination(began, job.closed) {
@@ -722,6 +802,48 @@ public final class LatchRuntime: @unchecked Sendable {
             return
         }
         record(outcome(for: result, text: text), for: segment)
+    }
+
+    /// X7 / H30 — one piece, routed by `HandsFreeRoute`.
+    private func routeHandsFree(_ job: Job, text: String, target: FocusSnapshot) async -> LatchSegmentOutcome {
+        let spans = job.spans, segment = job.segment
+        let route = HandsFreeRoute.decide(target: target, now: job.closed, field: delivery.focusedField())
+        switch route {
+        case .target(let focus):
+            let result = await delivery.deliver(spans, segment: segment, focus: focus)
+            if case .notDelivered = result { return toNotes(text, segment: segment, destination: focus) }
+            return outcome(for: result, text: text)
+        case .switchTarget(let focus):
+            lock.withLock { sessionTarget = focus }
+            Log.app.notice("latch: hands-free target is now \(LatchFocus.name(focus))")
+            onTargetChanged?(focus)
+            let result = await delivery.deliver(spans, segment: segment, focus: focus)
+            if case .notDelivered = result { return toNotes(text, segment: segment, destination: focus) }
+            return outcome(for: result, text: text)
+        case .background(let stored):
+            if let written = await delivery.backgroundWrite(spans, segment: segment, to: stored), written == .delivered {
+                Log.app.notice("latch: \(segment.description) written to \(LatchFocus.name(stored)) in the background")
+                return outcome(for: written, text: text)
+            }
+            if delivery.targetAlive(stored),
+               let back = await delivery.switchBackInsertReturn(spans, segment: segment, to: stored, returnTo: job.closed),
+               back == .delivered {
+                Log.app.notice("latch: \(segment.description) inserted in \(LatchFocus.name(stored)) by switching back")
+                return outcome(for: back, text: text)
+            }
+            return toNotes(text, segment: segment, destination: stored)
+        case .notes:
+            return toNotes(text, segment: segment, destination: nil)
+        }
+    }
+
+    /// The piece could not be typed anywhere: Notes (V5 N2), or held when no Notes route exists.
+    private func toNotes(_ text: String, segment: SegmentID, destination: FocusSnapshot?) -> LatchSegmentOutcome {
+        if notesRoute?(text, .appSwitch) == true {
+            Log.app.notice("latch: \(segment.description) could not be typed; stored in Notes")
+            return .consumed
+        }
+        return .held(destination: LatchFocus.name(destination), reason: DeliveryReason.destinationChanged)
     }
 
     private func outcome(for result: LatchDeliveryResult, text: String,
@@ -789,6 +911,49 @@ public final class LanderLatchDelivery: LatchDelivering, @unchecked Sendable {
 
     public func currentFocus() -> FocusSnapshot? { focusSnapshot() }
 
+    // MARK: X7 / H30 — the hands-free destination rule
+
+    public var routesHandsFree: Bool { true }
+    /// The focused element now (the lander's system access).
+    public lazy var focusedInfo: () -> FocusedElementInfo? = { [lander] in try? lander.system.focusedElement() }
+    /// Writes `text` into the target's stored element without activating it. Live: `LiveSystemAccess`.
+    public lazy var backgroundWriter: ((String, FocusSnapshot) -> Bool)? = {
+        guard let live = lander.system as? LiveSystemAccess else { return nil }
+        return { text, target in live.insertInBackground(text, into: target) }
+    }()
+    /// Is the process still running?
+    public var appAlive: (Int32) -> Bool = { pid in kill(pid, 0) == 0 }
+    /// Brings an app to the front (switch back / return).
+    public var activate: (Int32) -> Bool = { pid in
+        NSRunningApplication(processIdentifier: pid)?.activate(options: []) ?? false
+    }
+    /// How long to let an activation settle before checking focus.
+    public var settle: (Int) async -> Void = { ms in try? await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000) }
+
+    public func focusedField() -> HandsFreeField { HandsFreeField.of(focusedInfo()) }
+
+    public func backgroundWrite(_ spans: [TranscriptSpan], segment: SegmentID, to target: FocusSnapshot) async -> LatchDeliveryResult? {
+        guard let writer = backgroundWriter, target.elementToken?.isEmpty == false else { return nil }
+        let injector = BackgroundWriteInjector(target: target, write: writer)
+        let result = await lander.holdingSibling(injector: injector).land(spans, startedAt: clock(), focus: target)
+        guard injector.wrote else { return nil }
+        onLanded?(result)
+        return .delivered
+    }
+
+    public func targetAlive(_ target: FocusSnapshot) -> Bool { appAlive(target.pid) }
+
+    public func switchBackInsertReturn(_ spans: [TranscriptSpan], segment: SegmentID, to target: FocusSnapshot,
+                                       returnTo: FocusSnapshot?) async -> LatchDeliveryResult? {
+        guard activate(target.pid) else { return nil }
+        await settle(150)
+        defer { if let returnTo, returnTo.pid != target.pid { _ = activate(returnTo.pid) } }
+        guard let now = focusSnapshot(), LatchFocus.sameDestination(now, target),
+              HandsFreeField.of(focusedInfo()) == .editable else { return nil }
+        let result = await deliver(spans, segment: segment, focus: now)
+        return result == .delivered ? .delivered : nil
+    }
+
     public func deliver(_ spans: [TranscriptSpan], segment: SegmentID) async -> Bool {
         await deliver(spans, segment: segment, focus: focusSnapshot()) == .delivered
     }
@@ -851,6 +1016,28 @@ public final class LanderLatchDelivery: LatchDelivering, @unchecked Sendable {
             if let outcome = focusGuard.insertHere(item.id), outcome.succeeded { inserted += 1 }
         }
         return inserted
+    }
+}
+
+/// X7 / H30 — the injector for a background write: the lander's formatted text goes into the
+/// stored target element through `write` (an AX selected-text set, no activation, no keystrokes).
+final class BackgroundWriteInjector: Injector, @unchecked Sendable {
+    private let target: FocusSnapshot
+    private let write: (String, FocusSnapshot) -> Bool
+    private(set) var wrote = false
+
+    init(target: FocusSnapshot, write: @escaping (String, FocusSnapshot) -> Bool) {
+        self.target = target
+        self.write = write
+    }
+
+    func inject(_ request: InjectionRequest) -> InjectionOutcome {
+        // A piece never ends with Return (Q1): strip a trailing newline the formatter may add.
+        var text = request.text
+        while text.hasSuffix("\n") || text.hasSuffix("\r") { text.removeLast() }
+        guard !text.isEmpty, write(text, target) else { return .failed(attempts: []) }
+        wrote = true
+        return .injected(method: .ax, verified: false)
     }
 }
 
