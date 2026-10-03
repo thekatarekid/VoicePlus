@@ -43,9 +43,23 @@ public final class OptionKeyEventTap {
         }
     }
 
-    /// nil when Accessibility is not granted or macOS refuses the tap.
-    public static func install(for service: HotkeyService) -> OptionKeyEventTap? {
-        guard AXIsProcessTrusted() else { return nil }
+    /// Why an install did or did not arm.
+    public enum InstallOutcome {
+        case armed(OptionKeyEventTap)
+        /// Accessibility is not granted yet: retried when it is (no notice yet).
+        case untrusted
+        /// Accessibility is granted but macOS refused the tap: the fallback notice is due.
+        case refused
+    }
+
+    public static func install(for service: HotkeyService) -> InstallOutcome {
+        guard AXIsProcessTrusted() else { return .untrusted }
+        guard let tap = create(for: service) else { return .refused }
+        return .armed(tap)
+    }
+
+    /// nil when macOS refuses the tap.
+    private static func create(for service: HotkeyService) -> OptionKeyEventTap? {
         let object = OptionKeyEventTap(service: service, timing: service.machine.timing)
         let types: [CGEventType] = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
@@ -105,7 +119,7 @@ public final class OptionKeyEventTap {
         guard event.getIntegerValueField(.eventSourceUserData) != Self.userDataTag, let service else {
             return Unmanaged.passUnretained(event)
         }
-        let t = TimeInterval(event.timestamp) / 1_000_000_000
+        let t = EventClock.seconds(eventTimestamp: event.timestamp, uptime: service.uptime())
         let decision: OptionDoubleTapSuppressor.Decision
         if type == .flagsChanged {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)

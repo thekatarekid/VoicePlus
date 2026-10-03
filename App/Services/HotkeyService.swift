@@ -415,21 +415,78 @@ public final class HotkeyService {
     private func armOptionTap() {
         disarmOptionTap()
         guard isRunning, installer == nil, bindingKey == Self.bindingDefaultsKey, binding.kind.isOption else { return }
-        if let tap = OptionKeyEventTap.install(for: self) {
+        record(OptionKeyEventTap.install(for: self))
+    }
+
+    /// X2 — applies an install outcome. Internal so tests can drive the untrusted/refused paths.
+    func record(_ outcome: OptionKeyEventTap.InstallOutcome) {
+        switch outcome {
+        case .armed(let tap):
             optionTap = tap
             tapFeeds = true
             optionTapUnavailable = false
-        } else {
+            awaitingAccessibilityForOptionTap = false
+            stopWatchingAccessibility()
+        case .untrusted:
+            // First launch: Accessibility is granted during onboarding, after the key is armed.
+            // Not a failure yet — arm when the grant lands; the one-time notice is not spent.
             optionTapUnavailable = true
+            awaitingAccessibilityForOptionTap = true
+            Log.app.notice("hotkey: Option event tap waits for Accessibility — passive monitors meanwhile")
+            watchAccessibility()
+        case .refused:
+            optionTapUnavailable = true
+            awaitingAccessibilityForOptionTap = false
+            stopWatchingAccessibility()
             Log.app.notice("hotkey: Option event tap unavailable — passive monitors only (Claude may see a double tap)")
             onOptionTapUnavailable?()
         }
+    }
+
+    /// X2 — Accessibility was not granted when the key was armed; the tap arms once it is.
+    public private(set) var awaitingAccessibilityForOptionTap = false
+    private var accessibilityObserver: NSObjectProtocol?
+    private var accessibilityRetries: [DispatchWorkItem] = []
+
+    /// X2 — re-try the Option tap after an Accessibility change (no-op unless it is waiting).
+    public func retryOptionTapIfWaiting() {
+        guard awaitingAccessibilityForOptionTap, optionTap == nil else { return }
+        armOptionTap()
+    }
+
+    private func watchAccessibility() {
+        guard accessibilityObserver == nil else { return }
+        // HIServices posts this when the trust list changes; its cached answer lags a little, so
+        // re-try shortly after as well as at once.
+        accessibilityObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.accessibility.api"), object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.scheduleAccessibilityRetries()
+        }
+    }
+
+    private func scheduleAccessibilityRetries() {
+        accessibilityRetries.forEach { $0.cancel() }
+        accessibilityRetries = [0.0, 0.5, 2.0].map { delay in
+            let item = DispatchWorkItem { [weak self] in self?.retryOptionTapIfWaiting() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+            return item
+        }
+    }
+
+    private func stopWatchingAccessibility() {
+        accessibilityRetries.forEach { $0.cancel() }
+        accessibilityRetries = []
+        if let accessibilityObserver { DistributedNotificationCenter.default().removeObserver(accessibilityObserver) }
+        accessibilityObserver = nil
     }
 
     private func disarmOptionTap() {
         optionTap?.invalidate()
         optionTap = nil
         tapFeeds = false
+        awaitingAccessibilityForOptionTap = false
+        stopWatchingAccessibility()
     }
 
     public static func systemOtherInputWithin(_ seconds: TimeInterval) -> Bool {
@@ -953,7 +1010,7 @@ public final class HotkeyService {
                     HotkeyService.deliver(token: token,
                                           keyCode: event.getIntegerValueField(.keyboardEventKeycode),
                                           flags: event.flags.rawValue,
-                                          timestamp: TimeInterval(event.timestamp) / 1_000_000_000)
+                                          timestamp: EventClock.seconds(eventTimestamp: event.timestamp, uptime: ProcessInfo.processInfo.systemUptime))
                 }
                 return Unmanaged.passUnretained(event)
             },

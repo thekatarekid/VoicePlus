@@ -719,3 +719,24 @@ public enum OptionTapFallbackNotice {
         return true
     }
 }
+
+/// X2 — a `CGEvent.timestamp` in seconds since boot (the clock `NSEvent` and `HotkeyService.uptime`
+/// use). Documented as nanoseconds, but on Apple silicon it has been observed in mach ticks
+/// (41.67 ns each), which would shrink the 350 ms double-tap window ~42x. The event was made
+/// moments ago, so the reading closest to `uptime` is the right one.
+public enum EventClock {
+    public static let timebase: (numer: UInt32, denom: UInt32) = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info.denom == 0 ? (1, 1) : (info.numer, info.denom)
+    }()
+
+    public static func seconds(eventTimestamp: UInt64, uptime: TimeInterval,
+                               timebase: (numer: UInt32, denom: UInt32) = EventClock.timebase) -> TimeInterval {
+        let asNanos = Double(eventTimestamp) / 1_000_000_000
+        let asTicks = Double(eventTimestamp) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000
+        let best = abs(asNanos - uptime) <= abs(asTicks - uptime) ? asNanos : asTicks
+        // A zero or nonsense stamp (a synthesized event) — use the time it arrived.
+        return eventTimestamp == 0 || abs(best - uptime) > 60 ? uptime : best
+    }
+}
