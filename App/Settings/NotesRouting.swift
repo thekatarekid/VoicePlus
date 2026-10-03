@@ -40,11 +40,14 @@ public struct NotesRouteSignals: Equatable, Sendable {
     public var agentActionRunning: Bool
     /// The arbiter (O4) already decided `note` for this utterance.
     public var arbiterChoseNote: Bool
+    /// H24 — the app the words were meant for (the key-down destination), stored with the note.
+    public var intendedApp: String?
 
     public init(hasFocusedField: Bool = true, appSwitchedMidSegment: Bool = false, wakeVerb: WakeVerbParse? = nil,
                 ambientBand: AmbientBand? = nil, declinedAsk: Bool = false, listenAndNote: Bool = false,
                 latched: Bool = false, meetingActive: Bool = false, agentActionRunning: Bool = false,
-                arbiterChoseNote: Bool = false) {
+                arbiterChoseNote: Bool = false, intendedApp: String? = nil) {
+        self.intendedApp = intendedApp
         self.hasFocusedField = hasFocusedField
         self.appSwitchedMidSegment = appSwitchedMidSegment
         self.wakeVerb = wakeVerb
@@ -119,7 +122,8 @@ public final class NotesRouter: @unchecked Sendable {
         let decision = NotesRoute.decide(text, signals)
         guard case .note(let source, let body) = decision else { return decision }
         do {
-            guard let id = try store.add(body, source: source, at: date) else { return .passThrough }
+            guard let id = try store.add(body, source: source, at: date, intendedApp: signals.intendedApp,
+                                         reason: source.defaultReason) else { return .passThrough }
             onNoted?(source, id)
             return decision
         } catch {
@@ -131,8 +135,10 @@ public final class NotesRouter: @unchecked Sendable {
     /// K4: latched speech from another voice (`TurnAnchoredVoice` `.routeToNotes`). Explicitly a
     /// note, whatever the field says.
     @discardableResult
-    public func routeOtherVoice(_ text: String, meetingActive: Bool, at date: Date? = nil) -> String? {
-        try? store.add(text, source: meetingActive ? .meetingAside : .latch, at: date, speaker: .others(1))
+    public func routeOtherVoice(_ text: String, meetingActive: Bool, at date: Date? = nil,
+                                intendedApp: String? = nil) -> String? {
+        try? store.add(text, source: meetingActive ? .meetingAside : .latch, at: date, speaker: .others(1),
+                       intendedApp: intendedApp, reason: meetingActive ? .meetingAside : .otherVoice)
     }
 }
 
@@ -154,6 +160,7 @@ public enum NotesWiring {
         let store = NotesStore(database: database, settings: settings)
         _ = try? store.sweepExpired()
         let router = NotesRouter(store: store)
+        NotesFunnel.current = store
         let feed = NotesChipFeed(store: store, settings: settings)
         feed.onCount = { [weak pill, weak status] count in
             MainActor.assumeIsolated {
@@ -230,6 +237,58 @@ public enum NotesWiring {
     nonisolated static func noteSink(_ router: NotesRouter) -> @Sendable (WakeVerbParse) -> Bool {
         { [router] parse in
             router.route(parse.payload, signals: NotesRouteSignals(wakeVerb: parse, latched: true)).source != nil
+        }
+    }
+}
+
+// MARK: - H24 the one funnel into Notes
+
+/// Why a Notes save did not happen. The caller keeps the words in history with Copy (§2
+/// "Couldn't save to Notes").
+public enum NotesFunnelError: Error, Equatable, Sendable {
+    /// No Notes store is installed (headless runs, before launch finished).
+    case noStore
+    /// Nothing to save.
+    case emptyText
+    /// The write failed.
+    case writeFailed(String)
+}
+
+/// H24 — every "not typed" path saves through here: the words, the app they were meant for, and why.
+/// Returns the note's id, or why it was not saved. Never types anything; never called for a password
+/// field (a secure turn saves nothing anywhere).
+public enum NotesFunnel {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var _current: NotesStore?
+
+    /// The app's store, set by `NotesWiring.install`.
+    public static var current: NotesStore? {
+        get { lock.withLock { _current } }
+        set { lock.withLock { _current = newValue } }
+    }
+
+    @discardableResult
+    public static func save(text: String, intendedApp: String?, reason: NoteReason, at date: Date? = nil,
+                            store: NotesStore? = nil) -> Result<String, NotesFunnelError> {
+        guard let store = store ?? current else { return .failure(.noStore) }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.emptyText) }
+        do {
+            guard let id = try store.add(text, source: NoteSource.of(reason), at: date,
+                                         intendedApp: intendedApp, reason: reason) else { return .failure(.emptyText) }
+            return .success(id)
+        } catch {
+            Log.app.error("notes funnel: \(reason.rawValue) note not stored: \(error)")
+            return .failure(.writeFailed(String(describing: error)))
+        }
+    }
+
+    /// The turn outcome a save came to (H25): saved / cancelled to Notes, or "Couldn't save to Notes".
+    public static func outcome(of result: Result<String, NotesFunnelError>, intendedApp: String?,
+                               reason: NoteReason) -> TurnOutcome {
+        switch result {
+        case .success: return reason == .cancelled ? .cancelledToNotes(intendedApp: intendedApp)
+                                                  : .savedToNotes(intendedApp: intendedApp, reason: reason)
+        case .failure: return .notesSaveFailed(intendedApp: intendedApp)
         }
     }
 }

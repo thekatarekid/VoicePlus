@@ -127,11 +127,20 @@ struct NotesRow: View {
                 .frame(minWidth: 56, alignment: .leading)
             StatusTag(entry.source.label)
                 .accessibilityIdentifier("notes.row.source.\(entry.source.rawValue)")
-            Text(entry.text)
-                .windowFont(Tokens.Typography.body)
-                .foregroundStyle(WindowColor.ink)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.text)
+                    .windowFont(Tokens.Typography.body)
+                    .foregroundStyle(WindowColor.ink)
+                    .textSelection(.enabled)
+                // H24 — why this note is here: "Not typed in Claude · window closed".
+                if !entry.reasonLine.isEmpty {
+                    Text(entry.reasonLine)
+                        .windowFont(Tokens.Typography.meta)
+                        .foregroundStyle(WindowColor.secondaryInk)
+                        .accessibilityIdentifier("notes.row.reason")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, Tokens.Spacing.xs)
         .accessibilityElement(children: .combine)

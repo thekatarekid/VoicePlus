@@ -49,6 +49,9 @@ public enum NoteSource: String, CaseIterable, Codable, Sendable, Identifiable {
     case agentRunning = "agent-running"
     /// Ambient speech in Listen & note mode (L1).
     case listenAndNote = "listen-note"
+    /// H24 — dictation that could not be typed (window closed, couldn't return, edit failed,
+    /// cancelled after recognition, never-type app). The note's `reason` says which.
+    case notTyped = "not-typed"
 
     public var id: String { rawValue }
 
@@ -65,6 +68,38 @@ public enum NoteSource: String, CaseIterable, Codable, Sendable, Identifiable {
         case .lowerMiddle: return "Overheard"
         case .agentRunning: return "During action"
         case .listenAndNote: return "Listen & note"
+        case .notTyped: return "Not typed"
+        }
+    }
+
+    /// H24 migration — the reason a note written before H24 (no metadata) is shown with.
+    public var defaultReason: NoteReason? {
+        switch self {
+        case .latch: return .otherVoice
+        case .ambient: return nil
+        case .noField: return .noTextField
+        case .appSwitch: return .appSwitched
+        case .wakeVerb: return .spokenNote
+        case .meetingAside: return .meetingAside
+        case .declinedAsk: return .declinedAsk
+        case .lowerMiddle, .listenAndNote: return .overheard
+        case .agentRunning: return .actionRunning
+        case .notTyped: return nil
+        }
+    }
+
+    /// H24 — the source a reason files under (one record per day per source).
+    public static func of(_ reason: NoteReason) -> NoteSource {
+        switch reason {
+        case .noTextField: return .noField
+        case .appSwitched: return .appSwitch
+        case .otherVoice: return .latch
+        case .meetingAside: return .meetingAside
+        case .actionRunning: return .agentRunning
+        case .spokenNote: return .wakeVerb
+        case .declinedAsk: return .declinedAsk
+        case .overheard: return .lowerMiddle
+        case .windowClosed, .couldNotReturn, .editFailed, .cancelled, .neverInject: return .notTyped
         }
     }
 
@@ -85,16 +120,28 @@ public struct NoteEntry: Equatable, Sendable, Identifiable {
     public var source: NoteSource
     public var speaker: MeetingSpeaker
     public var text: String
+    /// H24 — the app the words were meant for (nil when unknown, or for a note written before H24).
+    public var intendedApp: String?
+    /// H24 — why the words are here. Nil for a pre-H24 note: `effectiveReason` falls back on the source.
+    public var reason: NoteReason?
 
     public init(id: String, recordID: String, capturedAt: Date, source: NoteSource,
-                speaker: MeetingSpeaker = .you, text: String) {
+                speaker: MeetingSpeaker = .you, text: String, intendedApp: String? = nil, reason: NoteReason? = nil) {
         self.id = id
         self.recordID = recordID
         self.capturedAt = capturedAt
         self.source = source
         self.speaker = speaker
         self.text = text
+        self.intendedApp = intendedApp
+        self.reason = reason
     }
+
+    /// The stored reason, or the source's (pre-H24 notes). Nil for ambient rows.
+    public var effectiveReason: NoteReason? { reason ?? source.defaultReason }
+
+    /// "Not typed in Claude · window closed" — why this note is here. Empty for ambient rows.
+    public var reasonLine: String { effectiveReason?.noteLine(intendedApp: intendedApp) ?? "" }
 
     /// Ambient rows follow the ambient retention and never count as unread.
     public var isAmbient: Bool { source == .ambient }
@@ -257,7 +304,8 @@ public final class NotesStore: @unchecked Sendable {
     @discardableResult
     public func add(_ text: String, source: NoteSource, at capturedAt: Date? = nil,
                     duration: TimeInterval = 0, confidence: Float = 1,
-                    speaker: MeetingSpeaker = .you) throws -> String? {
+                    speaker: MeetingSpeaker = .you, intendedApp: String? = nil,
+                    reason: NoteReason? = nil) throws -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if source == .ambient {
@@ -286,6 +334,12 @@ public final class NotesStore: @unchecked Sendable {
             record.transcript.utterances.sort { $0.range.lowerBound < $1.range.lowerBound }
             try meetings.save(record)
             id = AmbientTranscriptStore.entryID(recordID: recordID, offset: offset)
+            let app = intendedApp?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if (app?.isEmpty == false) || reason != nil {
+                var meta = loadMeta(recordID)
+                meta[id] = NoteMeta(intendedApp: (app?.isEmpty == false) ? app : nil, reason: reason)
+                saveMeta(meta, recordID)
+            }
             try? database?.indexAmbientEntry(entryID: id, recordID: recordID,
                                             capturedAt: day.addingTimeInterval(offset), text: trimmed)
         }
@@ -301,10 +355,13 @@ public final class NotesStore: @unchecked Sendable {
         var out: [NoteEntry] = []
         for id in ids where id.hasPrefix(Self.recordPrefix) {
             guard let record = try? meetings.load(id: id), let source = NoteSource.from(labeler: record.labeler) else { continue }
+            let meta = loadMeta(id)
             for u in record.transcript.utterances {
-                out.append(NoteEntry(id: AmbientTranscriptStore.entryID(recordID: id, offset: u.range.lowerBound),
+                let entryID = AmbientTranscriptStore.entryID(recordID: id, offset: u.range.lowerBound)
+                out.append(NoteEntry(id: entryID,
                                      recordID: id, capturedAt: record.startedAt.addingTimeInterval(u.range.lowerBound),
-                                     source: source, speaker: u.speaker, text: u.text))
+                                     source: source, speaker: u.speaker, text: u.text,
+                                     intendedApp: meta[entryID]?.intendedApp, reason: meta[entryID]?.reason))
             }
         }
         return out.sorted { $0.capturedAt > $1.capturedAt }
@@ -377,6 +434,8 @@ public final class NotesStore: @unchecked Sendable {
                     _ = try? database?.deleteAmbientIndex(recordID: recordID)
                 } else if record.transcript.utterances.count != before {
                     try meetings.save(record)
+                    var meta = loadMeta(recordID)
+                    if meta.removeValue(forKey: id) != nil { saveMeta(meta, recordID) }
                 }
             }
             _ = try? database?.deleteAmbientIndex(entryID: id)
@@ -446,6 +505,32 @@ public final class NotesStore: @unchecked Sendable {
             }
         }
         return s
+    }
+
+    // MARK: H24 note metadata
+
+    /// Intended app + reason for one note. Kept beside the record (`note-meta.json` in the record's
+    /// directory, keyed by entry id), so `MeetingUtterance` needs no new field and deleting a record
+    /// deletes its metadata. A note without an entry (pre-H24) reads its source's default reason.
+    struct NoteMeta: Codable, Equatable {
+        var intendedApp: String?
+        var reason: NoteReason?
+    }
+
+    static let metaFile = "note-meta.json"
+
+    private func metaURL(_ recordID: String) -> URL {
+        meetings.directory(for: recordID).appendingPathComponent(Self.metaFile)
+    }
+
+    func loadMeta(_ recordID: String) -> [String: NoteMeta] {
+        guard let data = try? Data(contentsOf: metaURL(recordID)) else { return [:] }
+        return (try? JSONDecoder().decode([String: NoteMeta].self, from: data)) ?? [:]
+    }
+
+    private func saveMeta(_ meta: [String: NoteMeta], _ recordID: String) {
+        let e = JSONEncoder(); e.outputFormatting = [.sortedKeys]
+        if let data = try? e.encode(meta) { try? data.write(to: metaURL(recordID), options: .atomic) }
     }
 
     private func notifyChanged() {
