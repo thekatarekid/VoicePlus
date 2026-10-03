@@ -32,6 +32,8 @@ public enum SnapshotTermKind: String, Sendable, Codable, CaseIterable {
 /// Where in the snapshot a candidate came from (the rubric maps this to a source weight).
 public enum SnapshotTermSource: String, Sendable, Codable, CaseIterable {
     case title, visible, documentTail, artifact
+    /// H21 — text read outward from the caret (the focused field's neighbours, nearest first).
+    case nearCaret
 }
 
 /// One typed screen-term candidate for L1's rubric (E2): text, class, source, salience, distance
@@ -57,21 +59,38 @@ public struct TurnContextContents: Sendable {
     public var documentTail: String?
     public var startedAt: Date
     public var readMs: Int
+    /// H21 — what was read outward from the caret before the window walk (nil: no caret access).
+    public var nearCaret: CaretNeighbourhood?
 
     public init(target: TurnContextTarget, content: WindowContent, documentTail: String? = nil,
-                startedAt: Date, readMs: Int) {
+                startedAt: Date, readMs: Int, nearCaret: CaretNeighbourhood? = nil) {
         self.target = target; self.content = content; self.documentTail = documentTail
-        self.startedAt = startedAt; self.readMs = readMs
+        self.startedAt = startedAt; self.readMs = readMs; self.nearCaret = nearCaret
     }
 
-    public var interrupted: Bool { content.interrupted }
+    public var interrupted: Bool { content.interrupted || nearCaret?.interrupted == true }
+
+    /// H21 — nodes visited by both reads (outward from the caret + the window walk).
+    public var nodesVisited: Int { content.nodesVisited + (nearCaret?.nodesVisited ?? 0) }
+
+    /// H21 — salience of a block read outward from the caret: nearest first, never below 0.6.
+    static func nearSalience(rank: Int) -> Double { max(0.6, 1.0 - Double(max(0, rank - 1)) * 0.05) }
+
+    private var nearBlocks: [TextBlock] { nearCaret?.blocks.filter { !$0.text.isEmpty } ?? [] }
 
     /// Biasing source (same shape `AXReaderWindowText.visibleStrings` always produced): title at full
     /// salience, body blocks decaying with depth, then the bounded document tail.
     public func visibleStrings(maxBlocks: Int = 200, tailSalience: Double = 0.5) -> [(String, Double)] {
         var out: [(String, Double)] = []
         if let title = content.title, !title.isEmpty { out.append((title, 1.0)) }
-        for block in content.blocks.prefix(maxBlocks) where !block.text.isEmpty {
+        // H21 — the caret's neighbourhood first: a long chat's top-down walk runs out of nodes
+        // before it reaches the messages next to the composer.
+        var seen = Set<String>()
+        for block in nearBlocks.prefix(maxBlocks) {
+            seen.insert(block.text)
+            out.append((block.text, Self.nearSalience(rank: block.depth)))
+        }
+        for block in content.blocks.prefix(maxBlocks) where !block.text.isEmpty && !seen.contains(block.text) {
             out.append((block.text, max(0.4, 1.0 - Double(block.depth) * 0.08)))
         }
         if let documentTail, !documentTail.isEmpty { out.append((documentTail, tailSalience)) }
@@ -95,8 +114,20 @@ public struct TurnContextContents: Sendable {
     }
 
     public func windowText(limit: Int = 2000) -> String? {
-        let text = content.text
+        var text = content.text
+        // H21 — a cut walk lost the bottom of the window: lead with the caret's neighbourhood.
+        // The neighbourhood's end (the text right above the caret) is kept when it is long.
+        if content.truncated || content.interrupted, let near = nearCaret?.readingOrderText, !near.isEmpty {
+            let kept = near.count > limit ? String(near.suffix(limit)) : near
+            if kept.count >= limit || text.isEmpty { return kept }
+            text = kept + "\n\n" + text
+        }
         return text.isEmpty ? nil : String(text.prefix(limit))
+    }
+
+    /// H21 — candidate counts per source (for the turn row).
+    public static func counts(_ candidates: [SnapshotTermCandidate]) -> [String: Int] {
+        candidates.reduce(into: [:]) { $0[$1.source.rawValue, default: 0] += 1 }
     }
 
     /// E2 — typed candidates, deduplicated case-insensitively (highest salience wins), capped.
@@ -113,6 +144,7 @@ public struct TurnContextContents: Sendable {
             }
         }
         if let title = content.title, !title.isEmpty { add(title, .title, 1.0, 0) }
+        for block in nearBlocks.prefix(200) { add(block.text, .nearCaret, Self.nearSalience(rank: block.depth), block.depth) }
         for artifact in visibleArtifacts() where artifact.kind != .window {
             let c = SnapshotTermCandidate(text: artifact.title, kind: artifact.kind == .link ? .link : .file,
                                           source: .artifact, salience: artifact.salience, distance: 1, observedAt: at)
@@ -177,16 +209,33 @@ public final class AXTurnContextReader: TurnContextReading {
     public var maxNodes = 800
     public var maxCharacters = 50_000
     public var documentTailCharacters = 2_000
+    /// H21 — node cap and share of the budget for the read outward from the caret.
+    public var nearMaxNodes = 300
+    public var nearBudgetShare = 0.5
     private let enableAccessibility: ((Int32) -> Void)?
+    /// H21 — focused element + parents; nil = no outward read (window walk only).
+    public let caretAccess: CaretNeighbourhoodAccess?
 
-    public init(reader: AXReading, enableAccessibility: ((Int32) -> Void)? = nil) {
+    /// `caretAccess` defaults to the one behind `reader` (live AX in the app; nil for a mock tree).
+    public init(reader: AXReading, enableAccessibility: ((Int32) -> Void)? = nil,
+                caretAccess: CaretNeighbourhoodAccess? = nil) {
         self.reader = reader
         self.enableAccessibility = enableAccessibility
+        self.caretAccess = caretAccess ?? CaretNeighbourhoodResolver.access(behind: reader)
     }
 
     public func read(target: TurnContextTarget, deadline: Date, cancellation: AXReadCancellation) -> TurnContextContents? {
         let started = Date()
         enableAccessibility?(target.pid)
+        // H21 — outward from the caret first (focused element → its siblings → its parent's
+        // siblings …), within part of the budget; then the window walk with what is left.
+        var near: CaretNeighbourhood?
+        if let caretAccess, Date() < deadline, !cancellation.isCancelled {
+            let share = max(0, deadline.timeIntervalSince(started)) * nearBudgetShare
+            near = CaretOutwardWalker.read(access: caretAccess, pid: target.pid,
+                                           deadline: min(deadline, started.addingTimeInterval(share)),
+                                           cancellation: cancellation, maxNodes: nearMaxNodes)
+        }
         let visible = AXReadOptions(limits: .turnSnapshot(deadline: deadline, maxNodes: maxNodes, maxCharacters: maxCharacters),
                                     cancellation: cancellation)
         let content: WindowContent
@@ -207,7 +256,7 @@ public final class AXTurnContextReader: TurnContextReading {
         var bound = target
         bound.window = content.window
         return TurnContextContents(target: bound, content: content, documentTail: tail, startedAt: started,
-                                   readMs: Int(Date().timeIntervalSince(started) * 1000))
+                                   readMs: Int(Date().timeIntervalSince(started) * 1000), nearCaret: near)
     }
 }
 
@@ -237,7 +286,13 @@ public final class TurnContextSnapshot: @unchecked Sendable {
         public var nodes: Int
         public var interrupted: Bool
         public var timedOutWaiting: Bool
+        /// H21 — nodes of the outward-from-caret read (included in `nodes`) and per-source term counts.
+        public var nearNodes: Int = 0
+        public var candidateCounts: [String: Int] = [:]
     }
+
+    /// H21 — where the per-turn read facts go for the turn row (`.shared` in the app).
+    public var diagnostics: TurnContextDiagnostics = .shared
 
     public var budget: TimeInterval = 0.25
     /// A consumer waits at most until `start + budget + landingSlack` for the read to finish.
@@ -283,6 +338,7 @@ public final class TurnContextSnapshot: @unchecked Sendable {
         let gen = generation
         result = nil
         startedAt = now()
+        diagnostics.begin()
         guard let app else {
             target = nil; phase = .skipped("noApp"); cond.broadcast(); cond.unlock(); return false
         }
@@ -317,14 +373,18 @@ public final class TurnContextSnapshot: @unchecked Sendable {
                 self.phase = .ready
                 if let contents {
                     self.target?.window = contents.content.window
-                    self.lastStats = Stats(readMs: contents.readMs, nodes: contents.content.nodesVisited,
-                                           interrupted: contents.interrupted, timedOutWaiting: false)
+                    let stats = Stats(readMs: contents.readMs, nodes: contents.nodesVisited,
+                                      interrupted: contents.interrupted, timedOutWaiting: false,
+                                      nearNodes: contents.nearCaret?.nodesVisited ?? 0,
+                                      candidateCounts: TurnContextContents.counts(contents.candidates()))
+                    self.lastStats = stats
+                    self.diagnostics.record(stats)
                 }
             }
             self.cond.broadcast()
             self.cond.unlock()
             if let contents {
-                Log.app.debug("turn context: \(contents.readMs) ms, \(contents.content.nodesVisited) nodes\(contents.interrupted ? ", cut at deadline" : "")")
+                Log.app.debug("turn context: \(contents.readMs) ms, \(contents.nodesVisited) nodes (\(contents.nearCaret?.nodesVisited ?? 0) near caret)\(contents.interrupted ? ", cut at deadline" : "")")
             }
         }
         thread.name = "voiceplus.turn-context"
@@ -358,6 +418,7 @@ public final class TurnContextSnapshot: @unchecked Sendable {
                 result = nil
                 lastStats = Stats(readMs: Int(now().timeIntervalSince(startedAt) * 1000), nodes: 0,
                                   interrupted: true, timedOutWaiting: true)
+                diagnostics.record(lastStats!)
                 Log.app.notice("turn context: read still running at the deadline; landing without screen context")
                 break
             }

@@ -50,11 +50,20 @@ enum FinalPassTimingRecorder {
     }
 
     /// Records the engine's last final pass against `turn` in `store` (no-op without either).
-    static func record(engine: EngineProtocol, turn: TurnID, store: TurnStore? = TurnStore.current) {
-        guard let store, let timing = timing(of: engine) else { return }
-        if timing.boostStatus != .boosted && timing.boostStatus != .unchanged {
+    /// H21 — also writes the turn's context-read facts (`context`): nodes, interrupted flag,
+    /// per-source candidate counts.
+    static func record(engine: EngineProtocol, turn: TurnID, store: TurnStore? = TurnStore.current,
+                       context: TurnContextDiagnostics? = .shared) {
+        guard let store else { return }
+        let timing = timing(of: engine)
+        let entry = context?.current
+        guard timing != nil || (entry.map { $0.stats != nil || $0.turnCandidateCounts != nil } ?? false) else { return }
+        if let timing, timing.boostStatus != .boosted && timing.boostStatus != .unchanged {
             Log.engine.notice("boost: turn not rescored — \(timing.boostStatus.rawValue), \(timing.boostTermCount) terms")
         }
-        store.setExtras(turn) { apply(timing, to: &$0) }
+        store.setExtras(turn) { extras in
+            if let timing { apply(timing, to: &extras) }
+            if let entry { TurnContextDiagnostics.apply(entry, to: &extras) }
+        }
     }
 }

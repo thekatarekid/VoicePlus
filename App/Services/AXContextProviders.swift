@@ -1,4 +1,5 @@
 import Actions
+import ApplicationServices
 import Engine
 import Foundation
 import Injection
@@ -188,5 +189,56 @@ public enum ContextualReadingRule {
     public static func allows(_ bundleID: String?) -> Bool {
         guard let bundleID, !bundleID.isEmpty else { return true }
         return AppRules.current().resolved(for: bundleID).contextualReading.value
+    }
+}
+
+/// H21 — the outward-from-caret read over real `AXUIElement`s: the focused element of `pid` and its
+/// parents. Own process refused (AXGuard); every call returns nil/empty when an app does not answer.
+public final class LiveCaretNeighbourhoodAccess: CaretNeighbourhoodAccess {
+    public init() {}
+
+    public func focusedElement(pid: Int32) -> AXNodeRef? {
+        guard AXIsProcessTrusted(), let app = AXGuard.application(pid: pid),
+              let v = copy(app, kAXFocusedUIElementAttribute), CFGetTypeID(v) == AXUIElementGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast
+        return ref(v as! AXUIElement)
+    }
+
+    public func parent(of node: AXNodeRef) -> AXNodeRef? {
+        guard let e = element(node), let v = copy(e, kAXParentAttribute), CFGetTypeID(v) == AXUIElementGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast
+        return ref(v as! AXUIElement)
+    }
+
+    public func children(of node: AXNodeRef) -> [AXNodeRef] {
+        guard let e = element(node) else { return [] }
+        return (copy(e, kAXChildrenAttribute) as? [AXUIElement] ?? []).map(ref)
+    }
+
+    public func role(of node: AXNodeRef) -> String {
+        element(node).flatMap { copy($0, kAXRoleAttribute) as? String } ?? "unknown"
+    }
+
+    public func subrole(of node: AXNodeRef) -> String? {
+        element(node).flatMap { copy($0, kAXSubroleAttribute) as? String }
+    }
+
+    public func text(of node: AXNodeRef) -> String? {
+        guard let e = element(node) else { return nil }
+        if let v = copy(e, kAXValueAttribute) as? String, !v.isEmpty { return v }
+        return copy(e, kAXTitleAttribute) as? String
+    }
+
+    private func ref(_ e: AXUIElement) -> AXNodeRef { AXNodeRef(id: String(CFHash(e)), raw: e) }
+
+    private func element(_ node: AXNodeRef) -> AXUIElement? {
+        guard let raw = node.raw, CFGetTypeID(raw) == AXUIElementGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast
+        return (raw as! AXUIElement)
+    }
+
+    private func copy(_ e: AXUIElement, _ attr: String) -> CFTypeRef? {
+        var v: CFTypeRef?
+        return AXUIElementCopyAttributeValue(e, attr as CFString, &v) == .success ? v : nil
     }
 }

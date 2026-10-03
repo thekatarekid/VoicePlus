@@ -122,7 +122,10 @@ public final class TurnSurfaceContext: @unchecked Sendable {
     /// lexicon on a terminal. A secure field gives nothing at all.
     public func candidates(now: Date = Date()) -> [ContextCandidate] {
         let r = current()
-        if let r, r.surface.kind == .secure || r.nearCaret?.isSecure == true { return [] }
+        if let r, r.surface.kind == .secure || r.nearCaret?.isSecure == true {
+            snapshot?.diagnostics.recordTurnCandidates([:])
+            return []
+        }
         var out: [ContextCandidate] = []
         if let near = r?.nearCaret { out += Self.nearCandidates(near, now: now) }
         if let snapshot, case .contents(let contents?) = snapshot.lookup(frontmost: nil) {
@@ -131,6 +134,8 @@ public final class TurnSurfaceContext: @unchecked Sendable {
         if let r, r.surface.kind == .terminal, let shell = r.shell {
             out += ContextCandidates.shell(shell, observedAt: now)
         }
+        // H21 — per-source counts for the turn row.
+        snapshot?.diagnostics.recordTurnCandidates(out.reduce(into: [:]) { $0[$1.source.rawValue, default: 0] += 1 })
         return out
     }
 
