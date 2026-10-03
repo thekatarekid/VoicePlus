@@ -1818,10 +1818,12 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         }?.id
     }
 
-    /// N23 — a capture (not latched) that began after `id`: the pill belongs to it.
+    /// N23 — a capture that began after `id`: the pill belongs to it. H28 — a hands-free (latched)
+    /// session's capture counts too: an older turn's "being typed" row and its Undo offer are never
+    /// drawn over the hands-free row (the notch stays put for the whole session).
     private func newerCaptureOpenLocked(than id: TurnID) -> Bool {
         guard let open = captureID, open != id, let turn = turns[open] else { return false }
-        return turn.stage.isCapturing && !turn.latched
+        return turn.stage.isCapturing
     }
 
     /// N23 — a hold capture is open (the pill shows it; an older turn's ending must not touch it).
@@ -2149,8 +2151,16 @@ public final class TurnWiring {
             return MainActor.assumeIsolated { Self.liveState(of: pill) }
         }
         controller.onRetract = { [weak pill] in
-            guard let pill, Self.isTurnRow(pill.state, captureOpen: pill.turn.captureOpen) else { return }
-            pill.hide()
+            guard let pill else { return }
+            switch Self.retractAction(pill.state, captureOpen: pill.turn.captureOpen, latched: pill.latched) {
+            case .leave: break
+            case .hide: pill.hide()
+            case .returnToLatched:
+                // An outcome-style turn row (Cancelled, Undo) goes back through the delivery path,
+                // which routes to the hands-free row; a live-turn row is replaced by it.
+                if PillViewModel.isOutcomeRow(pill.state) { pill.retractDelivery(immediately: true) }
+                else { pill.present(.latched(elapsed: pill.turn.latchElapsed ?? 0)) }
+            }
         }
         controller.onFinalSpans = { [weak pill] spans, text in pill?.setFinalSpans(spans, text: text) }
         // N2 — the finishing row's buttons come from the turn's own offer, never the pill's clock.
@@ -2316,6 +2326,20 @@ public final class TurnWiring {
             return false
         }
         return true
+    }
+
+    /// What `onRetract` does to the pill. H28 — while a hands-free session is open (latched, capture
+    /// open) a turn row is never ordered out: the pill goes back to the hands-free row (timer
+    /// counting). Once the session has ended (capture closed) a turn row retracts as before.
+    enum RetractAction: Equatable { case leave, hide, returnToLatched }
+
+    static func retractAction(_ state: PillState, captureOpen: Bool, latched: Bool) -> RetractAction {
+        guard isTurnRow(state, captureOpen: captureOpen) else { return .leave }
+        if latched, captureOpen {
+            if case .preview = state { return .leave }   // a lane note on the live row, not a row
+            return .returnToLatched
+        }
+        return .hide
     }
 
     /// The rows a turn puts up itself (and the live capture rows), which `onRetract` may take down.
