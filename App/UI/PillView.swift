@@ -205,6 +205,15 @@ public final class PillViewModel: ObservableObject {
     public var keyLabel: () -> String = { HotkeyBinding.default.label }
     /// The destination's display name at key-down ("Mail"); asked once per turn.
     public var destinationProvider: (() -> String?)?
+    /// H31 / X6 — the destination's identity (icon, name, site favicon, tab title) for the badge; asked
+    /// once per turn alongside `destinationProvider`.
+    public var destinationIdentityProvider: (() -> DestinationIdentity?)?
+    /// H31 — what the badge draws; nil hides it.
+    @Published public private(set) var destinationIdentity: DestinationIdentity?
+    /// H31 — bumped when a row turns `.inserting` (badge sweep + pulse).
+    @Published public private(set) var badgeInsertPulse = 0
+    /// H31 — bumped when the destination changes mid hands-free session (badge bounce + ring).
+    @Published public private(set) var badgeAttention = 0
     /// Menu capture has no held key whose release could finish the turn.
     public var requiresExplicitCaptureFinish: () -> Bool = { false }
 
@@ -846,6 +855,7 @@ public final class PillViewModel: ObservableObject {
         switch next {
         case .hidden:
             turn = PillTurnContext()
+            if !latched { destinationIdentity = nil }   // H31: the badge survives between hands-free pieces
             deixisChips = []
             laneNote = nil
             laneNoteAction = nil
@@ -882,6 +892,7 @@ public final class PillViewModel: ObservableObject {
         case .inserting(let text):
             turn.captureOpen = false
             turn.liveText = text
+            if case .inserting = state {} else { badgeInsertPulse += 1 }   // H31: sweep + pulse once
         case .cancelled:
             turn.captureOpen = false
         default:
@@ -904,8 +915,32 @@ public final class PillViewModel: ObservableObject {
         }
     }
 
+    /// H31 — the hands-free runtime moved the session to another app ("Now inserting in <App>"): the badge
+    /// swaps and bounces once. Same destination (e.g. a favicon arriving late) just redraws.
+    public func destinationChanged(to identity: DestinationIdentity?) {
+        guard let identity else { destinationIdentity = nil; return }
+        if destinationIdentity != nil, !identity.isSameDestination(as: destinationIdentity) { badgeAttention += 1 }
+        destinationIdentity = identity
+    }
+
+    /// X6 — the off-main details (tab title, site favicon) arrived; only applies while the badge still shows
+    /// that app, and never animates.
+    public func destinationDetailsResolved(_ identity: DestinationIdentity) {
+        guard let current = destinationIdentity, current.bundleID == identity.bundleID,
+              current.appName == identity.appName else { return }
+        destinationIdentity = identity
+    }
+
     private func beginTurn(at t: Date) {
         let keepLatch = turn.latchElapsed
+        let previousIdentity = destinationIdentity
+        if let next = destinationIdentityProvider?() {
+            // H31 — a later hands-free piece going somewhere new: the badge bounces.
+            if latched, previousIdentity != nil, !next.isSameDestination(as: previousIdentity) { badgeAttention += 1 }
+            destinationIdentity = next
+        } else if destinationIdentityProvider != nil {
+            destinationIdentity = nil
+        }
         turn = PillTurnContext(destination: destinationProvider?() ?? nil, startedAt: t, now: t)
         turn.latchElapsed = latched ? keepLatch : nil
         // Boxes drawn before the key went down (latch "draw without a key") belong to this turn.
@@ -1073,7 +1108,13 @@ struct PillBody: View {
                     .frame(width: size.width, height: PillLaneLayout.sceneHeight)
                     .allowsHitTesting(false)
             }
-            statusRow.place(lanes.statusRow)
+            statusRow
+                .background(alignment: .leading) {   // H31: the words sweep into the badge as they land
+                    if model.destinationIdentity != nil, DestinationBadgeRule.showsBadge(for: model.state) {
+                        DestinationSweep(trigger: model.badgeInsertPulse)
+                    }
+                }
+                .place(lanes.statusRow)
                 .accessibilitySortPriority(PillReadingOrder.priority(.status))   // S10
             if let transform = PillTransformLane.Model(rows: model.drawnTransformRows, lineCount: lanes.lineCount) {
                 PillTransformLane(model: transform).place(lanes.wordsLane)   // W3H: S12 before / after
@@ -1127,6 +1168,11 @@ struct PillBody: View {
 
     private var statusRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if DestinationBadgeRule.showsBadge(for: model.state), let identity = model.destinationIdentity {
+                DestinationBadge(identity: identity, insertPulse: model.badgeInsertPulse, attention: model.badgeAttention)
+                    .frame(width: DestinationBadgeRule.size, height: PillLaneLayout.statusHeight)
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+            }
             Text(content.status)
                 .font(Tokens.Typography.pillStatus.font())
                 .foregroundStyle(content.tone == .warn ? Color(nsColor: Tokens.Pill.statusAttention) : (content.designKey == "inserted" ? Color(nsColor: Tokens.Pill.statusVerified) : Tokens.Pill.Token.secondaryInk.color))

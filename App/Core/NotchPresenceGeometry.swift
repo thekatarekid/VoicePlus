@@ -160,7 +160,7 @@ public enum PresenceHover {
         return state == .ready ? .hint(readyHint) : .row
     }
 
-    /// The key hint a non-ready row carries ("hold fn / 🌐", "press ⌃⌥D"): the configured key by the
+    /// The key hint a non-ready row carries ("hold Option", "press ⌃⌥D"): the configured key by the
     /// label hints use (`HotkeyBinding.label`, I1), never the older display name ("Right ⌥").
     public static func keyHint(for binding: HotkeyBinding) -> String {
         switch binding.style {

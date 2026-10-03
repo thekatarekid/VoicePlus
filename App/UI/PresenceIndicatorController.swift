@@ -26,9 +26,9 @@ public final class PresenceIndicatorController {
     /// status item from a crowded menu bar, the chin under the notch is the way back into
     /// Settings, permissions and Quit.
     public var onClick: (() -> Void)?
-    /// Where the hotkey hint in a non-ready hover row comes from ("hold fn / 🌐").
+    /// Where the hotkey hint in a non-ready hover row comes from ("hold Option").
     public var hotkeyHint: () -> String = { "" }
-    /// S2 — the I1 hover hint for the configured key: "Hold or Double Tap fn / 🌐 to dictate".
+    /// S2 — the I1 hover hint for the configured key: "Hold or Double Tap Option to dictate".
     public var readyHint: () -> String = { HotkeyBinding.default.readyHint() }
     /// The state before any suppression (pill showing, full screen) — the blockers the status menu
     /// cannot derive on its own (S6's `presenceState`).

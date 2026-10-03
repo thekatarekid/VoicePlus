@@ -10,7 +10,7 @@ struct PresenceIndicatorView: View {
     /// The pointer is on it (the hint for ready, the state's row otherwise).
     let hovered: Bool
     let cornerRadius: CGFloat
-    /// "hold fn / 🌐" — for the non-ready rows.
+    /// "hold Option" — for the non-ready rows.
     let hint: String
     /// Already fitted to the panel width, so the row never needs a tail ellipsis.
     let rowText: String

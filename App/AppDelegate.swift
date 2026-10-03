@@ -725,6 +725,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pillModel = pill.model
         pillModel.keyLabel = { [weak hotkey = self.hotkey] in hotkey?.label ?? HotkeyBinding.default.label }
         if pillModel.destinationProvider == nil { pillModel.destinationProvider = { PillDestination.frontmostName() } }
+        if pillModel.destinationIdentityProvider == nil {
+            // H31 / X6 — key-down gets the app icon + name at once; the browser's tab title and site favicon
+            // (AX walk, favicon store, network) resolve off the main thread and refine the badge.
+            let resolver = DestinationIdentityResolver()
+            pillModel.destinationIdentityProvider = { [weak pillModel] in
+                guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                      let quick = resolver.resolve(pid: pid, axWindow: nil) else { return nil }
+                if quick.isBrowser {
+                    Task.detached(priority: .utility) {
+                        guard let full = resolver.resolve(pid: pid, axWindow: DestinationIdentityResolver.focusedWindow(pid: pid))
+                        else { return }
+                        await MainActor.run { pillModel?.destinationDetailsResolved(full) }
+                        let done = await resolver.resolveFavicon(for: full)
+                        if done.siteFavicon != nil { await MainActor.run { pillModel?.destinationDetailsResolved(done) } }
+                    }
+                }
+                return quick
+            }
+        }
         presence.readyHint = { [weak hotkey = self.hotkey] in (hotkey?.binding ?? .default).readyHint() }
         presence.hotkeyHint = { [weak hotkey = self.hotkey] in
             hotkey.map { PresenceHover.keyHint(for: $0.binding) } ?? HotkeyHint.unknown
