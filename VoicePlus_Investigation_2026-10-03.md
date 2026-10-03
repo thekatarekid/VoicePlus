@@ -664,6 +664,7 @@ Turn **9B8EA8CB** (13:51:08 IST, Claude desktop, surface chatComposer at 1.00). 
   - Needs a live check: tap re-enable, Secure Input, Claude's Option+Space setting.
 
 ## Build status (H-fixes)
+- Release 1.15.1 (supersedes 1.15.0): `Packaging/releases/VoicePlus_H-fixes_1.15.1.dmg`, 778 MB, SHA256 `8a4b1532545a76844e3d38e4eadc1b51565229a464c1bdbcebb7c9f0478d9a69`; same full-installer contents; built from a clean tree at b72c250 (all gate fixes 5c89231/257f12c/0af1e28 included); `FULL_INSTALLER=1 verify_install.sh` OK. Tag `release/H-fixes/v1.15.1`.
 - Release 1.15.0: `Packaging/releases/VoicePlus_H-fixes_1.15.0.dmg`, 779 MB, SHA256 `e7c3b735286720e3f1ee955db9e86de127f35d219fc7f37d4aa5f3d1e147e9fc`; full installer (TDT v3 + EOU + speaker + CTC + Silero VAD + llama.framework; Qwen downloaded in onboarding); `FULL_INSTALLER=1 verify_install.sh` OK. Tag `release/H-fixes/v1.15.0`. The DMG was built from 47f4dd8 plus the then-uncommitted replay `--near` edit (debug only), committed at the gate as 5c89231. Gate fixes after the DMG (257f12c) are not in 1.15.0.
 - **Gate (2026-10-03):** whole-package `swift build` clean; full suite `--no-parallel` (.build-v7a): run 1 — 5236 tests, 8 issues (7 stale test expectations after X1/H33 + 1 real K18 audit hit in DestinationIdentity) → fixed in 257f12c; run 2 — aborted (signal 6, objc "Cannot form weak reference" to a deallocating PillInteractionPanel) → PillPanelController.deinit detaches its SwiftUI hosts first (0af1e28); run 3 — **5236 passed, 0 failed, 351 s**.
 

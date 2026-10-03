@@ -1953,6 +1953,14 @@ Initial checkpoint (superseded by the dated entries below):
 - Not installed to /Applications; running app untouched; appcast/cask/notes reverted. Tag `release/N-fixes/v1.14.0`.
 - Not verified: CTC inference in the bundle self-test (presence only), first-launch CTC compile time, notarization/Gatekeeper on a clean Mac, real dictation with this build.
 
+## 2026-10-03 — H-fixes final installer 1.15.1 (supersedes 1.15.0)
+- `Packaging/releases/VoicePlus_H-fixes_1.15.1.dmg`, 778 MB (816,532,836 bytes), SHA256 `8a4b1532545a76844e3d38e4eadc1b51565229a464c1bdbcebb7c9f0478d9a69`. `FULL_INSTALLER=1 BUNDLE_MODELS_FROM=<1.14.0 DMG Models, read-only mount> Packaging/release.sh H-fixes 1.15.1 --no-github`.
+- Built from a clean tree at b72c250 (includes gate commits 5c89231, 257f12c, 0af1e28), so tag `release/H-fixes/v1.15.1` matches the DMG. **Supersedes 1.15.0** (which predated 257f12c/0af1e28 and carried an uncommitted edit).
+- Bundled: TDT v3 + EOU 160 ms + speaker + N6 CTC + Silero VAD + llama.framework. Qwen LLMs not bundled (onboarding download).
+- `FULL_INSTALLER=1 verify_install.sh` **OK** (TDT/EOU/speaker/Silero inference, CTC present, 1.15.1, 9 TCC strings, self-contained, headless launch of temp copy).
+- Not installed to /Applications; running app untouched; appcast/cask/notes reverted; `.build-v7a` reclaimed.
+- Not verified: CTC inference in self-test (presence only), Gatekeeper/notarization on a clean Mac, real dictation with this build.
+
 ## 2026-10-03 — H-fixes final installer 1.15.0
 - `Packaging/releases/VoicePlus_H-fixes_1.15.0.dmg`, 779 MB (817,691,008 bytes), SHA256 `e7c3b735286720e3f1ee955db9e86de127f35d219fc7f37d4aa5f3d1e147e9fc`. `FULL_INSTALLER=1 BUNDLE_MODELS_FROM=<1.14.0 DMG Models> Packaging/release.sh H-fixes 1.15.0 --no-github`.
 - Bundled: TDT v3 + EOU 160 ms + speaker + N6 CTC (re-hashed from the 1.14.0 DMG) + Silero VAD + llama.framework. Qwen LLMs not bundled (onboarding download).
@@ -1967,4 +1975,4 @@ Initial checkpoint (superseded by the dated entries below):
 - **Full suite:** `--no-parallel`, .build-v7a: 5236 passed, 0 failed, 351 s (after two failing runs fixed above).
 - **Replay:** 135111-082 `--near "…hold-to-talk…"` → "In case of hold-to-talk."; 6 other recent chat recordings 0 swaps, full stop / "?" kept.
 - **New deps:** none.
-- **Open:** live checks (Claude double-tap drop + tap re-enable + Secure Input, per-side Option on external keyboards, Electron background writes / switch-back, hover menu tracking, favicons); Qwen download/RSS/tokens-s and the 60-case Lab set unmeasured (mocked); Bayes gatekeeper routes some long narration as repairCommand (harmless, falls to dictation; could cap at 8 words); 1.15.0 DMG predates 257f12c/0af1e28.
+- **Open:** live checks (Claude double-tap drop + tap re-enable + Secure Input, per-side Option on external keyboards, Electron background writes / switch-back, hover menu tracking, favicons); Qwen download/RSS/tokens-s and the 60-case Lab set unmeasured (mocked); Bayes gatekeeper routes some long narration as repairCommand (harmless, falls to dictation; could cap at 8 words); 1.15.0 DMG predates 257f12c/0af1e28 (superseded by 1.15.1).
