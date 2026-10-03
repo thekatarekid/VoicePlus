@@ -24,6 +24,8 @@ public final class PillPanelController {
     /// not yet contain a pointer which is genuinely on the pill, and treating that as "not hovering"
     /// would resume a dwell the user is deliberately holding open.
     private var targetFrame: NSRect?
+    /// H36 — one placement attempt (and at most one log line) per press.
+    private var placementGate = PillPlacementGate()
     /// A real removal is a delivery-safety event: the turn must retain its text and require an
     /// explicit retarget instead of following a window that macOS moved to another display.
     public var onPinnedDisplayLost: (() -> Void)?
@@ -159,10 +161,14 @@ public final class PillPanelController {
     static func workMetrics() -> ScreenMetrics? {
         let all = NSScreen.screens.map(metrics(for:))
         let main = NSScreen.main.map(metrics(for:))
+        // H36 — no display at all (mid-reconfiguration, display asleep): skip the AX probe; the
+        // screen-parameters notification re-renders once a display is back.
+        guard !all.isEmpty || main != nil else { return nil }
         let rects = PillWorkLocator.workRects()
-        return PillDisplayChooser.choose(caretRect: rects.caret, focusedWindowFrame: rects.window,
-                                         activeScreen: main, mouse: NSEvent.mouseLocation,
-                                         screens: all, main: main)
+        let chosen = PillDisplayChooser.choose(caretRect: rects.caret, focusedWindowFrame: rects.window,
+                                               activeScreen: main, mouse: NSEvent.mouseLocation,
+                                               screens: all, main: main)
+        return PillPlacementGate.resolve(chosen: chosen, screens: all, main: main)
     }
 
     /// V5 Q6 — re-choose the display on every transition *into* `.starting` (a new turn), including
@@ -235,7 +241,9 @@ public final class PillPanelController {
         lastRenderedState = state
         if panel.isKeyWindow, !Self.keepsKeyboardFocus(state) { panel.makeFirstResponder(nil) }
         var displayChanged = false
+        if !state.isVisible { placementGate.reset() }
         if state.isVisible,
+           placementGate.mayAttempt(force: force, previous: previousState, next: state),
            Self.shouldRechooseDisplay(previous: previousState, next: state, wasVisible: wasVisible, hasPin: pinnedMetrics != nil) {
             let chosen = Self.workMetrics()
             displayChanged = wasVisible && pinnedMetrics != nil && chosen != nil && chosen != pinnedMetrics
@@ -251,12 +259,17 @@ public final class PillPanelController {
             // a visible surface (it did, through a `defer` that ran on this very return): one render
             // with no host display left the controller believing the panel was up forever after.
             // `.hidden` is the honest record, and the chin is told so it keeps the user a surface.
-            Log.app.warning("pill: no display to place the pill on — leaving it retracted (wanted \(String(describing: surface)))")
+            // H36 — logged once per press; later renders of the same press wait for a display
+            // (screen-parameters notification → forced render) instead of re-probing every tick.
+            if state.isVisible, placementGate.noteNoDisplay() {
+                Log.app.warning("pill: no display to place the pill on — leaving it retracted (wanted \(String(describing: surface)))")
+            }
             lastSurface = .hidden
             noteSurfaceOnScreen()
             return
         }
         lastSurface = surface
+        placementGate.notePlaced()
         let size = NotchGeometry.size(for: surface, on: metrics)
         let layout = NotchGeometry.pillLayout(for: metrics, size: size == .zero ? NotchGeometry.activeSize : size)
         if surface != .hidden, !wasVisible {
@@ -360,6 +373,36 @@ public final class PillPanelController {
             completion?()
             self?.noteSurfaceOnScreen()
         })
+    }
+}
+
+/// H36 — "pill: no display to place the pill on" was logged ~8× per press: a press whose first
+/// placement found no display left `lastSurface` hidden while the state stayed visible, so every
+/// later render of that press (turn, clock tick, lane note) re-ran the Accessibility probe and logged
+/// again. The gate makes it one placement attempt and at most one log line per press; a forced render
+/// (display arrangement changed) or a new turn (`.starting`) tries again. The chooser's nil is backed
+/// by any present display, so a missing caret/window/mouse rung can never mean "no display".
+struct PillPlacementGate: Equatable {
+    private(set) var failedThisPress = false
+
+    /// Whether this render may (re)run display placement.
+    func mayAttempt(force: Bool, previous: PillState?, next: PillState) -> Bool {
+        guard failedThisPress else { return true }
+        return force || (next == .starting && previous != .starting)
+    }
+
+    /// Records a failed placement; true only for the first failure of the press (log it).
+    mutating func noteNoDisplay() -> Bool {
+        defer { failedThisPress = true }
+        return !failedThisPress
+    }
+
+    mutating func notePlaced() { failedThisPress = false }
+    mutating func reset() { failedThisPress = false }
+
+    /// The chooser's pick, else the main display, else the first display; nil only with no display.
+    static func resolve(chosen: ScreenMetrics?, screens: [ScreenMetrics], main: ScreenMetrics?) -> ScreenMetrics? {
+        chosen ?? main ?? screens.first
     }
 }
 
