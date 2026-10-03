@@ -218,6 +218,8 @@ struct HandsFreeStopTests {
         #expect(!TurnController.textBoxFocused(rev("AXButton")))
         #expect(!TurnController.textBoxFocused(rev("AXList")))
         #expect(TurnController.textBoxFocused(rev(nil)), "unreadable: the injector decides")
+        #expect(TurnController.textBoxFocused(rev("AXGroup")), "unfamiliar web/Electron role: N3 delivers, not Notes")
+        #expect(TurnController.textBoxFocused(rev("AXWebArea")), "unfamiliar web/Electron role: N3 delivers, not Notes")
         #expect(TurnController.textBoxFocused(rev("AXSecureTextField", secure: true)), "refused by the secure rule, not Notes")
     }
 

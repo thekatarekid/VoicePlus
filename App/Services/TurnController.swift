@@ -1495,13 +1495,12 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     }
 
     /// X3-handsfree — is a text box focused? Nothing focused, or a known non-text role (a button,
-    /// a list, the desktop) is "no". An unreadable role is given the benefit of the doubt: the
-    /// injector still refuses where it cannot type.
+    /// a list, the desktop) is "no". An unreadable or unfamiliar role (AXGroup, AXWebArea — web and
+    /// Electron content whose AX tree lies, N3) is given the benefit of the doubt: the injector
+    /// still refuses where it cannot type. Same rule as H26's `DeliveryLadder.fieldPresence`.
     static func textBoxFocused(_ revision: TargetRevision) -> Bool {
         guard revision.focus != nil else { return false }
-        if revision.isSecure { return true }   // refused (and cleared) by the secure rule, not Notes
-        guard let role = revision.role, !role.isEmpty else { return true }
-        return CanvasFocus.textRoles.contains(role)
+        return DeliveryLadder.fieldPresence(role: revision.role, isSecure: revision.isSecure) != .none
     }
 
     /// H26 — the focus now (same app as key-down: the pre-write check passed) when it has no text
