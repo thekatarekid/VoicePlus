@@ -45,6 +45,7 @@ with the prototype's CSS, `design_v1.md` §3/§3.1 and `spool_spec.json` on ever
 | Default key | Right Control | **fn / 🌐** | Every string containing "Right Control" in the copy fixture is rendered with the configured key's label instead; nothing else in the string changes. "Hold or Double Tap Right Control to dictate" → "Hold or Double Tap fn / 🌐 to dictate". |
 | Voice enrollment | optional, in the Voice section | **also a step in onboarding**, skippable | Inserted after "Try dictation", before "Ready" (§11); uses the Voice section's enrollment view and copy. |
 | Deixis box | not in the design | **box + screenshot, thumbnail in the pill** | Drawn in the pill's text lane under the transcript and above the tape lane, never in the character bay, never over Spool; uses the design's chip (tag) styling (§8.5). |
+| Menu: Recent dictations (H32) | "Copy last text" is not a menu item | **last 5 dictations at the top of the menu, click = Copy** | §10: a "Recent" section header and up to 5 rows (any destination: inserted, saved to Notes, cancelled to Notes; a hands-free session is one row; edit commands read "Edit · <command>"); each row is the destination app's icon, one tail-truncated line and a relative time ("2 m"); the full words are the tooltip. Click copies through the verified copy and the row reads "Copied" with a check only when the pasteboard read the words back. Password-field turns are never listed (filtered on the outcome reason). |
 | V4 settings (latch pause, spacing, unknown-caret style, draw-without-key, recordings retention, screen text) | not in the design | required by V4 Wave 1 | Added as ordinary rows in the design's existing subpages with the design's row, toggle and select components; no new subpage (§9.6). |
 
 Everything else follows the design exactly. In particular: hold lands once on release; Escape cancels
@@ -854,6 +855,7 @@ specification but not drawn in the prototype.
 
 | Item | Prototype row (title · helper · control) | States |
 |---|---|---|
+| **Recent** (*owner decision §0.1, H32*) | Section header "Recent" · up to 5 rows: app icon, one truncated line, relative time; tooltip = full words | Click = Copy (verified; "Copied" only on read-back); password-field turns never listed; a hands-free session is one row; hidden when there is nothing to list |
 | Status line | Glyph + "VoicePlus · Ready" · "Microphone is closed." · green `ready` dot | Ready / Muted / the blocked reason; the dot only when ready |
 | Microphone line (*design §8.8*) | — | Current input device and its state |
 | **Start dictation** | "Start dictation" · "Menu capture has an explicit Stop control." · **Start** | Explicit click-to-stop capture ("Stop" while menu capture is open); it cannot imply a held key |
@@ -865,8 +867,9 @@ specification but not drawn in the prototype.
 
 Rules kept from v1: no item is removed to hide a problem — an unavailable action stays visible and
 disabled with the reason in its title. Nothing in the menu opens a standalone window. The menu carries
-no model name, latency or thermal readout. Latch, meeting start and Copy last text are not menu items
-in the verified design; they live in Settings › Shortcuts, Meetings and Today.
+no model name, latency or thermal readout. Latch and meeting start are not menu items
+in the verified design; they live in Settings › Shortcuts and Meetings. Copy is in the menu only as
+the Recent rows (owner decision §0.1, H32); Today keeps its own Copy.
 
 ---
 

@@ -596,6 +596,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AmbientModeWiring.install(settings: container.settings, status: status)
         status.ambientMuted = { [weak container] in container?.latchController.mute.isMuted ?? false }
         status.onToggleMute = { [weak container] in container?.latchController.mute.toggleMute() }
+        // H32 — the last five dictations at the top of the menu; click = verified Copy. Resolved
+        // at open time: `TurnStore.current` is installed with the turn controller.
+        status.recentDictations = { TurnStore.current?.recentDictations(limit: RecentMenu.limit) ?? [] }
+        status.copyRecent = { id in TurnStore.current?.copyRecent(id, limit: RecentMenu.limit) ?? false }
         status.onEnrollVoice = { [weak self, weak container] in
             guard let self, let container else { return }
             self.showSpeakerEnrollment(container: container)

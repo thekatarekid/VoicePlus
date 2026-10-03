@@ -83,8 +83,10 @@ public struct MenuModel: Equatable, Sendable {
 /// menu says*, the controller decides *who is called*, and a test can read the first without an
 /// `NSStatusItem` (there is no XCTest and no UI test on this toolchain — CLAUDE.md).
 ///
-/// Exactly the design's rows. Latch, meeting start and Copy last text are not menu items in the
-/// verified design (they live in Settings › Shortcuts, Meetings and Today — `DESIGN.md` §10).
+/// Exactly the design's rows. Latch and meeting start are not menu items in the verified design
+/// (they live in Settings › Shortcuts and Meetings — `DESIGN.md` §10). H32 (owner decision,
+/// `DESIGN.md` §0.1): the last five dictations are listed under "Recent" and a click copies one —
+/// this replaces the old "no Copy last text in the menu" rule.
 public enum MenuAction: Equatable, Sendable {
     /// Explicit click-to-stop capture, through `SessionCoordinator` as the `.menu` requester. It
     /// cannot imply a held key: only Stop (or Escape, mute, lock) ends it.
@@ -102,6 +104,9 @@ public enum MenuAction: Equatable, Sendable {
     case openNotes
     /// Guarded: open capture asks Stop and quit / Cancel; held drafts are saved first.
     case quit
+    /// H32 — copy one Recent row's words through the verified copy (`TurnStore.copyRecent`,
+    /// `TodayServices.copyVerified`). "Copied" is shown only on read-back.
+    case copyRecent(TurnID)
 }
 
 /// One row of the menu. Rendered to `NSMenuItem` by `StatusItemController`; compared directly by
@@ -120,6 +125,12 @@ public struct MenuEntry: Equatable, Sendable {
     public var showsGlyph: Bool
     /// The green ready dot — the status line only, and only when ready (`DESIGN.md` §10).
     public var showsReadyDot: Bool
+    /// H32 — the hover tooltip (a Recent row's full words). Nil everywhere else.
+    public var toolTip: String?
+    /// H32 — the destination app whose icon leads the row (Recent rows). Nil everywhere else.
+    public var iconBundleID: String?
+    /// H32 — the trailing relative time ("2 m") or "Copied" (Recent rows). Nil everywhere else.
+    public var trailing: String?
 
     public init(id: String, title: String, detail: String? = nil, action: MenuAction? = nil,
                 keyEquivalent: String = "", isEnabled: Bool = true, isOn: Bool = false,
@@ -134,6 +145,9 @@ public struct MenuEntry: Equatable, Sendable {
         self.isSeparator = isSeparator
         self.showsGlyph = showsGlyph
         self.showsReadyDot = showsReadyDot
+        self.toolTip = nil
+        self.iconBundleID = nil
+        self.trailing = nil
     }
 
     public static func separator(_ id: String) -> MenuEntry {
@@ -424,6 +438,9 @@ public struct StatusMenuState: Equatable, Sendable {
     public var meetingRunning: Bool
     /// V5 N1 — notes kept since Notes was last opened. The row is hidden at 0.
     public var notesUnread: Int
+    /// H32 — the Recent rows, newest first, already filtered by `TurnStore.recentDictations`
+    /// (password-field turns never reach here). The spec caps them at `RecentMenu.limit`.
+    public var recent: [RecentMenu.Row] = []
 
     public init(status: MenuStatus = .ready, micName: String = "Default microphone",
                 micStatus: MicQuality.Verdict? = nil, micAvailable: Bool = true, isCapturing: Bool = false,
@@ -472,13 +489,18 @@ public enum StatusMenuSpec {
         public static let openWindow = "menu.openWindow"
         public static let settings = "menu.settings"
         public static let quit = "menu.quit"
+        /// H32 — the "Recent" header; rows are `recentRow(_:)`.
+        public static let recentHeader = "menu.recent"
+        public static func recentRow(_ id: TurnID) -> String { "menu.recent.\(id.rawValue.uuidString)" }
     }
 
     /// `entryPoint` is accepted and ignored: one menu, whichever click opened it (V3 §9.3).
     public static func entries(_ state: StatusMenuState,
                                from entryPoint: MenuEntryPoint = .glyph) -> [MenuEntry] {
         _ = entryPoint
-        var entries: [MenuEntry] = [
+        // H32 — Recent sits at the top of the menu (Follow-up §6), above the status line.
+        var entries: [MenuEntry] = RecentMenu.entries(state.recent)
+        entries += [
             status(state),
             .info(ID.microphone, MenuModel.micLine(name: state.micName, status: state.micStatus,
                                                    available: state.micAvailable)),
@@ -667,5 +689,74 @@ public enum MenuQuit {
         let lead = unsaved.count == 1 ? "1 held dictation hasn’t been saved and will be lost"
             : "\(unsaved.count) held dictations haven’t been saved and will be lost"
         return "\(lead): \(shown)\(more)."
+    }
+}
+
+// MARK: - H32 Recent dictations (Follow-up §6 "Recent dictations", owner decision round 2 New(a))
+
+/// The menu's "Recent" group: up to five rows, newest first, any destination, one truncated line
+/// each with the destination app's icon and a relative time; the full words on hover; click = Copy.
+/// Pure data — the rows come from `TurnStore.recentDictations`, which already drops password-field
+/// turns by the outcome's reason and folds a hands-free session into one row.
+public enum RecentMenu {
+    public static let limit = 5
+    public static let header = "Recent"
+    public static let copied = "Copied"
+    /// Characters kept before the tail ellipsis; the renderer also truncates to the menu width.
+    public static let maxLineCharacters = 48
+
+    public struct Row: Equatable, Sendable, Identifiable {
+        public var id: TurnID
+        /// One line (whitespace folded), or "Edit · <command>".
+        public var line: String
+        /// The full words, on hover.
+        public var tooltip: String
+        /// "now", "2 m", "3 h", "4 d".
+        public var time: String
+        public var appName: String?
+        public var bundleID: String?
+        /// A verified copy of this row just succeeded: the row shows "Copied" with a check.
+        public var copied: Bool
+
+        public init(id: TurnID, line: String, tooltip: String, time: String, appName: String? = nil,
+                    bundleID: String? = nil, copied: Bool = false) {
+            self.id = id
+            self.line = line
+            self.tooltip = tooltip
+            self.time = time
+            self.appName = appName
+            self.bundleID = bundleID
+            self.copied = copied
+        }
+
+        public init(_ dictation: RecentDictation, now: Date = Date(), copied: Bool = false) {
+            self.init(id: dictation.id, line: dictation.line, tooltip: dictation.tooltip,
+                      time: dictation.timeLabel(now: now), appName: dictation.appName,
+                      bundleID: dictation.bundleID, copied: copied)
+        }
+    }
+
+    /// Tail truncation to `max` characters, ending in "…".
+    public static func truncate(_ line: String, to max: Int = maxLineCharacters) -> String {
+        let one = RecentDictation.oneLine(line)
+        guard one.count > max, max > 1 else { return one }
+        return String(one.prefix(max - 1)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// Header + rows + separator, or nothing when there is nothing to list.
+    public static func entries(_ rows: [Row]) -> [MenuEntry] {
+        let shown = rows.prefix(limit)
+        guard !shown.isEmpty else { return [] }
+        var entries: [MenuEntry] = [.info(StatusMenuSpec.ID.recentHeader, header)]
+        for row in shown {
+            var entry = MenuEntry(id: StatusMenuSpec.ID.recentRow(row.id), title: truncate(row.line),
+                                  action: .copyRecent(row.id), isOn: row.copied)
+            entry.toolTip = row.tooltip
+            entry.iconBundleID = row.bundleID
+            entry.trailing = row.copied ? copied : row.time
+            entries.append(entry)
+        }
+        entries.append(.separator("menu.sep.recent"))
+        return entries
     }
 }

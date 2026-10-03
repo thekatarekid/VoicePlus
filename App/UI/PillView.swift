@@ -660,7 +660,7 @@ public final class PillViewModel: ObservableObject {
     /// The rendered pill for the current state at `date`.
     public func content(at date: Date? = nil) -> PillContent {
         var result = PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)
-        if let piece = handsFreePieceFace(over: result, at: date) { return piece }
+        if let piece = latchedPieceFace(over: result, at: date) { return piece }
         if requiresExplicitCaptureFinish(), MenuCapturePillWiring.canFinish(state, captureOpen: turn.captureOpen) {
             result.helper = "Click Finish to stop dictation"
             if !result.buttons.contains(where: { $0.action == .finish }) {
@@ -688,7 +688,7 @@ public final class PillViewModel: ObservableObject {
     /// outcome ("Inserted in Claude") until the piece's dwell returns it to "Hands-free". The state
     /// is still `.landed`, so the ribbon still flies to the caret. Held, error, Notes, partial and
     /// unconfirmed outcomes keep their own rows and are never swallowed.
-    func handsFreePieceFace(over landedRow: PillContent, at date: Date? = nil) -> PillContent? {
+    func latchedPieceFace(over landedRow: PillContent, at date: Date? = nil) -> PillContent? {
         guard latched, turn.captureOpen, !isEditingDraft,
               case .landed(let info) = state, info.clearsOnItsOwn else { return nil }
         var face = PillContent.make(.latched(elapsed: turn.latchElapsed ?? 0), context: context(at: date))

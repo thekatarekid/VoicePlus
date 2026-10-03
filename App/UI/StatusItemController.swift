@@ -76,6 +76,17 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     public var presenceState: (() -> PresenceState)?
     /// Kept for the composition root: Copy last text is a Today action, not a menu row.
     public var lastCommittedText: (() -> String?)?
+    /// H32 — the Recent rows' source (`TurnStore.recentDictations`, wired by `AppDelegate`). Nil →
+    /// no Recent group (headless tests that do not opt in).
+    public var recentDictations: (() -> [RecentDictation])?
+    /// H32 — the verified copy for one row (`TurnStore.copyRecent`): true only on read-back.
+    public var copyRecent: ((TurnID) -> Bool)?
+    /// H32 — told after a Recent copy, with whether the read-back verified it.
+    public var onRecentCopied: ((TurnID, Bool) -> Void)?
+    /// H32 — the row most recently copied (verified) and when; it reads "Copied" for `copiedDwell`.
+    public private(set) var lastCopied: (id: TurnID, at: Date)?
+    public var copiedDwell: TimeInterval = 2
+    public var now: () -> Date = Date.init
     /// Kept for the composition root: meeting start is the Meetings section, not a menu row.
     public var meetingCaptureEnabled: (() -> Bool)?
     public var onToggleMeetingCapture: (() -> Void)?
@@ -193,10 +204,22 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
                                       engine: coordinator.engine.state, holder: session?.activeRequester,
                                       latched: session?.isLatched ?? coordinator.latched,
                                       meetingRunning: meeting, presence: presenceState?())
-        return StatusMenuState(status: MenuStatus.derive(inputs), micName: micName(),
-                               micStatus: coordinator.lastMicQuality?.verdict, micAvailable: capabilities.canCapture,
-                               isCapturing: inputs.dictationCaptureOpen, isMuted: muted, held: heldDrafts(),
-                               meetingRunning: meeting, notesUnread: notesUnread?() ?? 0)
+        var state = StatusMenuState(status: MenuStatus.derive(inputs), micName: micName(),
+                                    micStatus: coordinator.lastMicQuality?.verdict, micAvailable: capabilities.canCapture,
+                                    isCapturing: inputs.dictationCaptureOpen, isMuted: muted, held: heldDrafts(),
+                                    meetingRunning: meeting, notesUnread: notesUnread?() ?? 0)
+        state.recent = recentRows()
+        return state
+    }
+
+    /// H32 — the Recent rows, with the just-copied row marked "Copied" for a moment.
+    private func recentRows() -> [RecentMenu.Row] {
+        guard let recentDictations else { return [] }
+        let at = now()
+        let copiedID = lastCopied.flatMap { at.timeIntervalSince($0.at) < copiedDwell ? $0.id : nil }
+        return recentDictations().prefix(RecentMenu.limit).map {
+            RecentMenu.Row($0, now: at, copied: $0.id == copiedID)
+        }
     }
 
     public func menuEntries(from entryPoint: MenuEntryPoint? = nil) -> [MenuEntry] {
@@ -214,6 +237,13 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     func rebuild() {
         menu.removeAllItems()
         for entry in menuEntries() {
+            if entry.id == StatusMenuSpec.ID.recentHeader {
+                // H32 — the native section header ("Recent"), macOS 14+.
+                let header = NSMenuItem.sectionHeader(title: entry.title)
+                header.identifier = NSUserInterfaceItemIdentifier(entry.id)
+                menu.addItem(header)
+                continue
+            }
             menu.addItem(entry.isSeparator ? .separator() : menuItem(for: entry))
             // I2 — the 7-day zero-edit rate under the microphone line, only once there is a week to count.
             if entry.id == StatusMenuSpec.ID.microphone { addZeroEditItem() }
@@ -274,7 +304,13 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         item.identifier = NSUserInterfaceItemIdentifier(entry.id)
         if entry.showsGlyph { item.image = MenuBarGlyph.image(size: MenuBarGlyph.menuHeadingSize) }
         MenuItemText.apply(title: entry.title, detail: entry.detail, readyDot: entry.showsReadyDot, to: item)
+        if entry.action.map(Self.isRecent) == true { RecentMenuItemStyle.apply(entry, to: item) }
         return item
+    }
+
+    private static func isRecent(_ action: MenuAction) -> Bool {
+        if case .copyRecent = action { return true }
+        return false
     }
 
     @objc private func performEntry(_ sender: NSMenuItem) {
@@ -295,6 +331,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         case .openSettings: onOpenSettings?()
         case .openNotes: (onOpenNotes ?? onOpenWindow ?? onOpenSettings)?()
         case .quit: quitVoicePlus()
+        case .copyRecent(let id): copyRecentRow(id)
         }
         refreshIcon()
         rebuild()
@@ -303,6 +340,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     /// Explicit click-to-stop capture: the `.menu` requester through the session owner, so mic
     /// arbitration and mute are honoured. There is no key to release; only Stop (or Escape, mute,
     /// lock) ends it, and a hotkey release cannot stop a session the menu holds.
+    /// H32 — Copy through the verified path; "Copied" only when the pasteboard read back the words.
+    private func copyRecentRow(_ id: TurnID) {
+        let verified = copyRecent?(id) ?? false
+        lastCopied = verified ? (id, now()) : nil
+        Log.app.notice("menu: recent copy \(verified ? "verified" : "not verified")")
+        onRecentCopied?(id, verified)
+    }
+
     private func startDictation() {
         if let session { session.start(.menu, mode: .hold) } else { coordinator.start() }
     }
@@ -410,5 +455,42 @@ enum MenuItemText {
             ]))
         }
         return out
+    }
+}
+
+/// H32 — how a Recent row is drawn: the destination app's 16 pt icon, the one-line words (already
+/// tail-truncated by `RecentMenu`), the relative time (or "Copied") right-aligned in secondary
+/// text, and the full words as the tooltip.
+enum RecentMenuItemStyle {
+    static let iconSize = NSSize(width: 16, height: 16)
+    /// Where the trailing time sits; the menu is at least this wide (H33 sets `minimumWidth`).
+    static let trailingTab: CGFloat = 300
+
+    static func apply(_ entry: MenuEntry, to item: NSMenuItem) {
+        item.toolTip = entry.toolTip
+        item.image = icon(for: entry.iconBundleID)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: trailingTab)]
+        paragraph.lineBreakMode = .byTruncatingTail
+        let out = NSMutableAttributedString(string: entry.title, attributes: [
+            .font: NSFont.menuFont(ofSize: 0), .paragraphStyle: paragraph,
+        ])
+        if let trailing = entry.trailing {
+            out.append(NSAttributedString(string: "\t\(trailing)", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular),
+                .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph,
+            ]))
+        }
+        item.attributedTitle = out
+        let time = entry.trailing.map { ", \($0)" } ?? ""
+        item.setAccessibilityLabel("Copy: \(entry.toolTip ?? entry.title)\(time)")
+    }
+
+    static func icon(for bundleID: String?) -> NSImage? {
+        guard let bundleID,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        image.size = iconSize
+        return image
     }
 }
