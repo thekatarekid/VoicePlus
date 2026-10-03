@@ -44,7 +44,8 @@ import Shared
     @Test func coldStartPriorsDifferByCategory() {
         let chat = StyleProfile.coldStart(appBundleID: "x", category: .chat)
         let mail = StyleProfile.coldStart(appBundleID: "x", category: .mail)
-        #expect(chat.terminalPeriodRate < 0.3 && mail.terminalPeriodRate > 0.7)
+        // H22: chat starts neutral on the full stop (kept unless the user removes it).
+        #expect(chat.terminalPeriodRate == StyleProfile.neutralPeriodRate && mail.terminalPeriodRate > 0.7)
         #expect(chat.capitalizationRate < mail.capitalizationRate)
         #expect(!chat.isConfident)
     }
@@ -128,7 +129,7 @@ import Shared
     @Test func convergenceChatUserWritesFormally() throws {
         let learner = StyleLearner(store: InMemoryStyleProfileStore())
         var p = try learner.profile(for: Self.slack)
-        #expect(p.terminalPeriodRate < 0.3)
+        #expect(p.terminalPeriodRate == StyleProfile.neutralPeriodRate)
         for i in 0..<12 {
             p = try learner.ingest(original: "draft \(i) is ready", edited: "Draft \(i) is ready.", bundleID: Self.slack)
         }
@@ -165,10 +166,10 @@ import Shared
 
     // MARK: Stage — apply
 
-    @Test func chatColdStartDropsPeriodAndLowercases() async throws {
+    @Test func chatColdStartKeepsPeriodAndLowercases() async throws {
         let p = StyleProfile.coldStart(appBundleID: Self.slack, category: .chat)
         let out = try await Self.run("Sounds good.", profile: p, register: .chat)
-        #expect(out.joinedText == "sounds good")
+        #expect(out.joinedText == "sounds good.") // H22
         #expect(out.allSatisfy { $0.provenance.last == .style })
     }
 
@@ -183,7 +184,7 @@ import Shared
         var p = try learner.profile(for: Self.mail)
         for i in 0..<12 { p = try learner.ingest(original: "x", edited: "note \(i) for you", bundleID: Self.mail) }
         let out = try await Self.run("Sending the deck over.", profile: p, register: .email)
-        #expect(out.joinedText == "sending the deck over")
+        #expect(out.joinedText == "sending the deck over.") // H22: style never drops the full stop
     }
 
     @Test func questionAndExclamationAreUntouched() async throws {
@@ -236,9 +237,9 @@ import Shared
     @Test func resolvesProfileFromStoreThenColdStart() async throws {
         let store = InMemoryStyleProfileStore()
         let stage = StyleStage(store: store)
-        // No stored profile: Slack → chat cold start → period dropped.
+        // No stored profile: Slack → chat cold start → lowercased, period kept (H22).
         var out = try await stage.process(Self.spans("Sounds good."), context: StageContext(register: .chat, appBundleID: Self.slack))
-        #expect(out.joinedText == "sounds good")
+        #expect(out.joinedText == "sounds good.")
         // Stored formal profile for the same app wins.
         var formal = StyleProfile.coldStart(appBundleID: Self.slack, category: .mail)
         formal.sampleCount = 20
@@ -249,7 +250,7 @@ import Shared
 
     @Test func unknownAppFallsBackToRegisterCategory() async throws {
         let out = try await StyleStage().process(Self.spans("Sounds good."), context: StageContext(register: .chat))
-        #expect(out.joinedText == "sounds good")
+        #expect(out.joinedText == "sounds good.")
     }
 
     // MARK: Bet 9 contract
@@ -262,7 +263,7 @@ import Shared
         ctx.extra[StyleStage.profileJSONKey] = try p.encodedJSON()
         let out = try await StyleStage().process(input, context: ctx)
         #expect(out[0].text == "Kothari" && out[0].needsRepair)
-        #expect(out.last?.text == "here")
+        #expect(out.last?.text == "here.")
         #expect(ConfidenceContract.verify(input: input, output: out).isEmpty)
     }
 
@@ -318,7 +319,7 @@ import Shared
         for i in 0..<10 { try learner.ingest(original: "Note \(i) here.", edited: "note \(i) here", bundleID: Self.mail) }
         let out = try await StyleStage(store: store).process(Self.spans("Deck is attached."),
                                                              context: StageContext(register: .email, appBundleID: Self.mail))
-        #expect(out.joinedText == "deck is attached")
+        #expect(out.joinedText == "deck is attached.") // H22: learned "no period" never strips one
     }
 
     @Test func registeredInStageRegistry() {

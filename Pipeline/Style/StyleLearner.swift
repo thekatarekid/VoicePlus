@@ -29,18 +29,22 @@ public struct StyleLearner: Sendable {
         let normalizedOriginal = original.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedEdited = edited.trimmingCharacters(in: .whitespacesAndNewlines)
         let weight = normalizedOriginal == normalizedEdited ? acceptedWeight : editedWeight
-        Self.update(&profile, with: obs, weight: weight)
+        // H22 — a missing full stop the pipeline produced is not the user's style: only learn
+        // "no period" when the user removed one we wrote. Learning "period" always counts.
+        let learnsPeriod = obs.hasTerminalPeriod || Self.observe(normalizedOriginal).hasTerminalPeriod
+        Self.update(&profile, with: obs, weight: weight, learnsPeriod: learnsPeriod)
         try store.save(profile)
         return profile
     }
 
     /// Pure running-mean update (windowed: effective weight capped at `maxEffectiveSamples`).
-    public static func update(_ p: inout StyleProfile, with obs: StyleObservation, weight: Double) {
+    public static func update(_ p: inout StyleProfile, with obs: StyleObservation, weight: Double,
+                              learnsPeriod: Bool = true) {
         let n = min(p.sampleCount, StyleProfile.maxEffectiveSamples)
         let total = n + weight
         func mean(_ old: Double, _ new: Double) -> Double { (old * n + new * weight) / total }
         p.capitalizationRate = mean(p.capitalizationRate, obs.capitalizedSentenceRate)
-        p.terminalPeriodRate = mean(p.terminalPeriodRate, obs.hasTerminalPeriod ? 1 : 0)
+        if learnsPeriod { p.terminalPeriodRate = mean(p.terminalPeriodRate, obs.hasTerminalPeriod ? 1 : 0) }
         p.punctuationDensity = mean(p.punctuationDensity, obs.punctuationDensity)
         p.emojiRate = mean(p.emojiRate, obs.hasEmoji ? 1 : 0)
         p.greetingRate = mean(p.greetingRate, obs.greeting == nil ? 0 : 1)

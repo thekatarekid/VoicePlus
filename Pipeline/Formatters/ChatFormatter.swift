@@ -4,7 +4,8 @@ import Shared
 /// P1.7 T3 — casual-register formatter (Slack, iMessage, Discord…). Deterministic.
 ///
 /// Passes, in order: spoken punctuation → filler removal → self-correction resolution
-/// → emoji words → slash commands → light terminal punctuation → optional lowercase-first.
+/// → emoji words → slash commands → optional lowercase-first. (H22: the final full stop is kept;
+/// light terminal punctuation runs only when `lightenTerminalKey` is set.)
 ///
 /// Confidence contract (Bet 9): spans with `confidence < 0.5` are never rewritten or merged;
 /// they are flagged `needsRepair` and act as hard boundaries for every pass. Removed words
@@ -14,7 +15,11 @@ public struct ChatFormatter: PipelineStage {
 
     /// `StageContext.extra` key; "true" lowercases the first letter of the utterance.
     public static let lowercaseFirstKey = "chat.lowercaseFirst"
-    /// Single-sentence utterances at or below this many words lose their terminal period.
+    /// `StageContext.extra` key; "true" re-enables `lightenTerminalPunctuation` for one run (Lab only).
+    /// H22 — off by default: chat composers keep the dictated full stop in both hold-to-talk and
+    /// hands-free (owner decision, round 3).
+    public static let lightenTerminalKey = "chat.lightenTerminal"
+    /// Single-sentence utterances at or below this many words lose their terminal period (opt-in only).
     public static let shortSentenceWordLimit = 20
 
     public init() {}
@@ -26,7 +31,9 @@ public struct ChatFormatter: PipelineStage {
         cells = Self.resolveSelfCorrections(cells)
         cells = Self.resolveEmojiWords(cells)
         cells = Self.resolveSlashCommands(cells)
-        cells = Self.lightenTerminalPunctuation(cells)
+        if context.extra[Self.lightenTerminalKey] == "true" {
+            cells = Self.lightenTerminalPunctuation(cells)
+        }
         if context.extra[Self.lowercaseFirstKey] == "true" {
             cells = Self.lowercaseFirst(cells)
         }

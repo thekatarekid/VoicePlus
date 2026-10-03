@@ -38,7 +38,8 @@ import Shared
             lastCap = p.capitalizationRate; lastPeriod = p.terminalPeriodRate
         }
         let p = try #require(try styles.profile(for: Self.slack))
-        #expect(p.capitalizationRate < 0.05 && p.terminalPeriodRate < 0.05, "converged: \(p.capitalizationRate) / \(p.terminalPeriodRate)")
+        // H22: the "?" message (no period either side) teaches nothing about periods; neutral prior.
+        #expect(p.capitalizationRate < 0.05 && p.terminalPeriodRate < 0.1, "converged: \(p.capitalizationRate) / \(p.terminalPeriodRate)")
         #expect(p.dictationCount == Self.syntheticChat.count * 4)
         #expect(loop.learnedCount(for: Self.slack) == 24)
         // The auto-draft followed the learnings.

@@ -79,7 +79,7 @@ private func context(kind: SurfaceKind?, selection: [String: String] = [:], bund
         var ctx = context(kind: .prose)
         ctx.extra[StyleStage.profileJSONKey] = try p.encodedJSON()
         let out = try await StyleStage().process(spans(["Sounds", "good."]), context: ctx)
-        #expect(out.renderedText == "sounds good")
+        #expect(out.renderedText == "sounds good.") // H22: a learned rate never strips the full stop
     }
 
     @Test func exactPresetSkipsCleanupWithReasonPreset() async throws {

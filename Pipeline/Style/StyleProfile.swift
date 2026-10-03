@@ -5,7 +5,11 @@ import Shared
 /// weighted running mean; `sampleCount` is the total weight seen. Cold-start profiles carry a
 /// prior pseudo-count so a few real observations dominate quickly (see `StyleLearner`).
 public struct StyleProfile: Codable, Equatable, Sendable {
-    public static let schemaVersion = 1
+    /// 2 (H22): rows saved at version 1 had their terminal-period rate learned partly from text
+    /// ChatFormatter had stripped; decoding resets a low rate to neutral (`resetPeriodRate`).
+    public static let schemaVersion = 2
+    /// H22 — the neutral rate a reset (and the chat cold-start prior) uses: neither adds nor drops.
+    public static let neutralPeriodRate = 0.5
 
     public var version: Int = StyleProfile.schemaVersion
     public var appBundleID: String
@@ -52,7 +56,8 @@ public struct StyleProfile: Codable, Equatable, Sendable {
             p.greetingRate = 0.6; p.signOffRate = 0.6; p.avgSentenceLength = 16
             p.preferredGreeting = "Hi"; p.preferredSignOff = "Thanks"
         case .chat:
-            p.capitalizationRate = 0.25; p.terminalPeriodRate = 0.1; p.punctuationDensity = 0.06
+            // H22 — neutral period prior: the full stop is kept in chat unless the user removes it.
+            p.capitalizationRate = 0.25; p.terminalPeriodRate = neutralPeriodRate; p.punctuationDensity = 0.06
             p.emojiRate = 0.2; p.avgSentenceLength = 8
         case .code, .terminal:
             // Verbatim registers: the style stage must not touch capitalization/punctuation.
@@ -84,7 +89,7 @@ extension StyleProfile {
     /// Tolerates profiles persisted before `dictationCount` existed.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? StyleProfile.schemaVersion
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         appBundleID = try c.decode(String.self, forKey: .appBundleID)
         category = try c.decode(AppCategory.self, forKey: .category)
         sampleCount = try c.decode(Double.self, forKey: .sampleCount)
@@ -99,6 +104,11 @@ extension StyleProfile {
         preferredSignOff = try c.decodeIfPresent(String.self, forKey: .preferredSignOff)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         dictationCount = try c.decodeIfPresent(Int.self, forKey: .dictationCount) ?? 0
+        if version < 2 {
+            // H22 — reset the learned "no periods" for affected apps (one-time, on first read).
+            terminalPeriodRate = max(terminalPeriodRate, StyleProfile.neutralPeriodRate)
+            version = StyleProfile.schemaVersion
+        }
     }
 }
 

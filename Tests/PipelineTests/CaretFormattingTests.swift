@@ -341,7 +341,8 @@ import Shared
         var spoken = Self.heard("see you then.")
         spoken[2].punctuationOrigin = .spoken
         #expect(try await StyleStage().process(spoken, context: ctx).renderedText.hasSuffix("then."))
-        #expect(try await StyleStage().process(Self.heard("see you then."), context: ctx).renderedText.hasSuffix("then"))
+        // H22: a learned no-period rate no longer strips a written period either.
+        #expect(try await StyleStage().process(Self.heard("see you then."), context: ctx).renderedText.hasSuffix("then."))
     }
 
     @Test("D2: the field role path turns StyleStage off at an unknown caret")

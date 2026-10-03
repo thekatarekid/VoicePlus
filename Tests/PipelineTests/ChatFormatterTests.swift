@@ -35,10 +35,10 @@ import Shared
         Golden("so, um, I think we should ship", "so I think we should ship"),
         Golden("it's, you know, fine", "it's fine"),
         Golden("erm hmm ok", "ok"),
-        Golden("see you there uh.", "see you there"),
+        Golden("see you there uh.", "see you there."),
         // Light punctuation
-        Golden("sounds good.", "sounds good"),
-        Golden("on my way.", "on my way"),
+        Golden("sounds good.", "sounds good."),
+        Golden("on my way.", "on my way."),
         Golden("are you coming?", "are you coming?"),
         Golden("let's go!", "let's go!"),
         Golden("running late. be there in ten.", "running late. be there in ten."),
@@ -60,7 +60,7 @@ import Shared
         Golden("call me tomorrow scratch that call me tonight", "call me tonight"),
         Golden("no I can't make it", "no I can't make it"),
         Golden("no worries", "no worries"),
-        Golden("it's Friday, no, Thursday.", "it's Thursday"),
+        Golden("it's Friday, no, Thursday.", "it's Thursday."),
         // Emoji words
         Golden("thumbs up emoji", "👍"),
         Golden("great work thumbs up emoji", "great work 👍"),
@@ -82,12 +82,12 @@ import Shared
         Golden("coffee and slash or tea", "coffee and/or tea"),
         Golden("use the slash", "use the slash"),
         // Lowercase-first (opt-in)
-        Golden("Sounds good.", "sounds good", lowercaseFirst: true),
+        Golden("Sounds good.", "sounds good.", lowercaseFirst: true),
         Golden("I'll be there", "I'll be there", lowercaseFirst: true),
         Golden("OK cool", "OK cool", lowercaseFirst: true),
-        Golden("Sounds good.", "Sounds good"),
+        Golden("Sounds good.", "Sounds good."),
         // Combined
-        Golden("um yeah Friday no Thursday works thumbs up emoji.", "yeah Thursday works 👍"),
+        Golden("um yeah Friday no Thursday works thumbs up emoji.", "yeah Thursday works 👍."),
         Golden("slash remind me um tomorrow question mark", "/remind me tomorrow?"),
     ]
 
@@ -112,7 +112,7 @@ import Shared
         #expect(ConfidenceContract.verify(input: input, output: output) == [])
         let kothari = try #require(output.first { $0.audioRange == input[3].audioRange })
         #expect(kothari.text == "Kothari" && kothari.needsRepair && kothari.confidence == 0.29)
-        #expect(ChatFormatter.render(output) == "yeah I'll ping Kothari after standup lol")
+        #expect(ChatFormatter.render(output) == "yeah I'll ping Kothari after standup lol.")
     }
 
     @Test func lowConfidenceBoundaryBlocksCorrectionAndEmoji() async throws {

@@ -24,11 +24,12 @@ public struct StyleStage: PipelineStage {
         var cells = spans.map { $0.isLowConfidence ? $0.flaggedForRepair(by: id) : $0.touched(by: id) }
         guard context.extra[Self.enabledKey] != "false", Self.caretAllowsStyle(context), !cells.isEmpty else { return cells }
         // N25 — the surface preset can pin either edit; `.learned` keeps the profile's rate.
-        let profile = SurfacePresets.applying(SurfacePresets.active(in: context), to: try resolveProfile(context: context))
+        let preset = SurfacePresets.active(in: context)
+        let profile = SurfacePresets.applying(preset, to: try resolveProfile(context: context))
         guard profile.category != .code, profile.category != .terminal,
               context.register != .code, context.register != .terminal else { return cells }
         Self.applyCapitalization(&cells, profile: profile, by: id)
-        Self.applyTerminalPeriod(&cells, profile: profile, by: id)
+        Self.applyTerminalPeriod(&cells, profile: profile, userPinnedNoPeriod: preset?.trailingPeriod == .never, by: id)
         return cells
     }
 
@@ -77,10 +78,15 @@ public struct StyleStage: PipelineStage {
         return true
     }
 
-    static func applyTerminalPeriod(_ cells: inout [TranscriptSpan], profile: StyleProfile, by id: StageID) {
+    /// H22 — a learned or cold-start rate never removes a full stop: those rates were partly
+    /// learned from text ChatFormatter had already stripped. Only an explicit user choice (the
+    /// surface preset "no trailing period") drops it. A high rate may still add one.
+    static func applyTerminalPeriod(_ cells: inout [TranscriptSpan], profile: StyleProfile,
+                                    userPinnedNoPeriod: Bool = false, by id: StageID) {
         guard let i = cells.lastIndex(where: { !$0.text.isEmpty }), !cells[i].isLowConfidence else { return }
         let text = cells[i].text
         if profile.terminalPeriodRate <= decisionThreshold {
+            guard userPinnedNoPeriod else { return }
             // D2 — a period the user dictated ("full stop") is never a style decision.
             guard cells[i].punctuationOrigin != .spoken else { return }
             guard text.hasSuffix("."), !text.hasSuffix(".."), !text.hasSuffix("…") else { return }
