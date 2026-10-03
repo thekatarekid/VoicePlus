@@ -199,7 +199,7 @@ struct StatusMenuControllerTests {
         store.hold(text: "the first thing I said", destination: "Notes", reason: "destination changed")
         store.hold(text: "and the second", destination: "Mail", reason: "destination changed")
         rig.controller.heldItems = { store.items }
-        #expect(rig.row(StatusMenuSpec.ID.held)?.title == "2 held dictations")
+        #expect(rig.row(StatusMenuSpec.ID.held)?.title == "Couldn’t save 2 to Notes")
         rig.controller.run(.reviewHeld)
         #expect(rig.recorder.openedWindow == 1)
         rig.controller.onReviewHeld = { rig.recorder.reviewed += 1 }
@@ -215,7 +215,7 @@ struct StatusMenuControllerTests {
         guardian.hold(InjectionRequest(text: "held by injection"), reason: "destination changed",
                       destination: FocusSnapshot(pid: 1, bundleID: "com.apple.Notes", appName: "Notes"))
         rig.controller.focusGuard = guardian
-        #expect(rig.row(StatusMenuSpec.ID.held)?.title == "1 held dictation")
+        #expect(rig.row(StatusMenuSpec.ID.held)?.title == "Couldn’t save to Notes")
         rig.openAndClose()
         #expect(guardian.held.count == 1)
     }

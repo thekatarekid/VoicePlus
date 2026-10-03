@@ -116,11 +116,11 @@ struct OneMenuTests {
         #expect(held.first?.title.contains("Notes") == true)
         #expect(held.first?.text == "the first thing I said")
         let row = StatusMenuSpec.entry(StatusMenuSpec.ID.held, in: StatusMenuSpec.entries(StatusMenuState(held: held)))
-        #expect(row?.title == "2 held dictations" && row?.action == .reviewHeld)
+        #expect(row?.title == "Couldn’t save 2 to Notes" && row?.action == .reviewHeld)
         #expect(guardian.discard(first.id))
         let after = StatusMenuSpec.entry(StatusMenuSpec.ID.held,
                                          in: StatusMenuSpec.entries(StatusMenuState(held: HeldMenuRouter.held(in: guardian))))
-        #expect(after?.title == "1 held dictation")
+        #expect(after?.title == "Couldn’t save to Notes")
     }
 
     @Test func heldEntriesAlsoBuildFromTheAppSideMirror() {

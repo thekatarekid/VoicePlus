@@ -317,16 +317,18 @@ public enum MenuCopy {
     public static let stop = "Stop"
     public static let mute = "Mute microphone"
     public static let muteDetail = "Close every active capture."
-    public static let heldDetail = "Saved until you resolve it."
+    /// H23 — the held queue is retired: only words Notes could not take stay here (history + Copy).
+    public static let heldDetail = "Kept in Today with Copy."
     public static let openWindow = "Open VoicePlus"
     public static let openWindowDetail = "Today and all settings."
     public static let settings = "Settings…"
     public static let quit = "Quit VoicePlus"
     public static let quitDetail = "Protect active capture and unsaved text."
 
-    /// "1 held dictation", "3 held dictations".
+    /// H23 — "Couldn’t save to Notes", "Couldn’t save 3 to Notes" (section 2 vocabulary; no
+    /// "held", no Needs you).
     public static func held(count: Int) -> String {
-        count == 1 ? "1 held dictation" : "\(count) held dictations"
+        count == 1 ? "Couldn’t save to Notes" : "Couldn’t save \(count) to Notes"
     }
 
     /// The pill's words for the in-between states (`design_copy.json` › `pill`).
@@ -597,7 +599,8 @@ public enum StatusMenuSpec {
                   keyEquivalent: "m", isOn: state.isMuted)
     }
 
-    /// Hidden entirely when nothing is held; counted in the title when something is.
+    /// Hidden entirely when nothing is held; counted in the title when something is. H23: every
+    /// former hold goes to Notes, so this row appears only when a Notes save failed.
     static func held(_ state: StatusMenuState) -> MenuEntry? {
         guard HeldMenu.isVisible(count: state.held.count) else { return nil }
         return MenuEntry(id: ID.held, title: MenuCopy.held(count: state.held.count), detail: MenuCopy.heldDetail,

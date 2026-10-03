@@ -150,11 +150,9 @@ public final class PresenceIndicatorController {
                                                                object: nil, queue: .main) { [weak self] _ in
             self?.refresh()
         })
-        // N22 — the held queue (`DeliveryPillDriver`) says how many texts are waiting.
-        observers.append(NotificationCenter.default.addObserver(forName: .voicePlusHeldWaitingChanged,
-                                                               object: nil, queue: .main) { [weak self] note in
-            self?.setHeldWaiting(note.userInfo?["count"] as? Int ?? 0)
-        })
+        // H23 — the held queue is retired (every former hold goes to Notes; a failed Notes save
+        // keeps Copy on the pill, in Today and in the menu), so the resting chin no longer turns
+        // into the orange Needs you badge: `.voicePlusHeldWaitingChanged` is not observed.
         startHoverPolling()
         refresh(force: true)
     }

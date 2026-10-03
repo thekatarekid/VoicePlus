@@ -341,7 +341,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ── S12 · selected-text transform recovery (design §6 R1/R2, §8.8) ─────────────────────
         // An edit whose target changed before the replacement, or an undo whose range changed, is
-        // never written: the text goes to the held row (Insert here · Copy · Discard) and the menu.
+        // never written. H23: the held queue is retired — `DeliveryPillDriver` routes this `.held`
+        // landing through `HeldNotesRoute` (Notes with the intended app + reason; "Saved to Notes ·
+        // <why>" on the pill; a password field keeps nothing). Only a failed Notes save keeps the
+        // legacy row with Copy (and the menu's "Couldn’t save to Notes" row).
         container.transform.onRecovery = { [weak self] recovery in
             Task { @MainActor in
                 self?.deliveryPill?.handle(.held(reason: recovery.heldReason), text: recovery.text,
@@ -664,9 +667,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                meetingActive: meetingRunning,
                                agentRunning: { [weak container] in container?.actRouter.agent.isRunning ?? false })
         if let latchRuntime { NotesWiring.wireLatch(latchRuntime, meetingActive: meetingRunning) }
-        // R2.4 — "Recover text" carries the same three actions as the held pill row, off the same
-        // queue, and Quit warns while anything is still held (V3 §6). Both are invisible until
-        // something is actually held.
+        // R2.4/H23 — the held queue only carries words Notes could not take (failed save): the menu
+        // row "Couldn’t save to Notes" opens Today (Copy), and Quit saves them to history first.
+        // Both are invisible until a Notes save actually fails.
         status.heldItems = { [weak delivery] in delivery?.held.items ?? [] }
         status.onHeldAction = { [weak delivery] item, action in delivery?.perform(action, on: item.id) }
         delivery.onHeldChanged = { [weak status] _ in MainActor.assumeIsolated { status?.rebuild() } }

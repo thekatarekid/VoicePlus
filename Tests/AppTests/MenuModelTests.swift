@@ -101,11 +101,11 @@ struct MenuModelTests {
         ] + tail),
         Case(name: "ready, one held dictation", state: state(.ready, held: 1), rows: [
             status("VoicePlus · Ready", "Microphone is closed."), mic, start, mute(),
-            Row(ID.held, "1 held dictation", "Saved until you resolve it.", .reviewHeld),
+            Row(ID.held, "Couldn’t save to Notes", "Kept in Today with Copy.", .reviewHeld),
         ] + tail),
         Case(name: "ready, three held dictations", state: state(.ready, held: 3), rows: [
             status("VoicePlus · Ready", "Microphone is closed."), mic, start, mute(),
-            Row(ID.held, "3 held dictations", "Saved until you resolve it.", .reviewHeld),
+            Row(ID.held, "Couldn’t save 3 to Notes", "Kept in Today with Copy.", .reviewHeld),
         ] + tail),
         Case(name: "starting", state: state(.starting, capturing: true), rows: [
             status("VoicePlus · Starting microphone…", "Recording starts when the microphone is open"), mic, stop, mute(),
@@ -130,7 +130,7 @@ struct MenuModelTests {
         Case(name: "muted, held text", state: state(.muted, muted: true, held: 2), rows: [
             status("VoicePlus · Muted", "The microphone stays closed until you unmute."), mic,
             startDisabled("VoicePlus is muted"), mute(on: true),
-            Row(ID.held, "2 held dictations", "Saved until you resolve it.", .reviewHeld),
+            Row(ID.held, "Couldn’t save 2 to Notes", "Kept in Today with Copy.", .reviewHeld),
         ] + tail),
         Case(name: "paused", state: state(.paused), rows: [
             status("VoicePlus · Paused", "Microphone is closed."), mic, start, mute(),
