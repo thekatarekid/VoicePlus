@@ -15,6 +15,11 @@ public final class DeliveryPillDriver {
     public var onHeldChanged: (([HeldItem]) -> Void)?
     /// Logged for the record; never drawn (V3 §6: no raw errors on the surface).
     public var log: (String) -> Void = { Log.app.info("\($0)") }
+    /// H23 — a `.held` landing's Notes route (text, destination, reason → outcome; nil keeps the
+    /// legacy held row). Live: `HeldNotesRoute.shared`, armed by `NotesWiring.install`.
+    public var notesRoute: (String, String, String) -> TurnOutcome? = {
+        HeldNotesRoute.shared.route(text: $0, destination: $1, reason: $2)
+    }
 
     public init(pill: PillViewModel, held: HeldTextStore = HeldTextStore()) {
         self.pill = pill
@@ -40,6 +45,15 @@ public final class DeliveryPillDriver {
         log("delivery: \(outcome) → pill (\(text.count) chars, destination \(destination.isEmpty ? "unknown" : destination))")
         guard case .held(let reason) = outcome else {
             return pill.present(delivery: outcome, text: text, destination: destination)
+        }
+        // H23 — the held queue is retired: a hold that is not in `FocusGuard`'s list (saved to Notes
+        // there, or never reached it) shows where the words went; no held row, no Needs you. A
+        // failed Notes save keeps the legacy row so the words stay one click from Copy.
+        if heldID == nil, let routed = notesRoute(text, destination, reason), !routed.offersCopy {
+            log("held → \(routed.pillLine)")
+            let note = PillState.preview(text: routed.pillLine)
+            pill.present(note)
+            return note
         }
         let item = held.hold(text: text, destination: destination, reason: reason, id: heldID ?? UUID())
         if let tookFocus, !tookFocus.isEmpty { log("held: \(tookFocus) took focus") }

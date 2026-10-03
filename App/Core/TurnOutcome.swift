@@ -1,4 +1,5 @@
 import Foundation
+import Injection
 import Shared
 
 // H25 — one outcome type for every turn (investigation 2026-10-03 §2 "Outcome messages", final fix
@@ -321,6 +322,8 @@ public extension NoteReason {
         }
         if raw == TurnOutcome.secureReason || raw == "password field" { return nil }
         if let exact = NoteReason(rawValue: raw) { return exact }
+        // N2 / Q6 — Cancel or Escape after words ("kept, not typed"): "Cancelled · Saved to Notes".
+        if raw == DeliveryReason.keptByUser { return .cancelled }
         if raw.contains("never-inject") { return .neverInject }
         if raw.contains("window was closed") || raw.contains("window closed") || raw.contains("window gone") {
             return .windowClosed

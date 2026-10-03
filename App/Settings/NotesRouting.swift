@@ -178,19 +178,21 @@ public enum NotesWiring {
         self.router = router
         self.feed = feed
         // H23 — the held queue is retired: every former hold (and Escape after words) goes to Notes.
-        routeFormerHolds(turns: TurnStore.current, focusGuard: TurnWiring.current?.controller.focusGuard)
+        routeFormerHolds(turns: TurnStore.current, focusGuard: TurnWiring.current?.controller.focusGuard,
+                         heldRoute: .shared)
     }
 
     /// H23 — installs the Notes sink on the turn store (a `.held` / cancelled-with-words turn) and on
     /// the injector's `FocusGuard` (every `hold`), then clears rows an earlier version left held
     /// (H27: settled, not re-noted — they duplicate text that already landed). A password field is never saved. A failed save keeps the words in history with Copy.
     nonisolated public static func routeFormerHolds(
-        turns: TurnStore?, focusGuard: FocusGuard?,
+        turns: TurnStore?, focusGuard: FocusGuard?, heldRoute: HeldNotesRoute? = nil,
         save: @escaping (String, String?, NoteReason) -> Result<String, NotesFunnelError> = {
             NotesFunnel.save(text: $0, intendedApp: $1, reason: $2)
         }
     ) {
         turns?.notesSink = save
+        heldRoute?.install(save: save)
         focusGuard?.notesSink = { [weak turns] item in
             // Defence in depth: FocusGuard already drops secure items before the sink.
             guard let reason = NoteReason.forHeld(reason: item.reason) else { return true }
@@ -198,7 +200,11 @@ public enum NotesWiring {
             let result = save(item.text, app, reason)
             let outcome = NotesFunnel.outcome(of: result, intendedApp: app, reason: reason)
             if let id = item.turnID { turns?.setExtras(id, save: false) { outcome.write(into: &$0) } }
-            if case .success = result { return true }
+            if case .success = result {
+                // The delivery pill shows this outcome, not a held row (no second save).
+                heldRoute?.noted(item.text, outcome)
+                return true
+            }
             return false
         }
         turns?.settleStaleHeldRows()
@@ -316,5 +322,50 @@ public enum NotesFunnel {
                                                   : .savedToNotes(intendedApp: intendedApp, reason: reason)
         case .failure: return .notesSaveFailed(intendedApp: intendedApp)
         }
+    }
+}
+
+/// H23 verify — what the delivery pill does with a `.held` landing now that the held queue is
+/// retired. A hold `FocusGuard` already saved to Notes shows its outcome ("Saved to Notes · <why>")
+/// instead of a held row; a hold that never reached `FocusGuard` (a selected-text edit's recovery)
+/// is saved here; a password field keeps nothing. `nil` (no route installed: tests, headless) keeps
+/// the legacy held row; a failed save returns `.notesSaveFailed` so the caller keeps the words with
+/// Copy.
+public final class HeldNotesRoute: @unchecked Sendable {
+    public static let shared = HeldNotesRoute()
+    private let lock = NSLock()
+    private var save: ((String, String?, NoteReason) -> Result<String, NotesFunnelError>)?
+    /// Texts `FocusGuard` saved to Notes, newest last, until the pill consumes them.
+    private var recent: [(text: String, outcome: TurnOutcome)] = []
+    private let recentLimit = 20
+
+    public init() {}
+
+    public func install(save: @escaping (String, String?, NoteReason) -> Result<String, NotesFunnelError>) {
+        lock.withLock { self.save = save }
+    }
+
+    /// `FocusGuard`'s sink stored `text` in Notes with `outcome`.
+    public func noted(_ text: String, _ outcome: TurnOutcome) {
+        lock.withLock {
+            recent.append((text, outcome))
+            if recent.count > recentLimit { recent.removeFirst(recent.count - recentLimit) }
+        }
+    }
+
+    /// The outcome of a `.held(reason)` landing of `text` meant for `destination`.
+    public func route(text: String, destination: String, reason: String) -> TurnOutcome? {
+        if FocusGuard.isSecureReason(reason) { return .refusedSecure }
+        let (already, save) = lock.withLock { () -> (TurnOutcome?, ((String, String?, NoteReason) -> Result<String, NotesFunnelError>)?) in
+            if let index = recent.lastIndex(where: { $0.text == text }) {
+                return (recent.remove(at: index).outcome, self.save)
+            }
+            return (nil, self.save)
+        }
+        if let already { return already }
+        guard let save else { return nil }
+        guard let noteReason = NoteReason.forHeld(reason: reason) else { return .refusedSecure }
+        let app = TurnOutcome.clean(destination)
+        return NotesFunnel.outcome(of: save(text, app, noteReason), intendedApp: app, reason: noteReason)
     }
 }
