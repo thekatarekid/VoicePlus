@@ -2000,3 +2000,10 @@ Initial checkpoint (superseded by the dated entries below):
 - **Gate:** `swift build` clean; full suite `--no-parallel`, .build-v9a: **5306 passed, 0 failed, 362 s** (first run green; no gate fix needed).
 - **Replay (debug `--replay`):** 2026-10-04-002148-805 (turn 20F4BBB5, the hold "r?") → "Is the dictation working properly?"; 002203-762 → same, 0 swaps. FA1356F3 (hands-free) kept only a 0.29 s tail WAV (002244-225, `invalidAudioData`), so its audio cannot be replayed; its turn record/sidecar text is the full "Is the dictation working properly? What about now?". The defect was injection, not recognition.
 - **Live check needed:** Claude/Chromium AXButton/AXGroup settable flags (probe had no Accessibility); a full hands-free session on 1.15.3 (notch stays, ribbon per landing, 2 s pause + sentence-end landing, double-tap exit inserts the rest); open/close animation on tap/double-tap; very short pieces (e.g. "Finish dictation.", 1.3 s, scored 0.15) may still go to Notes; hands-free pieces' recordings are only a short tail (replay gap).
+
+## 2026-10-04 — H-fixes installer 1.15.3 (supersedes 1.15.2)
+- `Packaging/releases/VoicePlus_H-fixes_1.15.3.dmg`, 780 MB (817,898,226 bytes), SHA256 `0e26adf4e6deac53a4a1708c04613ec5c2248cb2bb51ecea8550f469af874d14`. `FULL_INSTALLER=1 BUNDLE_MODELS_FROM=<1.15.2 DMG Models, read-only mount> Packaging/release.sh H-fixes 1.15.3 --no-github`.
+- Built from a clean tree at 55a35a2 (r? be7e683/a5651a7, hands-free 5d248bd/6befaaa/2f05a4b/2ec1184/3b5b584, notch b27ce3e/9197591), tag `release/H-fixes/v1.15.3`.
+- `FULL_INSTALLER=1 verify_install.sh` **OK** (model inference, 1.15.3, self-contained, headless launch of temp copy; running pid 1708 left alone).
+- Not installed to /Applications; running app untouched; appcast/cask/notes reverted; `.build-v6a/.build-v9*` reclaimed.
+- Not verified: real dictation with this build (hands-free session in Claude, tap/double-tap notch animation), Gatekeeper/notarization on a clean Mac.
