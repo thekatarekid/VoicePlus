@@ -89,6 +89,9 @@ public final class PresenceIndicatorController {
     private var loggedFrame: CGRect?
     /// Tallest menu bar ever seen per display — see `PresenceInteraction.menuBarPresent`.
     private var menuBarSeen: [String: CGFloat] = [:]
+    /// Fix notch (RC4) — rest → listening / processing waits until the pill has had its chance to
+    /// answer the press (`PresenceRevealGate`); re-checked by the 5 Hz poll.
+    private var revealGate = PresenceRevealGate()
 
     public init() {
         panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -219,6 +222,26 @@ public final class PresenceIndicatorController {
                 self.noteTurnEnded(stage)
             }
         }
+    }
+
+    /// Fix notch (RC4) — the frame the pill opens out of and closes back into on `metrics`' display:
+    /// the chin's frame now when it is on screen, else the frame it takes once the pill is gone (its
+    /// state with the pill's suppression removed). Nil when there is no chin on that display (switched
+    /// off, a quiet state in full screen, another display): the pill uses its centred line.
+    public func handoffFrame(on metrics: ScreenMetrics) -> CGRect? {
+        guard started, let host = Self.hostMetrics(), Self.sameDisplay(host, metrics) else { return nil }
+        if panel.isVisible, state.isVisible { return animatingTo ?? panel.frame }
+        var probe = inputs
+        probe.pillVisible = false
+        let next = PresenceStateReducer.reduce(probe, microphone: microphoneOwnership?() ?? .closed)
+        guard next.isVisible else { return nil }
+        let needsYou = PresenceFace.of(next, heldWaiting: heldWaiting) == .needsYou
+        return PresenceGeometry.layout(for: host, state: needsYou ? .paused : next).frame
+    }
+
+    static func sameDisplay(_ a: ScreenMetrics, _ b: ScreenMetrics) -> Bool {
+        if let x = a.displayID, let y = b.displayID { return x == y }
+        return a.frame == b.frame
     }
 
     /// The inputs as last set; tests read the chin's state from these without ordering a panel in.
@@ -417,8 +440,11 @@ public final class PresenceIndicatorController {
         let microphone = microphoneOwnership?() ?? .closed
         logOwnershipChange(microphone)
 
-        let next = PresenceStateReducer.reduce(inputs, microphone: microphone)
+        let reduced = PresenceStateReducer.reduce(inputs, microphone: microphone)
         substance = PresenceStateReducer.substance(inputs, microphone: microphone)
+        // Fix notch (RC4) — a key press's microphone does not widen the resting chin before the pill
+        // shows (taps and double-taps never did show it; a hold shows it after 300 ms).
+        let next = revealGate.admit(reduced, shown: state, now: Date()).state
 
         // S2 (design §4): the hint is only ever a hover — pointer entry expands it, pointer exit
         // collapses it, nothing expands unprompted, and keyboard focus never opens it.

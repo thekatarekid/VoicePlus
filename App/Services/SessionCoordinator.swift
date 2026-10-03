@@ -133,6 +133,9 @@ public final class SessionCoordinator {
     public var onRefusal: ((Requester, Refusal) -> Void)?
     /// A session ended, with the reason.
     public var onStopped: ((Requester, StopReason) -> Void)?
+    /// Fix notch (RC5) — hands-free (latch) ended, by whichever path (the stop tap, Escape, Finish
+    /// dictation, mute, lock, a failed capture). The app resets the hotkey's latched gesture here.
+    public var onLatchEnded: (() -> Void)?
 
     private let lock = NSLock()
     private var holder: Requester?
@@ -169,6 +172,7 @@ public final class SessionCoordinator {
             guard let self else { return }
             self.lock.withLock { self.requestedMode = latched ? .latched : (self.holder == nil ? .idle : .hold) }
             if latched { self.latch?.enterLatch(feed: self.dictation.latchAudio) } else { self.latch?.leaveLatch() }
+            if !latched { self.onLatchEnded?() }
         }
         dictation.onLatchAudioChanged = { [weak self] in
             guard let self else { return }

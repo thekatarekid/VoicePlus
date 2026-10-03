@@ -290,6 +290,13 @@ final class TapeFlightController {
                 }
             }
         case .landed(let info):
+            // Fix notch (RC2) — a write that was never drawn as `.inserting` (a hands-free piece:
+            // the turn controller keeps its "being typed" row off the hands-free row) still has
+            // its armed pre-insertion sample: the landing is the insertion, so the ribbon flies now.
+            // Without this every hands-free landing fell to `stop()` below and no ribbon ever flew.
+            if Self.landingStartsFlight(phase: phase, insertedLength: insertedLength) {
+                stateChanged(.inserting(text: info.text))
+            }
             guard info.verified else {
                 // Q5 — not verified (unconfirmed, or unreadable): the ribbon still plays. Only geometry
                 // already trusted as a verified landing is withdrawn by a contradicting verdict.
@@ -311,13 +318,25 @@ final class TapeFlightController {
                 else { requestLines(generation) }
             default: stop()
             }
-        case .undoAvailable, .hidden, .ready:
-            // The tail of a verified landing: its Undo row, the pill retracting. The ribbon finishes and
-            // the cue fades on their own time; before a verified landing these are interruptions.
+        case .undoAvailable, .hidden, .ready, .latched:
+            // The tail of a verified landing: its Undo row, the pill retracting (or, during hands-free,
+            // returning to the hands-free row). The ribbon finishes and the cue fades on their own
+            // time; before a verified landing these are interruptions.
             if landedAcknowledged, isFollowingThisWrite { return }
             stop()
         default:
             stop()
+        }
+    }
+
+    /// Fix notch (RC2) — a landing arriving straight after the final preview (no `.inserting` in
+    /// between) starts the insertion's flight: the preview armed the pre-insertion sample, so the
+    /// caret the text went in at is known. Any other phase already handled (or refused) the write.
+    static func landingStartsFlight(phase: Phase, insertedLength: Int) -> Bool {
+        switch phase {
+        case .armed: return true
+        case .suppressed(.reduceMotion): return insertedLength == 0
+        default: return false
         }
     }
 

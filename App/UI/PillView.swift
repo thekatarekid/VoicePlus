@@ -322,7 +322,10 @@ public final class PillViewModel: ObservableObject {
     /// is a transient notice that fades on its own.
     public func present(_ state: PillState) {
         switch state {
-        case .preview(let text) where turn.captureOpen:
+        case .preview(let text) where turn.captureOpen || latched:
+            // Fix notch — during hands-free the session's microphone is open even while a piece's
+            // preview / write / outcome row is up (`turn.captureOpen` is per piece): a line is a
+            // lane note on that row, never a notice row of its own.
             laneNote = text
             laneNoteAction = nil
         case .preview:
@@ -697,12 +700,26 @@ public final class PillViewModel: ObservableObject {
     /// outcome ("Inserted in Claude") until the piece's dwell returns it to "Hands-free". The state
     /// is still `.landed`, so the ribbon still flies to the caret. Held, error, Notes, partial and
     /// unconfirmed outcomes keep their own rows and are never swallowed.
-    func latchedPieceFace(over landedRow: PillContent, at date: Date? = nil) -> PillContent? {
-        guard latched, turn.captureOpen, !isEditingDraft,
-              case .landed(let info) = state, info.clearsOnItsOwn else { return nil }
+    ///
+    /// Fix notch — keyed on the session (`latched`), never on `turn.captureOpen`: a piece's own
+    /// preview / write clears `captureOpen` (it is per piece), which made this face never apply, so
+    /// every landing drew its own row and then retracted the pill. The piece's automatic preview and
+    /// its write are drawn the same way (its words on the hands-free row, "Inserting in <App>…"), so
+    /// the row, its size and its Finish dictation button never change under the pointer between
+    /// pieces. A manual or paused preview keeps its own row (it waits for the user).
+    func latchedPieceFace(over row: PillContent, at date: Date? = nil) -> PillContent? {
+        guard latched, !isEditingDraft else { return nil }
+        let showsPieceWords: Bool
+        switch state {
+        case .landed(let info) where info.clearsOnItsOwn: showsPieceWords = false
+        case .finalPreview(let info) where !info.manual && !info.paused: showsPieceWords = true
+        case .inserting: showsPieceWords = true
+        default: return nil
+        }
         var face = PillContent.make(.latched(elapsed: turn.latchElapsed ?? 0), context: context(at: date))
-        face.status = landedRow.status
-        face.tone = landedRow.tone
+        face.status = row.status
+        face.tone = row.tone
+        if showsPieceWords { face.words = row.words }
         return face
     }
 
@@ -785,7 +802,9 @@ public final class PillViewModel: ObservableObject {
             reducer.hide()
             ghost = nil
             morph = nil
-            if latched, turn.captureOpen {
+            if latched {
+                // Fix notch — the session, not `turn.captureOpen` (cleared by the piece's own
+                // preview), decides: the hands-free notch never retracts between pieces.
                 // The landed segment's words go with its row; words of the next segment that
                 // arrived during the dwell stay on the latched row.
                 if turn.liveText == actionText { turn.liveText = "" }
@@ -827,6 +846,16 @@ public final class PillViewModel: ObservableObject {
         // Unmute (`dismissNotice`): the cancellation the mute itself triggers, a late notice or a stray
         // engine tick never replaces it.
         if case .muted = state, next.isVisible, next != .muted { return }
+        // Fix notch (owner spec) — while a hands-free session is live the notch never closes: any
+        // retraction (a piece's dwell, a quiet turn end, a stray engine `.idle`) returns to the
+        // hands-free row instead. The session's end (`latched = false`) is the only way out.
+        if latched, next == .hidden {
+            reducer.hide()
+            ghost = nil
+            morph = nil
+            if case .latched = state { return }
+            return route(.latched(elapsed: turn.latchElapsed ?? 0))
+        }
         let reduced: Bool
         if case .landed(let info) = next, info.clearsOnItsOwn { reduced = deliveryReduceMotion() }
         else { reduced = false }

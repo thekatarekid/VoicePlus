@@ -251,6 +251,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // R3 / S9 — a refused start (a key press while hard-muted, a menu start while another
         // dictation holds the microphone) shows its catalogue row (K05 / K04 / K02), never nothing.
         SessionRefusalWiring.attach(sessionCoordinator, pill: pill.model)
+        // Fix notch (RC5) — hands-free ended by anything but the hotkey (Escape, Finish dictation, a
+        // timeout, mute, lock): the gesture machine must leave `.latched` too, or the next double-tap
+        // is read as a hands-free stop plus a folded press and shows nothing.
+        sessionCoordinator.onLatchEnded = { [weak self] in
+            if Thread.isMainThread { self?.hotkey.endLatchedGesture() }
+            else { DispatchQueue.main.async { self?.hotkey.endLatchedGesture() } }
+        }
         self.latchRuntime = latch
         self.session = sessionCoordinator
 
@@ -746,6 +753,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                       turnEnded: coordinator.turnEnded, mute: container.latchController.mute,
                       pillSurface: pill.surfaceReport)
         presence.start()
+        // Fix notch (RC4) — the pill opens out of the chin's frame and closes back into it.
+        pill.chinFrame = { [weak self] metrics in self?.presence.handoffFrame(on: metrics) }
 
         // ── S2 · the Spool pill and the presence chin (design §4–§6, §10) ─────────────────────────
         // Hints name the configured key (read on every render, so a Settings change applies at once);

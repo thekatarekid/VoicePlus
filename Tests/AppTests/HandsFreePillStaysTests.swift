@@ -57,8 +57,11 @@ struct HandsFreePillStaysTests {
         #expect(W.retractAction(.latched(elapsed: 3), captureOpen: true, latched: true) == .leave)
         #expect(W.retractAction(.preview(text: "note"), captureOpen: true, latched: true) == .leave)
         #expect(W.retractAction(.error(message: "Couldn’t save to Notes"), captureOpen: true, latched: true) == .leave)
-        // Session over (capture closed) or a hold turn: turn rows retract as before.
-        #expect(W.retractAction(.finishing(elapsedWarning: false), captureOpen: false, latched: true) == .hide)
+        // Fix notch — still latched with the pill's per-piece capture flag cleared (a piece's own
+        // preview clears it): the session is live, so back to the hands-free row, never hidden.
+        #expect(W.retractAction(.finishing(elapsedWarning: false), captureOpen: false, latched: true) == .returnToLatched)
+        // Session over (`latched` false — `endLatch` precedes the end) or a hold turn: retract as before.
+        #expect(W.retractAction(.finishing(elapsedWarning: false), captureOpen: false, latched: false) == .hide)
         #expect(W.retractAction(.cancelled, captureOpen: false, latched: false) == .hide)
         #expect(W.retractAction(.listening(level: 0), captureOpen: true, latched: false) == .hide)
     }

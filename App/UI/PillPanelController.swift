@@ -30,6 +30,16 @@ public final class PillPanelController {
     /// A real removal is a delivery-safety event: the turn must retain its text and require an
     /// explicit retarget instead of following a window that macOS moved to another display.
     public var onPinnedDisplayLost: (() -> Void)?
+    /// Fix notch (RC4) — the presence chin's frame on a display (`PresenceIndicatorController.handoffFrame`):
+    /// the pill opens out of it and closes back into it, so the chin and the pill read as one notch
+    /// growing and shrinking, never a chin, a gap and a pill. Nil (no chin there): the centred line.
+    public var chinFrame: ((ScreenMetrics) -> CGRect?)?
+    /// Fix notch (RC3/RC4) — a retraction is animating; a show that arrives before it finishes
+    /// grows the pill back from where it is (no snap to the line, no second order-in).
+    private var retracting = false
+    /// The retraction reached the chin; the pill is ordered out on the next main-queue turn.
+    private var retractArrived = false
+    private var retractGeneration = 0
 
     /// BUG B — is the pill's panel *genuinely* ordered in right now?
     ///
@@ -50,6 +60,9 @@ public final class PillPanelController {
     /// frame > 1 pt. The frame is the one the panel is animating to, so a pill rolling up already
     /// counts as gone.
     private func noteSurfaceOnScreen() {
+        // Fix notch (RC4) — a pill that has shrunk into the chin is gone, even for the one main-queue
+        // turn before it is ordered out (the chin is ordered in first, at the same frame).
+        if retracting, retractArrived { onScreen.send(.offScreen); return }
         let report = PillSurfaceReport.evaluate(orderedIn: panel.isVisible,
                                                 occlusionVisible: panel.occlusionState.contains(.visible),
                                                 frame: targetFrame ?? panel.frame, chosenScreen: pinnedMetrics,
@@ -95,6 +108,8 @@ public final class PillPanelController {
                 // animated a window that was never ordered front again — the pill went missing for
                 // the rest of the process while the chin stayed suppressed by it.
                 self.lastSurface = .hidden
+                self.retracting = false
+                self.retractArrived = false
                 self.noteSurfaceOnScreen()
                 return
             }
@@ -339,7 +354,8 @@ public final class PillPanelController {
         lastSurface = surface
         placementGate.notePlaced()
         let size = NotchGeometry.size(for: surface, on: metrics)
-        let layout = NotchGeometry.pillLayout(for: metrics, size: size == .zero ? NotchGeometry.activeSize : size)
+        let layout = NotchHandoff.layout(NotchGeometry.pillLayout(for: metrics, size: size == .zero ? NotchGeometry.activeSize : size),
+                                         chin: chinFrame?(metrics))
         if surface != .hidden, !wasVisible {
             Log.app.info("""
                 pill placement: screen=\(NSStringFromRect(metrics.frame)) topBand=\(metrics.topBand) \
@@ -357,19 +373,52 @@ public final class PillPanelController {
         syncPointerTracking(acceptsMouse: Self.acceptsMouse(state, content: content))
         switch (wasVisible, surface != .hidden) {
         case (false, true):
+            if NotchHandoff.resumesRetraction(retracting: retracting, panelOrderedIn: panel.isVisible) {
+                // Fix notch (RC3) — shown again while still rolling up: grow back from where it is.
+                // Snapping the visible panel to the line and ordering it in again was the
+                // "closes, then opens again" jank of a hide and a show inside one animation.
+                retracting = false
+                retractArrived = false
+                retractGeneration &+= 1
+                Log.app.info("pill: shown again mid-retraction — growing back (\(state.designStateKey))")
+                animate(to: layout.shown)
+                break
+            }
+            retracting = false
+            retractArrived = false
             orderInPill(layout: layout, acceptsMouse: Self.acceptsMouse(state, content: content))
             PillDiagnostics.record(.orderFront(window: "pill", reason: state.designStateKey)) // K19
             animate(to: layout.shown)
         case (true, false):
+            retracting = true
+            retractArrived = false
+            retractGeneration &+= 1
+            let generation = retractGeneration
+            // Fix notch (RC4) — the pill shrinks into the chin's frame and stays reported on screen
+            // until it gets there (`targetFrame` is the chin, > 1 pt), so the chin does not come back
+            // under a pill that is still collapsing. At the end the chin is told first (its own
+            // main-queue hop orders it in at this same frame), then the pill goes on the next turn:
+            // the notch is never empty for a frame between the two windows.
             animate(to: layout.retracted) { [weak self] in
-                guard let self, !self.model.state.isVisible else { return }
-                self.panel.orderOut(nil)
-                self.shadowPanel.orderOut(nil)
-                PillDiagnostics.record(.orderOut(window: "pill", reason: "retracted")) // K19
-                self.pinnedMetrics = nil
-                self.noteSurfaceOnScreen()
+                guard let self, self.retracting, self.retractGeneration == generation,
+                      !self.model.state.isVisible else { return }
+                self.retractArrived = true
+                self.onScreen.send(.offScreen)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.retracting, self.retractGeneration == generation,
+                          !self.model.state.isVisible else { return }
+                    self.retracting = false
+                    self.retractArrived = false
+                    self.panel.orderOut(nil)
+                    self.shadowPanel.orderOut(nil)
+                    PillDiagnostics.record(.orderOut(window: "pill", reason: "retracted")) // K19
+                    self.pinnedMetrics = nil
+                    self.noteSurfaceOnScreen()
+                }
             }
         case (true, true):
+            retracting = false
+            retractArrived = false
             if displayChanged {
                 // A new turn on another display: start from that display's retracted edge rather
                 // than sliding across the desktop from the previous one.

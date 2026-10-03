@@ -703,6 +703,16 @@ public final class HotkeyService {
         updateReleasePoll()
     }
 
+    /// Fix notch (RC5) — hands-free ended without the hotkey (Escape, Finish, a timeout): a machine
+    /// still waiting in `.latched` for the stop tap goes back to idle, so the next press starts a
+    /// dictation (and a double-tap starts hands-free) instead of being taken as the stop. A machine
+    /// that already left `.latched` (the stop tap itself, a key that is down) is left alone.
+    public func endLatchedGesture() {
+        guard machine.phase == .latched else { return }
+        Log.app.notice("hotkey: hands-free ended elsewhere — gesture reset from latched")
+        resetGesture()
+    }
+
     /// K02 — reads the real modifier state while the machine holds a bare-modifier key down. When
     /// `releasePollStrikes` reads in a row find the key up, its key-up was lost (a secure-input switch,
     /// an event-tap timeout): the machine ends the press as that key-up would (`lostKeyUp`, a hold

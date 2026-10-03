@@ -368,7 +368,15 @@ public final class TurnController: LandingGate, @unchecked Sendable {
                 return false
             }
             if turns.values.contains(where: { $0.origin == .hold && $0.stage == .finishing }) { return false }
-            guard let id = captureID, let turn = turns[id] else { return !holdingPresentation }
+            guard let id = captureID, let turn = turns[id] else {
+                // Fix notch (RC3) — no capture turn: a live-capture state is a late one from a press
+                // that already ended (a tap's capture opens ~440 ms after key-down, long after its
+                // cancel). Admitted, it opened the pill around the tap hint and reopened a notch a
+                // tap had just dismissed.
+                if PresenceStateReducer.describesLiveCapture(state) { return false }
+                if case .warning = state { return false }
+                return !holdingPresentation
+            }
             if turn.presentDeferred, turn.stage.isCapturing { return false }
             switch turn.stage {
             case .starting, .listening:
@@ -2307,6 +2315,12 @@ public final class TurnWiring {
         controller.handsFreeTally = { [weak session] in session?.latch?.sessionTally }
         controller.onHandsFreeEnded = { [weak pill] outcome in
             let text = outcome.pillLine
+            // Fix notch (RC6, owner spec) — the session's end inserts what is left and the notch goes;
+            // the summary never reopens a notch that already closed (it was a close, reopen, close).
+            guard let shown = pill, shown.state.isVisible, !shown.latched else {
+                Log.app.info("hands-free summary not shown (notch already closed): \(text)")
+                return
+            }
             pill?.present(.preview(text: text))
             DispatchQueue.main.asyncAfter(deadline: .now() + TurnController.handsFreeSummaryDwell) { [weak pill] in
                 guard let pill, pill.state == .preview(text: text) else { return }
@@ -2447,7 +2461,9 @@ public final class TurnWiring {
             controller.pauseDwell(.review)
         case (.undo, .undoAvailable) where controller.isUndoAvailable:
             controller.performUndo()
-        case (.finish, .latched):
+        case (.finish, _):
+            // Fix notch (RC7) — Finish dictation is on the hands-free row and on a piece drawn over
+            // it (preview, write, outcome); it finishes the session whatever piece is showing.
             guard let finishLatch else { return false }
             finishLatch()
         default:
@@ -2462,8 +2478,10 @@ public final class TurnWiring {
     enum RetractAction: Equatable { case leave, hide, returnToLatched }
 
     static func retractAction(_ state: PillState, captureOpen: Bool, latched: Bool) -> RetractAction {
-        guard isTurnRow(state, captureOpen: captureOpen) else { return .leave }
-        if latched, captureOpen {
+        // Fix notch (RC1) — the session (`latched`) decides, not the pill's per-piece `captureOpen`
+        // (a piece's own preview clears it): the hands-free row is never ordered out mid-session.
+        guard isTurnRow(state, captureOpen: captureOpen || latched) else { return .leave }
+        if latched {
             if case .preview = state { return .leave }   // a lane note on the live row, not a row
             return .returnToLatched
         }
