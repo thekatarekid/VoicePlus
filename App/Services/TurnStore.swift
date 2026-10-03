@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Injection
 import Shared
 
 // S11 — the turn record store (build doc S3 + S11 store, design_v1 §12).
@@ -182,6 +183,12 @@ public final class TurnStore: @unchecked Sendable {
     /// Extras set before the turn's first save; applied by that save.
     private var pendingExtras: [TurnID: TurnRecordExtras] = [:]
     private var tableReady = false
+    /// H23 — saves a former hold's (or a cancelled turn's) words to Notes: text, intended app,
+    /// reason. Installed by `NotesWiring.install` (`NotesFunnel.save`); `nil` (tests that do not
+    /// opt in, headless) keeps the legacy `.held` stage.
+    public var notesSink: ((_ text: String, _ intendedApp: String?, _ reason: NoteReason) -> Result<String, NotesFunnelError>)?
+    /// Turns whose words were already handed to Notes by this store (one save per turn).
+    private var notedTurns: Set<TurnID> = []
     /// Settled rows kept in the database; unsettled (held) rows are never pruned.
     public var databaseLimit = 500
     /// Settled rows kept in memory for this session.
@@ -251,6 +258,8 @@ public final class TurnStore: @unchecked Sendable {
     /// Writes (inserts or replaces) the row for `record.turnID`.
     @discardableResult
     public func save(_ record: TurnRecord, stage: TurnStage) -> TurnEntry {
+        // H23 — no turn settles as held any more; secure turns keep no words.
+        let (record, stage, notesOutcome) = settleForNotes(record, stage: stage)
         // W3H — with history off only a recoverable row reaches the database.
         let keepsRow = historyEnabled() || stage == .held || record.outcome?.isPartial == true
         let persisting = persistence == .keptUntilResolved && keepsRow
@@ -262,7 +271,8 @@ public final class TurnStore: @unchecked Sendable {
             mayBeStored = previous.map { $0.persisted || $0.isRecoverable } ?? !stage.isLive
             // Claimed only once the database has said so (`written`): until then, and for good
             // when persistence is off, the row is this session's only.
-            let extras = previous?.extras ?? pendingExtras.removeValue(forKey: record.turnID) ?? TurnRecordExtras()
+            var extras = previous?.extras ?? pendingExtras.removeValue(forKey: record.turnID) ?? TurnRecordExtras()
+            notesOutcome?.write(into: &extras)
             let entry = TurnEntry(record: record, stage: stage, updatedAt: now,
                                   persisted: persisting && (previous?.persisted ?? false), extras: extras)
             memory[record.turnID] = entry
@@ -272,6 +282,68 @@ public final class TurnStore: @unchecked Sendable {
         if persisting { write(entry) } else if !keepsRow, mayBeStored { forgetStored(entry.id) }
         onChange?(entry)
         return entry
+    }
+
+    /// H23 — what a save becomes before it is stored:
+    /// - a password-field turn keeps no words (`finalText` / `rawText` cleared), is never held, and
+    ///   records "refused · secure field";
+    /// - a `.held` turn's words go to Notes (with a sink): saved → `.resolved` + "Saved to Notes ·
+    ///   <why>"; the save failed → `.failed` + "Couldn't save to Notes" (history keeps the words,
+    ///   Copy); already noted (by `FocusGuard`'s sink) → `.resolved`;
+    /// - a `.cancelled` turn with recognised words → Notes, "Cancelled · Saved to Notes" (Q6).
+    func settleForNotes(_ record: TurnRecord, stage: TurnStage) -> (TurnRecord, TurnStage, TurnOutcome?) {
+        var record = record
+        let id = record.turnID
+        let extras = lock.withLock { memory[id]?.extras ?? pendingExtras[id] }
+        let secure = record.outcome?.reason.map(FocusGuard.isSecureReason) == true
+            || extras?.outcomeReason == TurnOutcome.secureReason
+        if secure {
+            record.finalText = ""
+            record.rawText = ""
+            record.uncertainSpans = []
+            let alreadyRecorded = extras?.outcomeKind == TurnOutcome.Kind.refusedSecure.rawValue
+            return (record, stage == .held ? .failed : stage, stage.isLive || alreadyRecorded ? nil : .refusedSecure)
+        }
+        guard stage == .held || stage == .cancelled else { return (record, stage, nil) }
+        let noted: Set<String> = [TurnOutcome.Kind.savedToNotes.rawValue, TurnOutcome.Kind.cancelledToNotes.rawValue]
+        if let kind = extras?.outcomeKind, noted.contains(kind) {
+            return (record, stage == .held ? .resolved : stage, nil)
+        }
+        if extras?.outcomeKind == TurnOutcome.Kind.notesSaveFailed.rawValue {
+            return (record, stage == .held ? .failed : stage, nil)
+        }
+        let words = record.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let notesSink, !words.isEmpty else { return (record, stage, nil) }
+        let reason: NoteReason
+        if stage == .cancelled { reason = .cancelled } else {
+            guard let held = NoteReason.forHeld(reason: record.outcome?.reason) else { return (record, .failed, nil) }
+            reason = held
+        }
+        guard lock.withLock({ notedTurns.insert(id).inserted }) else {
+            return (record, stage == .held ? .resolved : stage, nil)
+        }
+        let app = TurnOutcome.clean(extras?.intendedApp) ?? TurnOutcome.clean(record.destination.appName)
+        let result = notesSink(record.finalText, app, reason)
+        let outcome = NotesFunnel.outcome(of: result, intendedApp: app, reason: reason)
+        if case .failure = result {
+            lock.withLock { _ = notedTurns.remove(id) }
+            return (record, stage == .held ? .failed : stage, outcome)
+        }
+        return (record, stage == .held ? .resolved : stage, outcome)
+    }
+
+    /// H27 / H23 — rows left `held` by an earlier version: their words go to Notes (when a sink is
+    /// installed) and the row settles, so no orange "Needs you" survives the upgrade. Secure rows
+    /// lose their words. Returns how many rows were settled. Idempotent.
+    @discardableResult
+    public func settleStaleHeldRows() -> Int {
+        let rows = recoverable(limit: 500).filter { $0.stage == .held }
+        for row in rows where save(row.record, stage: .held).stage == .held {
+            // No Notes store: the row still settles; history keeps the words with Copy.
+            save(row.record, stage: .failed)
+        }
+        if !rows.isEmpty { Log.db.notice("turn store: settled \(rows.count) stale held row(s)") }
+        return rows.count
     }
 
     /// W3H — history off: takes a settled row out of the database, after any write queued before it,
@@ -552,3 +624,5 @@ extension TurnStore {
         return !entry.record.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
+
+

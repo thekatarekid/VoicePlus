@@ -138,6 +138,15 @@ public final class FocusGuard {
     /// S3 — one held item was handled by the user (Insert here / Copy / Discard). The turn gate
     /// updates the item's `TurnRecord` from it.
     public var onResolved: ((HeldText, HeldResolution) -> Void)?
+    /// H23 — where a former hold goes instead of the held queue: saves the item to Notes and
+    /// returns `true` when it was stored. `nil` (tests, headless) keeps the legacy held list.
+    public var notesSink: ((HeldText) -> Bool)?
+    /// H23 — an item went to Notes (instead of `onHeld`).
+    public var onSavedToNotes: ((HeldText) -> Void)?
+    /// H23 — the reasons that mean a password field: nothing is kept for them.
+    public static func isSecureReason(_ reason: String) -> Bool {
+        reason == DeliveryReason.secureField || reason == DeliveryLadder.Reason.passwordField.rawValue
+    }
     /// Installed by `TextInjector` so `insertHere()` can run the real stack.
     public var inserter: ((HeldText) -> InjectionOutcome)?
     /// Bound on how much unhandled text we keep. Beyond it the oldest is dropped — memory is not a
@@ -219,6 +228,22 @@ public final class FocusGuard {
                      destination: FocusSnapshot? = nil, turnID: TurnID? = nil) -> HeldText {
         let item = HeldText(request: request, segmentID: segmentID,
                             destination: destination ?? request.expectedFocus, reason: reason, turnID: turnID)
+        // H23 — a password field keeps nothing: not held, not in Notes, not in memory.
+        if Self.isSecureReason(reason) {
+            Log.injection.notice("secure field: \(item.text.count) chars dropped, nothing kept")
+            return item
+        }
+        // H23 — the held queue is retired: with a Notes sink installed every former hold is saved
+        // there (the intended app and the reason travel with it). A failed save keeps the item here,
+        // so the words stay in history with Copy.
+        if let notesSink {
+            if notesSink(item) {
+                Log.injection.notice("saved \(item.text.count) chars to Notes for \(item.destinationName): \(reason)")
+                onSavedToNotes?(item)
+                return item
+            }
+            Log.injection.error("Notes save failed for \(item.text.count) chars; kept with Copy")
+        }
         held.append(item)
         if held.count > maxHeld {
             let dropped = held.removeFirst()

@@ -308,3 +308,26 @@ public extension TurnEntry {
     /// H25 — this turn's one outcome.
     var turnOutcome: TurnOutcome { TurnOutcome.of(self) }
 }
+
+// MARK: - H23 — a former hold's reason, as the Notes reason
+
+public extension NoteReason {
+    /// H23 — the Notes reason for words that used to be *held* (`FocusGuard.hold`, a `.held` turn),
+    /// from the held / delivery reason string. `nil` for a password field: a secure turn saves
+    /// nothing anywhere.
+    static func forHeld(reason: String?) -> NoteReason? {
+        guard let raw = reason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !raw.isEmpty else {
+            return .couldNotReturn
+        }
+        if raw == TurnOutcome.secureReason || raw == "password field" { return nil }
+        if let exact = NoteReason(rawValue: raw) { return exact }
+        if raw.contains("never-inject") { return .neverInject }
+        if raw.contains("window was closed") || raw.contains("window closed") || raw.contains("window gone") {
+            return .windowClosed
+        }
+        if raw.contains("no destination") || raw.contains("no window") || raw.contains("text box")
+            || raw.contains("no text field") || raw.contains("not editable") { return .noTextField }
+        if raw.contains("selection") || raw.contains("edit") { return .editFailed }
+        return .couldNotReturn
+    }
+}

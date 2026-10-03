@@ -1,4 +1,5 @@
 import Foundation
+import Injection
 import Pipeline
 import Shared
 
@@ -176,6 +177,31 @@ public enum NotesWiring {
         self.store = store
         self.router = router
         self.feed = feed
+        // H23 — the held queue is retired: every former hold (and Escape after words) goes to Notes.
+        routeFormerHolds(turns: TurnStore.current, focusGuard: TurnWiring.current?.controller.focusGuard)
+    }
+
+    /// H23 — installs the Notes sink on the turn store (a `.held` / cancelled-with-words turn) and on
+    /// the injector's `FocusGuard` (every `hold`), then settles rows an earlier version left held
+    /// (H27). A password field is never saved. A failed save keeps the words in history with Copy.
+    nonisolated public static func routeFormerHolds(
+        turns: TurnStore?, focusGuard: FocusGuard?,
+        save: @escaping (String, String?, NoteReason) -> Result<String, NotesFunnelError> = {
+            NotesFunnel.save(text: $0, intendedApp: $1, reason: $2)
+        }
+    ) {
+        turns?.notesSink = save
+        focusGuard?.notesSink = { [weak turns] item in
+            // Defence in depth: FocusGuard already drops secure items before the sink.
+            guard let reason = NoteReason.forHeld(reason: item.reason) else { return true }
+            let app = TurnOutcome.clean(item.destinationName)
+            let result = save(item.text, app, reason)
+            let outcome = NotesFunnel.outcome(of: result, intendedApp: app, reason: reason)
+            if let id = item.turnID { turns?.setExtras(id, save: false) { outcome.write(into: &$0) } }
+            if case .success = result { return true }
+            return false
+        }
+        turns?.settleStaleHeldRows()
     }
 
     /// N2 live route #1: a latched "note …" is stored by the router (source `.wakeVerb`) and claimed,
