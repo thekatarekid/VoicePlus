@@ -12,12 +12,16 @@ public struct OnDeviceEditRoute: Sendable {
     public var isReady: @Sendable () -> Bool
     /// H16 — non-nil when the model must not load now (critical memory pressure).
     public var refusal: @Sendable () async -> LocalLLMRefusal?
+    /// X5 — a rewrite command arrived with no model on disk (and no pin): the one notch offer.
+    public var onModelMissing: @Sendable () -> Void
 
     public init(providerID: ProviderID, isReady: @escaping @Sendable () -> Bool,
-                refusal: @escaping @Sendable () async -> LocalLLMRefusal? = { nil }) {
+                refusal: @escaping @Sendable () async -> LocalLLMRefusal? = { nil },
+                onModelMissing: @escaping @Sendable () -> Void = {}) {
         self.providerID = providerID
         self.isReady = isReady
         self.refusal = refusal
+        self.onModelMissing = onModelMissing
     }
 
     /// The live route: CU8's shared provider (installed at launch by `MeetingIntelligenceWiring`).
@@ -29,7 +33,8 @@ public struct OnDeviceEditRoute: Sendable {
                               let key = ComputerUseSettings.residencyKey(for: model)
                               if await residency.isRunningLighter, await !residency.isResident(key) { return .notEnoughMemory }
                               return nil
-                          })
+                          },
+                          onModelMissing: { EditModels.requestNotchOfferIfNeeded() })
     }
 }
 
@@ -63,7 +68,10 @@ public final class RoutingTableProviderRouting: PipelineProviderRouting, @unchec
     public func isProviderEnabled(for stage: StageID, context: StageContext) -> Bool {
         guard !RoutingTable.alwaysLocalStages.contains(stage) else { return false }
         if case .provider? = choice(for: stage) { return true }
-        if Self.editStages.contains(stage), let onDevice, onDevice.isReady() { return true }
+        if Self.editStages.contains(stage), let onDevice {
+            if onDevice.isReady() { return true }
+            if stage == .transform { onDevice.onModelMissing() }   // X5 — offer once in the notch
+        }
         return false
     }
 

@@ -42,6 +42,39 @@ public enum EditModels {
     public static let offerPolicy = ModelOfferPolicy()
     /// H16 — unload the edit model after ~2 min idle.
     public static let idleUnloadAfter: TimeInterval = 120
+
+    /// X5 — posted (main queue) the first time a rewrite command finds no on-device model and the
+    /// offer policy still allows the one notch offer. The notch observes it, shows "Download
+    /// Qwen3.5-2B / 4B?", and calls `offerPolicy.recordNotchOfferShown()` (then Settings only).
+    /// userInfo: `recommendedModelID` (String).
+    public static let notchOfferNotification = Notification.Name("VoicePlus.rewriteModelNotchOffer")
+    public static let offerLatch = OfferLatch()
+    /// Once per launch (several edit stages may ask in one turn).
+    public final class OfferLatch: @unchecked Sendable {
+        let lock = NSLock(); var posted = false
+        public init() {}
+    }
+
+    /// Posts `notchOfferNotification` at most once per launch, only while the policy allows it.
+    @discardableResult
+    public static func requestNotchOfferIfNeeded(policy: ModelOfferPolicy = offerPolicy,
+                                                 hasReadyModel: () -> Bool = { manager.activeModel != nil },
+                                                 recommendedID: () -> String = {
+                                                     manager.recommended()?.id ?? LocalLLMCatalog.qwen35_2B.id
+                                                 },
+                                                 center: NotificationCenter = .default,
+                                                 latch: OfferLatch = offerLatch) -> Bool {
+        guard policy.shouldOfferInNotch(hasReadyModel: hasReadyModel()) else { return false }
+        let first = latch.lock.withLock { () -> Bool in
+            if latch.posted { return false }
+            latch.posted = true
+            return true
+        }
+        guard first else { return false }
+        let info = ["recommendedModelID": recommendedID()]
+        DispatchQueue.main.async { center.post(name: notchOfferNotification, object: nil, userInfo: info) }
+        return true
+    }
 }
 
 extension ComputerUseSettings {
