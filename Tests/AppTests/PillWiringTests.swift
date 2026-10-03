@@ -204,7 +204,7 @@ struct PillWiringTests {
     }
 
     @Test func presenceRowsNameTheConfiguredKeyByItsHintLabel() {
-        #expect(PresenceHover.keyHint(for: .default) == "hold fn / 🌐")
+        #expect(PresenceHover.keyHint(for: .default) == "hold Option")   // owner decision r2: Option replaces fn
         #expect(PresenceHover.keyHint(for: HotkeyBinding(kind: .rightOption)) == "hold \(HotkeyBinding(kind: .rightOption).label)")
         #expect(!PresenceHover.keyHint(for: .default).contains("Right"))
     }
