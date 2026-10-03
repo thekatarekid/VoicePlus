@@ -52,6 +52,9 @@ public final class PresenceIndicatorController {
     private var inputs = PresenceInputs()
     /// N22 — held texts waiting (Insert here / Copy): a resting chin shows Needs you.
     private var heldWaiting = 0
+    /// H28 — a latched session is live; `deferredTurnEnd` is the turn end held back until it ends.
+    private var handsFreeActive = false
+    private var deferredTurnEnd: TurnStage?
     private var state: PresenceState = .off
     private var hovered = false
     private var hoverTimer: Timer?
@@ -175,9 +178,28 @@ public final class PresenceIndicatorController {
     /// pill covers the chin meanwhile, and an open microphone shows `listening` regardless.
     public func noteTurnEnded(_ stage: TurnStage) {
         onMain {
+            // H28 (old H13) — a hands-free piece ending is not the session ending: the presence engine
+            // does not reset between pieces. The reset is applied once the session itself ends.
+            if self.handsFreeActive {
+                self.deferredTurnEnd = stage
+                return
+            }
             guard PresenceStateReducer.isTurnScoped(self.inputs.engine) else { return }
             Log.app.notice("presence engine: idle (turn \(stage.rawValue))")
             self.update { $0.engine = .idle }
+        }
+    }
+
+    /// H28 — a hands-free (latched) session is live: piece ends do not reset the chin's engine state.
+    /// When the session ends, a turn end that arrived during it is applied then.
+    public func setHandsFreeActive(_ active: Bool) {
+        onMain {
+            guard active != self.handsFreeActive else { return }
+            self.handsFreeActive = active
+            if !active, let stage = self.deferredTurnEnd {
+                self.deferredTurnEnd = nil
+                self.noteTurnEnded(stage)
+            }
         }
     }
 
@@ -264,6 +286,9 @@ public final class PresenceIndicatorController {
                      pillSurface: AnyPublisher<PillSurfaceReport, Never>? = nil) {
         pill.$state.receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.setPillVisible(state.isVisible) }
+            .store(in: &cancellables)
+        pill.$latched.receive(on: DispatchQueue.main)
+            .sink { [weak self] latched in self?.setHandsFreeActive(latched) }
             .store(in: &cancellables)
         pillOnScreen?.receive(on: DispatchQueue.main)
             .sink { [weak self] onScreen in self?.setPillOnScreen(onScreen) }
