@@ -595,12 +595,12 @@ extension TurnStore {
             if let session = entry.extras.handsFreeSessionID, let index = sessionRow[session] {
                 // Older piece of a session already listed: prepend its words.
                 rows[index].text = words + " " + rows[index].text
-                rows[index].line = rows[index].text
+                rows[index].line = RecentDictation.oneLine(rows[index].text)
                 continue
             }
             if rows.count >= limit { continue }
             let command = entry.extras.editCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let line = command.flatMap { $0.isEmpty ? nil : "Edit · \($0)" } ?? words
+            let line = command.flatMap { $0.isEmpty ? nil : "Edit · \(RecentDictation.oneLine($0))" } ?? RecentDictation.oneLine(words)
             rows.append(RecentDictation(id: entry.id, time: entry.record.startedAt,
                                         appName: outcome.app ?? entry.record.destination.appName,
                                         bundleID: entry.record.destination.bundleID,
@@ -626,3 +626,35 @@ extension TurnStore {
 }
 
 
+// MARK: - H32 Recent dictations — the data the menu rows show and copy
+
+public extension RecentDictation {
+    /// The full words, shown on hover.
+    var tooltip: String { text }
+
+    /// One line: line breaks and runs of spaces fold to single spaces (the menu truncates the tail).
+    static func oneLine(_ text: String) -> String {
+        text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// The relative time the row shows: "now", "2 m", "3 h", "4 d".
+    func timeLabel(now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(time))
+        if seconds < 60 { return "now" }
+        if seconds < 3600 { return "\(Int(seconds / 60)) m" }
+        if seconds < 86_400 { return "\(Int(seconds / 3600)) h" }
+        return "\(Int(seconds / 86_400)) d"
+    }
+}
+
+extension TurnStore {
+    /// H32 — Copy for one Recent row (`MenuAction.copyRecent(TurnID)`): the row's words through the
+    /// verified copy (write, then read back). `true` only on read-back, which is when the menu may
+    /// say "Copied". A turn not listed in Recent (a password field, gone) copies nothing.
+    public func copyRecent(_ id: TurnID, limit: Int = 5,
+                           pasteboard: any TodayPasteboard = SystemTodayPasteboard()) -> Bool {
+        guard let row = recentDictations(limit: limit).first(where: { $0.id == id }),
+              !row.text.isEmpty else { return false }
+        return TodayServices.copyVerified(row.text, pasteboard: pasteboard)
+    }
+}
