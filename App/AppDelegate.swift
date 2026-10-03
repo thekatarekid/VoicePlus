@@ -415,7 +415,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sessionLatched: { [weak sessionCoordinator] in sessionCoordinator?.isLatched ?? false },
             drawWithoutKey: { [weak container] in DeixisSettings.drawsWithoutKey(container?.settings) })
         deixis.onRegionStarted = { [weak deixisKeys] in deixisKeys?.regionStarted() }
-        hotkey.onAction = { action in deixisKeys.handle(action) }
+        hotkey.onAction = { [weak self] action in
+            // H33 — Option key-down closes the hover menu (cancelTracking) and dictation starts.
+            if action == .startCapture { self?.presence.closeMenuForTurn() }
+            deixisKeys.handle(action)
+        }
 
         // P4 — act session behind the second key: consent panels, agent cursor, step chips.
         let panels = ConsentPanelsController()
@@ -697,6 +701,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // owns that decision. (1.7.9 briefly made the left click explain/repair instead; reverted at
         // the owner's request.) Popping a menu takes no focus from the app being typed into.
         presence.onClick = { [weak self] in self?.statusItem?.popUpMenu(from: .notch) }
+        // H33 — hover (250 ms) opens the same menu centred under the widened pill, at one shared
+        // width; never while a turn, capture or hands-free session is live.
+        presence.menuNaturalSize = { [weak self] in self?.statusItem?.naturalMenuSize() ?? .zero }
+        presence.onHoverMenu = { [weak self] placement in self?.statusItem?.popUpMenuCentred(placement) }
+        presence.cancelMenu = { [weak self] in self?.statusItem?.cancelMenuTracking() }
+        presence.turnLive = { [weak sessionCoordinator] in
+            guard let sessionCoordinator else { return false }
+            return sessionCoordinator.activeRequester != nil || sessionCoordinator.isLatched
+        }
         presence.pausedProvider = { [weak coordinator] in coordinator?.paused ?? false }
         // R8.4 — the indicator reflects *actual* microphone ownership, never the dictation engine's
         // state alone: the shared capture graph's ranked owner (dictation, the onboarding meter,

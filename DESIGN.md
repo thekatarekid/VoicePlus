@@ -871,6 +871,15 @@ no model name, latency or thermal readout. Latch and meeting start are not menu 
 in the verified design; they live in Settings › Shortcuts and Meetings. Copy is in the menu only as
 the Recent rows (owner decision §0.1, H32); Today keeps its own Copy.
 
+**Hover opens the menu (H33).** Resting the pointer on the idle chin for 250 ms widens it from its
+centre (H34; no cap above the menu bar) and drops this same menu straight down from it, centred, at one
+shared width W = min(max(pill, menu natural width), widest row on the display) — the pill animates to W
+and `menu.minimumWidth = W`. Never while a turn, capture or hands-free session is live; Option key-down
+closes it and starts dictation; the pointer away from both pill and menu for 300 ms closes it; a closed
+menu does not reopen until the pointer has left the pill. No row is pre-selected, so Quit is never the
+default. The zero-edit counter, "Why did it write that?" and the ambient mode control are rows of the
+spec (custom-view slots), not items added after it.
+
 ---
 
 ## 11. Onboarding (amended with design §8.7 and the owner's Voice step)

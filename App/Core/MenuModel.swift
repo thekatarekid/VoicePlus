@@ -441,6 +441,10 @@ public struct StatusMenuState: Equatable, Sendable {
     /// H32 — the Recent rows, newest first, already filtered by `TurnStore.recentDictations`
     /// (password-field turns never reach here). The spec caps them at `RecentMenu.limit`.
     public var recent: [RecentMenu.Row] = []
+    /// H33 — the three rows AppKit draws itself (custom views), named in the spec so the menu's
+    /// shape — and so its natural width, which the hover pill shares — is the spec's. Off by default:
+    /// a headless menu renders none of them.
+    public var extras = MenuExtras()
 
     public init(status: MenuStatus = .ready, micName: String = "Default microphone",
                 micStatus: MicQuality.Verdict? = nil, micAvailable: Bool = true, isCapturing: Bool = false,
@@ -471,6 +475,21 @@ public extension StatusMenuState.Held {
     }
 }
 
+/// H33 — which custom-view rows this menu carries: the 7-day zero-edit counter (I2, under the
+/// microphone line), "Why did it write that?" (I3, after Settings) and the ambient mode control
+/// (V5 L1, its own group above Quit).
+public struct MenuExtras: Equatable, Sendable {
+    public var zeroEdit: Bool
+    public var whyItWroteThat: Bool
+    public var ambient: Bool
+
+    public init(zeroEdit: Bool = false, whyItWroteThat: Bool = false, ambient: Bool = false) {
+        self.zeroEdit = zeroEdit
+        self.whyItWroteThat = whyItWroteThat
+        self.ambient = ambient
+    }
+}
+
 /// The one menu (design §8.8, `DESIGN.md` §10): Ready / Muted / Blocked line, current microphone,
 /// Start dictation (click-to-stop), Mute, held dictations, Open VoicePlus, Settings…, Quit.
 ///
@@ -491,6 +510,14 @@ public enum StatusMenuSpec {
         public static let quit = "menu.quit"
         /// H32 — the "Recent" header; rows are `recentRow(_:)`.
         public static let recentHeader = "menu.recent"
+        /// H33 — custom-view slots (`MenuExtras`); the renderer swaps in the AppKit view, or drops the
+        /// slot when there is nothing to show yet.
+        public static let zeroEdit = "menu.zeroEdit"
+        public static let whyItWroteThat = "menu.whyItWroteThat"
+        public static let ambient = "menu.ambient"
+        public static let ambientSeparator = "menu.sep.ambient"
+        /// Slots whose row is a custom AppKit view, not a `MenuEntry` title.
+        public static let customSlots: Set<String> = [zeroEdit, whyItWroteThat, ambient]
         public static func recentRow(_ id: TurnID) -> String { "menu.recent.\(id.rawValue.uuidString)" }
     }
 
@@ -504,6 +531,9 @@ public enum StatusMenuSpec {
             status(state),
             .info(ID.microphone, MenuModel.micLine(name: state.micName, status: state.micStatus,
                                                    available: state.micAvailable)),
+        ]
+        if state.extras.zeroEdit { entries.append(slot(ID.zeroEdit)) }
+        entries += [
             .separator("menu.sep.capture"),
             dictate(state),
             mute(state),
@@ -515,11 +545,20 @@ public enum StatusMenuSpec {
             MenuEntry(id: ID.openWindow, title: MenuCopy.openWindow, detail: MenuCopy.openWindowDetail,
                       action: .openWindow),
             MenuEntry(id: ID.settings, title: MenuCopy.settings, action: .openSettings, keyEquivalent: ","),
+        ]
+        if state.extras.whyItWroteThat { entries.append(slot(ID.whyItWroteThat)) }
+        if state.extras.ambient { entries += [.separator(ID.ambientSeparator), slot(ID.ambient)] }
+        entries += [
             .separator("menu.sep.quit"),
             MenuEntry(id: ID.quit, title: MenuCopy.quit, detail: MenuCopy.quitDetail, action: .quit,
                       keyEquivalent: "q"),
         ]
         return entries
+    }
+
+    /// H33 — a custom-view slot: no title, no action of its own (the view handles its own clicks).
+    static func slot(_ id: String) -> MenuEntry {
+        MenuEntry(id: id, title: "", isEnabled: true)
     }
 
     /// Depth-first lookup by id, for the renderer's tests.

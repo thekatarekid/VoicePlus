@@ -26,6 +26,16 @@ public final class PresenceIndicatorController {
     /// status item from a crowded menu bar, the chin under the notch is the way back into
     /// Settings, permissions and Quit.
     public var onClick: (() -> Void)?
+    /// H33 — the menu's natural size, rebuilt for showing (`StatusItemController.naturalMenuSize`).
+    public var menuNaturalSize: (() -> CGSize)?
+    /// H33 — pop the real menu at this placement; blocks while it tracks
+    /// (`StatusItemController.popUpMenuCentred`).
+    public var onHoverMenu: ((PresenceMenuHover.Placement) -> Void)?
+    /// H33 — close the menu (`NSMenu.cancelTracking`).
+    public var cancelMenu: (() -> Void)?
+    /// H33 — a turn, capture or hands-free session is live (the session owner's view); the pill's
+    /// own visibility and the hands-free flag are checked here as well.
+    public var turnLive: (() -> Bool)?
     /// Where the hotkey hint in a non-ready hover row comes from ("hold Option").
     public var hotkeyHint: () -> String = { "" }
     /// S2 — the I1 hover hint for the configured key: "Hold or Double Tap Option to dictate".
@@ -64,6 +74,10 @@ public final class PresenceIndicatorController {
     private var animatingTo: CGRect?
     /// H34 — the in-flight animation is a collapse back to the chin: the dot waits for it to finish.
     private var collapseInFlight = false
+    /// H33 — hover intent / pointer-leave, and the placement of the menu while it is up.
+    private var menuIntent = PresenceMenuIntent()
+    private var menuPlacement: PresenceMenuHover.Placement?
+    private var intentCheckScheduled = false
     /// Last logged microphone ownership, so the 5 Hz refresh logs changes and not a stream.
     private var lastOwnership: MicrophoneOwnership?
     private var observers: [NSObjectProtocol] = []
@@ -320,7 +334,67 @@ public final class PresenceIndicatorController {
         let action = PresenceClickRouter.action(for: state, secondary: secondary)
         Log.app.notice("presence click: state=\(self.state.caseName) secondary=\(secondary) action=\(String(describing: action))")
         switch action {
-        case .menu: onClick?()
+        case .menu:
+            // H33 — a click opens the same centred menu as hover, when it is wired and no turn is live.
+            if onHoverMenu != nil, !isTurnLive, let metrics = Self.hostMetrics() {
+                openHoverMenu(on: metrics)
+            } else {
+                onClick?()
+            }
+        }
+    }
+
+    // MARK: - H33 hover menu
+
+    private var isTurnLive: Bool {
+        pillStateVisible || handsFreeActive || (turnLive?() ?? false)
+    }
+
+    private func tickMenu(pointerOnPill: Bool, mouse: CGPoint, visible: Bool, metrics: ScreenMetrics) {
+        guard onHoverMenu != nil else { return }
+        let onMenu = menuPlacement?.menuFrame.insetBy(dx: -PresenceGeometry.hoverSlop, dy: -PresenceGeometry.hoverSlop)
+            .contains(mouse) ?? false
+        let onPill = pointerOnPill || (menuPlacement?.pillFrame.contains(mouse) ?? false)
+        let event = menuIntent.tick(pointerOnPill: visible && onPill, pointerOnMenu: onMenu,
+                                    liveTurn: isTurnLive || !visible, now: Date())
+        switch event {
+        case .none:
+            // The 5 Hz poll is coarser than the 250 ms intent: check again exactly when it is due.
+            if menuIntent.hoverSince != nil, !intentCheckScheduled {
+                intentCheckScheduled = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + PresenceMenuHover.intentDelay + 0.01) { [weak self] in
+                    self?.intentCheckScheduled = false
+                    self?.refresh()
+                }
+            }
+        case .open:
+            DispatchQueue.main.async { [weak self] in self?.openHoverMenu(on: metrics) }
+        case .close:
+            Log.app.notice("presence menu: closing (pointer left or turn live)")
+            cancelMenu?()
+        }
+    }
+
+    /// Widen the pill to W, then pop the menu straight down from it. Returns when the menu closes.
+    private func openHoverMenu(on metrics: ScreenMetrics) {
+        guard menuPlacement == nil, let show = onHoverMenu, !isTurnLive else { return }
+        let natural = menuNaturalSize?() ?? CGSize(width: NotchGeometry.hintSize.width, height: 0)
+        let pillWidth = rowWidth ?? Self.fittedHint(readyHint(), on: metrics).width
+        let placement = PresenceMenuHover.placement(pillWidth: pillWidth, menuNaturalSize: natural, on: metrics)
+        menuIntent.menuOpened()
+        menuPlacement = placement
+        refresh(force: true)   // the row animates (H34) to W before the menu drops from it
+        show(placement)
+        menuIntent.menuClosed()
+        menuPlacement = nil
+        refresh(force: true)
+    }
+
+    /// H33 — Option key-down (or any turn start): close the hover menu so dictation starts at once.
+    public func closeMenuForTurn() {
+        onMain {
+            guard self.menuPlacement != nil else { return }
+            self.cancelMenu?()
         }
     }
 
@@ -352,15 +426,20 @@ public final class PresenceIndicatorController {
         // other badges (paused/blocked), and its row names what is waiting.
         let needsYou = PresenceFace.of(next, heldWaiting: heldWaiting) == .needsYou
         let shape = needsYou ? PresenceState.paused : next
-        let pointerOn = next.isVisible
-            && PresenceInteraction.isHovering(mouse: NSEvent.mouseLocation, on: metrics,
+        let mouse = NSEvent.mouseLocation
+        let pointerOnSurface = next.isVisible
+            && PresenceInteraction.isHovering(mouse: mouse, on: metrics,
                                               state: shape, expandedRowWidth: hovered ? rowWidth : nil)
+        // H33 — the hover menu: tick intent/leave, and pin the row open at W while the menu is up.
+        tickMenu(pointerOnPill: pointerOnSurface, mouse: mouse, visible: next.isVisible, metrics: metrics)
+        let pinned = next.isVisible ? menuPlacement : nil
+        let pointerOn = pointerOnSurface || pinned != nil
         let hint = readyHint()
         let presentation = PresenceHover.presentation(state: shape, pointerOn: pointerOn, readyHint: hint)
         let expanded = presentation != .chin && presentation != .none
 
         // Fit the message to the display *before* placing the panel: the row is sized to its text.
-        let width: PresenceRow.Fit?
+        var width: PresenceRow.Fit?
         switch presentation {
         case .hint(let text): width = Self.fittedHint(text, on: metrics)
         case .row: width = needsYou ? Self.fittedRow(detail: PresenceFace.needsYouDetail(heldWaiting), state: shape,
@@ -368,6 +447,7 @@ public final class PresenceIndicatorController {
                                     : Self.fittedRow(state: next, hint: hotkeyHint(), on: metrics)
         case .chin, .none: width = nil
         }
+        if let pinned, let fit = width { width = PresenceRow.Fit(text: fit.text, width: pinned.width, truncated: fit.truncated) }
         guard force || next != state || expanded != hovered || width?.width != rowWidth else { return }
         let changed = next != state || expanded != hovered
         let wasExpanded = hovered

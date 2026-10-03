@@ -246,3 +246,92 @@ public enum PresenceResize {
         abs(a.midX - b.midX) <= 0.5 && abs(a.maxY - b.maxY) <= 0.5
     }
 }
+
+/// H33 — hovering the pill opens the real menu bar menu, centred under the centre-expanded pill and
+/// at the same width W (Follow-up §6 "Hover opens the menu below the centre-expanded pill").
+public enum PresenceMenuHover {
+    /// Hover intent before the menu opens.
+    public static let intentDelay: TimeInterval = 0.25
+    /// Pointer away from both the pill and the menu this long closes it.
+    public static let leaveDelay: TimeInterval = 0.3
+    /// Space between the pill's bottom edge and the menu's top edge.
+    public static let gap: CGFloat = 4
+
+    public struct Placement: Equatable, Sendable {
+        /// The shared width W: the pill widens to it and `menu.minimumWidth = W`.
+        public var width: CGFloat
+        /// The expanded pill's frame at W (global, bottom-left origin).
+        public var pillFrame: CGRect
+        /// The menu's top-left corner — the point `NSMenu.popUp(positioning: nil, at:, in: nil)` takes.
+        public var menuOrigin: CGPoint
+        /// The menu's frame for the pointer-leave check (`menuHeight` tall).
+        public var menuFrame: CGRect
+    }
+
+    /// W = min(max(pill width, menu natural width), widest row on this display).
+    public static func sharedWidth(pillWidth: CGFloat, menuNaturalWidth: CGFloat, on metrics: ScreenMetrics) -> CGFloat {
+        min(max(pillWidth, menuNaturalWidth), PresenceGeometry.maxRowWidth(on: metrics))
+    }
+
+    public static func placement(pillWidth: CGFloat, menuNaturalSize: CGSize, on metrics: ScreenMetrics) -> Placement {
+        let width = sharedWidth(pillWidth: pillWidth, menuNaturalWidth: menuNaturalSize.width, on: metrics)
+        let pill = PresenceGeometry.frame(size: PresenceGeometry.rowSize(width: width, on: metrics), on: metrics)
+        let origin = CGPoint(x: pill.midX - width / 2, y: pill.minY - gap)
+        let menu = CGRect(x: origin.x, y: origin.y - menuNaturalSize.height, width: width, height: menuNaturalSize.height)
+        return Placement(width: width, pillFrame: pill, menuOrigin: origin, menuFrame: menu)
+    }
+}
+
+/// H33 — the hover-intent / pointer-leave timer as a pure value, ticked by the presence refresh.
+///
+/// * Opens after `intentDelay` of the pointer resting on the pill, never while a turn, capture or
+///   hands-free session is live.
+/// * Once the menu has closed, the pointer must leave the pill before hover can open it again (so
+///   dismissing the menu with the pointer still on the pill does not reopen it).
+/// * While open: a live turn closes it at once; the pointer away from both pill and menu for
+///   `leaveDelay` closes it.
+public struct PresenceMenuIntent: Equatable, Sendable {
+    public enum Event: Equatable, Sendable { case none, open, close }
+
+    public private(set) var menuOpen = false
+    public private(set) var hoverSince: Date?
+    private var awaySince: Date?
+    private var needsExit = false
+
+    public init() {}
+
+    public mutating func tick(pointerOnPill: Bool, pointerOnMenu: Bool, liveTurn: Bool, now: Date) -> Event {
+        if menuOpen {
+            if liveTurn { return .close }
+            if pointerOnPill || pointerOnMenu {
+                awaySince = nil
+                return .none
+            }
+            let since = awaySince ?? now
+            awaySince = since
+            return now.timeIntervalSince(since) >= PresenceMenuHover.leaveDelay ? .close : .none
+        }
+        guard pointerOnPill, !liveTurn else {
+            hoverSince = nil
+            if !pointerOnPill { needsExit = false }
+            return .none
+        }
+        guard !needsExit else { return .none }
+        let since = hoverSince ?? now
+        hoverSince = since
+        return now.timeIntervalSince(since) >= PresenceMenuHover.intentDelay ? .open : .none
+    }
+
+    public mutating func menuOpened() {
+        menuOpen = true
+        hoverSince = nil
+        awaySince = nil
+    }
+
+    public mutating func menuClosed() {
+        menuOpen = false
+        awaySince = nil
+        hoverSince = nil
+        needsExit = true
+    }
+}

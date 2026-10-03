@@ -192,6 +192,40 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.popUp(positioning: nil, at: point, in: nil)
     }
 
+    /// H33 — the menu's natural size (no minimum width), rebuilt as it is about to be shown. The
+    /// hover pill uses it to pick the shared width W.
+    public func naturalMenuSize() -> NSSize {
+        pendingEntryPoint = .notch
+        rebuild()
+        menu.minimumWidth = 0
+        return menu.size
+    }
+
+    /// H33 — hover: the real menu, centred under the expanded pill at the shared width W
+    /// (`PresenceMenuHover.Placement`). Blocks while the menu tracks, like any `popUp`.
+    ///
+    /// `positioning: nil` — no item is pre-selected, so keyboard focus landing in the menu can never
+    /// leave Quit (or anything else) as the default choice.
+    public func popUpMenuCentred(_ placement: PresenceMenuHover.Placement) {
+        lastEntryPoint = .notch
+        pendingEntryPoint = .notch
+        rebuild()
+        menu.minimumWidth = placement.width
+        hoverMenuOpen = true
+        Log.app.notice("menu opened from hover: width=\(placement.width) origin=\(NSStringFromPoint(placement.menuOrigin))")
+        menu.popUp(positioning: nil, at: placement.menuOrigin, in: nil)
+        hoverMenuOpen = false
+        menu.minimumWidth = 0
+    }
+
+    /// H33 — the hover menu is up (between `popUpMenuCentred` and its return).
+    public private(set) var hoverMenuOpen = false
+
+    /// H33 — close the menu if it is tracking (Option key-down, pointer left, a turn went live).
+    public func cancelMenuTracking() {
+        menu.cancelTracking()
+    }
+
     // MARK: - The state the menu is a function of
 
     /// Pure with respect to focus and capture: nothing here reads the frontmost app, dequeues held
@@ -209,6 +243,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
                                     isCapturing: inputs.dictationCaptureOpen, isMuted: muted, held: heldDrafts(),
                                     meetingRunning: meeting, notesUnread: notesUnread?() ?? 0)
         state.recent = recentRows()
+        state.extras = menuExtras
         return state
     }
 
@@ -244,35 +279,45 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
                 menu.addItem(header)
                 continue
             }
+            // H33 — the custom-view rows are spec slots; a slot with nothing to show yet is dropped.
+            if StatusMenuSpec.ID.customSlots.contains(entry.id) {
+                if let item = customItem(for: entry.id) { menu.addItem(item) }
+                continue
+            }
             menu.addItem(entry.isSeparator ? .separator() : menuItem(for: entry))
-            // I2 — the 7-day zero-edit rate under the microphone line, only once there is a week to count.
-            if entry.id == StatusMenuSpec.ID.microphone { addZeroEditItem() }
         }
-        addWhyItWroteThatItem()
-        addAmbientModeItem()
     }
 
-    /// V5 L1 — the ambient mode control, above the last group (Settings / Quit).
-    private func addAmbientModeItem() {
-        guard let controller = ambientModeController else { return }
-        MainActor.assumeIsolated {
-            let item = AmbientModeMenu.item(controller: controller) { [weak self] in self?.refreshIcon() }
-            let at = menu.items.lastIndex { $0.isSeparatorItem } ?? menu.items.count
-            menu.insertItem(item, at: at)
-            menu.insertItem(.separator(), at: at)
+    /// H33 — which custom rows this controller can draw (`MenuExtras` in the spec's state).
+    var menuExtras: MenuExtras {
+        MenuExtras(zeroEdit: showsZeroEditCounter && database != nil,
+                   whyItWroteThat: showsWhyItWroteThat,
+                   ambient: ambientModeController != nil)
+    }
+
+    private func customItem(for id: String) -> NSMenuItem? {
+        switch id {
+        case StatusMenuSpec.ID.zeroEdit: return zeroEditItem()
+        case StatusMenuSpec.ID.whyItWroteThat: return whyItWroteThatItem()
+        case StatusMenuSpec.ID.ambient: return ambientModeItem()
+        default: return nil
+        }
+    }
+
+    /// V5 L1 — the ambient mode control, in its own group above Quit.
+    private func ambientModeItem() -> NSMenuItem? {
+        guard let controller = ambientModeController else { return nil }
+        return MainActor.assumeIsolated {
+            AmbientModeMenu.item(controller: controller) { [weak self] in self?.refreshIcon() }
         }
     }
 
     /// V5 I3 — "Why did it write that?" (live status item only, once a turn was traced).
     public lazy var showsWhyItWroteThat: Bool = statusItem != nil
 
-    private func addWhyItWroteThatItem() {
-        guard showsWhyItWroteThat else { return }
-        MainActor.assumeIsolated {
-            guard let item = WhyItWroteThatMenu.item() else { return }
-            let at = menu.items.lastIndex { $0.isSeparatorItem } ?? menu.items.count
-            menu.insertItem(item, at: at)
-        }
+    private func whyItWroteThatItem() -> NSMenuItem? {
+        guard showsWhyItWroteThat else { return nil }
+        return MainActor.assumeIsolated { WhyItWroteThatMenu.item() }
     }
 
     /// I2 — on for the live status item, off headless (tests opt in), so the spec's rows stay the
@@ -281,12 +326,12 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private var zeroEditModel: ZeroEditSurfaceModel?
 
     /// Menus are built on the main thread (AppKit's `menuNeedsUpdate`, the shell's tests).
-    private func addZeroEditItem() {
-        guard showsZeroEditCounter, let database else { return }
-        MainActor.assumeIsolated {
+    private func zeroEditItem() -> NSMenuItem? {
+        guard showsZeroEditCounter, let database else { return nil }
+        return MainActor.assumeIsolated {
             let model = zeroEditModel ?? ZeroEditSurfaceModel(database: database)
             zeroEditModel = model
-            if let item = ZeroEditMenuItem.make(model: model) { menu.addItem(item) }
+            return ZeroEditMenuItem.make(model: model)
         }
     }
 
