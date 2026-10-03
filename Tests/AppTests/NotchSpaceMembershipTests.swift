@@ -12,8 +12,11 @@ import Testing
 struct NotchSpaceMembershipTests {
 
     /// A window as the WindowServer sees it. `joined` is membership in every Space. Ordering in does
-    /// not rejoin; sending the all-Spaces tag again does (when `tagRejoins`), either always or only
-    /// while the window is ordered in (`tagRejoinsOnlyWhileIn`).
+    /// not rejoin. The WindowServer sees Space tags only when they are committed (`commitSpaceTags`, or
+    /// the end of the run-loop turn): two assignments in between coalesce, as on real macOS
+    /// (verified 2026-10-03). A committed change from no all-Spaces tag to the all-Spaces tag rejoins
+    /// (when `tagRejoins`), either always or only while the window is ordered in
+    /// (`tagRejoinsOnlyWhileIn`).
     final class FakeWindow: SpaceMemberWindow {
         var joined: Bool
         var tagRejoins: Bool
@@ -21,15 +24,12 @@ struct NotchSpaceMembershipTests {
         private(set) var isVisible = false
         private(set) var tagChanges: [NSWindow.CollectionBehavior] = []
         private(set) var orderIns = 0
+        private(set) var commits = 0
         var collectionBehavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle] {
-            didSet {
-                tagChanges.append(collectionBehavior)
-                if collectionBehavior.contains(.canJoinAllSpaces), !oldValue.contains(.canJoinAllSpaces), tagRejoins,
-                   !tagRejoinsOnlyWhileIn || isVisible {
-                    joined = true
-                }
-            }
+            didSet { tagChanges.append(collectionBehavior) }
         }
+        /// What the WindowServer was last told.
+        private var committed: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         var isOnActiveSpace: Bool { isVisible && joined }
         init(joined: Bool, tagRejoins: Bool = true, tagRejoinsOnlyWhileIn: Bool = false) {
             self.joined = joined
@@ -38,6 +38,16 @@ struct NotchSpaceMembershipTests {
         }
         func orderFrontRegardless() { isVisible = true; orderIns += 1 }
         func orderOut() { isVisible = false }
+        func commitSpaceTags() {
+            commits += 1
+            if collectionBehavior.contains(.canJoinAllSpaces), !committed.contains(.canJoinAllSpaces), tagRejoins,
+               !tagRejoinsOnlyWhileIn || isVisible {
+                joined = true
+            }
+            committed = collectionBehavior
+        }
+        /// The run loop's own commit at the end of the turn.
+        func endOfRunLoopTurn() { commitSpaceTags() }
         /// The Dock's `BatchReassociateWindowsToSpace` for an ordered-out sticky window.
         func spaceLayoutChanged() { if !isVisible { joined = false } }
     }
@@ -55,16 +65,42 @@ struct NotchSpaceMembershipTests {
         let bare = FakeWindow(joined: false)
         bare.orderFrontRegardless()
         #expect(bare.isVisible && !bare.isOnActiveSpace, "the bug: ordered in on no Space")
-        // After: reassert before ordering in.
-        #expect(SpaceMembership.orderIn([pill]) == .onActiveSpace)
+        // After: reassert before ordering in. The flip to no tag is committed inside the reassert; the
+        // restore reaches the WindowServer at the end of the run-loop turn.
+        SpaceMembership.orderIn([pill])
+        pill.endOfRunLoopTurn()
         #expect(pill.isOnActiveSpace)
         #expect(pill.collectionBehavior == [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle],
                 "the original behaviour is restored")
     }
 
+    /// Verify-notch: the bare toggle (`[]` then back in one turn) is the shipped f3f7aa6 reassert. The
+    /// WindowServer never sees it, so the window stays on no Space. With the commit in between it
+    /// rejoins.
+    @Test func toggleWithoutACommitInBetweenNeverReachesTheWindowServer() {
+        let bare = FakeWindow(joined: false)
+        let behavior = bare.collectionBehavior
+        bare.collectionBehavior = []
+        bare.collectionBehavior = behavior
+        bare.orderFrontRegardless()
+        bare.endOfRunLoopTurn()
+        #expect(!bare.isOnActiveSpace, "coalesced: no change reached the WindowServer")
+
+        let pill = FakeWindow(joined: false)
+        SpaceMembership.reassert(pill)
+        #expect(pill.commits == 1)
+        pill.orderFrontRegardless()
+        pill.endOfRunLoopTurn()
+        #expect(pill.isOnActiveSpace)
+        #expect(pill.collectionBehavior == behavior)
+    }
+
     @Test func windowThatRejoinsOnlyWhileInIsReassertedAgain() {
         let pill = FakeWindow(joined: false, tagRejoinsOnlyWhileIn: true)
-        #expect(SpaceMembership.orderIn([pill]) == .rejoined)
+        // The pre-order reassert runs while out (no rejoin); the second runs while in, and its own
+        // commit is what lets the restore through once the turn ends.
+        SpaceMembership.orderIn([pill])
+        pill.endOfRunLoopTurn()
         #expect(pill.isOnActiveSpace)
     }
 
@@ -77,7 +113,8 @@ struct NotchSpaceMembershipTests {
 
     @Test func pillAndShadowAreBothRejoinedAndOrderedInShadowFirst() {
         let shadow = FakeWindow(joined: false), pill = FakeWindow(joined: false)
-        #expect(SpaceMembership.orderIn([shadow, pill]) == .onActiveSpace)
+        SpaceMembership.orderIn([shadow, pill])
+        shadow.endOfRunLoopTurn(); pill.endOfRunLoopTurn()
         #expect(shadow.isOnActiveSpace && pill.isOnActiveSpace)
         #expect(shadow.orderIns == 1 && pill.orderIns == 1)
     }

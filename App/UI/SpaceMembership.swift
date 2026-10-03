@@ -6,9 +6,15 @@ protocol SpaceMemberWindow: AnyObject {
     var isOnActiveSpace: Bool { get }
     var isVisible: Bool { get }
     func orderFrontRegardless()
+    /// Sends the window's pending changes (its Space tags among them) to the WindowServer now.
+    func commitSpaceTags()
 }
 
-extension NSWindow: SpaceMemberWindow {}
+extension NSWindow: SpaceMemberWindow {
+    /// Verify-notch: AppKit hands collection-behaviour changes to the WindowServer at the next
+    /// transaction commit, so two assignments in one run-loop turn coalesce into "no change".
+    func commitSpaceTags() { CATransaction.flush() }
+}
 
 /// Fix notch (2026-10-03): keeps an all-Spaces window that is ordered out between uses on every Space.
 ///
@@ -21,11 +27,15 @@ extension NSWindow: SpaceMemberWindow {}
 /// "none→hidden" instead of "none→visible". The owner saw no pill, the presence chin's listening
 /// bar instead (the white dot), and a ribbon that was logged as flown but never seen.
 ///
-/// Setting `collectionBehavior` to a different value and back makes AppKit send the window's
-/// all-Spaces tag again, which rejoins every Space. `orderIn` does that before ordering a window
-/// in. It then checks the active Space and does it once more if the window is still off it. A caller
-/// whose window stays off the active Space after that rebuilds the window, because a new window
-/// joins every Space when it is first ordered in.
+/// Setting `collectionBehavior` to `[]`, committing that to the WindowServer, and setting it back
+/// makes the window rejoin every Space. The commit in between is required: without it AppKit sends
+/// both assignments in one transaction, the WindowServer sees no change, and the window stays on no
+/// Space (verified 2026-10-03 on macOS 26 with a panel removed from every Space through SkyLight:
+/// toggle alone → still on no Space; toggle with a commit → on every Space). `orderIn` does that
+/// before ordering a window in. It then checks the active Space and does it once more if the window
+/// is still off it. `isOnActiveSpace` catches up with a rejoin only a moment later, so a rejoined
+/// window can still read "off" here; a caller that can rebuild its window does so then, because a
+/// new window joins every Space when it is first ordered in (and reads "on" at once).
 enum SpaceMembership {
     enum Outcome: String, Equatable, Sendable {
         /// On the active Space after the pre-order reassert (the normal case).
@@ -41,6 +51,7 @@ enum SpaceMembership {
         let behavior = window.collectionBehavior
         guard behavior.contains(.canJoinAllSpaces) else { return }
         window.collectionBehavior = []
+        window.commitSpaceTags()
         window.collectionBehavior = behavior
     }
 
