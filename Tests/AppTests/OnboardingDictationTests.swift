@@ -395,7 +395,10 @@ struct RecognizerReadinessTests {
 
     /// `ModelStackInstaller.stackReadiness` mirrors `RecognizerFactory.chooseFinal`, so the screen
     /// names the recogniser the engine will really pick. Driven over a real `ModelManager` on a
-    /// scratch root.
+    /// scratch root. On the main actor: `refresh()` (including the one `init` starts) writes
+    /// `modelPresence` there, so reading `stackReadiness` from another executor raced it (SIGSEGV in
+    /// `Dictionary.lookup`, seen once in a full `--no-parallel` run).
+    @MainActor
     @Test func readinessFollowsWhatIsOnDisk() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("vp-readiness-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
