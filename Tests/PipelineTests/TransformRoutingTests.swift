@@ -90,7 +90,8 @@ struct TransformRoutingTests {
         let value = String(repeating: "a", count: 500) + "SELECTED" + String(repeating: "b", count: 500)
         let s = try #require(SelectionSnapshot.from(value: value, selectedRange: 500..<508))
         #expect(s.text == "SELECTED")
-        #expect(s.before.count == SelectionSnapshot.contextWindow && s.after.count == SelectionSnapshot.contextWindow)
+        // H15 — one paragraph under the token cap: all of it either side.
+        #expect(s.before.count == 500 && s.after.count == 500)
         #expect(s.wordCount == 1)
         #expect(SelectionSnapshot.from(value: "abc", selectedRange: 2..<9) == nil)
         #expect(SelectionSnapshot.from(value: "abc", selectedRange: 1..<1) == nil)

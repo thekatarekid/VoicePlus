@@ -88,7 +88,7 @@ public final class TransformSession: @unchecked Sendable {
         let outcome = sink.replace(result.replace)
         guard outcome.succeeded else { return .failed(outcome) }
         let after = SelectionSnapshot(text: result.output, range: result.replace.resultingRange, before: sel.before, after: sel.after,
-                                      bundleID: sel.bundleID, elementToken: sel.elementToken)
+                                      bundleID: sel.bundleID, elementToken: sel.elementToken, destination: sel.destination)
         commit(Turn(instruction: request.instructionText, before: sel, after: after, diff: result.diff, source: result.source), at: now)
         return .applied(result, outcome)
     }

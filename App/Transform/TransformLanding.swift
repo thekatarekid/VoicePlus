@@ -269,7 +269,9 @@ public final class TransformLanding: @unchecked Sendable {
             // A new instruction supersedes an edit still waiting in its preview; one turn at a time.
             await settlePendingPreview()
             guard claim() else { return .refused("finishing the previous edit") }
-            guard let sel = session.begin(with: r.selection) else { release(); return .notHandled }
+            // H15 — the edit's destination (app, window, field label, surface) rides with the selection.
+            let fresh = r.selection.map { EditContextBuilder.enrich($0, context: context, appName: system.frontmostApp()?.appName) }
+            guard let sel = session.begin(with: fresh) else { release(); return .notHandled }
             onEvent?(.began(words: sel.wordCount))
             lastInstruction = spans; lastContext = context
             return .transformed(await run(spans, context: context, stager: stager))

@@ -17,19 +17,21 @@ public extension StageID {
 public struct SelectionSnapshot: Equatable, Sendable, Codable {
     public var text: String
     public var range: Range<Int>
-    /// Up to `contextWindow` characters either side of the selection, for the model.
+    /// H15 — the surrounding text for the model (`EditContextBuilder.surrounding`): the previous
+    /// paragraph and the current one around the selection, sentence-aligned, ≤ ~1,200 tokens.
+    /// Memory only; empty for a secure field or an unreadable value.
     public var before: String
     public var after: String
     public var bundleID: String?
     public var elementToken: String?
+    /// H15 — app name, window title, field label and surface kind (nil: unknown or secure).
+    public var destination: EditDestination?
 
     public init(text: String, range: Range<Int>, before: String = "", after: String = "",
-                bundleID: String? = nil, elementToken: String? = nil) {
+                bundleID: String? = nil, elementToken: String? = nil, destination: EditDestination? = nil) {
         self.text = text; self.range = range; self.before = before; self.after = after
-        self.bundleID = bundleID; self.elementToken = elementToken
+        self.bundleID = bundleID; self.elementToken = elementToken; self.destination = destination
     }
-
-    public static let contextWindow = 400
 
     /// Bet 5: a whitespace-only or empty selection is no selection.
     public var isMeaningful: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -43,15 +45,15 @@ public struct SelectionSnapshot: Equatable, Sendable, Codable {
     }
 
     /// Build a snapshot from a full field value + selected UTF-16 range.
-    public static func from(value: String, selectedRange: Range<Int>, bundleID: String? = nil, elementToken: String? = nil) -> SelectionSnapshot? {
+    /// H15 — the surrounding text comes from `EditContextBuilder` (paragraph-aware, budgeted).
+    public static func from(value: String, selectedRange: Range<Int>, bundleID: String? = nil, elementToken: String? = nil,
+                            destination: EditDestination? = nil) -> SelectionSnapshot? {
         let units = Array(value.utf16)
         guard selectedRange.lowerBound >= 0, selectedRange.upperBound <= units.count, !selectedRange.isEmpty else { return nil }
-        let before = max(0, selectedRange.lowerBound - contextWindow)..<selectedRange.lowerBound
-        let after = selectedRange.upperBound..<min(units.count, selectedRange.upperBound + contextWindow)
+        let ctx = EditContextBuilder.surrounding(value: value, selectedRange: selectedRange)
         return SelectionSnapshot(text: String(decoding: units[selectedRange], as: UTF16.self), range: selectedRange,
-                                 before: String(decoding: units[before], as: UTF16.self),
-                                 after: String(decoding: units[after], as: UTF16.self),
-                                 bundleID: bundleID, elementToken: elementToken)
+                                 before: ctx.before, after: ctx.after,
+                                 bundleID: bundleID, elementToken: elementToken, destination: destination)
     }
 }
 
@@ -94,14 +96,36 @@ public struct AXSelectionDetector: SelectionDetecting {
         AXUIElementGetPid(element, &pid)
         let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
         let token = String(CFHash(element))
+        let dest = Self.destination(of: element, pid: pid)
         if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success, let value = valueRef as? String {
-            return SelectionSnapshot.from(value: value, selectedRange: range, bundleID: bundle, elementToken: token)
+            return SelectionSnapshot.from(value: value, selectedRange: range, bundleID: bundle, elementToken: token, destination: dest)
         }
         // Value unreadable (web views, canvases): fall back to the selected text alone.
         var selRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selRef) == .success,
               let sel = selRef as? String, !sel.isEmpty else { return nil }
-        return SelectionSnapshot(text: sel, range: range, bundleID: bundle, elementToken: token)
+        return SelectionSnapshot(text: sel, range: range, bundleID: bundle, elementToken: token, destination: dest)
+    }
+
+    /// H15 — app name, focused window title and the field's label (title, description or
+    /// placeholder). The surface kind is added upstream from the turn's resolution.
+    static func destination(of element: AXUIElement, pid: pid_t) -> EditDestination? {
+        func string(_ el: AXUIElement, _ attr: String) -> String? {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(el, attr as CFString, &ref) == .success else { return nil }
+            return (ref as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        var windowRef: CFTypeRef?
+        var window: String?
+        if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &windowRef) == .success, let w = windowRef,
+           CFGetTypeID(w) == AXUIElementGetTypeID() {
+            window = string(w as! AXUIElement, kAXTitleAttribute)
+        }
+        let label = string(element, kAXTitleAttribute) ?? string(element, kAXDescriptionAttribute)
+            ?? string(element, kAXPlaceholderValueAttribute)
+        let d = EditDestination(appName: NSRunningApplication(processIdentifier: pid)?.localizedName,
+                                windowTitle: window, fieldLabel: label)
+        return d.isEmpty ? nil : d
     }
 
     static func isSecure(_ element: AXUIElement) -> Bool {

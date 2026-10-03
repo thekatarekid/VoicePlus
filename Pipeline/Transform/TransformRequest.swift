@@ -92,6 +92,7 @@ public struct TransformRequest: Equatable, Sendable {
         s += "Return ONLY the rewritten selection — no tags, no quotes, no commentary, no preamble, no reasoning. "
         s += "Keep facts, names, numbers and links unchanged unless the instruction says otherwise. "
         s += "Keep the selection's language. Do not add line breaks unless the instruction asks for them. "
+        s += "<context kind=\"destination\"> only says where the text lives (app, window, field, surface): use it to fit tone and format. "
         s += "Match the destination register: \(register.rawValue)."
         if let persona { s += " Writing style: \(persona)." }
         return s
@@ -102,6 +103,10 @@ public struct TransformRequest: Equatable, Sendable {
     public var prompt: String {
         let ctx = Self.budgetedContext(before: selection.before, after: selection.after)
         var p = ""
+        // H15 — where the text lives (app, window, field, surface): labelled data, fenced.
+        if let d = selection.destination, !d.isEmpty {
+            p += "<context kind=\"destination\">\n\(Self.fenced(d.lines.joined(separator: "\n")))\n</context>\n\n"
+        }
         if !ctx.before.isEmpty { p += "<context position=\"before\">\n\(Self.fenced(ctx.before))\n</context>\n\n" }
         p += "<selection>\n\(Self.fenced(selection.text))\n</selection>\n\n"
         if !ctx.after.isEmpty { p += "<context position=\"after\">\n\(Self.fenced(ctx.after))\n</context>\n\n" }
@@ -138,8 +143,9 @@ public struct TransformRequest: Equatable, Sendable {
         return (b, a)
     }
 
+    /// H15 — a line break also ends a sentence (paragraphs without a final full stop).
     static func dropLeadingSentence(_ s: String) -> String {
-        if let r = s.range(of: #"[.!?]["')\]]?\s+"#, options: .regularExpression), r.upperBound < s.endIndex {
+        if let r = s.range(of: #"[.!?]["')\]]?\s+|\n+"#, options: .regularExpression), r.upperBound < s.endIndex {
             return String(s[r.upperBound...])
         }
         let parts = s.split(maxSplits: 1, whereSeparator: { $0 == " " || $0.isNewline })
@@ -147,12 +153,15 @@ public struct TransformRequest: Equatable, Sendable {
     }
 
     static func dropTrailingSentence(_ s: String) -> String {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only the trailing whitespace goes: the leading space after the selection is kept.
+        var t = Substring(s)
+        while let last = t.last, last.isWhitespace { t = t.dropLast() }
         let chars = Array(t)
         // The last sentence end ("." "!" "?") followed by whitespace, before the final character.
         var i = chars.count - 2
         while i >= 0 {
             if ".!?".contains(chars[i]), chars[i + 1].isWhitespace { return String(chars[...i]) }
+            if chars[i + 1].isNewline, !chars[i].isNewline { return String(chars[...i]) }
             i -= 1
         }
         if let sp = t.lastIndex(where: { $0 == " " || $0.isNewline }) { return String(t[..<sp]) }
