@@ -68,7 +68,7 @@ if MeetingsMCPStdio.requested(CommandLine.arguments) {
 }
 
 // T-replay (debug-only, never injects): `VoicePlusApp --replay <wav|dir|stamp|HH:MM:SS|turn-id>
-// [--surface kind] [--app bundle-id] [--json out.jsonl]`. See App/Debug/ReplayHarness.swift.
+// [--surface kind] [--app bundle-id] [--near text] [--json out.jsonl]`. See App/Debug/ReplayHarness.swift.
 if let replay = ReplayCLI.parse(CommandLine.arguments) {
     let done = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var result: Int32 = 1

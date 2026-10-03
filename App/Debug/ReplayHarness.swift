@@ -162,7 +162,9 @@ public final class ReplayRunner: @unchecked Sendable {
     }
 
     /// One recording through final pass → boost → channels → pipeline. Never injects.
-    public func run(samples: [Float], source: String, surface: ReplaySurface) async -> ReplayReport {
+    /// `near`: the field text before the caret at key-down (H19 repair evidence; `--near`). Offline
+    /// replay has no screen reader, so without it the context repair stage has nothing to hear with.
+    public func run(samples: [Float], source: String, surface: ReplaySurface, near: String? = nil) async -> ReplayReport {
         var report = ReplayReport(source: source, surface: surface.kind, appBundleID: surface.field.appBundleID,
                                   seconds: Double(samples.count) / 16_000, rawText: "", boostedText: "", swaps: [],
                                   detectedTerms: [], channels: .init(boost: [], spell: [], cleanup: nil),
@@ -191,6 +193,11 @@ public final class ReplayRunner: @unchecked Sendable {
             // 3. Context channels, in the lander's order: decorate → cleanup context → field last.
             var ctx = decorate(StageContext(register: .unknown, appBundleID: surface.field.appBundleID))
             cleanupContext?(&ctx)
+            if let near, !near.isEmpty {
+                TurnSurfaceContext.installRepairPhonetics
+                let caret = TurnSurfaceContext.NearCaretContext(before: near, after: "", surfaceKind: surface.field.surface.kind)
+                TurnSurfaceContext.repairEvidence(caret)?.write(into: &ctx)
+            }
             FieldRolePipeline.write(surface.field, into: &ctx)
             report.channels.spell = Personalisation.read(from: ctx).dictionary
             report.channels.cleanup = ctx.extra[ContextPromptKeys.prompt]
@@ -281,6 +288,8 @@ public enum ReplayCLI {
         public var surface: String = "prose"
         public var app: String?
         public var json: String?
+        /// H19 — near-caret text for the context repair stage (`--near "text before the caret"`).
+        public var near: String?
     }
 
     public static func parse(_ args: [String]) -> Options? {
@@ -293,10 +302,11 @@ public enum ReplayCLI {
         if let s = value("--surface") { o.surface = s }
         o.app = value("--app")
         o.json = value("--json")
+        o.near = value("--near")
         return o
     }
 
-    static let usage = "usage: VoicePlusApp --replay <wav|dir|stamp|HH:MM:SS|turn-id> [--surface \(ReplaySurface.kinds.joined(separator: "|"))] [--app bundle-id] [--json out.jsonl]"
+    static let usage = "usage: VoicePlusApp --replay <wav|dir|stamp|HH:MM:SS|turn-id> [--surface \(ReplaySurface.kinds.joined(separator: "|"))] [--app bundle-id] [--near text] [--json out.jsonl]"
 
     /// Exit code: 0 ok, 2 bad arguments / nothing found, 3 no speech model.
     public static func run(_ o: Options) async -> Int32 {
@@ -314,7 +324,7 @@ public enum ReplayCLI {
             let report: ReplayReport
             do {
                 let samples = try SampleAudioSource.load16k(url: url)
-                report = await runner.run(samples: samples, source: url.lastPathComponent, surface: surface)
+                report = await runner.run(samples: samples, source: url.lastPathComponent, surface: surface, near: o.near)
             } catch {
                 report = ReplayReport(source: url.lastPathComponent, surface: surface.kind, appBundleID: surface.field.appBundleID,
                                       seconds: 0, rawText: "", boostedText: "", swaps: [], detectedTerms: [],
