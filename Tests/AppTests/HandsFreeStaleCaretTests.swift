@@ -16,6 +16,7 @@ struct HandsFreeStaleCaretTests {
     @Test("a stale AX reading after our landing: the next piece joins with a space, a capital and its stop")
     func staleReadingJoinsOntoOurLanding() async {
         let mock = C.mock(MockSystemAccess.Field(role: "AXTextArea", value: ""))
+        mock.runtimeByPID[100] = .electron
         let reader = FieldContextReader(system: mock)
         let lander = C.lander(mock, reader: reader)
         let first = await lander.land(C.words("Finish dictation is not landing the text."), startedAt: Date(), focus: mock.frontmost)
@@ -28,9 +29,21 @@ struct HandsFreeStaleCaretTests {
         #expect(second.text == " Pausing while I speak is landing the text in some cases.", "\(second.text)")
     }
 
+    @Test("a native text view's AX reading is never second-guessed")
+    func nativeReadingStands() async {
+        let mock = C.mock(MockSystemAccess.Field(role: "AXTextArea", value: ""))
+        let reader = FieldContextReader(system: mock)
+        let lander = C.lander(mock, reader: reader)
+        _ = await lander.land(C.words("Finish dictation is not landing the text."), startedAt: Date(), focus: mock.frontmost)
+        mock.field = MockSystemAccess.Field(role: "AXTextArea", value: "", selection: 0..<0)
+        _ = await lander.land(C.words("Next."), startedAt: Date(), focus: mock.frontmost)
+        #expect(reader.lastReading?.rung == .selectedRange)
+    }
+
     @Test("an AX reading that shows our landing is used as it is")
     func freshReadingStands() async {
         let mock = C.mock(MockSystemAccess.Field(role: "AXTextArea", value: ""))
+        mock.runtimeByPID[100] = .electron
         let reader = FieldContextReader(system: mock)
         let lander = C.lander(mock, reader: reader)
         _ = await lander.land(C.words("Send the report."), startedAt: Date(), focus: mock.frontmost)

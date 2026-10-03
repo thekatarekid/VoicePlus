@@ -209,7 +209,10 @@ public final class FieldContextReader: @unchecked Sendable {
             // has touched it since, yet the AX value/range does not show it before the caret yet
             // (Claude / Electron refresh AX after a keystroke write lazily). That reading is stale:
             // join onto what we typed instead, or the next piece loses its space, capital and stop.
-            if let element = LandedElement(focus: frontmost, role: info.role),
+            // Web content only: a native text view's AX is current the moment the write returns.
+            if let focus = frontmost, !OwnProcess.owns(focus),
+               (system as? AppRuntimeReading)?.appRuntime(pid: focus.pid).isWebContent == true,
+               let element = LandedElement(focus: focus, role: info.role),
                let remembered = landingMemory.caret(for: element),
                Self.readingMissesLanding(caret, landed: landingMemory.last?.text) {
                 capabilities.note(bundleID: bundle, rung: .landingMemory, answered: true)
