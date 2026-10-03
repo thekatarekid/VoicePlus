@@ -642,3 +642,23 @@ Turn **9B8EA8CB** (13:51:08 IST, Claude desktop, surface chatComposer at 1.00). 
   - Web pages: browser icon + browser name, and the real site favicon + tab title (not the URL).
 - **fn + another key:** awaiting the owner's answer to the clarified question.
 - **LLM pass on every dictation:** awaiting the owner's decision (see chat).
+
+## Owner decisions (round 4)
+- **LLM modes (four, independent):**
+  1. Fast path only (default ON).
+  2. Per-app Polish (setting, default OFF).
+  3. Automatic polish when unsure (setting, default OFF).
+  4. LLM on every dictation, adds ~1–2.5 s (setting, default OFF).
+- **Hotkey moves from fn to Option (left or right):**
+  - Hold Option → hold-to-talk. Double-tap Option → hands-free.
+  - All fn tap/hold rules carry over: tap < 250 ms; ≤ 0.8 s counts as a tap while the notch is visible; < 0.6 s silent → vanish.
+  - Option + any other key, mouse click or scroll → cancel silently and pass the combo through untouched.
+  - Audio is buffered from key-down; the notch shows after ~300 ms with no other input.
+- **Override Claude's double-tap Option (feasibility checked, read-only):**
+  - Claude detects it with an NSEvent global monitor (`swift_addon.node` HotkeyListener, setting `quickEntryShortcut`, default `double-tap-option`).
+  - VoicePlus switches to an active CGEventTap (Accessibility is already granted). It lets the first tap through, drops the second press+release within 350 ms of a clean tap, and latches hands-free. Claude then sees only a single tap.
+  - If a key or mouse event arrives during that second press, re-post it marked as VoicePlus's own.
+  - Re-enable the tap on `kCGEventTapDisabledByTimeout`.
+  - Fallback: a one-time notice pointing to Claude › Settings › General › Quick access shortcut.
+  - Fix the per-side Option bug: test `NX_DEVICELALTKEYMASK`/`NX_DEVICERALTKEYMASK` (0x20/0x40), not the shared Option flag.
+  - Needs a live check: tap re-enable, Secure Input, Claude's Option+Space setting.
