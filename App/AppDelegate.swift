@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var capabilityWatcher: CapabilityWatcher?
     private var container: AppContainer?
     private var transformPill: TransformPillDriver?
+    /// X5 — the notch's one-time rewrite-model download offer.
+    private var modelOffer: RewriteModelNotchOffer?
     /// R2.4 — delivery rows on the pill plus the held-text queue the menu recovers from.
     private var deliveryPill: DeliveryPillDriver?
     /// N7 verify — ends the turn context on every turn end (cancel and empty included).
@@ -329,7 +331,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // P2.3 — transform pill (tint, "editing N words", ghost, 8 s warm window).
         let transformPill = TransformPillDriver(pill: pill.model, warmWindow: container.transform.session.warmWindow)
-        container.transform.onEvent = { [weak transformPill] e in Task { @MainActor in transformPill?.handle(e) } }
+        // X5 — the one-time rewrite-model Download on the notch (onboarding skipped → first rewrite).
+        let modelOffer = RewriteModelNotchOffer(pill: pill.model, driver: transformPill)
+        modelOffer.observe()
+        self.modelOffer = modelOffer
+        container.transform.onEvent = { [weak transformPill, weak modelOffer] e in
+            Task { @MainActor in
+                transformPill?.handle(e)
+                modelOffer?.sync()
+            }
+        }
         transformPill.onAction = { [weak container] action in
             guard let container else { return }
             switch action {

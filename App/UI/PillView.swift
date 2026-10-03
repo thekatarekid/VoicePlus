@@ -118,6 +118,11 @@ public final class PillViewModel: ObservableObject {
     @Published public var latched = false {
         didSet { if !latched { turn.latchElapsed = nil } }
     }
+    /// X5 — the transform notice ("Needs the on-device model · Saved to Notes") carries the one-time
+    /// Download button (`TransformPillDriver.offersDownload`, mirrored by `RewriteModelNotchOffer`).
+    @Published public var transformOffersDownload = false
+    /// X5 — Download on that row; wired to `TransformPillDriver.perform(.downloadModel)`.
+    public var onDownloadModel: (() -> Void)?
     /// P2.3 — transform ghost + morph; the ghost's Undo is the design's undo row action.
     @Published public var ghost: TransformGhost?
     @Published public var morph: MorphAnimationModel?
@@ -661,6 +666,10 @@ public final class PillViewModel: ObservableObject {
     public func content(at date: Date? = nil) -> PillContent {
         var result = PillContent.make(state, context: context(at: date)).drawingTransform(drawnTransformRows)
         if let piece = latchedPieceFace(over: result, at: date) { return piece }
+        if transformOffersDownload, case .transform(let info) = state, case .notice = info.stage,
+           !result.buttons.contains(where: { $0.action == .models }) {
+            result.buttons.append(PillButton(RewriteModelNotchOffer.downloadLabel, .models, primary: true))
+        }
         if requiresExplicitCaptureFinish(), MenuCapturePillWiring.canFinish(state, captureOpen: turn.captureOpen) {
             result.helper = "Click Finish to stop dictation"
             if !result.buttons.contains(where: { $0.action == .finish }) {
@@ -731,6 +740,10 @@ public final class PillViewModel: ObservableObject {
         let shown = state
         if case .held(let info) = shown, let held = action.heldAction {
             onHeldAction?(info, held)
+            return
+        }
+        if case .transform = shown, action == .models, transformOffersDownload, let onDownloadModel {
+            onDownloadModel()
             return
         }
         if case .transform = shown, action == .undo, onGhostAction != nil {
