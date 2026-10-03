@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Engine
 import Foundation
+import Providers
 import Shared
 
 // MARK: - Permissions (independent of App/Core so P1.1 can rewrite it freely)
@@ -432,6 +433,12 @@ public struct OnboardingDependencies {
     public var openKeyboardSettings: () -> Void
     /// V5 LANG1 — where the Languages step's prefill comes from (preferred languages + input sources).
     public var languageEnvironment: LanguageEnvironment = LiveLanguageEnvironment()
+    /// X5 — the rewrite models (Qwen3.5-2B / 4B) offered on the Rewrite-model step. Nil = the step
+    /// cannot download (tests, the self-test); the live wiring sets `EditModels.manager`.
+    public var rewriteModels: (any LocalModelManaging)?
+    /// X5 — remembers "picked in onboarding" / "skipped" for the notch's one-time offer. In memory
+    /// by default; the live wiring uses the persisted `EditModels.offerPolicy`.
+    public var rewriteOffer = ModelOfferPolicy(store: .inMemory())
 
     public init(permissions: OnboardingPermissionChecking, micLevel: MicLevelPublishing, models: ModelManaging,
                 engine: EngineProtocol, database: AppDatabase?, flags: FeatureFlagService,

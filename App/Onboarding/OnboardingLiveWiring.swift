@@ -1,6 +1,7 @@
 import Combine
 import Engine
 import Foundation
+import Providers
 import Shared
 
 /// S8 — the composition root's half of onboarding: what only the running app can answer. Called by
@@ -11,6 +12,9 @@ extension OnboardingDependencies {
     mutating func wireLive(container: AppContainer, hotkey: HotkeyService, keyEvents: DictationKeyEvents,
                            makeEnrollment: @escaping @MainActor () -> SpeakerEnrollmentViewModel?) {
         self.keyEvents = keyEvents
+        // X5 — the Rewrite-model step downloads through the app's one manager, choice persisted.
+        self.rewriteModels = EditModels.manager
+        self.rewriteOffer = EditModels.offerPolicy
         // I1 — the live service's binding, its own fn reading, and its rebind (which re-arms).
         self.dictationKey = { [weak hotkey] in hotkey?.binding.kind ?? HotkeyService.defaultBinding.kind }
         self.setDictationKey = { [weak hotkey] kind in hotkey?.setBinding(kind) }

@@ -71,9 +71,25 @@ public enum OnboardingCopy {
     /// "Setup · 3 of 7" — the prototype's eyebrow over the progress bar, counting the owner's step.
     public static func eyebrow(step: Int, of count: Int) -> String { "Setup · \(step) of \(count)" }
 
+    // MARK: X5 — Rewrite-model step (owner decision, round 3)
+
+    public static let rewriteHeading = "Rewrite with a model on this Mac"
+    public static let rewriteBody = "Say \u{201C}make this formal\u{201D} or \u{201C}shorten this\u{201D} with text selected. Pick a model to download. It runs offline, with no account or key. You can change or delete it in Settings."
+    public static let rewriteSkip = "Skip for now"
+    public static let rewriteSmallTitle = "Qwen3.5-2B · faster"
+    public static let rewriteLargeTitle = "Qwen3.5-4B · better rewrites"
+    public static let rewriteRecommended = "Recommended for this Mac"
+    public static let rewriteLargeNote = "Best with 24 GB of memory or more."
+    public static let rewriteDownloading = "Downloading in the background. You can carry on."
+
     // MARK: Rendered for this Mac
 
-    /// A step's copy with the configured key named. `key` is `HotkeyBinding.label` ("fn / 🌐").
+    /// Round 4 — the hands-free gesture on the Option key.
+    public static func handsFreeHint(_ key: String) -> String { "Double-tap \(key) for hands-free." }
+    static func isOptionKey(_ key: String) -> Bool { (key.contains("Option") || key.contains("⌥")) && !key.contains("+") }
+
+    /// A step's copy with the configured key named. `key` is `HotkeyBinding.label` ("Option", or
+    /// whichever key the user bound).
     public static func copy(for step: OnboardingStateMachine.Step, key: String) -> StepCopy {
         let row: StepCopy
         switch step {
@@ -87,10 +103,14 @@ public enum OnboardingCopy {
         case .firstDictation: row = prototypeTry
         case .languages: row = StepCopy(heading: languagesHeading, body: languagesBody, action: continueTitle)
         case .voice: row = StepCopy(heading: voiceSubtitle, body: voiceEmptyBody, action: voiceEmptyAction)
+        case .rewriteModel: row = StepCopy(heading: rewriteHeading, body: rewriteBody, action: continueTitle)
         case .done: row = prototypeReady
         }
+        var body = PillState.withHotkey(row.body, key: key)
+        // Owner decision (round 4): Option is the dictation key; hold to talk, double-tap for hands-free.
+        if step == .firstDictation, isOptionKey(key) { body += " " + handsFreeHint(key) }
         return StepCopy(heading: PillState.withHotkey(row.heading, key: key),
-                        body: PillState.withHotkey(row.body, key: key),
+                        body: body,
                         action: PillState.withHotkey(row.action, key: key))
     }
 

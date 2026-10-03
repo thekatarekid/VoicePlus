@@ -943,14 +943,14 @@ struct OnboardingS8StateMachineTests {
     // MARK: The steps
 
     @Test func eightStepsInTheDesignsOrderWithTheOwnersVoiceAndLanguagesSteps() {
-        #expect(M.Step.allCases == [.welcome, .microphone, .accessibility, .model, .firstDictation, .languages, .voice, .done])
-        #expect(M.stepCount == 8)
+        #expect(M.Step.allCases == [.welcome, .microphone, .accessibility, .model, .firstDictation, .languages, .voice, .rewriteModel, .done])
+        #expect(M.stepCount == 9)
         var m = M()
         #expect(m.stepNumber == 1)
-        #expect(abs(m.progress - 1.0 / 8) < 1e-9, "the prototype's bar already shows the first segment")
+        #expect(abs(m.progress - 1.0 / 9) < 1e-9, "the prototype's bar already shows the first segment")
         m.handle(.skip)
         #expect(m.stepNumber == 2)
-        #expect(OnboardingCopy.eyebrow(step: m.stepNumber, of: M.stepCount) == "Setup · 2 of 8")
+        #expect(OnboardingCopy.eyebrow(step: m.stepNumber, of: M.stepCount) == "Setup · 2 of 9")
     }
 
     @Test func voiceComesAfterTryDictationAndLanguagesAndBeforeReady() {

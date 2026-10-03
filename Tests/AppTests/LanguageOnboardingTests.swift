@@ -20,8 +20,8 @@ import Testing
     static let prefs = LanguagePreferences(languages: ["en", "hi"], scriptByLanguage: ["hi": .mixed], spelling: .enIN)
 
     @Test func stepOrderPutsLanguagesBetweenTryAndVoice() {
-        #expect(M.Step.allCases == [.welcome, .microphone, .accessibility, .model, .firstDictation, .languages, .voice, .done])
-        #expect(M.stepCount == 8)
+        #expect(M.Step.allCases == [.welcome, .microphone, .accessibility, .model, .firstDictation, .languages, .voice, .rewriteModel, .done])
+        #expect(M.stepCount == 9)
     }
 
     @Test func continueFromTryLandsOnLanguagesAndAsksForThePrefill() {

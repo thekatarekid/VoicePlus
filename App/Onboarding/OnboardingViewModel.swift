@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Engine
 import Foundation
+import Providers
 import Shared
 
 /// Drives `OnboardingStateMachine` with real side effects from `OnboardingDependencies`.
@@ -101,7 +102,8 @@ public final class OnboardingViewModel: ObservableObject {
         machine = OnboardingStateMachine(initialStatuses: initial, alreadyRequested: requested,
                                          permissionOrder: OnboardingPermission.order(hotkeyRequires: dependencies.hotkeyRequiresPermission),
                                          voiceEnrolled: dependencies.isVoiceEnrolled(),
-                                         languagesConfirmed: LanguagePreferences.load(dependencies.settingsStore) != nil)
+                                         languagesConfirmed: LanguagePreferences.load(dependencies.settingsStore) != nil,
+                                         rewriteModelResolved: Self.rewriteModelResolved(dependencies))
         contactsOffer = ContactsImportOffer(store: dependencies.contacts, database: dependencies.database,
                                             settings: dependencies.settingsStore)
         observeAppActivation()
@@ -412,7 +414,21 @@ public final class OnboardingViewModel: ObservableObject {
                                                inputSourceLanguages: env.inputSourceLanguages)))
         case .saveLanguages(let prefs):
             prefs.save(to: deps.settingsStore)
+        case .downloadRewriteModel(let id):
+            // X5 — the download keeps running after onboarding closes; Settings shows its progress.
+            deps.rewriteOffer.recordOnboardingChoice()
+            if let manager = deps.rewriteModels { Task { await manager.download(id) } }
+        case .recordRewriteModelSkipped:
+            deps.rewriteOffer.recordOnboardingSkipped()
         }
+    }
+
+    /// X5 — the Rewrite-model step has nothing to ask when a model is already on disk or the choice
+    /// was made on an earlier run (picked, skipped, or already offered in the notch).
+    static func rewriteModelResolved(_ deps: OnboardingDependencies) -> Bool {
+        guard let manager = deps.rewriteModels else { return true }   // nothing could download here
+        if manager.activeModel != nil { return true }
+        return deps.rewriteOffer.stage != .undecided
     }
 
     // MARK: S8 — Model load

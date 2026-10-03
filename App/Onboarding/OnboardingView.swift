@@ -42,6 +42,7 @@ public struct OnboardingView: View {
                     case .firstDictation: firstDictation
                     case .languages: OnboardingLanguagesStep(model: model)
                     case .voice: voiceStep
+                    case .rewriteModel: OnboardingRewriteModelStep(model: model)
                     case .done: done
                     }
                 }
@@ -958,6 +959,13 @@ public struct OnboardingView: View {
                     Button(OnboardingCopy.continueTitle) { model.send(.next) }.keyboardShortcut(.defaultAction)
                 } else {
                     Button(OnboardingCopy.voiceSkip) { model.send(.skip) }
+                }
+            case .rewriteModel:
+                if model.machine.rewriteModelPick == nil {
+                    Button(OnboardingCopy.rewriteSkip) { model.send(.skip) }
+                        .accessibilityIdentifier("onboarding.rewriteModel.skip")
+                } else {
+                    Button(OnboardingCopy.continueTitle) { model.send(.next) }.keyboardShortcut(.defaultAction)
                 }
             case .done:
                 Button(copy(.done).action) { model.openVoicePlus() }.keyboardShortcut(.defaultAction)

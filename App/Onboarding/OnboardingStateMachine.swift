@@ -30,7 +30,7 @@ import Foundation
 /// (`resume(at:)`).
 public struct OnboardingStateMachine: Equatable, Sendable {
     public enum Step: String, Equatable, Sendable, CaseIterable {
-        case welcome, microphone, accessibility, model, firstDictation, languages, voice, done
+        case welcome, microphone, accessibility, model, firstDictation, languages, voice, rewriteModel, done
     }
 
     /// Where loading the installed stack into memory has got to. "Ready" is only ever said on
@@ -271,6 +271,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case voiceEnrollmentUnavailable
         case voiceEnrolled(filtering: Bool)
         case cancelVoiceEnrollment
+
+        // MARK: Rewrite-model step (X5, owner decision round 3)
+        /// The user picked Qwen3.5-2B or 4B to download (the download runs in the background).
+        case pickRewriteModel(String)
     }
 
     public enum SideEffect: Equatable, Sendable {
@@ -308,6 +312,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case prefillLanguages
         /// V5 LANG1 — persist the answer (`SettingsKeys.languages` / `.scriptByLanguage` / `.spellingVariant`).
         case saveLanguages(LanguagePreferences)
+        /// X5 — start downloading the picked rewrite model and remember the choice.
+        case downloadRewriteModel(String)
+        /// X5 — the rewrite-model step was skipped: offer once in the notch later.
+        case recordRewriteModelSkipped
     }
 
     public private(set) var step: Step = .welcome
@@ -362,6 +370,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     /// V5 LANG1 — the selection on screen (nil until prefilled) and whether it has been saved.
     public private(set) var languageChoice: LanguagePreferences?
     public private(set) var languagesConfirmed = false
+    /// X5 — the rewrite model picked on this run (nil = none picked yet / skipped).
+    public private(set) var rewriteModelPick: String?
+    /// X5 — the step has nothing to ask: a model is on disk or the choice was made on an earlier run.
+    public private(set) var rewriteModelResolved = false
 
     // MARK: S8 — derived state
 
@@ -388,7 +400,7 @@ public struct OnboardingStateMachine: Equatable, Sendable {
     public var needsModelLoad: Bool {
         guard stackInstalled, modelLoad == .notLoaded else { return false }
         switch step {
-        case .model, .firstDictation, .languages, .voice, .done: return true
+        case .model, .firstDictation, .languages, .voice, .rewriteModel, .done: return true
         case .welcome, .microphone, .accessibility: return false
         }
     }
@@ -489,7 +501,11 @@ public struct OnboardingStateMachine: Equatable, Sendable {
                 alreadyRequested: Set<OnboardingPermission> = [],
                 permissionOrder: [OnboardingPermission] = OnboardingPermission.baselineOrder,
                 voiceEnrolled: Bool = false,
-                languagesConfirmed: Bool = false) {
+                languagesConfirmed: Bool = false,
+                // X5 — true (the step passes through) unless the caller has a model manager and the
+                // user has not chosen yet; the view model decides from its dependencies.
+                rewriteModelResolved: Bool = true) {
+        self.rewriteModelResolved = rewriteModelResolved
         statuses = initialStatuses
         requestedPermissions = alreadyRequested
         self.permissionOrder = permissionOrder
@@ -512,14 +528,14 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             while permissionIndex < permissionOrder.count, statuses[permissionOrder[permissionIndex]] == .granted {
                 permissionIndex += 1
             }
-        case .model, .firstDictation, .languages, .voice:
+        case .model, .firstDictation, .languages, .voice, .rewriteModel:
             permissionIndex = permissionOrder.count
         case .welcome, .microphone, .done:
             break
         }
         // A voice enrolled since (in Voice) would fall straight through to Ready and finish setup
         // the instant the window opened; resuming lands on the step and lets Continue finish it.
-        return enter(target, fallThroughIfResolved: target != .voice && target != .languages)
+        return enter(target, fallThroughIfResolved: target != .voice && target != .languages && target != .rewriteModel)
     }
 
     /// The permission in focus, or nil once this step's own share of the walk is resolved (granted
@@ -790,6 +806,14 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case (.voice, .next):
             // Continue without a profile is the same choice as Skip: passive enrollment takes over.
             if !voice.isEnrolled { skippedSteps.insert(.voice) }
+            return enter(.rewriteModel)
+
+        case (.rewriteModel, .pickRewriteModel(let id)):
+            rewriteModelPick = id
+            return [.downloadRewriteModel(id)]
+        case (.rewriteModel, .next):
+            // Continue with nothing picked is the same choice as Skip.
+            if rewriteModelPick == nil { return [.recordRewriteModelSkipped] + enter(.done) }
             return enter(.done)
 
         // A result or refresh about a permission that is not the one this screen is focused on
@@ -882,7 +906,7 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             if languagesConfirmed, fallThroughIfResolved { return effects + enter(.voice) }
             if languageChoice == nil { effects.append(.prefillLanguages) }
         case .voice:
-            if voice.isEnrolled, fallThroughIfResolved { return effects + enter(.done) }
+            if voice.isEnrolled, fallThroughIfResolved { return effects + enter(.rewriteModel) }
             if voice == .unavailable { voice = .notEnrolled }
         case .firstDictation:
             // Readiness first: the screen must know which recogniser it is about to offer before it
@@ -890,6 +914,8 @@ public struct OnboardingStateMachine: Equatable, Sendable {
             dictation = nil
             effects.append(.checkRecognizerReadiness)
             effects.append(.beginGuidedDictation)
+        case .rewriteModel:
+            if rewriteModelResolved, fallThroughIfResolved { return effects + enter(.done) }
         case .done:
             effects.append(.finish(skipped: !skippedSteps.isEmpty))
         case .welcome: break
@@ -976,7 +1002,10 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .model: skippedSteps.insert(step); return enter(.firstDictation)
         case .firstDictation: skippedSteps.insert(step); return enter(.languages)
         case .languages: skippedSteps.insert(step); return enter(.voice)
-        case .voice, .done: skippedSteps.insert(step); return enter(.done)
+        case .voice: skippedSteps.insert(step); return enter(.rewriteModel)
+        // Optional download: skipping it does not count as an unfinished setup.
+        case .rewriteModel: return (rewriteModelPick == nil ? [.recordRewriteModelSkipped] : []) + enter(.done)
+        case .done: skippedSteps.insert(step); return enter(.done)
         }
     }
 
@@ -991,6 +1020,7 @@ public struct OnboardingStateMachine: Equatable, Sendable {
         case .firstDictation: return enter(.model, fallThroughIfResolved: false)
         case .languages: return enter(.firstDictation, fallThroughIfResolved: false)
         case .voice: return enter(.languages, fallThroughIfResolved: false)
+        case .rewriteModel: return enter(.voice, fallThroughIfResolved: false)
         }
     }
 
