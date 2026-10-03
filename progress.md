@@ -1985,3 +1985,10 @@ Initial checkpoint (superseded by the dated entries below):
 - **Full suite:** `--no-parallel`, .build-v8a: 5263 passed, 0 failed, 342 s (after two crashing runs fixed above).
 - **Owner action:** after installing, pick fn / 🌐 once in Settings (shows Option first — that is what is bound now); `defaults read in.adityakatare.voiceplus hotkeyBinding` → fn.
 - **Live check needed:** real Option tap off under fn (Accessibility); notch pill + ribbon after creating/removing a Space or connecting AirPlay; a hands-free pill already showing during a re-layout is not re-asserted; one spurious `rebuilding` warning per re-layout.
+
+## 2026-10-04 — H-fixes installer 1.15.2 (supersedes 1.15.1)
+- `Packaging/releases/VoicePlus_H-fixes_1.15.2.dmg`, 779 MB (817,709,498 bytes), SHA256 `1f1077f901f0f9860c1cd2ecf1fda883fa0c163e105aecdc470e70f52eedf0a2`. `FULL_INSTALLER=1 BUNDLE_MODELS_FROM=<1.15.1 DMG Models, read-only mount> Packaging/release.sh H-fixes 1.15.2 --no-github`.
+- Built from a clean tree at 2d8abad (hotkey 83c4e52/11dc7bf, notch f3f7aa6/5ed15e3, gate fixes), tag `release/H-fixes/v1.15.2`.
+- `FULL_INSTALLER=1 verify_install.sh` **OK** (model inference, CTC present, 1.15.2, 9 TCC strings, self-contained, headless launch of temp copy; running pid 88893 left alone).
+- Not installed to /Applications; running app untouched; appcast/cask/notes reverted; `.build-v8*` reclaimed.
+- Not verified: real dictation with this build, Option silent under fn on a live system, notch pill after a Space re-layout.
