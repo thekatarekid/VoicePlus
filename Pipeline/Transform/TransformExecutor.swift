@@ -26,6 +26,9 @@ public struct TransformResult: Equatable, Sendable {
     public var commandID: String = EditCommandCatalog.freeForm.id
     /// H7 — what a deterministic command does (nil for model / rule rewrites).
     public var action: EditCommandAction?
+    /// H14 — the result has line breaks the selection did not: the landing previews it for review
+    /// instead of writing on the timed dwell.
+    public var addsLineBreaks: Bool = false
     /// The replace-range request to hand to the injector (P1.8 T5).
     public var replace: TransformReplaceRequest {
         TransformReplaceRequest(range: request.selection.range, expected: request.selection.text, replacement: output,
@@ -42,6 +45,42 @@ public enum TransformError: Error, Equatable, Sendable {
     /// provider, no on-device model, and the deterministic rules could not do it. The selection is
     /// untouched; the landing saves the words to Notes and may offer the download once.
     case needsModel
+    /// H14 — the model route refused this edit with a plain message (selection over ~1,000 words,
+    /// not enough memory right now). Nothing was written; the selection is untouched.
+    case refused(String)
+}
+
+/// H14 — an error a model route throws to refuse an edit outright (the rules must not run in its
+/// place). Conformed to by the Providers refusals in the app (`TransformRefusalConformances`).
+public protocol TransformRefusing: Error {
+    var refusalMessage: String { get }
+}
+
+/// H14 — what a model's edit output may be (executor side; covers pinned providers too).
+public enum TransformOutputCheck {
+    public enum Verdict: Equatable, Sendable {
+        case accepted(String, addsLineBreaks: Bool)
+        case empty, preamble, tooLong
+    }
+
+    static let preambles = ["sure", "here is", "here's", "here are", "certainly", "of course", "okay, here", "ok, here",
+                            "absolutely", "i've rewritten", "i have rewritten", "below is", "rewritten text:", "as an ai"]
+
+    /// A few-word selection may still grow into a sentence or two ("expand this"): 3× applies above
+    /// this many characters (≈ the 64-token output floor of the budget).
+    public static let shortSelectionFloor = 160
+
+    /// Clean (think blocks, fences, wrappers), then reject empty / a chatty preamble the selection did
+    /// not itself start with / more than 3× the selection's length.
+    public static func check(output raw: String, selection: String) -> Verdict {
+        let out = TransformExecutor.clean(raw)
+        if out.isEmpty { return .empty }
+        let lower = out.lowercased(), selLower = selection.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if preambles.contains(where: { lower.hasPrefix($0) && !selLower.hasPrefix($0) }) { return .preamble }
+        if out.count > max(3 * selection.count, shortSelectionFloor) { return .tooLong }
+        let newLines = out.filter(\.isNewline).count, oldLines = selection.filter(\.isNewline).count
+        return .accepted(out, addsLineBreaks: newLines > oldLines)
+    }
 }
 
 /// P2.2 — runs a `TransformRequest` through the provider hook (Providers routing, wired by the
@@ -83,17 +122,31 @@ public struct TransformExecutor: Sendable {
             return r
         }
 
+        // H13 — the full prompt travels in PromptBuilder's override keys (system + fenced user turn),
+        // so whichever route answers (pinned provider → on-device model) sees instruction, selection
+        // and context. `transform.system` stays for older readers.
         var stageContext = context
         stageContext.extra[TransformPreference.contextKey] = TransformPreference.from(context).rawValue
         stageContext.extra["transform.kind"] = request.kind.rawValue
         stageContext.extra["transform.system"] = request.systemPrompt
+        stageContext.extra[TransformRequest.systemOverrideKey] = request.systemPrompt
+        stageContext.extra[TransformRequest.userOverrideKey] = request.prompt
 
         var source = TransformResult.Source.local
         var text = ""
+        var addsLineBreaks = false
         let modelAvailable = providers.isProviderEnabled(for: id, context: stageContext)
         if modelAvailable {
-            if let out = try? await providers.complete(stage: id, prompt: request.prompt, input: request.selection.text, context: stageContext) {
-                text = Self.clean(out); source = .provider
+            do {
+                let out = try await providers.complete(stage: id, prompt: request.prompt, input: request.selection.text, context: stageContext)
+                // H14 — empty / preamble / > 3× output is rejected: the rules run instead.
+                if case .accepted(let t, let breaks) = TransformOutputCheck.check(output: out, selection: request.selection.text) {
+                    text = t; addsLineBreaks = breaks; source = .provider
+                }
+            } catch let refusal as TransformRefusing {
+                throw TransformError.refused(refusal.refusalMessage)
+            } catch {
+                // The route failed (unavailable, network): the deterministic rules below.
             }
         }
         if text.isEmpty {
@@ -110,13 +163,19 @@ public struct TransformExecutor: Sendable {
         var result = TransformResult(request: request, output: text,
                                      instructionSpans: request.instruction.map { $0.isLowConfidence ? $0.flaggedForRepair(by: id) : $0.touched(by: id) },
                                      diff: WordDiff.compute(old: request.selection.text, new: text), source: source, latencyMs: ms)
+        result.addsLineBreaks = addsLineBreaks
         result.commandID = EditCommandCatalog.classify(request.instructionText, selection: request.selection.text, surface: surface).id
         return result
     }
 
-    /// Strip wrapper quotes / code fences / "Rewritten:" style preambles models add.
+    /// Strip reasoning (`<think>` blocks, H14), wrapper quotes / code fences / echoed `<selection>`
+    /// tags and "Rewritten:" style preambles models add.
     static func clean(_ raw: String) -> String {
-        var t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var t = stripThink(raw)
+        t = TransformRequest.unfenced(t).trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.lowercased().hasPrefix("<selection>"), t.lowercased().hasSuffix("</selection>") {
+            t = String(t.dropFirst("<selection>".count).dropLast("</selection>".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if t.hasPrefix("```"), t.hasSuffix("```") {
             t = t.dropFirst(3).dropLast(3).trimmingCharacters(in: .whitespacesAndNewlines)
             if let nl = t.firstIndex(of: "\n"), !t[..<nl].contains(" ") { t = String(t[t.index(after: nl)...]) }
@@ -128,6 +187,25 @@ public struct TransformExecutor: Sendable {
             t = String(t.dropFirst().dropLast())
         }
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// H14 — a Qwen think block is never part of the edit: `<think>…</think>` removed, an unclosed
+    /// `<think>` drops the rest, and a stray leading `</think>` (template-prefilled open tag) drops
+    /// everything before it.
+    static func stripThink(_ raw: String) -> String {
+        var t = raw
+        if let close = t.range(of: "</think>", options: .caseInsensitive),
+           t.range(of: "<think>", options: .caseInsensitive).map({ $0.lowerBound > close.lowerBound }) ?? true {
+            t = String(t[close.upperBound...])
+        }
+        while let open = t.range(of: "<think>", options: .caseInsensitive) {
+            if let close = t.range(of: "</think>", options: .caseInsensitive, range: open.upperBound..<t.endIndex) {
+                t.removeSubrange(open.lowerBound..<close.upperBound)
+            } else {
+                t.removeSubrange(open.lowerBound..<t.endIndex)
+            }
+        }
+        return t
     }
 }
 

@@ -102,7 +102,7 @@ struct TransformSuiteTests {
         #expect(request.kind == TransformKind(rawValue: category) ?? .general, "\(instr) inferred \(request.kind)")
         // Prompt carried selection, context and instruction; preference flag was forwarded.
         let call = try #require(provider.calls.first)
-        #expect(call.input == sel && call.prompt.contains("CONTEXT BEFORE:\nHi team, ") && call.prompt.hasSuffix("INSTRUCTION: \(instr)"))
+        #expect(call.input == sel && call.prompt.contains("<context position=\"before\">\nHi team, ") && call.prompt.hasSuffix("INSTRUCTION: \(instr)"))
         #expect(call.preference == "bestAvailable")
         #expect(request.systemPrompt.contains("short and warm") && request.systemPrompt.contains("email"))
         // Diff reconstructs both sides (morph animation has everything it needs).

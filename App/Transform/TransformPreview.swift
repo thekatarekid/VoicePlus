@@ -270,7 +270,7 @@ public struct TransformPreviewGate: Equatable, Sendable {
     }
 
     public private(set) var phase: Phase = .idle
-    public let dwell: TransformPreviewDwell
+    public private(set) var dwell: TransformPreviewDwell
     public private(set) var elapsed: TimeInterval = 0
     public private(set) var paused = false
     public private(set) var confirmed = false
@@ -280,6 +280,14 @@ public struct TransformPreviewGate: Equatable, Sendable {
     public mutating func begin() {
         phase = .editing
         elapsed = 0; paused = false; confirmed = false
+    }
+
+    /// H14 — this edit needs a look before it is written (a model result with new line breaks): the
+    /// preview always shows and stays at least the longest timed dwell (hover pauses it, Escape
+    /// cancels); manual review stays manual. Only before the preview shows.
+    public mutating func requireReview() {
+        guard phase == .editing, !dwell.manual else { return }
+        dwell = TransformPreviewDwell(seconds: max(dwell.seconds, TransformPreviewDwell.longestTimed.seconds))
     }
 
     /// The edit is ready: show it. Only from `editing`.

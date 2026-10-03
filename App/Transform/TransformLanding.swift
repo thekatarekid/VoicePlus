@@ -15,11 +15,19 @@ public final class InjectionTransformReplaceSink: TransformReplaceSink, @uncheck
     private enum Mode { case live, stage, discard }
 
     private let editor: ReplaceRangeEditor
+    private let system: SystemAccess
     private let lock = NSLock()
     private var mode: Mode = .live
     private var staged: TransformReplaceRequest?
+    /// H14 — the normal injector, for a multi-line edit the AX write would not land newline-safely
+    /// (web content, a terminal). `TransformLanding` installs its own.
+    public var injector: (any Injector)?
 
-    public init(system: SystemAccess) { editor = ReplaceRangeEditor(system: system) }
+    public init(system: SystemAccess, injector: (any Injector)? = nil) {
+        editor = ReplaceRangeEditor(system: system)
+        self.system = system
+        self.injector = injector
+    }
 
     public func replace(_ request: TransformReplaceRequest) -> TransformReplaceOutcome {
         lock.lock()
@@ -39,7 +47,26 @@ public final class InjectionTransformReplaceSink: TransformReplaceSink, @uncheck
                                                      selectResult: true)) {
         case .replaced(let v): return .replaced(verified: v)
         case .mismatch(let a): return .mismatch(actual: a)
+        case .unavailable(let r) where r == ReplaceRangeEditor.newlineUnsafeReason:
+            return writeThroughInjector(request)
         case .unavailable(let r): return .unavailable(reason: r)
+        }
+    }
+
+    /// H14 — a multi-line edit on a surface where Return may send: the range (already revalidated and
+    /// still matching) is selected and the normal injector types over it with the write plan's line
+    /// break (⇧↩, bracketed paste) — a newline never sends. Then the result is selected (H9).
+    private func writeThroughInjector(_ request: TransformReplaceRequest) -> TransformReplaceOutcome {
+        guard let injector else { return .unavailable(reason: ReplaceRangeEditor.newlineUnsafeReason) }
+        do { try system.setFocusedSelectedRange(request.range) } catch { return .unavailable(reason: "\(error)") }
+        switch injector.inject(InjectionRequest(text: request.replacement, utteranceID: nil, expectedFocus: nil)) {
+        case .injected(_, let verified):
+            let end = request.range.lowerBound + request.replacement.utf16.count
+            try? system.setFocusedSelectedRange(request.range.lowerBound..<end)
+            return .replaced(verified: verified)
+        case .refused(let why): return .unavailable(reason: "refused: \(why)")
+        case .abortedFocusChanged: return .unavailable(reason: "focus changed")
+        case .failed: return .unavailable(reason: "injector failed")
         }
     }
 
@@ -169,6 +196,7 @@ public final class TransformLanding: @unchecked Sendable {
 
     public init(session: TransformSession, detector: any SelectionDetecting, qa: QuestionAnswerStage, system: SystemAccess, injector: any Injector) {
         self.session = session; self.detector = detector; self.qa = qa; self.system = system; self.injector = injector
+        if let sink = session.sink as? InjectionTransformReplaceSink, sink.injector == nil { sink.injector = injector }
     }
 
     /// Bet 5: a selection is the only signal that turns an utterance into a transform/question.
@@ -341,6 +369,11 @@ public final class TransformLanding: @unchecked Sendable {
             sync { gate.cancel() }
             needsModel(spans, destination: destination)
             return .failed(.unavailable(reason: Self.needsModelReason))
+        } catch TransformError.refused(let message) {
+            // H14 — the model route refused (selection too long, not enough memory): say why.
+            sync { gate.cancel() }
+            onEvent?(.failed(message))
+            return .failed(.unavailable(reason: message))
         } catch {
             let why = Self.describe(error)
             sync { gate.cancel() }
@@ -367,7 +400,13 @@ public final class TransformLanding: @unchecked Sendable {
             }
             let p = TransformPreview(instruction: result.request.instructionText, before: result.request.selection.text,
                                      after: result.output, destination: destination)
-            let showing = sync { () -> Bool in preview = p; gate.showPreview(); return gate.phase == .previewing }
+            // H14 — a model result with new line breaks is previewed for the longest timed dwell.
+            let showing = sync { () -> Bool in
+                preview = p
+                if result.addsLineBreaks { gate.requireReview() }
+                gate.showPreview()
+                return gate.phase == .previewing
+            }
             if showing { onEvent?(.previewing(instruction: p.instruction, before: p.before, after: p.after, diff: result.diff)) }
 
             // R1: the preview dwells (pause, cancel, manual confirm) — nothing is written yet.

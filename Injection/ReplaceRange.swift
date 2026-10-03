@@ -35,6 +35,19 @@ public final class ReplaceRangeEditor {
     private let system: SystemAccess
     public init(system: SystemAccess) { self.system = system }
 
+    /// H14 — the `.unavailable` reason for a multi-line replacement on a surface where an AX write is
+    /// not newline-safe (web content: desyncs the page's editor; a terminal: a line break may run).
+    /// The caller lands it through the normal injector's write plan (⇧↩ / bracketed paste) instead.
+    public static let newlineUnsafeReason = "multi-line replacement needs the newline-safe write plan"
+
+    /// H14 — true when writing `replacement` by AX here could turn a line break into a send / run:
+    /// it has a line break and the field is web content or a terminal (WritePlan's own verdicts).
+    public static func needsWritePlan(_ replacement: String, info: FocusedElementInfo, inWebArea: Bool) -> Bool {
+        guard replacement.contains(where: \.isNewline) else { return false }
+        let context = SurfaceWriteContext(isInWebArea: inWebArea, hints: info.hints)
+        return context.isWebContent || context.isTerminal
+    }
+
     static func utf16Slice(_ value: String, _ range: Range<Int>) -> String? {
         let units = Array(value.utf16)
         guard range.lowerBound >= 0, range.upperBound <= units.count else { return nil }
@@ -48,6 +61,10 @@ public final class ReplaceRangeEditor {
         guard let actual = Self.utf16Slice(value, request.range) else { return .mismatch(actual: nil) }
         guard actual == request.expected else { return .mismatch(actual: actual) }
         guard info.isSelectedTextSettable || info.isValueSettable else { return .unavailable(reason: "AX not settable") }
+        if Self.needsWritePlan(request.replacement, info: info,
+                               inWebArea: (system as? WebAreaProbing)?.focusedIsInWebArea() == true) {
+            return .unavailable(reason: Self.newlineUnsafeReason)
+        }
 
         let originalSelection = info.selectedRange
         do {

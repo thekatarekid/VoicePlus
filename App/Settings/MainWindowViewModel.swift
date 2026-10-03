@@ -277,7 +277,7 @@ public final class MainWindowViewModel: ObservableObject {
 
     // MARK: Chrome
 
-    /// The dictation key as every hint names it ("fn / 🌐"), resolved the way `HotkeyService` does:
+    /// The dictation key as every hint names it ("Option"), resolved the way `HotkeyService` does:
     /// the stored binding, else the default. Every "Right Control" in design copy renders as this.
     public var hotkeyLabel: String {
         let stored = deps.settingsStore.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyBinding.Kind.init(rawValue:))

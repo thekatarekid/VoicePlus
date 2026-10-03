@@ -24,7 +24,7 @@ struct SectionContext {
     /// This section's preserved navigation: search query, selection, scroll anchor, open disclosures.
     var navigation: SectionNavigation { window.navigation(section) }
 
-    /// The configured dictation key's label ("fn / 🌐") for every "Right Control" in design copy.
+    /// The configured dictation key's label ("Option") for every "Right Control" in design copy.
     var hotkey: String { window.hotkeyLabel }
 
     /// The page copy the section's current screen uses (Settings: its subpage's).
@@ -191,7 +191,7 @@ struct WindowSidebar: View {
     }
 }
 
-/// "● Ready · On this Mac" over "Hold fn / 🌐 to speak" (prototype `.app-nav footer`). The dot is the
+/// "● Ready · On this Mac" over "Hold Option to speak" (prototype `.app-nav footer`). The dot is the
 /// `ready` colour only when the word is Ready; otherwise the attention colour and a glyph.
 struct WindowFooterView: View {
     let footer: WindowFooter
