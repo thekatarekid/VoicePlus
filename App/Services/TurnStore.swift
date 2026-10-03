@@ -489,3 +489,66 @@ public final class TurnStore: @unchecked Sendable {
         }
     }
 }
+
+// MARK: - H25 Recent dictations (menu "Recent", Follow-up §6)
+
+/// One row of the menu's Recent list: any destination, one line, Copy on click.
+public struct RecentDictation: Identifiable, Equatable, Sendable {
+    /// The newest turn of the row (a hands-free session's last piece).
+    public var id: TurnID
+    public var time: Date
+    /// The destination (or intended) app.
+    public var appName: String?
+    public var bundleID: String?
+    /// What Copy puts on the pasteboard: the words (a session's pieces joined).
+    public var text: String
+    /// What the row shows: the words, or "Edit · <command>" for an edit command.
+    public var line: String
+    public var outcome: TurnOutcome
+}
+
+extension TurnStore {
+    /// H25 — the last `limit` dictations for the menu, newest first. Any destination (inserted,
+    /// saved to Notes, cancelled to Notes); never a password-field turn (filtered on the outcome's
+    /// reason, not the key-down `destination.isSecure` snapshot); a hands-free session is one row;
+    /// edit commands read "Edit · <command>".
+    public func recentDictations(limit: Int = 5) -> [RecentDictation] {
+        guard limit > 0 else { return [] }
+        let entries = recent(limit: max(50, limit * 10)).filter(Self.listsInRecent)
+        var rows: [RecentDictation] = []
+        var sessionRow: [String: Int] = [:]
+        for entry in entries {
+            let outcome = entry.turnOutcome
+            let words = entry.record.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let session = entry.extras.handsFreeSessionID, let index = sessionRow[session] {
+                // Older piece of a session already listed: prepend its words.
+                rows[index].text = words + " " + rows[index].text
+                rows[index].line = rows[index].text
+                continue
+            }
+            if rows.count >= limit { continue }
+            let command = entry.extras.editCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let line = command.flatMap { $0.isEmpty ? nil : "Edit · \($0)" } ?? words
+            rows.append(RecentDictation(id: entry.id, time: entry.record.startedAt,
+                                        appName: outcome.app ?? entry.record.destination.appName,
+                                        bundleID: entry.record.destination.bundleID,
+                                        text: words, line: line, outcome: outcome))
+            if let session = entry.extras.handsFreeSessionID { sessionRow[session] = rows.count - 1 }
+        }
+        return rows
+    }
+
+    /// Settled turns with words, never a password field.
+    static func listsInRecent(_ entry: TurnEntry) -> Bool {
+        guard !entry.stage.isLive else { return false }
+        if entry.extras.outcomeReason == TurnOutcome.secureReason { return false }
+        if entry.record.outcome?.reason == TurnOutcome.secureReason { return false }
+        let outcome = entry.turnOutcome
+        switch outcome {
+        case .refusedSecure, .nothingHeard, .cancelled, .inProgress: return false
+        default: break
+        }
+        if entry.extras.editCommand?.isEmpty == false { return true }
+        return !entry.record.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}

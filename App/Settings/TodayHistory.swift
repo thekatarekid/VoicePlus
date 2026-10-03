@@ -135,14 +135,26 @@ public struct TodayTurnRow: Identifiable, Equatable, Sendable {
     public var destination: String
     public var excerpt: String
     public var tag: TodayTag
+    /// H25 — the row's one outcome line ("Inserted in Mail", "Saved to Notes · no text field").
+    public var outcome: TurnOutcome
 
-    public init(id: TurnID, time: Date, destination: String, excerpt: String, tag: TodayTag) {
+    public init(id: TurnID, time: Date, destination: String, excerpt: String, tag: TodayTag,
+                outcome: TurnOutcome? = nil) {
         self.id = id
         self.time = time
         self.destination = destination
         self.excerpt = excerpt
         self.tag = tag
+        let app = destination == TodayCopy.unknownApp ? nil : destination
+        switch tag {
+        case .inserted, .toReview: self.outcome = outcome ?? .inserted(app: app)
+        case .unconfirmed: self.outcome = outcome ?? .unconfirmed(app: app)
+        case .held, .notInserted: self.outcome = outcome ?? .notTyped(app: app)
+        case .undone: self.outcome = outcome ?? .undone(app: app)
+        }
     }
+
+    public var outcomeLine: String { outcome.todayLine }
 
     /// A row for an entry Today lists; nil for the rest (and for a turn with no text).
     public init?(_ entry: TurnEntry) {
@@ -150,7 +162,7 @@ public struct TodayTurnRow: Identifiable, Equatable, Sendable {
         let text = entry.record.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         self.init(id: entry.id, time: entry.record.startedAt, destination: TodayFormat.destination(entry.record),
-                  excerpt: TodayFormat.excerpt(text), tag: tag)
+                  excerpt: TodayFormat.excerpt(text), tag: tag, outcome: entry.turnOutcome)
     }
 
     /// "12:42 · Mail" — the row's second line (prototype `row(…, '12:42 · Mail', …)`).

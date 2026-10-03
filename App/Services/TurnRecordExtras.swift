@@ -48,6 +48,16 @@ public struct TurnRecordExtras: Codable, Equatable, Sendable {
     /// Key-down / key-up (defaults: `record.startedAt` / `record.capture.captureClosed`).
     public var keyDownAt: Date?
     public var keyUpAt: Date?
+    /// H25 — generic outcome keys (`TurnOutcome.write(into:)`): the outcome kind, its reason (a
+    /// `NoteReason` raw value or "secure field"), the edit / action label, the intended app.
+    public var outcomeKind: String?
+    public var outcomeReason: String?
+    public var outcomeAction: String?
+    public var intendedApp: String?
+    /// H25 Recent — the spoken edit command ("Make this formal"), shown as "Edit · <command>".
+    public var editCommand: String?
+    /// H25 Recent — the hands-free session this piece belongs to; one session is one Recent row.
+    public var handsFreeSessionID: String?
 
     public init(surfaceKind: String? = nil, surfaceSignals: [String: String]? = nil, fieldRole: String? = nil,
                 writeMethod: String? = nil, verification: TurnVerification? = nil, stageMs: [String: Int]? = nil,
@@ -56,6 +66,9 @@ public struct TurnRecordExtras: Codable, Equatable, Sendable {
         self.writeMethod = writeMethod; self.verification = verification; self.stageMs = stageMs
         self.preBoostRawText = preBoostRawText; self.keyDownAt = keyDownAt; self.keyUpAt = keyUpAt
     }
+
+    /// H25 — the outcome a producer recorded here, if any.
+    public var recordedOutcome: TurnOutcome? { TurnOutcome.recorded(in: self) }
 
     public var isEmpty: Bool { self == TurnRecordExtras() }
 

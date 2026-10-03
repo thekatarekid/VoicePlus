@@ -169,6 +169,14 @@ public final class TodayTurnStoreReader: TodayTurnReading, @unchecked Sendable {
 
 /// Everything the Today section reaches outside itself. `live` is the app's; tests build their own.
 @MainActor
+public extension TodayServices {
+    /// H25 — the menu's Recent rows copy through the same verified copy Today uses (write, then read
+    /// back); plain `write` alone does not confirm the copy.
+    nonisolated static func copyVerified(_ text: String, pasteboard: any TodayPasteboard = SystemTodayPasteboard()) -> Bool {
+        pasteboard.copyVerified(text)
+    }
+}
+
 public struct TodayServices {
     /// The turn store's reader. Resolved on every read: the store is installed by the composition
     /// root (`TurnWiring.attach`) and may appear after the window model was built.

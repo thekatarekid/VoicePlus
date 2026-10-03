@@ -129,7 +129,7 @@ public enum PillDeck {
 
     // D1 inserted
     public static func insertedStatus(destination: String?) -> String {
-        destination.map { "✓ Inserted in \($0)" } ?? "✓ Inserted"
+        "✓ " + TurnOutcome.inserted(app: destination).pillLine
     }
     /// "1 word to review in the field"; nothing when every word was confident.
     public static func insertedHelper(uncertain: Int, phrase: Bool = false) -> String {
@@ -138,8 +138,11 @@ public enum PillDeck {
 
     /// Q4 — readback could not run: neutral, no ✓ ("✓" means *verified*), auto-clears. Revives V4.20.
     public static func insertedUnreadableStatus(destination: String?) -> String {
-        destination.map { "Inserted in \($0)" } ?? "Inserted"
+        TurnOutcome.inserted(app: destination).pillLine
     }
+
+    /// H25 — the pill's status line for any turn outcome (§2 vocabulary, one source: `TurnOutcome`).
+    public static func outcomeStatus(_ outcome: TurnOutcome) -> String { outcome.pillLine }
 
     // D2 unconfirmed (a settled readback ran and the text is absent)
     public static let unconfirmedStatus = "⚠ Couldn’t confirm insertion"
@@ -169,7 +172,7 @@ public enum PillDeck {
     /// N17 — the same hint when the double-tap latch is off.
     public static let tapHintNoLatch = "Hold to talk"
     /// N17 — a press that heard no speech (A06) says so plainly; nothing was typed.
-    public static let didntHearAnything = "Didn’t hear anything"
+    public static let didntHearAnything = TurnOutcome.nothingHeard.pillLine
     /// N23 — a new press began while the previous text was still being typed: its outcome is
     /// noted on the live row instead of replacing it (the text is in history / the held queue).
     public static let previousTextHeld = "Previous text held · Insert or Copy from the menu"

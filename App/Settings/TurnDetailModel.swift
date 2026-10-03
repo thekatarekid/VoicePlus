@@ -151,14 +151,17 @@ public final class TurnDetailModel: ObservableObject {
         let app = TodayFormat.appName(entry.record)
         switch TodayTag.of(entry) {
         case .held?: return SpoolSurfacePolicy.heldNote
-        case .inserted?, .toReview?: return app.map { "✓ Inserted in \($0)" } ?? "✓ Inserted"
+        case .inserted?, .toReview?: return "✓ " + TurnOutcome.inserted(app: app).turnDetailLine
         case .unconfirmed?:
             return entry.record.outcome?.isPartial == true
                 ? "⚠ \(RecoveryCatalog.entry(.D07).headline)" : "⚠ \(RecoveryCatalog.entry(.D06).headline)"
-        case .undone?: return "Inserted, then undone"
-        case .notInserted?, nil: return TodayTag.notInserted.label
+        case .undone?: return TurnOutcome.undone(app: app).turnDetailLine
+        case .notInserted?, nil: return entry.turnOutcome.turnDetailLine
         }
     }
+
+    /// H25 — the turn's one outcome line ("Saved to Notes · Claude window closed").
+    public var outcomeLine: String { entry?.turnOutcome.turnDetailLine ?? "" }
 
     /// "Kept until resolved" / "Kept for this session only".
     public var retentionLabel: String {
