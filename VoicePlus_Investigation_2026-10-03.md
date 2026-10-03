@@ -720,3 +720,8 @@ Deviations / untested (need live tests):
 - Gate observation (not fixed): the Bayes gatekeeper routes some long narration (13 words, e.g. "After that it gets back to normal…") as repairCommand; harmless today (RepairGrammar caps at 8 words, the lander formats it as dictation), but the Bayes route could also be capped at 8 words.
 - Not reproduced in isolation: the signal-6 teardown abort (seen once in 3 full runs); the 0af1e28 teardown is a mitigation, watch for recurrence.
 - 1.15.0 DMG predates gate fixes 257f12c and 0af1e28 (K18 guard for the browser tab-title AX read; off-main own-pid AX was unreachable in practice because VoicePlus is never a browser).
+
+## Post-1.15.1 fixes
+- **Option still dictates after picking fn:** the binding read wrote the store, re-running the X1 fn→Option migration mid-session and overwriting the user's fn pick. Fixed in 83c4e52 (eager one-shot migration, side-effect-free read) and 11dc7bf (Settings/Today show the key the service runs). Owner must re-pick fn once after updating.
+- **White pulsing dot instead of the notch pill:** a Space re-layout dropped the all-Spaces panels from every Space; the off-screen pill handed the surface to the chin indicator. Fixed in f3f7aa6 (re-assert on order-in, rebuild fallback) and 5ed15e3 (commit the tag flip so the WindowServer sees it).
+- Gate: test races fixed (f0a376b + follow-up); full suite 5263/0. Shipped as 1.15.2. Live check: Space create/remove or AirPlay connect, then dictate; Option silent under fn.
