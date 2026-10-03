@@ -148,6 +148,14 @@ public final class PillPanelController {
     deinit {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        // Gate (H-fixes): detach the SwiftUI hosts while the panels are still alive. Left attached, the
+        // host leaves its window inside NSWindow's own dealloc, and SwiftUI's window observation can
+        // try to form a weak reference to the deallocating (KVO-observed) panel — an objc fatal error
+        // ("Cannot form weak reference to … PillInteractionPanel") seen once in the full suite.
+        panel.orderOut(nil)
+        shadowPanel.orderOut(nil)
+        panel.contentView = nil
+        shadowPanel.contentView = nil
     }
 
     /// Screen metrics for the screen under the mouse (falls back to main).
