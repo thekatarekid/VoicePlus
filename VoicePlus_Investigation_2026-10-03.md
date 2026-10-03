@@ -623,3 +623,22 @@ Turn **9B8EA8CB** (13:51:08 IST, Claude desktop, surface chatComposer at 1.00). 
 - **D5.** Keep the full stop for hold-to-talk in chat too (assumed yes), or only for hands-free?
 - **D6.** Hands-free, you moved to another app without clicking into a box there, and the original box cannot be written in the background (common in Electron apps such as Claude): hold the piece until you return, or briefly switch back, type and return (risk: your own typing lands in the old box)?
 - **D7.** Web-page logo: browser icon + site name (no network), or the real site favicon (needs a network fetch or reading the browser's favicon store)?
+
+## Owner decisions (round 3)
+- **Local models:**
+  - Ship Qwen3.5-2B and Qwen3.5-4B as choices; the user picks which to download during onboarding.
+  - Settings can delete a model and download another.
+  - If onboarding is skipped, offer the download once in the notch the first time a rewrite command is used. If that is skipped too, the download stays available in Settings only.
+- **Short presses:** while the notch is visible, a press up to ~0.8 s counts as a tap.
+- **Tap during hands-free:**
+  - A text box/area is focused → stop and insert the last piece.
+  - Nothing is focused → save the last piece to Notes.
+- **Full stop:** kept in both hands-free and hold-to-talk.
+- **Hands-free destination:**
+  - The new app's input box is not clicked and the old box is still active → briefly switch back, insert, and return.
+  - Neither the old box nor a new box is active → save to Notes.
+- **Destination identity in the notch:**
+  - Apps: app icon + app name.
+  - Web pages: browser icon + browser name, and the real site favicon + tab title (not the URL).
+- **fn + another key:** awaiting the owner's answer to the clarified question.
+- **LLM pass on every dictation:** awaiting the owner's decision (see chat).
