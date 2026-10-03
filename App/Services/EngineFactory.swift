@@ -2,34 +2,71 @@ import Engine
 import Foundation
 import Shared
 
-/// Wraps any `RecognizerProvider` and keeps the resolved final recognizer so a fresh
-/// per-utterance vocabulary booster (V5 B1, CTC boosting) can be installed on its decoder before
+/// Wraps any `RecognizerProvider` and keeps the resolved final recognizers so a fresh
+/// per-utterance vocabulary booster (V5 B1, CTC boosting) can be installed on their decoders before
 /// every utterance. Apple Speech has no decoder, so boosting is silently a no-op there.
+///
+/// H20 — wrong-instance fix. Every `inner.resolve()` builds a *new* recogniser, and `resolve()` has
+/// several callers (the engine's prewarm / cold start, the code-switch router, correction
+/// re-recognition, meetings). Until H20 only the most recently resolved instance received the
+/// booster, so any other caller's resolve moved the booster off the instance `RealEngine` holds and
+/// its final pass ran with no booster at all. Now the booster goes on every live decoder-backed
+/// recogniser this provider has handed out (held weakly), and a recogniser resolved *after* the
+/// install (cold start, model revision change) receives the current booster as it is handed out.
 public final class BiasingRecognizerProvider: RecognizerProvider, @unchecked Sendable {
+    private struct WeakRecognizer { weak var value: DecoderFinalRecognizer? }
+
     private let inner: RecognizerProvider
     private let lock = NSLock()
     private var final: FinalRecognizer?
+    private var handedOut: [WeakRecognizer] = []
+    private var current: VocabularyBooster?
     public private(set) var boostingInstalled = false
+    /// H20 — how many live decoder-backed recognisers carry the current booster (diagnostics/tests).
+    public private(set) var boostTargetCount = 0
 
     public init(inner: RecognizerProvider) { self.inner = inner }
 
     public func resolve() async throws -> (final: FinalRecognizer, preview: PreviewRecognizer?) {
         let r = try await inner.resolve()
-        lock.withLock { final = r.final }
+        let decoderBacked = r.final as? DecoderFinalRecognizer
+        let booster: VocabularyBooster? = lock.withLock {
+            final = r.final
+            guard let decoderBacked else { return nil }
+            handedOut.removeAll { $0.value == nil }
+            if !handedOut.contains(where: { $0.value === decoderBacked }) { handedOut.append(WeakRecognizer(value: decoderBacked)) }
+            return current
+        }
+        if let decoderBacked, let booster {
+            let ok = decoderBacked.installBooster(booster)
+            lock.withLock {
+                if ok { boostingInstalled = true }
+                boostTargetCount = handedOut.filter { $0.value != nil }.count
+            }
+        }
         return r
     }
 
     public var finalRecognizerName: String? { lock.withLock { final?.name } }
 
-    /// Installs (or clears, when nil) the final-pass booster on the decoder-backed recognizer.
+    /// Installs (or clears, when nil) the final-pass booster on every live decoder-backed recognizer.
     public func install(_ booster: VocabularyBooster?) {
-        let recognizer = lock.withLock { final }
-        guard let decoderBacked = recognizer as? DecoderFinalRecognizer else {
-            lock.withLock { boostingInstalled = false }
-            return
+        let targets: [DecoderFinalRecognizer] = lock.withLock {
+            current = booster
+            handedOut.removeAll { $0.value == nil }
+            return handedOut.compactMap(\.value)
         }
-        let installed = decoderBacked.installBooster(booster)
-        lock.withLock { boostingInstalled = installed }
+        var installed = 0
+        for t in targets where t.installBooster(booster) { installed += 1 }
+        lock.withLock {
+            boostingInstalled = installed > 0
+            boostTargetCount = booster == nil ? 0 : installed
+        }
+        if let booster, installed == 0 {
+            // Not an error before the first resolve: the booster is handed to the recogniser the
+            // engine resolves next. Notice-level so a turn that never boosts can be explained.
+            Log.engine.notice("boost: \(booster.terms.count) terms held — no decoder-backed recogniser resolved yet")
+        }
     }
 }
 

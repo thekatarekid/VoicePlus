@@ -111,10 +111,12 @@ public final class FluidAudioTDTDecoder: Decoder, VocabularyBoostable, PreviewDe
         let timing = FinalPassTiming(recogniseMs: recogniseMs, alternativesMs: alternativesMs,
                                      modelWaitMs: step.report.modelWaitMs, rescoreMs: step.report.rescoreMs,
                                      totalMs: FinalPassTiming.ms(since: t0), boostStatus: step.report.status,
-                                     rawPreBoostText: tokens.renderedText, finalText: step.tokens.renderedText)
+                                     rawPreBoostText: tokens.renderedText, finalText: step.tokens.renderedText,
+                                     boostTermCount: booster?.terms.count ?? 0)
         tokens = step.tokens
         lock.withLock { state = newState; _lastBoost = step.report.outcome; _lastTiming = timing }
-        Log.engine.info("final pass stages: \(timing.logLine)")
+        // H20 — notice level: a turn whose booster never rescored must be explainable from the log.
+        Log.engine.notice("final pass stages: \(timing.logLine)")
         return DecodeResult(tokens: tokens)
     }
 

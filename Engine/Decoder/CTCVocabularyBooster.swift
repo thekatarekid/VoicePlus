@@ -242,7 +242,12 @@ public struct CTCVocabularyBooster: VocabularyBooster, BoostReporting {
         let source = self.source, terms = self.terms
         guard !terms.isEmpty else { return }
         Task.detached(priority: .utility) {
-            guard let r = await source.readyRescorer() else { return }
+            guard let r = await source.readyRescorer() else {
+                // H20 — the model was not resident at key-down (cold launch, download pending or
+                // evicted): this turn will land `.modelNotReady`; a background load has started.
+                Log.engine.notice("boost: CTC model not resident at key-down (\(terms.count) terms) — background load started")
+                return
+            }
             await r.prepareRescorer(terms: terms)
         }
     }

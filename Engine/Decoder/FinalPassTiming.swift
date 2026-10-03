@@ -18,9 +18,12 @@ public struct FinalPassTiming: Sendable, Equatable, Codable {
     public var rawPreBoostText: String
     /// The text the final pass returned.
     public var finalText: String
+    /// H20 — how many terms the installed booster carried (0: no booster / empty list).
+    public var boostTermCount: Int
 
     public init(recogniseMs: Double, alternativesMs: Double = 0, modelWaitMs: Double = 0, rescoreMs: Double = 0,
-                totalMs: Double, boostStatus: BoostReport.Status, rawPreBoostText: String, finalText: String) {
+                totalMs: Double, boostStatus: BoostReport.Status, rawPreBoostText: String, finalText: String,
+                boostTermCount: Int = 0) {
         self.recogniseMs = recogniseMs
         self.alternativesMs = alternativesMs
         self.modelWaitMs = modelWaitMs
@@ -29,6 +32,7 @@ public struct FinalPassTiming: Sendable, Equatable, Codable {
         self.boostStatus = boostStatus
         self.rawPreBoostText = rawPreBoostText
         self.finalText = finalText
+        self.boostTermCount = boostTermCount
     }
 
     /// Whether boosting changed the text.
@@ -36,8 +40,8 @@ public struct FinalPassTiming: Sendable, Equatable, Codable {
 
     /// Log line without any transcript text (text stays in the local database only).
     public var logLine: String {
-        String(format: "recognise %.0f ms, alternatives %.0f ms, model wait %.0f ms, rescore %.0f ms, total %.0f ms, boost %@",
-               recogniseMs, alternativesMs, modelWaitMs, rescoreMs, totalMs, boostStatus.rawValue)
+        String(format: "recognise %.0f ms, alternatives %.0f ms, model wait %.0f ms, rescore %.0f ms, total %.0f ms, boost %@ (%d terms)",
+               recogniseMs, alternativesMs, modelWaitMs, rescoreMs, totalMs, boostStatus.rawValue, boostTermCount)
     }
 
     static func ms(since t: DispatchTime) -> Double {

@@ -11,6 +11,20 @@ enum FinalPassTimingRecorder {
     static let modelWaitStage = "boost_model_wait"
     static let rescoreStage = "boost_rescore"
     static let totalStage = "asr_final_total"
+    /// H20 — the booster's term count for the turn (0: no booster / empty list).
+    static let boostTermsKey = "boost_terms"
+    /// H20 — the boost status, stored through the existing `setStage` setter as a one-hot key
+    /// (`boost_status_<status>` = 1), so `extras_json` says *why* a turn was not rescored
+    /// (`notApplied` vs `modelNotReady` vs `timedOut` vs `unchanged` vs `boosted`).
+    static let boostStatusPrefix = "boost_status_"
+    static func boostStatusKey(_ status: BoostReport.Status) -> String { boostStatusPrefix + status.rawValue }
+
+    /// Reads the stored boost status back (nil when none was recorded).
+    static func boostStatus(in extras: TurnRecordExtras) -> BoostReport.Status? {
+        guard let stages = extras.stageMs else { return nil }
+        return stages.keys.lazy.filter { $0.hasPrefix(boostStatusPrefix) }
+            .compactMap { BoostReport.Status(rawValue: String($0.dropFirst(boostStatusPrefix.count))) }.first
+    }
 
     /// The timing reported by `engine` (unwrapping a swappable engine), if any.
     static func timing(of engine: EngineProtocol) -> FinalPassTiming? {
@@ -27,11 +41,20 @@ enum FinalPassTimingRecorder {
         extras.setStage(rescoreStage, ms: ms(timing.rescoreMs))
         extras.setStage(totalStage, ms: ms(timing.totalMs))
         extras.preBoostRawText = timing.rawPreBoostText
+        if var stages = extras.stageMs {   // one status per turn: drop any earlier pass's status key
+            for k in stages.keys where k.hasPrefix(boostStatusPrefix) { stages[k] = nil }
+            extras.stageMs = stages
+        }
+        extras.setStage(boostStatusKey(timing.boostStatus), ms: 1)
+        extras.setStage(boostTermsKey, ms: timing.boostTermCount)
     }
 
     /// Records the engine's last final pass against `turn` in `store` (no-op without either).
     static func record(engine: EngineProtocol, turn: TurnID, store: TurnStore? = TurnStore.current) {
         guard let store, let timing = timing(of: engine) else { return }
+        if timing.boostStatus != .boosted && timing.boostStatus != .unchanged {
+            Log.engine.notice("boost: turn not rescored — \(timing.boostStatus.rawValue), \(timing.boostTermCount) terms")
+        }
         store.setExtras(turn) { apply(timing, to: &$0) }
     }
 }
