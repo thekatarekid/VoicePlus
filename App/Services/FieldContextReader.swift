@@ -205,6 +205,16 @@ public final class FieldContextReader: @unchecked Sendable {
 
         // Rung 1 — free: `focusedElement()` already carried the value and the range.
         if let caret = info.caretFromSelectedRange(window: window) {
+            // Hands-free fix (RC6) — our own landing went into this element moments ago and nothing
+            // has touched it since, yet the AX value/range does not show it before the caret yet
+            // (Claude / Electron refresh AX after a keystroke write lazily). That reading is stale:
+            // join onto what we typed instead, or the next piece loses its space, capital and stop.
+            if let element = LandedElement(focus: frontmost, role: info.role),
+               let remembered = landingMemory.caret(for: element),
+               Self.readingMissesLanding(caret, landed: landingMemory.last?.text) {
+                capabilities.note(bundleID: bundle, rung: .landingMemory, answered: true)
+                return CaretReading(caret: remembered, rung: .landingMemory)
+            }
             capabilities.note(bundleID: bundle, answered: true)
             capabilities.note(bundleID: bundle, rung: .selectedRange, answered: true)
             return CaretReading(caret: caret, rung: .selectedRange)
@@ -234,6 +244,23 @@ public final class FieldContextReader: @unchecked Sendable {
         }
         capabilities.note(bundleID: bundle, rung: .none, answered: true)
         return CaretReading(caret: .unknown, rung: .none)
+    }
+
+    /// RC6 — does an AX caret reading fail to show our last landing just before the caret? Compared
+    /// on the last characters of what we typed, whitespace-trimmed on both sides.
+    static func readingMissesLanding(_ caret: CaretState, landed: String?) -> Bool {
+        guard let landed, let before = caret.textBefore else { return false }
+        let ours = landed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ours.isEmpty else { return false }
+        // Smart quotes and dashes an editor substitutes are still our text.
+        func plain(_ s: String) -> String {
+            s.replacingOccurrences(of: "\u{2019}", with: "'").replacingOccurrences(of: "\u{2018}", with: "'")
+                .replacingOccurrences(of: "\u{201C}", with: "\"").replacingOccurrences(of: "\u{201D}", with: "\"")
+                .replacingOccurrences(of: "\u{2014}", with: "-").replacingOccurrences(of: "\u{2013}", with: "-")
+        }
+        let tail = String(plain(ours).suffix(16))
+        let shown = plain(before.trimmingCharacters(in: .whitespacesAndNewlines))
+        return !shown.hasSuffix(tail)
     }
 
     public static func fieldContext(from info: FocusedElementInfo, bundleID: String?,
