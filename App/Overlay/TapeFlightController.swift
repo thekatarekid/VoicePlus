@@ -84,6 +84,8 @@ final class TapeFlightRun {
 /// Draws a flight. Live: `TapeFlightOverlay`, a pointer-transparent `OverlayWindow` instance.
 protocol TapeFlightSurface: AnyObject {
     func show(_ run: TapeFlightRun)
+    /// Fix notch — whether the last `show` put the ribbon on the active Space; nil when unknown.
+    var lastShowVisible: Bool? { get }
     /// Takes the ribbon down at once.
     func clear()
     /// The destination tape cue under the landed text (design §13 scenario 4); it fades on its own time.
@@ -93,6 +95,7 @@ protocol TapeFlightSurface: AnyObject {
 }
 
 extension TapeFlightSurface {
+    var lastShowVisible: Bool? { nil }
     func showCue(_ cue: TapeFieldCue) {}
     func clearCue() {}
 }
@@ -335,9 +338,9 @@ final class TapeFlightController {
             suppress(reason)
         case .success(let path):
             let remaining = start.addingTimeInterval(SpoolFlight.duration).timeIntervalSince(clock.now)
-            reportRibbon(.flew)
             flightDisplay = path.display
             guard remaining > 0 else {
+                reportRibbon(.flew)
                 phase = .finished
                 if landedVerified { requestCue(turn) }
                 return
@@ -347,6 +350,8 @@ final class TapeFlightController {
             flightDisplay = path.display
             phase = .flying(path)
             surface.show(run)
+            // Fix notch — reported after `show`, so a ribbon drawn on no Space is logged as hidden.
+            reportRibbon(.flew, surfaceVisible: surface.lastShowVisible)
             endTimer = clock.schedule(after: remaining) { [weak self] in self?.finished(turn) }
             scheduleRefresh(turn)
             if landedVerified { requestLines(turn) }
@@ -368,7 +373,7 @@ final class TapeFlightController {
     }
 
     /// N19 — one ribbon event per insertion: its first outcome, plus an invalidation after it flew.
-    private func reportRibbon(_ outcome: RibbonReport.Outcome) {
+    private func reportRibbon(_ outcome: RibbonReport.Outcome, surfaceVisible: Bool? = nil) {
         switch (ribbonReporting, outcome) {
         case (.pending, .flew): ribbonReporting = .flew
         case (.pending, .suppressed): ribbonReporting = .done
@@ -380,7 +385,7 @@ final class TapeFlightController {
                                                                  displays: displays()) }
         let ms = locateStart.map { Int((clock.now.timeIntervalSince($0) * 1000).rounded()) }
         let report = RibbonReport(outcome: outcome, rung: fix?.rung, onDisplay: onDisplay, locateMs: ms,
-                                  skippedOffDisplay: fix?.skippedOffDisplay ?? [])
+                                  skippedOffDisplay: fix?.skippedOffDisplay ?? [], surfaceVisible: surfaceVisible)
         ribbonReports.append(report)
         diagnostics(report)
     }

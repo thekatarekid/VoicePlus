@@ -69,7 +69,7 @@ public final class RepairFanoutPanel {
         let screen = (NSScreen.screens.first { $0.frame.contains(point ?? NSEvent.mouseLocation) } ?? NSScreen.main)?.visibleFrame ?? .zero
         let anchor = rects[index] ?? CGRect(origin: point ?? NSEvent.mouseLocation, size: CGSize(width: 1, height: RepairFanoutModel.rowHeight))
         panel.setFrame(m.frame(anchoredTo: anchor, in: screen), display: true)
-        panel.orderFrontRegardless()
+        SpaceMembership.orderIn([panel]) // fix notch: rejoin every Space
         return true
     }
 

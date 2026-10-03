@@ -118,7 +118,7 @@ public final class CorrectionOverlayController {
         state.model = m
         state.cardAbove = m.cardIsAbove(in: screen)
         panel.setFrame(m.frame(in: screen), display: true)
-        panel.orderFrontRegardless()
+        SpaceMembership.orderIn([panel]) // fix notch: rejoin every Space
     }
 }
 

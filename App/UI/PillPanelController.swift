@@ -6,11 +6,12 @@ import SwiftUI
 /// Borderless, non-activating `NSPanel` that hangs the Spool pill below the notch (design §4).
 /// Geometry transitions are 180 ms ease-out and interruptible (each transition cancels the previous).
 public final class PillPanelController {
-    public let model = PillViewModel()
-    private let panel: NSPanel
+    public let model: PillViewModel
+    /// `var`, not `let`: fix notch — a panel that macOS left on no Space is rebuilt (`rebuildPanels`).
+    private var panel: NSPanel
     /// Read-only ownership seam for isolated native diagnostics; never discover a shadow by window order.
     var diagnosticPanel: NSPanel { panel }
-    private let shadowPanel: NSPanel
+    private var shadowPanel: NSPanel
     private var attached = true
     private var cancellable: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
@@ -43,55 +44,24 @@ public final class PillPanelController {
     public var surfaceReport: AnyPublisher<PillSurfaceReport, Never> { onScreen.removeDuplicates().eraseToAnyPublisher() }
     private let onScreen = CurrentValueSubject<PillSurfaceReport, Never>(.offScreen)
     private var occlusionObserver: NSObjectProtocol?
+    private var spaceObserver: NSObjectProtocol?
     /// Reports what the window server has been told, from the one place that can know it.
-    /// V5 Q7: ordered in ∧ occlusion-visible ∧ frame on the chosen display ∧ frame > 1 pt. The frame
-    /// is the one the panel is animating to, so a pill rolling up already counts as gone.
+    /// V5 Q7: ordered in ∧ on the active Space ∧ occlusion-visible ∧ frame on the chosen display ∧
+    /// frame > 1 pt. The frame is the one the panel is animating to, so a pill rolling up already
+    /// counts as gone.
     private func noteSurfaceOnScreen() {
         let report = PillSurfaceReport.evaluate(orderedIn: panel.isVisible,
                                                 occlusionVisible: panel.occlusionState.contains(.visible),
-                                                frame: targetFrame ?? panel.frame, chosenScreen: pinnedMetrics)
+                                                frame: targetFrame ?? panel.frame, chosenScreen: pinnedMetrics,
+                                                onActiveSpace: panel.isOnActiveSpace)
         onScreen.send(report)
     }
 
     public init() {
-        shadowPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        panel = PillInteractionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        panel.level = .statusBar + 1
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.hidesOnDeactivate = false
-        // V5 Q9 — "Hide Others" (or ⌘H on VoicePlus) must not hide a pill whose dwell is running.
-        panel.canHide = false
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        panel.isReleasedWhenClosed = false
-        panel.animationBehavior = .none
-        // ROOT CAUSE OF THE 1.7.9 "BLACK SLAB": `NSHostingView.sizingOptions` defaults to
-        // `.standardBounds`, which publishes the SwiftUI content's *minimum* size as the window's
-        // `contentMinSize`; a wrapping notice's minimum is the fully wrapped paragraph, and AppKit grew
-        // the panel to it. The pill's frame is placement math (`NotchGeometry`), never content.
-        let host = NSHostingView(rootView: PillPanelSurface(model: model, size: NotchGeometry.activeSize, attached: true))
-        host.sizingOptions = []
-        host.focusRingType = .none
-        panel.contentView = host
-        panel.contentMinSize = .zero
-        panel.contentMaxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
-        shadowPanel.level = panel.level
-        shadowPanel.isOpaque = false
-        shadowPanel.backgroundColor = .clear
-        shadowPanel.hasShadow = false
-        shadowPanel.hidesOnDeactivate = false
-        shadowPanel.canHide = false
-        shadowPanel.ignoresMouseEvents = true
-        shadowPanel.collectionBehavior = panel.collectionBehavior
-        shadowPanel.isReleasedWhenClosed = false
-        shadowPanel.animationBehavior = .none
-        let shadowHost = NSHostingView(rootView: PillShadowSurface(size: NotchGeometry.activeSize, attached: true))
-        shadowHost.sizingOptions = []
-        shadowHost.focusRingType = .none
-        shadowPanel.contentView = shadowHost
+        let model = PillViewModel()
+        self.model = model
+        (panel, shadowPanel) = Self.makePanels(model: model, size: NotchGeometry.activeSize,
+                                               shadowSize: NotchGeometry.activeSize, attached: true)
         // State, turn (latched timer, chips, live words) and the clock can each change the surface
         // (e.g. the finishing offer's buttons appear at 10 s); render when the surface or state does.
         cancellable = model.$state
@@ -130,8 +100,10 @@ public final class PillPanelController {
             }
             self.render(self.model.state, force: true)
         }
-        occlusionObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+        observeOcclusion()
+        // Fix notch — a Space change can take a shown pill off the active Space; re-evaluate.
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.noteSurfaceOnScreen() }
         Self.logPlacementDiagnostics()
         // V5 Q13 — dwell pause/resume diagnostics carry the pill frame at that moment (main thread
@@ -139,14 +111,102 @@ public final class PillPanelController {
         // A pill that is gone or not on screen defers to whatever reader was installed before it
         // (none in the app; a test's fixed frame under parallel tests).
         let previous = TurnEventDiagnostics.frame
-        TurnEventDiagnostics.frame = { [weak panel] in
-            guard Thread.isMainThread, let panel, panel.isVisible else { return previous() }
+        TurnEventDiagnostics.frame = { [weak self] in
+            guard Thread.isMainThread, let panel = self?.panel, panel.isVisible else { return previous() }
             return DiagnosticsRect(panel.frame)
         }
     }
 
+    /// The pill panel and its click-through shadow sibling, configured but not ordered in.
+    private static func makePanels(model: PillViewModel, size: CGSize, shadowSize: CGSize,
+                                   attached: Bool) -> (panel: NSPanel, shadow: NSPanel) {
+        let shadowPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        let panel = PillInteractionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        panel.level = .statusBar + 1
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.hidesOnDeactivate = false
+        // V5 Q9 — "Hide Others" (or ⌘H on VoicePlus) must not hide a pill whose dwell is running.
+        panel.canHide = false
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
+        // ROOT CAUSE OF THE 1.7.9 "BLACK SLAB": `NSHostingView.sizingOptions` defaults to
+        // `.standardBounds`, which publishes the SwiftUI content's *minimum* size as the window's
+        // `contentMinSize`; a wrapping notice's minimum is the fully wrapped paragraph, and AppKit grew
+        // the panel to it. The pill's frame is placement math (`NotchGeometry`), never content.
+        let host = NSHostingView(rootView: PillPanelSurface(model: model, size: size, attached: attached))
+        host.sizingOptions = []
+        host.focusRingType = .none
+        panel.contentView = host
+        panel.contentMinSize = .zero
+        panel.contentMaxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        shadowPanel.level = panel.level
+        shadowPanel.isOpaque = false
+        shadowPanel.backgroundColor = .clear
+        shadowPanel.hasShadow = false
+        shadowPanel.hidesOnDeactivate = false
+        shadowPanel.canHide = false
+        shadowPanel.ignoresMouseEvents = true
+        shadowPanel.collectionBehavior = panel.collectionBehavior
+        shadowPanel.isReleasedWhenClosed = false
+        shadowPanel.animationBehavior = .none
+        let shadowHost = NSHostingView(rootView: PillShadowSurface(size: shadowSize, attached: attached))
+        shadowHost.sizingOptions = []
+        shadowHost.focusRingType = .none
+        shadowPanel.contentView = shadowHost
+        return (panel, shadowPanel)
+    }
+
+    private func observeOcclusion() {
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+        ) { [weak self] _ in self?.noteSurfaceOnScreen() }
+    }
+
+    /// Fix notch — orders the pill in at `layout.retracted` and makes sure it is on the active Space.
+    /// If reasserting the all-Spaces tag does not bring it back, the panels are rebuilt: a new window
+    /// joins every Space when it is first ordered in. Runs once per press (the `(false, true)` render).
+    private func orderInPill(layout: NotchGeometry.Layout, acceptsMouse: Bool) {
+        placeRetracted(layout)
+        var outcome = SpaceMembership.orderIn([shadowPanel, panel])
+        if outcome == .offActiveSpace {
+            Log.app.warning("pill: ordered in but not on the active Space — rebuilding its windows")
+            rebuildPanels(layout: layout)
+            syncPointerTracking(acceptsMouse: acceptsMouse)
+            placeRetracted(layout)
+            outcome = SpaceMembership.orderIn([shadowPanel, panel])
+        }
+        if outcome != .onActiveSpace {
+            Log.app.notice("pill space membership: \(outcome.rawValue) (onActiveSpace=\(self.panel.isOnActiveSpace))")
+        }
+    }
+
+    private func placeRetracted(_ layout: NotchGeometry.Layout) {
+        panel.setFrame(layout.retracted, display: false)
+        shadowPanel.setFrame(Self.shadowFrame(layout.retracted, attached: layout.attached), display: false)
+    }
+
+    /// Replaces both panels with new ones (new window ids). The old ones are ordered out and their
+    /// SwiftUI hosts detached first, for the same reason as in `deinit`.
+    private func rebuildPanels(layout: NotchGeometry.Layout) {
+        let old = (panel, shadowPanel)
+        old.0.orderOut(nil)
+        old.1.orderOut(nil)
+        old.0.contentView = nil
+        old.1.contentView = nil
+        (panel, shadowPanel) = Self.makePanels(model: model, size: layout.contentFrame.size,
+                                               shadowSize: layout.shown.size, attached: layout.attached)
+        observeOcclusion()
+    }
+
     deinit {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
         if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
         // Gate (H-fixes): detach the SwiftUI hosts while the panels are still alive. Left attached, the
         // host leaves its window inside NSWindow's own dealloc, and SwiftUI's window observation can
@@ -297,10 +357,7 @@ public final class PillPanelController {
         syncPointerTracking(acceptsMouse: Self.acceptsMouse(state, content: content))
         switch (wasVisible, surface != .hidden) {
         case (false, true):
-            panel.setFrame(layout.retracted, display: false)
-            shadowPanel.setFrame(Self.shadowFrame(layout.retracted, attached: layout.attached), display: false)
-            shadowPanel.orderFrontRegardless()
-            panel.orderFrontRegardless()
+            orderInPill(layout: layout, acceptsMouse: Self.acceptsMouse(state, content: content))
             PillDiagnostics.record(.orderFront(window: "pill", reason: state.designStateKey)) // K19
             animate(to: layout.shown)
         case (true, false):
@@ -426,10 +483,11 @@ public struct PillSurfaceReport: Equatable, Sendable {
         self.display = onScreen ? display : nil
     }
 
-    /// Pure rule: ordered in ∧ occlusion-visible ∧ frame on the chosen screen ∧ frame > 1 pt.
+    /// Pure rule: ordered in ∧ on the active Space ∧ occlusion-visible ∧ frame on the chosen screen ∧
+    /// frame > 1 pt. Fix notch: a panel ordered into no Space (WindowServer "none→hidden") is off screen.
     public static func evaluate(orderedIn: Bool, occlusionVisible: Bool, frame: CGRect,
-                                chosenScreen: ScreenMetrics?) -> PillSurfaceReport {
-        guard orderedIn, occlusionVisible, frame.width > 1, frame.height > 1,
+                                chosenScreen: ScreenMetrics?, onActiveSpace: Bool = true) -> PillSurfaceReport {
+        guard orderedIn, onActiveSpace, occlusionVisible, frame.width > 1, frame.height > 1,
               let chosenScreen, chosenScreen.frame.intersects(frame) else { return .offScreen }
         return PillSurfaceReport(onScreen: true, display: chosenScreen)
     }

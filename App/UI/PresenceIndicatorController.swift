@@ -85,6 +85,8 @@ public final class PresenceIndicatorController {
     private var cancellables: Set<AnyCancellable> = []
     private var started = false
     private var settledLogged = false
+    /// The frame the last `presence state:` line reported.
+    private var loggedFrame: CGRect?
     /// Tallest menu bar ever seen per display — see `PresenceInteraction.menuBarPresent`.
     private var menuBarSeen: [String: CGFloat] = [:]
 
@@ -366,7 +368,10 @@ public final class PresenceIndicatorController {
                 }
             }
         case .open:
-            DispatchQueue.main.async { [weak self] in self?.openHoverMenu(on: metrics) }
+            // The menu's `popUp` runs a modal tracking loop until it closes. Run from a GCD main-queue
+            // block, it held the serial main queue for as long as the menu was open (the 2–36 s
+            // "main thread stalled" lines). A run-loop perform keeps the main queue draining.
+            RunLoop.main.perform { [weak self] in self?.openHoverMenu(on: metrics) }
         case .close:
             Log.app.notice("presence menu: closing (pointer left or turn live)")
             cancelMenu?()
@@ -447,7 +452,9 @@ public final class PresenceIndicatorController {
         }
         if let pinned, let fit = width { width = PresenceRow.Fit(text: fit.text, width: pinned.width, truncated: fit.truncated) }
         guard force || next != state || expanded != hovered || width?.width != rowWidth else { return }
-        let changed = next != state || expanded != hovered
+        // Fix notch — log a state line only when the case, the expansion or the frame changes; a
+        // `.listening(level:)` level change alone wrote 5–10 lines a second.
+        let changed = PresenceStateLog.changed(previous: state, next: next, wasExpanded: hovered, expanded: expanded)
         let wasExpanded = hovered
         state = next
         hovered = expanded
@@ -458,6 +465,7 @@ public final class PresenceIndicatorController {
             collapseInFlight = false
             panel.ignoresMouseEvents = true
             panel.orderOut(nil)
+            loggedFrame = nil
             if changed { Log.app.notice("presence state: off (enabled=\(self.inputs.enabled) pill=\(self.inputs.pillVisible) menuBar=\(self.inputs.menuBarPresent))") }
             return
         }
@@ -511,8 +519,11 @@ public final class PresenceIndicatorController {
         panel.displayIfNeeded()
         // `orderFrontRegardless`, never `makeKeyAndOrderFront` and never `NSApp.activate`: the
         // indicator must never take focus from whatever the user is typing into.
-        panel.orderFrontRegardless()
-        if changed {
+        // Fix notch — rejoin every Space when it comes in from ordered out (see `SpaceMembership`).
+        SpaceMembership.orderIn([panel])
+        let frameChanged = loggedFrame != layout.frame
+        loggedFrame = layout.frame
+        if changed || frameChanged {
             Log.app.notice("""
                 presence state: \(next.caseName) frame=\(NSStringFromRect(layout.frame)) \
                 expanded=\(expanded) pointerOn=\(pointerOn) row="\(width?.text ?? "")" \
@@ -646,5 +657,19 @@ final class PresenceContainerView: NSView {
     override func layout() {
         super.layout()
         subviews.forEach { $0.frame = bounds }
+    }
+}
+
+/// Fix notch — when the chin writes a `presence state:` line. `.listening(level:)` carries the mic
+/// level, so comparing whole states logged every level change (5–10 lines a second). The state with
+/// its level ignored and the expansion count here; the caller adds a frame change.
+enum PresenceStateLog {
+    static func changed(previous: PresenceState, next: PresenceState, wasExpanded: Bool, expanded: Bool) -> Bool {
+        levelless(previous) != levelless(next) || wasExpanded != expanded
+    }
+
+    static func levelless(_ state: PresenceState) -> PresenceState {
+        if case .listening = state { return .listening(level: 0) }
+        return state
     }
 }

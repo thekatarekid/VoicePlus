@@ -1,5 +1,6 @@
 import Actions
 import AppKit
+import Shared
 import SwiftUI
 
 /// S4 — the live flight surface: its own instance of the ink overlay's `OverlayWindow` (transparent,
@@ -10,13 +11,14 @@ import SwiftUI
 final class TapeFlightOverlay: TapeFlightSurface {
     private var window: OverlayWindow?
     private let model = TapeFlightOverlayModel()
+    /// Fix notch — whether the last `show` left the window on the active Space.
+    private(set) var lastShowVisible: Bool?
 
     init() {}
 
     func show(_ run: TapeFlightRun) {
-        let window = window(for: run.path.display)
         model.run = run
-        window.orderFrontRegardless()
+        lastShowVisible = orderIn(display: run.path.display)
     }
 
     func clear() {
@@ -26,9 +28,24 @@ final class TapeFlightOverlay: TapeFlightSurface {
 
     /// The destination tape cue, in the same click-through window (design §13 scenario 4).
     func showCue(_ cue: TapeFieldCue) {
-        let window = window(for: cue.display)
         model.cue = cue
-        window.orderFrontRegardless()
+        orderIn(display: cue.display)
+    }
+
+    /// Fix notch — orders the overlay in on the active Space. A window that macOS left on no Space
+    /// (WindowServer "none→hidden") is rebuilt once, because a new window joins every Space.
+    @discardableResult
+    private func orderIn(display: DisplayFrame) -> Bool {
+        if SpaceMembership.orderIn([window(for: display)]) != .offActiveSpace { return true }
+        Log.app.warning("ribbon: overlay ordered in but not on the active Space — rebuilding its window")
+        discardWindow()
+        return SpaceMembership.orderIn([window(for: display)]) != .offActiveSpace
+    }
+
+    private func discardWindow() {
+        window?.orderOut(nil)
+        window?.inkView.subviews.forEach { $0.removeFromSuperview() }
+        window = nil
     }
 
     func clearCue() {
@@ -43,7 +60,7 @@ final class TapeFlightOverlay: TapeFlightSurface {
 
     private func window(for display: DisplayFrame) -> OverlayWindow {
         if let window, window.display == display { return window }
-        window?.orderOut(nil)
+        discardWindow()
         let screen = NSScreen.screens.first { $0.frame == display.frame }
         let window = OverlayWindow(display: display, screen: screen)
         // Placement is the display's frame, never content: no minimum size may leak into the window.

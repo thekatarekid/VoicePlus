@@ -1,4 +1,5 @@
 import AppKit
+import Shared
 import Actions
 
 /// What the key controller needs from the overlay: front while the key is down, gone after.
@@ -88,14 +89,20 @@ public final class RegionOverlayController: DeixisOverlaying {
             let screen = NSScreen.screens.first { $0.frame == d.frame }
             windows[d.id] = OverlayWindow(display: d, screen: screen)
         }
-        if isShown { windows.values.forEach { $0.orderFrontRegardless() } }
+        if isShown { windows.values.forEach { SpaceMembership.orderIn([$0]) } }
     }
 
     private func orderFront() {
         hideGeneration += 1
         if windows.isEmpty { rebuildWindows() }
-        windows.values.forEach { $0.orderFrontRegardless() }
+        // Fix notch — rejoin every Space before ordering in; a window macOS left on no Space is
+        // rebuilt, because a new window joins every Space when it is first ordered in.
+        let outcomes = windows.values.map { SpaceMembership.orderIn([$0]) }
         isShown = true
+        if outcomes.contains(.offActiveSpace) {
+            Log.app.warning("ink overlay: ordered in but not on the active Space — rebuilding its windows")
+            rebuildWindows()
+        }
     }
 
     fileprivate func render(_ region: DrawnRegion) {

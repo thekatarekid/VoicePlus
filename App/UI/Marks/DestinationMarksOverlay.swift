@@ -129,7 +129,7 @@ public final class DestinationMarksOverlay {
                 width: frame.width, label: labels[fragment.markID] ?? "",
                 open: { [weak self] in self?.onClick?(fragment.markID, fragment.box) }))
             panel.setFrame(frame, display: true)
-            panel.orderFrontRegardless()
+            SpaceMembership.orderIn([panel]) // fix notch: rejoin every Space
         }
         for panel in panels.dropFirst(fragments.count) { panel.orderOut(nil) }
         Self.strips[ObjectIdentifier(self)] = panels.prefix(fragments.count).map(\.frame)
@@ -150,7 +150,7 @@ public final class DestinationMarksOverlay {
                 .foregroundStyle(Color(nsColor: Tokens.Colors.uncertainty))
                 .accessibilityLabel("Use \(suggestion.text)"))
             panel.setFrame(suggestion.frame, display: true)
-            panel.orderFrontRegardless()
+            SpaceMembership.orderIn([panel]) // fix notch: rejoin every Space
         }
         for panel in suggestionPanels.dropFirst(suggestions.count) { panel.orderOut(nil) }
     }
