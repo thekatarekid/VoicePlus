@@ -1952,3 +1952,11 @@ Initial checkpoint (superseded by the dated entries below):
 - `verify_install.sh` now fails a full installer lacking the N6 CTC model. `FULL_INSTALLER=1 verify_install.sh` **OK** (TDT/EOU/speaker/Silero inference from read-only mount, CTC present, 1.14.0, 9 TCC strings, self-contained, headless launch of temp copy).
 - Not installed to /Applications; running app untouched; appcast/cask/notes reverted. Tag `release/N-fixes/v1.14.0`.
 - Not verified: CTC inference in the bundle self-test (presence only), first-launch CTC compile time, notarization/Gatekeeper on a clean Mac, real dictation with this build.
+
+## 2026-10-03 — H-fixes final installer 1.15.0
+- `Packaging/releases/VoicePlus_H-fixes_1.15.0.dmg`, 779 MB (817,691,008 bytes), SHA256 `e7c3b735286720e3f1ee955db9e86de127f35d219fc7f37d4aa5f3d1e147e9fc`. `FULL_INSTALLER=1 BUNDLE_MODELS_FROM=<1.14.0 DMG Models> Packaging/release.sh H-fixes 1.15.0 --no-github`.
+- Bundled: TDT v3 + EOU 160 ms + speaker + N6 CTC (re-hashed from the 1.14.0 DMG) + Silero VAD + llama.framework. Qwen LLMs not bundled (onboarding download).
+- `FULL_INSTALLER=1 verify_install.sh` **OK** (TDT/EOU/speaker/Silero inference, CTC present, 1.15.0, 9 TCC strings, self-contained, headless launch of temp copy).
+- Not installed to /Applications; running app untouched; appcast/cask/notes reverted; `.build-v7*` reclaimed. Tag `release/H-fixes/v1.15.0`.
+- Build included uncommitted working-tree edits to `App/Debug/ReplayHarness.swift` + `App/main.swift` (replay `--near`, debug-only; not committed by release).
+- Not verified: CTC inference in self-test (presence only), Gatekeeper/notarization on a clean Mac, real dictation with this build.

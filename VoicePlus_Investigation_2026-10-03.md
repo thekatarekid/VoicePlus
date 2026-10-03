@@ -662,3 +662,6 @@ Turn **9B8EA8CB** (13:51:08 IST, Claude desktop, surface chatComposer at 1.00). 
   - Fallback: a one-time notice pointing to Claude › Settings › General › Quick access shortcut.
   - Fix the per-side Option bug: test `NX_DEVICELALTKEYMASK`/`NX_DEVICERALTKEYMASK` (0x20/0x40), not the shared Option flag.
   - Needs a live check: tap re-enable, Secure Input, Claude's Option+Space setting.
+
+## Build status (H-fixes)
+- Release 1.15.0: `Packaging/releases/VoicePlus_H-fixes_1.15.0.dmg`, 779 MB, SHA256 `e7c3b735286720e3f1ee955db9e86de127f35d219fc7f37d4aa5f3d1e147e9fc`; full installer (TDT v3 + EOU + speaker + CTC + Silero VAD + llama.framework; Qwen downloaded in onboarding); `FULL_INSTALLER=1 verify_install.sh` OK. Tag `release/H-fixes/v1.15.0`.
