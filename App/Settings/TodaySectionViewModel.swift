@@ -157,12 +157,8 @@ public final class TodaySectionViewModel: ObservableObject {
     }
 
     /// Resolved the way `GeneralSettingsViewModel` resolves it — the binding key the hotkey service
-    /// actually reads wins over the older `SettingsKeys.hotkey` mirror.
-    public var dictationKey: HotkeyChoice {
-        deps.settingsStore.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyChoice.init(rawValue:))
-            ?? deps.settingsStore.string(SettingsKeys.hotkey).flatMap(HotkeyChoice.init(rawValue:))
-            ?? .default
-    }
+    /// actually reads, else the service's default (never the older `SettingsKeys.hotkey` mirror).
+    public var dictationKey: HotkeyChoice { GeneralSettingsViewModel.boundHotkey(in: deps.settingsStore) }
 
     /// The configured key's label ("fn / 🌐"), resolved the way the window's hints resolve it
     /// (`MainWindowViewModel.hotkeyLabel`): the stored binding, else the default. Every "Right

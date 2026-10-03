@@ -71,6 +71,51 @@ struct HotkeyUserPickSticksTests {
         #expect(actions == [.startCapture, .finalize])
     }
 
+    @Test("a running service switched Option → fn → Option at runtime follows every pick, and the Option-tap wait is dropped while fn is bound")
+    func runtimeSwitchBackAndForth() {
+        let d = defaults()
+        let stub = StubEventTap()
+        let service = HotkeyService(defaults: d)
+        service.installer = stub.installer
+        service.otherInputWithin = { _ in false }
+        service.surfaceShowing = { false }
+        var actions: [HotkeyStateMachine.Action] = []
+        service.onAction = { actions.append($0) }
+        #expect(service.start())
+        // The Option tap is waiting for Accessibility (the state a fresh install arms in).
+        service.record(.untrusted)
+        #expect(service.awaitingAccessibilityForOptionTap)
+
+        d.set(HotkeyBinding.Kind.fn.rawValue, forKey: HotkeyService.bindingDefaultsKey)
+        service.reloadBindingFromDefaults()
+        #expect(service.binding.kind == .fn)
+        #expect(!service.awaitingAccessibilityForOptionTap, "fn bound: no Option tap may arm later")
+        #expect(!service.tapFeeds, "fn bound: the passive monitors feed the key, nothing drops Option")
+        service.retryOptionTapIfWaiting()
+        #expect(service.optionTap == nil)
+        service.handle(keyCode: 58, flags: Self.alt | HotkeyBinding.Kind.deviceLeftAltMask, timestamp: 0)
+        service.handle(keyCode: 58, flags: 0, timestamp: 0.6)
+        #expect(actions.isEmpty)
+
+        d.set(HotkeyBinding.Kind.option.rawValue, forKey: HotkeyService.bindingDefaultsKey)
+        service.reloadBindingFromDefaults()
+        #expect(service.binding.kind == .option)
+        #expect(d.string(forKey: HotkeyService.bindingDefaultsKey) == "option")
+        service.handle(keyCode: 63, flags: Self.fnFlag, timestamp: 2)
+        service.handle(keyCode: 63, flags: 0, timestamp: 2.6)
+        #expect(actions.isEmpty, "fn no longer dictates once Option is picked back")
+        service.handle(keyCode: 61, flags: Self.alt | HotkeyBinding.Kind.deviceRightAltMask, timestamp: 4)
+        service.handle(keyCode: 61, flags: 0, timestamp: 4.6)
+        #expect(actions == [.startCapture, .finalize], "either Option dictates again")
+
+        d.set(HotkeyBinding.Kind.fn.rawValue, forKey: HotkeyService.bindingDefaultsKey)
+        service.reloadBindingFromDefaults()
+        #expect(service.binding.kind == .fn)
+        #expect(d.string(forKey: HotkeyService.bindingDefaultsKey) == "fn", "a second fn pick sticks too")
+        #expect(stub.liveTaps.count == 1, "switching never stacks a second source")
+        service.stop()
+    }
+
     // MARK: The migration itself
 
     @Test("the migration sets its flag even when nothing is stored, and writes no binding")
@@ -199,6 +244,18 @@ struct SettingsHotkeyReadBackTests {
         #expect(store.string(HotkeyService.bindingDefaultsKey) == "option")
         #expect(store.string(SettingsKeys.hotkey) == "option")
         #expect(!g.syncHotkeyFromStore(), "nothing left to sync")
+    }
+
+    @Test("nothing bound yet but a legacy fn mirror: the pane shows the Option default, and picking fn binds fn")
+    func unsetBindingShowsTheServiceDefault() {
+        let store = InMemorySettingsStore()
+        store.set("fn", for: SettingsKeys.hotkey)
+        let g = general(store)
+        #expect(g.hotkey == .option, "the service runs Option; the pane must not claim fn")
+        let change = g.apply(.key(.fn))
+        #expect(change == .changed(from: .option, to: .fn), "a fn pick is a real change, never a no-op")
+        #expect(store.string(HotkeyService.bindingDefaultsKey) == "fn")
+        #expect(store.string(SettingsKeys.hotkey) == "fn")
     }
 
     @Test("the pane opens on the bound key even when the choice mirror disagrees")

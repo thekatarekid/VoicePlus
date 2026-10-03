@@ -286,11 +286,11 @@ public final class GeneralSettingsViewModel: ObservableObject {
         self.fnConflictReader = fnConflict
         self.keyboardSettingsOpener = openKeyboardSettings
         self.applyTheme = applyTheme
-        // The binding key wins: it is what the menu-bar submenu writes and what the service reads,
-        // so a user who changed the key from the menu sees that choice reflected here.
-        hotkey = store.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyChoice.init(rawValue:))
-            ?? store.string(SettingsKeys.hotkey).flatMap(HotkeyChoice.init(rawValue:))
-            ?? .default
+        // The binding key is the only truth: it is what the menu-bar submenu writes and what the
+        // service reads. With nothing stored the service runs its default, so the pane does too —
+        // never the `hotkey.choice` mirror, which could name fn while Option dictates and make a
+        // pick of fn a no-op (the pane would think fn is already bound).
+        hotkey = Self.boundHotkey(in: store)
         let actBinding = store.string(HotkeyService.actBindingDefaultsKey)
             .flatMap(HotkeyChoice.init(rawValue:)) ?? ActKeyChoice.suggestedKey
         actKey = ActKeySettings.isEnabled(store) ? .key(actBinding) : .off
@@ -325,13 +325,19 @@ public final class GeneralSettingsViewModel: ObservableObject {
         if let hotkeyDefaultsObserver { NotificationCenter.default.removeObserver(hotkeyDefaultsObserver) }
     }
 
+    /// The key `HotkeyService` actually runs: the stored binding, else its default (an unparseable
+    /// value falls back to the default there too).
+    static func boundHotkey(in store: SettingsStore) -> HotkeyChoice {
+        let kind = store.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyBinding.Kind.init(rawValue:))
+        return HotkeyChoice(binding: kind ?? HotkeyService.defaultBinding.kind)
+    }
+
     /// Re-reads the bound key (`hotkeyBinding`, what `HotkeyService` loads) into `hotkey` without
     /// writing it back, and keeps the `hotkey.choice` mirror in step. Returns true if it changed.
     @discardableResult
     public func syncHotkeyFromStore() -> Bool {
-        guard !writingHotkey, !syncingHotkey,
-              let stored = store.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyChoice.init(rawValue:))
-        else { return false }
+        guard !writingHotkey, !syncingHotkey else { return false }
+        let stored = Self.boundHotkey(in: store)
         if store.string(SettingsKeys.hotkey) != stored.rawValue {
             syncingHotkey = true
             store.set(stored.rawValue, for: SettingsKeys.hotkey)
