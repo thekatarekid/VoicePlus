@@ -229,7 +229,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// H2 / X3-taps — the notch shows something that is not a live capture (read at key-down).
     public var surfaceShowing: (() -> Bool)?
     /// H2 — bumped by every hint shown and every dismissing tap, so a stale hint expiry never fires.
+    /// H3 — and by every key-down, so a tap's delayed hint never lands over (or after) a new hold.
     private var tapHintGeneration = 0
+    /// H3 (owner Q3.2) — a new turn began: whatever the notch still shows (a hint, an outcome, an
+    /// error, an edit row) yields to it. Runs on `ui` just before the turn's `.starting` row.
+    public var onHoldYield: (() -> Void)?
     /// The 10 s finishing offer appeared (or went away: `nil`).
     public var onOffer: ((TurnID, FinishingOffer?) -> Void)?
     /// Escape or Cancel before the write: stop capture and drop what is in flight (the session
@@ -379,7 +383,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turns[turn.id] = turn
             captureID = turn.id
             holdingPresentation = false
+            tapHintGeneration &+= 1
             fx.save(turn)
+            fx.yieldToHold()
             fx.present(.starting)
             return .began(turn.id)
         }
@@ -508,8 +514,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             return
         }
         Log.app.info("turn \(id.description): tap under the hold threshold — hint, no turn record")
+        let tapGeneration = lock.withLock { () -> Int in tapHintGeneration &+= 1; return tapHintGeneration }
         _ = clock.schedule(after: tapHintDelay) { [weak self] in
-            guard let self, self.lock.withLock({ self.captureID == nil }) else { return }
+            // H3 — a key-down since this tap (a hold, a double tap) owns the notch: no hint.
+            guard let self, self.lock.withLock({ self.captureID == nil && self.tapHintGeneration == tapGeneration })
+            else { return }
             let generation = self.lock.withLock { () -> Int in
                 self.tapHintGeneration &+= 1
                 return self.tapHintGeneration
@@ -1805,6 +1814,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             steps.append { $0.present(state) }
         }
 
+        /// H3 — whatever the notch shows gives way to the new turn (in `ui` order, before `.starting`).
+        mutating func yieldToHold() {
+            steps.append { c in c.ui { [weak c] in c?.onHoldYield?() } }
+        }
+
         func run(_ controller: TurnController) { steps.forEach { $0(controller) } }
     }
 }
@@ -1901,6 +1915,22 @@ public final class TurnWiring {
     public let escape: EscapeHotkey
     private var subscriptions: Set<AnyCancellable> = []
     private var noticeFade: DispatchWorkItem?
+    /// H3 / old H6 — the edit pill gives the notch up to a new hold (`TransformPillDriver`'s
+    /// reducer ends: no warm row, no ghost, no tick that could redraw it over the listening row).
+    /// `attach` routes it as `.ended` through the transform landing's event sink; the app may
+    /// replace it with the driver's own `yieldToHold()`.
+    public var onTransformYield: (() -> Void)?
+
+    /// H3 (owner Q3.2) — a hold in any state starts a fresh dictation. The turn's `.starting` row
+    /// replaces a hint, outcome or error row outright (a visible state never waits, `PillPresenter`);
+    /// taking the old row down first would only order the panel out and back in. What must go here
+    /// is what could act on the pill *after* that: a pending notice fade, and the edit pill, whose
+    /// warm ticks would otherwise redraw it over the listening row.
+    func yieldToHold() {
+        noticeFade?.cancel()
+        noticeFade = nil
+        onTransformYield?()
+    }
 
     public init(controller: TurnController, store: TurnStore, escape: EscapeHotkey) {
         self.controller = controller
@@ -2052,6 +2082,9 @@ public final class TurnWiring {
             wiring?.show(entry, on: pill, fadeAfter: fade)
         }
         controller.onCancelCapture = { [weak session] in session?.escape() }
+        // H3 (Q3.2) — a new hold clears whatever the notch shows and the edit pill stands down.
+        wiring.onTransformYield = { [weak transform = container.transform] in transform?.onEvent?(.ended) }
+        controller.onHoldYield = { [weak wiring] in wiring?.yieldToHold() }
 
         // I2 — Escape is registered only while a turn is live (its phase read from the controller
         // on every pill change and every turn end), and goes to the turn controller.
