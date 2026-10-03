@@ -42,6 +42,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     /// V5 N1 — the "N new notes" row; and how many there are. Nil opens the window (its Notes section
     /// is one click away).
     public var onOpenNotes: (() -> Void)?
+    /// H10 — a row of the "Edit commands" submenu. Nil opens Settings.
+    public var onOpenEditCommands: (() -> Void)?
     public var notesUnread: (() -> Int)?
     /// Kept for the composition root; not menu rows (`DESIGN.md` §10 — they live in the window).
     public var onOpenLab: (() -> Void)?
@@ -279,6 +281,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
                 menu.addItem(header)
                 continue
             }
+            if let rows = entry.submenu {
+                menu.addItem(submenuItem(for: entry, rows: rows))
+                continue
+            }
             // H33 — the custom-view rows are spec slots; a slot with nothing to show yet is dropped.
             if StatusMenuSpec.ID.customSlots.contains(entry.id) {
                 if let item = customItem(for: entry.id) { menu.addItem(item) }
@@ -292,7 +298,33 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     var menuExtras: MenuExtras {
         MenuExtras(zeroEdit: showsZeroEditCounter && database != nil,
                    whyItWroteThat: showsWhyItWroteThat,
-                   ambient: ambientModeController != nil)
+                   ambient: ambientModeController != nil,
+                   editCommands: showsEditCommands)
+    }
+
+    /// H10 — on for the live status item, off headless (tests opt in).
+    public lazy var showsEditCommands: Bool = statusItem != nil
+
+    /// H10 — a parent row with its submenu (the "Edit commands" list from the catalogue).
+    func submenuItem(for entry: MenuEntry, rows: [MenuEntry]) -> NSMenuItem {
+        let parent = NSMenuItem(title: entry.title, action: nil, keyEquivalent: "")
+        parent.identifier = NSUserInterfaceItemIdentifier(entry.id)
+        parent.representedObject = entry.id
+        let sub = NSMenu(title: entry.title)
+        for row in rows {
+            if row.isSeparator { sub.addItem(.separator()); continue }
+            if row.isHeader {
+                let header = NSMenuItem.sectionHeader(title: row.title)
+                header.identifier = NSUserInterfaceItemIdentifier(row.id)
+                sub.addItem(header)
+                continue
+            }
+            let item = menuItem(for: row)
+            item.toolTip = row.toolTip
+            sub.addItem(item)
+        }
+        parent.submenu = sub
+        return parent
     }
 
     private func customItem(for id: String) -> NSMenuItem? {
@@ -377,6 +409,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         case .openNotes: (onOpenNotes ?? onOpenWindow ?? onOpenSettings)?()
         case .quit: quitVoicePlus()
         case .copyRecent(let id): copyRecentRow(id)
+        case .openEditCommands: (onOpenEditCommands ?? onOpenSettings)?()
         }
         refreshIcon()
         rebuild()

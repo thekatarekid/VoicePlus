@@ -107,6 +107,8 @@ public enum MenuAction: Equatable, Sendable {
     /// H32 — copy one Recent row's words through the verified copy (`TurnStore.copyRecent`,
     /// `TodayServices.copyVerified`). "Copied" is shown only on read-back.
     case copyRecent(TurnID)
+    /// H10 — a row of the "Edit commands" submenu: opens the Edit commands page in Settings.
+    case openEditCommands
 }
 
 /// One row of the menu. Rendered to `NSMenuItem` by `StatusItemController`; compared directly by
@@ -131,6 +133,10 @@ public struct MenuEntry: Equatable, Sendable {
     public var iconBundleID: String?
     /// H32 — the trailing relative time ("2 m") or "Copied" (Recent rows). Nil everywhere else.
     public var trailing: String?
+    /// H10 — rows of a submenu (the "Edit commands" parent). Nil everywhere else.
+    public var submenu: [MenuEntry]?
+    /// H10 — a native section header inside a submenu (an Edit commands group). False elsewhere.
+    public var isHeader: Bool
 
     public init(id: String, title: String, detail: String? = nil, action: MenuAction? = nil,
                 keyEquivalent: String = "", isEnabled: Bool = true, isOn: Bool = false,
@@ -148,6 +154,8 @@ public struct MenuEntry: Equatable, Sendable {
         self.toolTip = nil
         self.iconBundleID = nil
         self.trailing = nil
+        self.submenu = nil
+        self.isHeader = false
     }
 
     public static func separator(_ id: String) -> MenuEntry {
@@ -484,11 +492,15 @@ public struct MenuExtras: Equatable, Sendable {
     public var zeroEdit: Bool
     public var whyItWroteThat: Bool
     public var ambient: Bool
+    /// H10 — the "Edit commands" submenu (live status item; headless tests opt in).
+    public var editCommands: Bool
 
-    public init(zeroEdit: Bool = false, whyItWroteThat: Bool = false, ambient: Bool = false) {
+    public init(zeroEdit: Bool = false, whyItWroteThat: Bool = false, ambient: Bool = false,
+                editCommands: Bool = false) {
         self.zeroEdit = zeroEdit
         self.whyItWroteThat = whyItWroteThat
         self.ambient = ambient
+        self.editCommands = editCommands
     }
 }
 
@@ -518,6 +530,8 @@ public enum StatusMenuSpec {
         public static let whyItWroteThat = "menu.whyItWroteThat"
         public static let ambient = "menu.ambient"
         public static let ambientSeparator = "menu.sep.ambient"
+        /// H10 — the "Edit commands" parent row; its rows are `EditCommandsMenu.entries()`.
+        public static let editCommands = "menu.editCommands"
         /// Slots whose row is a custom AppKit view, not a `MenuEntry` title.
         public static let customSlots: Set<String> = [zeroEdit, whyItWroteThat, ambient]
         public static func recentRow(_ id: TurnID) -> String { "menu.recent.\(id.rawValue.uuidString)" }
@@ -548,6 +562,7 @@ public enum StatusMenuSpec {
                       action: .openWindow),
             MenuEntry(id: ID.settings, title: MenuCopy.settings, action: .openSettings, keyEquivalent: ","),
         ]
+        if state.extras.editCommands { entries.append(EditCommandsMenu.parent()) }
         if state.extras.whyItWroteThat { entries.append(slot(ID.whyItWroteThat)) }
         if state.extras.ambient { entries += [.separator(ID.ambientSeparator), slot(ID.ambient)] }
         entries += [
@@ -565,7 +580,11 @@ public enum StatusMenuSpec {
 
     /// Depth-first lookup by id, for the renderer's tests.
     public static func entry(_ id: String, in entries: [MenuEntry]) -> MenuEntry? {
-        entries.first { $0.id == id }
+        for entry in entries {
+            if entry.id == id { return entry }
+            if let sub = entry.submenu, let found = Self.entry(id, in: sub) { return found }
+        }
+        return nil
     }
 
     // MARK: The rows

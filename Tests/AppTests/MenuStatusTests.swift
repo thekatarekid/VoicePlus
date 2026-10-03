@@ -119,12 +119,18 @@ struct MenuStatusTests {
                 return raw.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             }
         }
+        // H23 (owner round 2, Q6) supersedes the prototype's held row: the held queue is retired and
+        // the row appears only for a failed Notes save, in section 2's outcome words.
+        var expected = prototype
+        if let i = expected.firstIndex(where: { $0.first == "1 held dictation" }) {
+            expected[i] = ["Couldn’t save to Notes", "Kept in Today with Copy."]
+        }
         let state = StatusMenuState(held: [StatusMenuState.Held(id: UUID(), title: "“held” — Notes")])
         let ours = StatusMenuSpec.entries(state)
             .filter { !$0.isSeparator && $0.id != StatusMenuSpec.ID.microphone && $0.id != StatusMenuSpec.ID.settings }
             .map { [$0.title, $0.detail ?? ""] }
         #expect(prototype.count == 6)
-        #expect(ours == prototype)
+        #expect(ours == expected)
         // The screen's own title and subtitle come from the copy fixture.
         let copy = try Self.json("Fixtures/design/design_copy.json")
         let menu = try #require((copy["screens"] as? [String: Any])?["menu"] as? [String: String])
