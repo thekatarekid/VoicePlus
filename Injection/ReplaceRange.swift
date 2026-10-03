@@ -9,11 +9,18 @@ public struct ReplaceRangeRequest: Equatable, Sendable {
     /// What we believe is there (what we injected earlier).
     public var expected: String
     public var replacement: String
-    public init(range: Range<Int>, expected: String, replacement: String) {
+    /// H9 — select the replacement afterwards (a selection edit: the result stays selected so a
+    /// follow-up command edits it). false: put the user's caret back where it was (repair).
+    public var selectResult: Bool
+    public init(range: Range<Int>, expected: String, replacement: String, selectResult: Bool = false) {
         self.range = range
         self.expected = expected
         self.replacement = replacement
+        self.selectResult = selectResult
     }
+
+    /// Where the replacement sits once written.
+    public var resultingRange: Range<Int> { range.lowerBound..<(range.lowerBound + replacement.utf16.count) }
 }
 
 public enum ReplaceRangeOutcome: Equatable, Sendable {
@@ -55,8 +62,11 @@ public final class ReplaceRangeEditor {
         } catch {
             return .unavailable(reason: "\(error)")
         }
-        // Put the caret back where the user had it (shifted if it sat after the edit).
-        if let sel = originalSelection {
+        if request.selectResult {
+            // H9 — the new text stays selected (not the old range, which now spans different text).
+            try? system.setFocusedSelectedRange(request.resultingRange)
+        } else if let sel = originalSelection {
+            // Put the caret back where the user had it (shifted if it sat after the edit).
             let delta = request.replacement.utf16.count - request.range.count
             let shifted = sel.lowerBound >= request.range.upperBound
                 ? (sel.lowerBound + delta)..<(sel.upperBound + delta) : sel

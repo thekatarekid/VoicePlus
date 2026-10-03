@@ -35,7 +35,9 @@ enum RouteRules {
                            "remove that", "delete that", "delete the last", "delete last", "never mind", "nevermind",
                            "fix the last", "capital", "lowercase", "uppercase", "the first one", "the second one", "the third one",
                            "the first option", "the second option", "that's wrong", "that is wrong", "wrong"] {
-                if joined == phrase || joined.hasPrefix(phrase + " ") || (phrase.count > 5 && joined.contains(phrase)) {
+                // H6 — whole phrase or a leading phrase only. Substring matching ("…in capital letters…",
+                // "…the uppercase key…") stole ordinary dictation and selection edits.
+                if joined == phrase || joined.hasPrefix(phrase + " ") {
                     return Hit(route: .repairCommand, confidence: 0.9, reason: "repair-phrase:\(phrase)")
                 }
             }

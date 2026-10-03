@@ -35,6 +35,13 @@ public struct SelectionSnapshot: Equatable, Sendable, Codable {
     public var isMeaningful: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     public var wordCount: Int { text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count }
 
+    /// H9 — the same selected text at the same place in the same field. The surrounding context is
+    /// ignored: it is a model hint, not identity (a chained edit's snapshot keeps the first turn's).
+    public func isSameTarget(as other: SelectionSnapshot?) -> Bool {
+        guard let other else { return false }
+        return text == other.text && range == other.range && bundleID == other.bundleID && elementToken == other.elementToken
+    }
+
     /// Build a snapshot from a full field value + selected UTF-16 range.
     public static func from(value: String, selectedRange: Range<Int>, bundleID: String? = nil, elementToken: String? = nil) -> SelectionSnapshot? {
         let units = Array(value.utf16)

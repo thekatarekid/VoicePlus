@@ -61,7 +61,9 @@ public final class TransformSession: @unchecked Sendable {
     /// Use `fresh` if the user selected something new; otherwise reuse the warm selection.
     public func begin(with fresh: SelectionSnapshot?) -> SelectionSnapshot? {
         lock.lock(); defer { lock.unlock() }
-        if let fresh, fresh.isMeaningful, fresh != selection {
+        // H9 — after an applied edit the field keeps the result selected, so a fresh read of that
+        // same range is the warm selection (turns kept for undo), not a new session.
+        if let fresh, fresh.isMeaningful, !fresh.isSameTarget(as: selection) {
             selection = fresh; turns = []; lastTurnAt = nil
             return fresh
         }

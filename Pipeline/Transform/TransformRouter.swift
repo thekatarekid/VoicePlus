@@ -6,7 +6,7 @@ import Shared
 /// selection-less utterance into a rewrite of text the user did not select.
 public struct TransformRouteDecision: Equatable, Sendable {
     public enum Reason: String, Sendable {
-        case noSelection, selectionTransform, selectionQuestion, selectionRepair, emptyUtterance
+        case noSelection, selectionTransform, selectionQuestion, emptyUtterance
     }
     public var route: Utterance.Route
     public var selection: SelectionSnapshot?
@@ -28,9 +28,10 @@ public enum TransformRouter {
         switch gatekeeper.route {
         case .question:
             return TransformRouteDecision(route: .question, selection: sel, reason: .selectionQuestion, gatekeeper: gatekeeper)
-        case .repairCommand where gatekeeper.routeConfidence >= 0.9:
-            return TransformRouteDecision(route: .repairCommand, selection: sel, reason: .selectionRepair, gatekeeper: gatekeeper)
         default:
+            // H6 (Q4) — selection = edit mode: the edit parser owns the utterance before repair
+            // routing. "capitalize this", "uppercase", "scratch that" over a selection are edits of
+            // the selection, never a repair of the last dictation.
             return TransformRouteDecision(route: .transform, selection: sel, reason: .selectionTransform, gatekeeper: gatekeeper)
         }
     }

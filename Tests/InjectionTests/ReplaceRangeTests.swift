@@ -21,6 +21,21 @@ import Shared
         #expect(mock.field.selection == 25..<25)   // caret restored
     }
 
+    @Test("H9: a selection edit leaves the new text selected, not the old range")
+    func selectResultSelectsReplacement() {
+        let (ed, mock) = editor("say we should meet sometime soon ok", selection: 4..<32)
+        let outcome = ed.replace(ReplaceRangeRequest(range: 4..<32, expected: "we should meet sometime soon",
+                                                     replacement: "let's meet", selectResult: true))
+        #expect(outcome == .replaced(verified: true))
+        #expect(mock.field.value == "say let's meet ok")
+        #expect(mock.field.selection == 4..<14)
+        // Longer result: the selection grows with it.
+        let (ed2, mock2) = editor("x ab y", selection: 2..<4)
+        _ = ed2.replace(ReplaceRangeRequest(range: 2..<4, expected: "ab", replacement: "abcdef", selectResult: true))
+        #expect(mock2.field.selection == 2..<8)
+        #expect(ReplaceRangeRequest(range: 2..<4, expected: "ab", replacement: "abcdef").resultingRange == 2..<8)
+    }
+
     @Test func caretAfterEditShiftsByDelta() {
         let (ed, mock) = editor("ab cd ef", selection: 8..<8)
         _ = ed.replace(ReplaceRangeRequest(range: 3..<5, expected: "cd", replacement: "cdcd"))

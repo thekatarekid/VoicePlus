@@ -34,7 +34,8 @@ public final class InjectionTransformReplaceSink: TransformReplaceSink, @uncheck
 
     /// The real write, whatever mode the session call is in.
     public func write(_ request: TransformReplaceRequest) -> TransformReplaceOutcome {
-        switch editor.replace(ReplaceRangeRequest(range: request.range, expected: request.expected, replacement: request.replacement)) {
+        switch editor.replace(ReplaceRangeRequest(range: request.range, expected: request.expected, replacement: request.replacement,
+                                                     selectResult: true)) {
         case .replaced(let v): return .replaced(verified: v)
         case .mismatch(let a): return .mismatch(actual: a)
         case .unavailable(let r): return .unavailable(reason: r)
@@ -90,6 +91,13 @@ public final class TransformLanding: @unchecked Sendable {
         case transformed(TransformSession.Step)
         case answered(String, InjectionOutcome)
         case refused(String)
+        /// H6 — "replace with …" over a selection: the lander formats these spans as dictation and
+        /// types them through the normal injector over the (re)selected text — password refusal and
+        /// newline-safe landing included.
+        case replaceSelection([TranscriptSpan])
+        /// H6 — "replace" alone: the notch asks for the new text; the next utterance within the warm
+        /// window replaces the selection.
+        case awaitingReplacement
         case notHandled
     }
 
@@ -112,7 +120,11 @@ public final class TransformLanding: @unchecked Sendable {
     }
     private var lastInstruction: [TranscriptSpan]?
     private var lastContext: StageContext?
+    /// H9 — set only by an applied edit (or its undo): follow-ups chain on the result, not after
+    /// "no change" or a failure.
     private var lastTurnAt: Date?
+    /// H6 — "replace" said alone: the selection waiting for its new text, and when it was asked.
+    private var pendingReplace: (selection: SelectionSnapshot, at: Date)?
 
     private let lock = NSLock()
     private var gate = TransformPreviewGate()
@@ -132,18 +144,38 @@ public final class TransformLanding: @unchecked Sendable {
         self.session = session; self.detector = detector; self.qa = qa; self.system = system; self.injector = injector
     }
 
-    /// Bet 5: a selection (fresh, or the warm one from the previous turn) is the only signal
-    /// that turns an utterance into a transform/question.
+    /// Bet 5: a selection is the only signal that turns an utterance into a transform/question.
+    /// H9 — a follow-up edit chains only while the field still has the result selected: after an
+    /// applied edit the result *is* the field's selection, so the fresh read finds it (and
+    /// `TransformSession.begin` keeps the turns). A moved caret means dictation again.
     public func route(_ decision: GatekeeperDecision) -> TransformRouteDecision {
         let fresh = detector.currentSelection()
-        let sel = (fresh?.isMeaningful == true) ? fresh : (isWarm ? session.selection : nil)
-        return TransformRouter.decide(gatekeeper: decision, selection: sel)
+        return TransformRouter.decide(gatekeeper: decision, selection: fresh?.isMeaningful == true ? fresh : nil)
     }
 
     public func handle(_ spans: [TranscriptSpan], decision: GatekeeperDecision, context: StageContext) async -> Outcome {
+        // H6 — "replace" said alone earlier: this utterance is the new text, while the selection is
+        // still the one we asked about (or nothing else got selected) and within the warm window.
+        if decision.route != .none, let pending = takePendingReplace() {
+            let fresh = detector.currentSelection()
+            if fresh?.isMeaningful != true || fresh!.isSameTarget(as: pending.selection) {
+                return await replaceSelection(pending.selection, with: spans)
+            }
+        }
         let r = route(decision)
         switch r.route {
         case .transform:
+            if let sel = r.selection, let command = SelectionReplaceCommand.parse(spans) {
+                switch command {
+                case .replace(let rest):
+                    return await replaceSelection(sel, with: rest)
+                case .awaitingText:
+                    await settlePendingPreview()
+                    sync { pendingReplace = (sel, clock()) }
+                    onEvent?(.prompt(SelectionReplaceCommand.promptLine))
+                    return .awaitingReplacement
+                }
+            }
             guard let stager = session.sink as? InjectionTransformReplaceSink else {
                 // Without staging the edit could not be previewed before it replaced the text.
                 return .refused("can't preview this edit")
@@ -169,6 +201,28 @@ public final class TransformLanding: @unchecked Sendable {
             return .answered(answer, outcome)
         default:
             return .notHandled
+        }
+    }
+
+    /// H6 — hands the replacement to the lander's normal dictation path. The selection is made the
+    /// field's selection again first (a warm one may have been collapsed by the app), so typing
+    /// replaces exactly it. The session ends: its turns describe text that is gone.
+    private func replaceSelection(_ sel: SelectionSnapshot, with spans: [TranscriptSpan]) async -> Outcome {
+        await settlePendingPreview()
+        if (try? system.focusedElement())?.selectedRange != sel.range {
+            try? system.setFocusedSelectedRange(sel.range)
+        }
+        sync { pendingReplace = nil }
+        lastTurnAt = nil
+        onEvent?(.ended)
+        return .replaceSelection(spans)
+    }
+
+    private func takePendingReplace() -> (selection: SelectionSnapshot, at: Date)? {
+        sync {
+            defer { pendingReplace = nil }
+            guard let p = pendingReplace, clock().timeIntervalSince(p.at) < session.warmWindow else { return nil }
+            return p
         }
     }
 
@@ -226,7 +280,8 @@ public final class TransformLanding: @unchecked Sendable {
 
         switch staged.0 {
         case .noChange:
-            lastTurnAt = clock()
+            // H9 — nothing changed: the next hold is dictation unless something is selected.
+            lastTurnAt = nil
             sync { gate.cancel() }
             onEvent?(.noChange)
             return staged.0

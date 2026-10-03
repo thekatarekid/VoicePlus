@@ -85,7 +85,7 @@ struct TransformUXTests {
         r.reduce(.tick, now: t0 + 0.5)
         #expect(r.state == .transform(.init(editingWords: 2, stage: .notice("no change")))) // notice holds ~1 s
         r.reduce(.tick, now: t0 + 2)
-        #expect(r.state == .transform(.init(editingWords: 2, stage: .warm(remaining: 6))))
+        #expect(r.state == .hidden && !r.isWarm, "H9: no 'say more' after no change — the notice just closes")
         #expect(r.reduce(.failed("can't edit here"), now: t0) == .transform(.init(editingWords: 2, stage: .notice("can't edit here"))))
         let diff = WordDiff.compute(old: "a", new: "b")
         r.reduce(.applied(instruction: "x", before: "a", after: "b", diff: diff), now: t0)
@@ -216,9 +216,9 @@ struct TransformLandingTests {
         #expect(r1.route == .transform && r1.injection == nil)
         #expect(system.field.value.contains("Q3:\nrevenue"))
         #expect(landing.session.isWarm && landing.session.selection?.range == 0..<system.field.value.utf16.count)
+        // H9: the new text stays selected, so the next command edits the result.
+        #expect(system.field.selection == 0..<system.field.value.utf16.count)
 
-        // Selection collapsed (as apps do after a replace) — the warm session still knows the region.
-        system.field.selection = 0..<0
         clock = now + 3
         let r2 = await lander.land(Self.spans("call out the churn number"), startedAt: clock, focus: system.frontmost)
         guard case .transformed(.applied)? = r2.transform else { Issue.record("turn 2: \(String(describing: r2.transform))"); return }
@@ -242,7 +242,10 @@ struct TransformLandingTests {
         #expect(system.field.value.contains("but CHURN ROSE TO 4 PERCENT, mostly"))
         #expect(landing.session.turns.count == 2)
 
-        // After the 8 s warm window a selection-less utterance is plain dictation again.
+        // H9: undo leaves the restored text selected. Once the caret moves (no selection), speech
+        // is plain dictation again.
+        #expect(system.field.selection == landing.session.selection?.range)
+        system.field.selection = system.field.value.utf16.count..<system.field.value.utf16.count
         clock = now + 20
         let r4 = await lander.land(Self.spans("thanks"), startedAt: clock, focus: system.frontmost)
         #expect(r4.transform == nil && r4.injection?.succeeded == true)

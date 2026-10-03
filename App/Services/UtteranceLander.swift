@@ -279,9 +279,26 @@ public final class UtteranceLander: @unchecked Sendable {
 
         // P2.3 — a selection turns the utterance into a transform / question (Bet 5). The raw
         // spans are the instruction: formatters must not rewrite what the user asked for.
-        if let transform, decision.route != .repairCommand || transform.isWarm {
+        // H6 (Q4) — with a meaningful selection the edit parser owns the utterance *before* repair
+        // routing: "uppercase", "scratch that", "capitalize this" over a selection are edits, not
+        // repairs of the last dictation. Without a selection `handle` declines and nothing changes.
+        var replacingSelection = false
+        if let transform {
             let outcome = await transform.handle(spans, decision: decision, context: ctx)
-            if outcome != .notHandled {
+            if case .replaceSelection(let rest) = outcome {
+                // "replace with …": the rest is dictation, formatted below and typed over the
+                // selection by the normal injector (secure-field refusal and Q1 newline rules apply).
+                result.transform = outcome
+                replacingSelection = true
+                do {
+                    outSpans = try await pipeline.runDictationStages(rest, decision: decision, context: ctx)
+                } catch {
+                    Log.pipeline.error("dictation stages failed for a selection replace, landing raw text: \(error)")
+                    outSpans = rest
+                }
+                decision.route = .dictate
+                result.route = .dictate
+            } else if outcome != .notHandled {
                 result.transform = outcome
                 result.route = transform.route(decision).route
                 result.text = spans.renderedText
@@ -293,7 +310,7 @@ public final class UtteranceLander: @unchecked Sendable {
         }
 
         // P1.5.2 — "put it back" undoes a silent correction before the repair session's own undo.
-        if decision.route == .repairCommand, let correction, let sink = repair?.replaceSink,
+        if !replacingSelection, decision.route == .repairCommand, let correction, let sink = repair?.replaceSink,
            case .revertedCorrection(let entry) = CorrectionUndoRouter.handle(text: spans.renderedText, ledger: correction.ledger, sink: sink, at: clock()) {
             result.revertedCorrection = entry
             result.text = spans.renderedText
@@ -303,7 +320,7 @@ public final class UtteranceLander: @unchecked Sendable {
         }
 
         // Bet 3 — spoken repair of the last utterance, consumed instead of typed.
-        if decision.route == .repairCommand, let repair, flags.isEnabled(.voiceRepair) {
+        if !replacingSelection, decision.route == .repairCommand, let repair, flags.isEnabled(.voiceRepair) {
             var repairCtx = ctx
             repairCtx.extra[RepairStage.routeKey] = Utterance.Route.repairCommand.rawValue
             _ = try? await RepairStage(session: repair).process(outSpans, context: repairCtx)

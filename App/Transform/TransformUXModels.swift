@@ -96,6 +96,8 @@ public struct TransformPillReducer: Equatable, Sendable {
         /// S12 — undo was refused (window over, or the edited range changed); `line` says which.
         case undoRefused(String)
         case undone
+        /// H6 — the notch asks for something ("Say the new text") and waits up to the warm window.
+        case prompt(String)
         case tick
         case ended
     }
@@ -156,11 +158,15 @@ public struct TransformPillReducer: Equatable, Sendable {
             words = after.split(whereSeparator: { $0.isWhitespace }).count
             state = .transform(.init(editingWords: words, stage: .done(changed: m.changedCount)))
         case .noChange:
-            warmSince = now; ghost = nil
+            // H9 — "say more" (the warm row) only after an applied edit; this notice just closes.
+            warmSince = nil; ghost = nil; morph = nil; hideAt = now + Self.closingNotice
             state = .transform(.init(editingWords: words, stage: .notice("no change")))
         case .failed(let why):
-            warmSince = now; ghost = nil
+            warmSince = nil; ghost = nil; morph = nil; hideAt = now + Self.closingNotice
             state = .transform(.init(editingWords: words, stage: .notice(why)))
+        case .prompt(let line):
+            warmSince = nil; ghost = nil; morph = nil; hideAt = now + warmWindow
+            state = .transform(.init(editingWords: words, stage: .notice(line)))
         case .undone:
             ghost = nil; morph = nil; warmSince = now
             state = .transform(.init(editingWords: words, stage: .notice("put back")))
