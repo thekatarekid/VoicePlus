@@ -14,10 +14,15 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         public var holdThreshold: TimeInterval
         public var tapGuard: TimeInterval
         public var doubleTapWindow: TimeInterval
-        public init(holdThreshold: TimeInterval = 0.250, tapGuard: TimeInterval = 0.180, doubleTapWindow: TimeInterval = 0.350) {
+        /// X3-taps (owner round 3, "Short presses") — while the notch shows something that is not a
+        /// live capture, a press up to this long is a tap (it dismisses), not a hold.
+        public var visibleTapCeiling: TimeInterval
+        public init(holdThreshold: TimeInterval = 0.250, tapGuard: TimeInterval = 0.180, doubleTapWindow: TimeInterval = 0.350,
+                    visibleTapCeiling: TimeInterval = 0.800) {
             self.holdThreshold = holdThreshold
             self.tapGuard = tapGuard
             self.doubleTapWindow = doubleTapWindow
+            self.visibleTapCeiling = visibleTapCeiling
         }
         public static let `default` = Timing()
     }
@@ -45,6 +50,9 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public private(set) var phase: Phase = .idle
     /// Time of the last key-up that qualified as a guarded tap; `nil` once consumed or expired.
     public private(set) var lastTapUp: TimeInterval?
+    /// X3-taps — the current (or last) press went down while the notch showed something that is not
+    /// a live capture. Such a press up to `visibleTapCeiling` ends as a tap that dismisses.
+    public private(set) var pressOverSurface = false
 
     public init(timing: Timing = .default) { self.timing = timing }
 
@@ -55,8 +63,10 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         }
     }
 
+    /// `surfaceShowing`: X3-taps — the notch shows something that is not a live capture (a hint, a
+    /// notice, an outcome row) as the key goes down.
     @discardableResult
-    public mutating func keyDown(at t: TimeInterval) -> [Action] {
+    public mutating func keyDown(at t: TimeInterval, surfaceShowing: Bool = false) -> [Action] {
         switch phase {
         case .keyDown:
             return [] // key repeat — ignore
@@ -67,6 +77,7 @@ public struct HotkeyStateMachine: Equatable, Sendable {
             return [.finalize]
         case .idle:
             phase = .keyDown(since: t)
+            pressOverSurface = surfaceShowing
             return [.startCapture]
         }
     }
@@ -75,6 +86,13 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public mutating func keyUp(at t: TimeInterval) -> [Action] {
         guard case .keyDown(let since) = phase else { return [] }
         let duration = t - since
+        // X3-taps — over a visible notch, a press up to ~0.8 s is a tap: it dismisses, never
+        // finalizes and never arms a double-tap. Longer still holds (Q3.2: a hold always wins).
+        if pressOverSurface, duration >= timing.holdThreshold, duration <= timing.visibleTapCeiling {
+            phase = .idle
+            lastTapUp = nil
+            return [.cancelCapture]
+        }
         if duration >= timing.holdThreshold {
             phase = .idle
             lastTapUp = nil
@@ -114,6 +132,7 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public mutating func reset() {
         phase = .idle
         lastTapUp = nil
+        pressOverSurface = false
     }
 }
 

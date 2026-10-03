@@ -337,12 +337,14 @@ public final class SessionCoordinator {
     }
 
     /// Aborts without landing anything, and drops anything that had closed but not been delivered.
-    public func cancel(_ requester: Requester = .hotkey, reason: StopReason = .userStopped) {
+    /// `tapped`: H2 — the hotkey's own tap (every press the gesture machine ends as a tap: under
+    /// 250 ms, or up to ~0.8 s over a visible notch). Said explicitly, never guessed from a clock.
+    public func cancel(_ requester: Requester = .hotkey, reason: StopReason = .userStopped, tapped: Bool = false) {
         if requester.isRecorder { return stopRecorder(requester, reason: reason) }
         guard lock.withLock({ holder == nil || holder == requester }) else { return }
         if dictation.latched { dictation.endLatch() }
         latch?.cancelPending(reason: reason.rawValue)
-        if requester.dictates { lock.withLock { claimOpenedAt = nil }; dictation.cancel() }
+        if requester.dictates { lock.withLock { claimOpenedAt = nil }; dictation.cancel(tapped: tapped) }
         release(requester)
         onStopped?(requester, reason)
     }
@@ -375,7 +377,7 @@ public final class SessionCoordinator {
             // A too-short press. Nothing was said; drop it, but a latched session (which this press
             // cannot have opened) keeps its mode — only `.finalize` and the events below end latch.
             latch?.cancelPending(reason: "cancelled")
-            if dictation.latched { release(.hotkey) } else { cancel(.hotkey) }
+            if dictation.latched { release(.hotkey) } else { cancel(.hotkey, tapped: true) }
         case .enterLatch:
             dictation.handle(.enterLatch)
             lock.withLock { holder = .hotkey; requestedMode = .latched }

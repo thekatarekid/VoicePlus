@@ -569,11 +569,11 @@ public final class DictationCoordinator {
     /// asking to leave latch. The paths that *must* end the mode — hard mute, lock/sleep, an
     /// explicit stop — call `endLatch()` themselves (`SessionCoordinator`).
     ///
-    /// N17 — the hotkey's too-short press reaches here through `SessionCoordinator.cancel(.hotkey)`,
-    /// which says nothing about why; a cancel inside the hold threshold of this press's key-down is
-    /// that tap. Mute and other shutdowns call `cancel(tapped: false)`.
+    /// H2 — the hotkey's tap reaches here as `cancel(tapped: true)` from
+    /// `SessionCoordinator.cancel(.hotkey, tapped: true)`; it is never guessed from the press length
+    /// (a press up to ~0.8 s over a visible notch is a tap too). Every other cancel is not a tap.
     public func cancel() {
-        cancel(tapped: Date().timeIntervalSince(startedAt) < HotkeyStateMachine.Timing.default.holdThreshold)
+        cancel(tapped: false)
     }
 
     /// `tapped`: N17 — the key came up under the hold threshold. The turn is dropped without a

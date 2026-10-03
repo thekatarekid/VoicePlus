@@ -260,6 +260,10 @@ public final class HotkeyService {
     /// `ActKeySettings.isEnabled`, which is how "turn Actions off entirely" reaches the mechanism
     /// rather than just the delivery point.
     public var isWanted: () -> Bool = { true }
+    /// X3-taps — does the notch show something that is not a live capture as the key goes down?
+    /// Over such a surface a press up to ~0.8 s is a dismissing tap. The dictation key reads the
+    /// pill's published visibility; any other key (the act key) never treats a press as over it.
+    public var surfaceShowing: () -> Bool
     public private(set) var machine: HotkeyStateMachine
     public private(set) var binding: HotkeyBinding
     public private(set) var isRunning = false
@@ -402,6 +406,7 @@ public final class HotkeyService {
         self.bindingKey = bindingKey
         self.machine = HotkeyStateMachine(timing: timing)
         binding = Self.storedBinding(defaults: defaults, key: bindingKey) ?? defaultBinding
+        surfaceShowing = bindingKey == HotkeyService.bindingDefaultsKey ? { PillSurfaceVisibility.isShowing } : { false }
     }
 
     /// Reads the persisted binding, migrating anything this build no longer recognises.
@@ -485,7 +490,7 @@ public final class HotkeyService {
     private func apply(edge: HotkeyBinding.Edge, at timestamp: TimeInterval) {
         let actions: [HotkeyStateMachine.Action]
         switch edge {
-        case .down: actions = machine.keyDown(at: timestamp)
+        case .down: actions = machine.keyDown(at: timestamp, surfaceShowing: surfaceShowing())
         case .up: actions = machine.keyUp(at: timestamp)
         }
         updateReleasePoll()

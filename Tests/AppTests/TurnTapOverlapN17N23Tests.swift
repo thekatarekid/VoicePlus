@@ -66,7 +66,7 @@ struct TurnTapOverlapN17N23Tests {
     @Test("no speech still ends the turn as empty with A06 (drawn as “Didn’t hear anything”)")
     func noSpeech() async throws {
         let h = H()
-        let id = try #require(await h.holdToPreview([]))
+        let id = try #require(await h.holdToPreview([], held: 0.7))
         #expect(h.events.notices == [.A06])
         #expect(h.store.entry(id)?.stage == .empty)
     }

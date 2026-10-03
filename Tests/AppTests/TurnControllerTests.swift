@@ -143,10 +143,11 @@ struct TurnControllerTests {
 
         /// Key down → capture open → key up → the engine's final pass. Returns once the payload is
         /// on screen (or queued for the gate).
-        func holdToPreview(_ spans: [TranscriptSpan], partial: String? = nil) async -> TurnID? {
+        func holdToPreview(_ spans: [TranscriptSpan], partial: String? = nil, held: TimeInterval = 0) async -> TurnID? {
             guard case .began(let id) = controller.keyDown() else { return nil }
             controller.captureOpened(id)
             if let partial { controller.notePartial(partial) }
+            if held > 0 { clock.advance(held) }
             guard controller.keyUp(id) else { return nil }
             await controller.finalize(id, spans: spans)
             return id
@@ -455,7 +456,7 @@ struct TurnControllerTests {
     @Test("no speech: A06, nothing inserted; a latched session's empty tail ends quietly")
     func noSpeech() async throws {
         let h = Harness()
-        let id = try #require(await h.holdToPreview([]))
+        let id = try #require(await h.holdToPreview([], held: 0.7))
         #expect(h.events.notices == [.A06])
         #expect(h.store.entry(id)?.stage == .empty)
         #expect(h.system.postCount == 0)
@@ -474,6 +475,7 @@ struct TurnControllerTests {
         let h = Harness()
         guard case .began(let id) = h.controller.keyDown() else { Issue.record("no turn"); return }
         h.controller.captureOpened(id)
+        h.clock.advance(0.7) // H1 — a silent hold under 0.6 s just vanishes
         #expect(h.controller.keyUp(id))
         await h.controller.finalize(id, spans: Self.words("thank you"), stopReason: .noSpeech)
         #expect(h.events.notices == [.A06])

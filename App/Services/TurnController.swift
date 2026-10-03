@@ -212,10 +212,24 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var onFinalSpans: (([TranscriptSpan], String) -> Void)?
     /// A recovery-catalogue notice (K04 busy, A06 no speech, K02 interrupted, D10 stale undo).
     public var onNotice: ((RecoveryEntry) -> Void)?
+    /// H1 — a quiet notice (A06 after a silent hold) and how long after it is shown it must fade.
+    /// Unset: `onNotice` with the catalogue's own fade.
+    public var onQuietNotice: ((RecoveryEntry, TimeInterval) -> Void)?
     /// N17 — a too-short tap: no turn was kept; show how to dictate instead of a failure.
     public var onTapHint: (() -> Void)?
     /// N17 — how long a tap waits before its hint, so the first tap of a double-tap never flashes it.
     public var tapHintDelay: TimeInterval = HotkeyStateMachine.Timing.default.doubleTapWindow
+    /// H2 (owner Q2(a)) — how long the tap hint stays up.
+    public static let tapHintDwellDefault: TimeInterval = 1.6
+    public var tapHintDwell: TimeInterval = TurnController.tapHintDwellDefault
+    /// H2 — the tap hint's dwell is over: take it down if it is still what the notch shows.
+    public var onTapHintExpired: (() -> Void)?
+    /// H2 / X3-taps — a tap over a visible non-capture notch: take whatever it shows down.
+    public var onTapDismiss: (() -> Void)?
+    /// H2 / X3-taps — the notch shows something that is not a live capture (read at key-down).
+    public var surfaceShowing: (() -> Bool)?
+    /// H2 — bumped by every hint shown and every dismissing tap, so a stale hint expiry never fires.
+    private var tapHintGeneration = 0
     /// The 10 s finishing offer appeared (or went away: `nil`).
     public var onOffer: ((TurnID, FinishingOffer?) -> Void)?
     /// Escape or Cancel before the write: stop capture and drop what is in flight (the session
@@ -353,6 +367,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public func keyDown(latched: Bool = false) -> TurnKeyDown {
         let now = clock.now
         var fx = Effects()
+        let overSurface = surfaceShowing?() ?? false
         let verdict = lock.withLock { () -> TurnKeyDown in
             if let id = captureID, let turn = turns[id], turn.stage.isCapturing { return .repeated(id) }
             if let busy = busyTurnLocked(), !latched { return .busy(busy) }
@@ -360,6 +375,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             undo = nil
             let turn = Turn(id: TurnID(), origin: .hold, startedAt: now)
             turn.latched = latched
+            turn.overSurface = overSurface
             turns[turn.id] = turn
             captureID = turn.id
             holdingPresentation = false
@@ -475,15 +491,34 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// Not a failure and not a turn: the turn is dropped from the store (no "cancelled" row in
     /// history or `turn_records`), and once the double-tap window has passed with no new press the
     /// pill says how to dictate. Key down/up times stay in the log only.
+    ///
+    /// H2 (owner Q2(a), Q3.1) — a tap while the notch showed anything that is not a live capture
+    /// (the hint itself, a notice, an outcome row) dismisses it and schedules nothing new. A hint
+    /// that is shown goes after `tapHintDwell` on its own.
     public func captureTapped(_ id: TurnID) {
-        guard lock.withLock({ turns[id]?.stage.isCapturing ?? false }) else { return }
-        Log.app.info("turn \(id.description): tap under the hold threshold — hint, no turn record")
+        guard let overSurface = lock.withLock({ turns[id].flatMap { $0.stage.isCapturing ? $0.overSurface : nil } })
+        else { return }
         end(id, stage: .cancelled)
         store.remove(id)
         retract()
+        if overSurface {
+            Log.app.info("turn \(id.description): tap over a visible notch — dismiss, no turn record")
+            lock.withLock { tapHintGeneration &+= 1 }
+            if !hasOpenCapture { ui { [weak self] in self?.onTapDismiss?() } }
+            return
+        }
+        Log.app.info("turn \(id.description): tap under the hold threshold — hint, no turn record")
         _ = clock.schedule(after: tapHintDelay) { [weak self] in
             guard let self, self.lock.withLock({ self.captureID == nil }) else { return }
+            let generation = self.lock.withLock { () -> Int in
+                self.tapHintGeneration &+= 1
+                return self.tapHintGeneration
+            }
             self.ui { [weak self] in self?.onTapHint?() }
+            _ = self.clock.schedule(after: self.tapHintDwell) { [weak self] in
+                guard let self, self.lock.withLock({ self.tapHintGeneration == generation }) else { return }
+                self.ui { [weak self] in self?.onTapHintExpired?() }
+            }
         }
     }
 
@@ -754,7 +789,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             end(id, stage: .empty) { $0.rawText = spans.joinedText }
             // A latched session's trailing audio is usually empty (its last segment already closed
             // on an endpoint): that is the normal end of a latch, not "No speech detected".
-            if turn.latched { retract() } else { notice(.A06) }
+            if turn.latched { retract() } else { silentHold(turn) }
             return
         }
         var fx = Effects()
@@ -825,7 +860,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         }
         // A command's own surface (the transform pill, a repair notice) is left alone: `retract`
         // only takes down a turn row still showing "Finishing…".
-        if stage == .empty, !latched { notice(.A06) } else if stage == .consumed || stage == .empty { retract() }
+        if stage == .empty, !latched, let turn = lock.withLock({ turns[id] }) {
+            silentHold(turn)
+        } else if stage == .consumed || stage == .empty { retract() }
         ui { [weak self] in self?.onLanded?(payload) }
     }
 
@@ -1705,6 +1742,27 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         ui { [weak self] in self?.onNotice?(entry) }
     }
 
+    /// H1 (owner Q3) — a hold that heard nothing. Under 0.6 s the pill just goes; 0.6 s or longer
+    /// shows A06 "Didn’t hear anything", gone 1.5 s after key-up. Never X08, never sticky.
+    private func silentHold(_ turn: Turn) {
+        let now = clock.now
+        let (held, sinceKeyUp) = lock.withLock { () -> (TimeInterval, TimeInterval) in
+            let up = turn.record.capture.captureClosed ?? now
+            return (up.timeIntervalSince(turn.record.startedAt), now.timeIntervalSince(up))
+        }
+        guard PillDwell.silentHoldShowsRow(held: held) else {
+            Log.app.info("turn \(turn.id.description): silent hold under \(PillDwell.silentHoldVanish)s — vanish")
+            retract()
+            return
+        }
+        let entry = RecoveryCatalog.entry(.A06)
+        let fade = PillDwell.silentHoldFade(sinceKeyUp: sinceKeyUp)
+        ui { [weak self] in
+            guard let self else { return }
+            if let quiet = self.onQuietNotice { quiet(entry, fade) } else { self.onNotice?(entry) }
+        }
+    }
+
     private func present(_ state: PillState) {
         ui { [weak self] in self?.onPresent?(state) }
     }
@@ -1764,6 +1822,8 @@ final class Turn {
     /// Owner decision — the key-down app/window/element to pull back to.
     var anchor: PullBackAnchor?
     var latched = false
+    /// H2 — the key went down while the notch showed something that is not a live capture.
+    var overSurface = false
     var speaking = false
     var partialText: String?
     var payloadStarted = false
@@ -1968,10 +2028,28 @@ public final class TurnWiring {
         controller.onTapHint = { [weak pill] in
             pill?.present(.preview(text: Self.tapHint(latchEnabled: LatchGestureSettings.isEnabled(settings))))
         }
+        // H2 — the hint goes after 1.6 s; a tap over a visible non-capture notch takes it down.
+        controller.onTapHintExpired = { [weak pill] in
+            guard let pill, Self.isTapHint(pill.state) else { return }
+            pill.hide()
+        }
+        controller.onTapDismiss = { [weak pill] in
+            pill?.hide()
+        }
+        controller.surfaceShowing = { PillSurfaceVisibility.isShowing }
+        pill.$state
+            .sink { [weak pill] state in
+                PillSurfaceVisibility.isShowing = PillSurfaceVisibility.isNonCaptureSurface(
+                    state, captureOpen: pill?.turn.captureOpen ?? false)
+            }
+            .store(in: &wiring.subscriptions)
         controller.onNotice = { [weak wiring, weak pill] entry in
             wiring?.show(entry, on: pill)
             // N20 — a refused press names why: the previous text is still being typed.
             if let note = Self.noticeNote(for: entry) { pill?.showLaneNote(note) }
+        }
+        controller.onQuietNotice = { [weak wiring, weak pill] entry, fade in
+            wiring?.show(entry, on: pill, fadeAfter: fade)
         }
         controller.onCancelCapture = { [weak session] in session?.escape() }
 
@@ -2061,6 +2139,12 @@ public final class TurnWiring {
         entry.id == .A06 ? PillDeck.didntHearAnything : entry.headline
     }
 
+    /// H2 — is this state the tap hint (either wording)?
+    static func isTapHint(_ state: PillState) -> Bool {
+        guard case .preview(let text) = state else { return false }
+        return text == tapHint(latchEnabled: true) || text == tapHint(latchEnabled: false)
+    }
+
     /// N17 — the tap hint, naming the latch only when the double-tap latch is on.
     static func tapHint(latchEnabled: Bool) -> String {
         latchEnabled ? PillDeck.tapHint : PillDeck.tapHintNoLatch
@@ -2111,7 +2195,8 @@ public final class TurnWiring {
 
     /// A notice on the pill: the headline as the notice row. A fading entry (A06 "No speech
     /// detected") goes after its fade; the rest stay until the next state or the user. Main queue.
-    private func show(_ entry: RecoveryEntry, on pill: PillViewModel?) {
+    private func show(_ entry: RecoveryEntry, on pill: PillViewModel?,
+                      fadeAfter: TimeInterval = EngineStopReason.quietReturnFade) {
         guard let pill else { return }
         let headline = Self.noticeHeadline(for: entry)
         pill.present(.error(message: headline))
@@ -2122,6 +2207,6 @@ public final class TurnWiring {
             pill.retractDelivery()
         }
         noticeFade = fade
-        DispatchQueue.main.asyncAfter(deadline: .now() + EngineStopReason.quietReturnFade, execute: fade)
+        DispatchQueue.main.asyncAfter(deadline: .now() + fadeAfter, execute: fade)
     }
 }

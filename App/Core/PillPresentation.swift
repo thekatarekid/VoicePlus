@@ -38,6 +38,22 @@ public enum PillDwell {
     /// A notice raised outside any turn (a `.preview` line presented with no capture open) fades
     /// after this; it carries no recovery material, so it is not a sticky error.
     public static let transientNotice: TimeInterval = 4.0
+    /// H1 (owner Q3) — a silent hold shorter than this just vanishes: no row at all.
+    public static let silentHoldVanish: TimeInterval = 0.6
+    /// H1 (owner Q3) — a longer silent hold's A06 "Didn’t hear anything" is gone this long after
+    /// key-up (never X08, never sticky).
+    public static let silentHoldGoneAfterKeyUp: TimeInterval = 1.5
+    /// H1 — the floor a late A06 row still gets when the final pass ran past the 1.5 s mark.
+    public static let silentHoldMinimumShown: TimeInterval = 0.5
+
+    /// H1 — how long the A06 row may stay once shown `sinceKeyUp` after key-up: the remainder of
+    /// `silentHoldGoneAfterKeyUp`, never less than `silentHoldMinimumShown`.
+    public static func silentHoldFade(sinceKeyUp: TimeInterval) -> TimeInterval {
+        max(silentHoldMinimumShown, silentHoldGoneAfterKeyUp - max(0, sinceKeyUp))
+    }
+
+    /// H1 — a silent hold of `held` seconds: `true` when it shows the A06 row, `false` when it vanishes.
+    public static func silentHoldShowsRow(held: TimeInterval) -> Bool { held >= silentHoldVanish }
 
     public static func rule(for state: PillState) -> Rule {
         switch state {
@@ -54,6 +70,8 @@ public enum PillDwell {
         case .undoAvailable: return .minimum(undoWindow)
         case .held, .unavailable, .muted: return .untilAction
         case .error(let message):
+            // H1 — the silent hold's A06 row is timed from key-up (`silentHoldFade`), not from shown.
+            if PillNotice.isSilentHoldRow(message) { return .minimum(silentHoldMinimumShown) }
             return PillNotice.isQuietReturn(message) ? .minimum(quietReturn) : .untilAction
         }
     }
@@ -557,7 +575,10 @@ public struct PillContent: Equatable, Sendable {
     private static func error(_ message: String, _ c: PillTurnContext) -> PillContent {
         let recovered = !c.liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let entry = PillNotice.entry(forMessage: message) ?? RecoveryCatalog.entry(recovered ? .T01 : .X08)
-        return recovery(entry, context: c)
+        var content = recovery(entry, context: c)
+        // H1 — the silent hold's row reads "Didn’t hear anything" (the A06 quiet return), never X08.
+        if PillNotice.isSilentHoldRow(message) { content.status = PillDeck.didntHearAnything }
+        return content
     }
 
     private static func transform(_ info: TransformPillInfo, _ c: PillTurnContext) -> PillContent {
@@ -589,6 +610,29 @@ public struct PillContent: Equatable, Sendable {
     }
 }
 
+/// X3-taps / H2 — whether the notch shows something that is not a live capture (a hint, a notice, an
+/// outcome row). A tap over such a surface dismisses it, and a press up to ~0.8 s still counts as a
+/// tap (`HotkeyStateMachine.Timing.visibleTapCeiling`). Published by the pill wiring on the main
+/// queue; read by the hotkey on its event thread, hence the lock.
+public enum PillSurfaceVisibility {
+    private static let lock = NSLock()
+    private static var showing = false
+
+    public static var isShowing: Bool {
+        get { lock.withLock { showing } }
+        set { lock.withLock { showing = newValue } }
+    }
+
+    /// `true` for any visible state that is not a live capture row.
+    public static func isNonCaptureSurface(_ state: PillState, captureOpen: Bool) -> Bool {
+        switch state {
+        case .hidden, .idle, .starting, .listening, .listeningQuiet, .latched: return false
+        case .preview: return !captureOpen
+        default: return true
+        }
+    }
+}
+
 /// Maps a pill `.error(message:)` onto the recovery catalogue (S9), so a notice gets its problem,
 /// consequence and recovery action, and a quiet no-result return fades instead of staying.
 public enum PillNotice {
@@ -605,6 +649,8 @@ public enum PillNotice {
     public static func entry(forMessage message: String) -> RecoveryEntry? {
         let whole = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let problem = headline(of: message).lowercased()
+        // H1 — the silent-hold row's own wording is A06, so it fades as a quiet return.
+        if Self.isDidntHearAnything(whole) { return RecoveryCatalog.entry(.A06) }
         return RecoveryCatalog.entries.first { entry in
             let h = entry.headline.lowercased()
             if h == whole || h == problem { return true }
@@ -623,6 +669,16 @@ public enum PillNotice {
     /// (design §10); every producer passes a catalogue headline (`PillState.recovery`).
     public static func entryOrCatchAll(forMessage message: String) -> RecoveryEntry {
         entry(forMessage: message) ?? RecoveryCatalog.entry(.X08)
+    }
+
+    /// H1 — "Didn’t hear anything", with either apostrophe.
+    static func isDidntHearAnything(_ lowercased: String) -> Bool {
+        lowercased.replacingOccurrences(of: "'", with: "’") == PillDeck.didntHearAnything.lowercased()
+    }
+
+    /// H1 — the silent hold's row (`.error(message: "Didn’t hear anything")`): A06, timed from key-up.
+    public static func isSilentHoldRow(_ message: String) -> Bool {
+        isDidntHearAnything(message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
 
     /// A quiet no-result return (A06 no speech, A07 too short, K03 short press): fades, never sticks.
