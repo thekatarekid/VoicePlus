@@ -460,7 +460,8 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
     public init(kind: Kind = .option) { self.kind = kind }
     /// X1 (owner round 4) — the dictation key is Option (left or right): hold to talk, double tap
     /// for hands-free. It was fn / 🌐 (V4.51) and Right ⌥ through 1.10. A stored binding wins
-    /// (`HotkeyService.storedBinding`), except a stored fn, which moves to Option once.
+    /// (`HotkeyService.storedBinding`), except a stored fn from before X1, which
+    /// `HotkeyService.migrateLegacyBindingIfNeeded` moves to Option once, at launch.
     public static let `default` = HotkeyBinding(kind: .option)
 
     public var style: Style { kind.style }

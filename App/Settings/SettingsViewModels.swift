@@ -113,11 +113,20 @@ public final class GeneralSettingsViewModel: ObservableObject {
     /// the pop-up rather than at the next launch.
     @Published public var hotkey: HotkeyChoice {
         didSet {
+            guard !syncingHotkey else { return }
+            writingHotkey = true
+            defer { writingHotkey = false }
             store.set(hotkey.rawValue, for: SettingsKeys.hotkey)
             store.set(hotkey.binding.rawValue, for: HotkeyService.bindingDefaultsKey)
             refreshKeyStatus()
         }
     }
+    /// `syncHotkeyFromStore` is applying what the service holds: show it, write nothing back.
+    private var syncingHotkey = false
+    /// The didSet is mid-write: the binding key may still hold the previous key, so a sync now
+    /// would undo the user's pick.
+    private var writingHotkey = false
+    private var hotkeyDefaultsObserver: NSObjectProtocol?
     /// P4.2 — the act key, including Off. Writes the same `actHotkeyBinding` key `HotkeyService`
     /// loads the second service's binding from, plus the switch the arming rule reads, so the
     /// running app picks both up on its next tick rather than at the next launch.
@@ -304,6 +313,36 @@ public final class GeneralSettingsViewModel: ObservableObject {
         self.fnConflict = fnConflict(hotkey.binding)
         // The window is built when it first opens, so this is where a remembered theme reaches it.
         applyTheme(theme)
+        // The pane shows the key the service runs, not just the key it last wrote: anything else
+        // that writes the binding (the menu submenu, onboarding, a service-side rewrite) shows up
+        // here instead of the pane claiming a key that no longer dictates.
+        hotkeyDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { _ = self?.syncHotkeyFromStore() } }
+    }
+
+    deinit {
+        if let hotkeyDefaultsObserver { NotificationCenter.default.removeObserver(hotkeyDefaultsObserver) }
+    }
+
+    /// Re-reads the bound key (`hotkeyBinding`, what `HotkeyService` loads) into `hotkey` without
+    /// writing it back, and keeps the `hotkey.choice` mirror in step. Returns true if it changed.
+    @discardableResult
+    public func syncHotkeyFromStore() -> Bool {
+        guard !writingHotkey, !syncingHotkey,
+              let stored = store.string(HotkeyService.bindingDefaultsKey).flatMap(HotkeyChoice.init(rawValue:))
+        else { return false }
+        if store.string(SettingsKeys.hotkey) != stored.rawValue {
+            syncingHotkey = true
+            store.set(stored.rawValue, for: SettingsKeys.hotkey)
+            syncingHotkey = false
+        }
+        guard stored != hotkey else { return false }
+        syncingHotkey = true
+        hotkey = stored
+        syncingHotkey = false
+        refreshKeyStatus()
+        return true
     }
 
     /// Re-reads the key's own state: the fn system action can change behind the app's back.
@@ -320,8 +359,13 @@ public final class GeneralSettingsViewModel: ObservableObject {
     @discardableResult
     public func apply(_ capture: ShortcutCapture) -> ShortcutChange? {
         guard let change = ShortcutRecorder.resolve(capture, current: hotkey.binding, actKey: actKey) else { return nil }
-        if case .changed(_, let to) = change { hotkey = HotkeyChoice(binding: to) }
-        return change
+        guard case .changed(let from, let to) = change else { return change }
+        hotkey = HotkeyChoice(binding: to)
+        // Report what is actually bound, never just what was asked for: if anything rewrote the
+        // key on its way to the service, the pane says so instead of "fn / 🌐 is now your key".
+        syncHotkeyFromStore()
+        guard hotkey.binding != to else { return change }
+        return hotkey.binding == from ? .unchanged(from) : .changed(from: from, to: hotkey.binding)
     }
 }
 

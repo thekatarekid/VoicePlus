@@ -248,12 +248,35 @@ public final class HotkeyService {
     /// Escape hatch: force the pre-1.6.8 `.listenOnly` CGEvent tap. The only setting that can make
     /// VoicePlus need Input Monitoring, and nothing in the shipped UI turns it on.
     public static let forceEventTapDefaultsKey = "hotkeyForceEventTap"
-    /// V4.51 — the dictation key when nothing is stored: fn / 🌐 (hold = dictate, double tap =
-    /// Latch). Stored bindings always win; the act key passes its own default (Right ⌘).
+    /// X1 (owner round 4) — the dictation key when nothing is stored: Option, left or right (hold =
+    /// dictate, double tap = hands-free). Stored bindings always win; the act key passes its own
+    /// default (Right ⌘).
     public static let defaultBinding = HotkeyBinding(kind: .option)
     /// X1 — set once a stored fn binding has been moved to Option (owner round 4). After that a
     /// user who picks fn again keeps it.
     public static let optionMigrationDefaultsKey = "hotkeyOptionMigrationV1"
+
+    /// X1, run eagerly and once per install: a legacy stored fn moves to Option, and the flag is set
+    /// **whether or not anything is stored**.
+    ///
+    /// 1.15.1 ran this lazily inside `storedBinding`, after a `guard` that returned early when
+    /// nothing was stored — so an install that never stored a key kept the flag unset, and the
+    /// first value ever written (the owner picking fn / 🌐 in Settings) was taken for a legacy fn
+    /// and rewritten to Option by the `didChangeNotification` reload. The owner saw "fn / 🌐 is now
+    /// your dictation key" while Option kept dictating. Now the migration runs before any service
+    /// reads or observes the key, and `storedBinding` is a pure read, so a user's write is final.
+    /// Returns true when it rewrote a stored fn.
+    @discardableResult
+    public static func migrateLegacyBindingIfNeeded(defaults: UserDefaults) -> Bool {
+        guard !defaults.bool(forKey: optionMigrationDefaultsKey) else { return false }
+        let legacyFn = defaults.string(forKey: bindingDefaultsKey) == HotkeyBinding.Kind.fn.rawValue
+        if legacyFn {
+            Log.app.notice("hotkey: dictation key moves from fn to Option (owner round 4)")
+            defaults.set(HotkeyBinding.Kind.option.rawValue, forKey: bindingDefaultsKey)
+        }
+        defaults.set(true, forKey: optionMigrationDefaultsKey)
+        return legacyFn
+    }
 
     public var onAction: ((HotkeyStateMachine.Action) -> Void)?
     /// Whether this service should hold a live source at all. Read fresh on every arming tick, so
@@ -529,26 +552,23 @@ public final class HotkeyService {
         self.defaults = defaults
         self.bindingKey = bindingKey
         self.machine = HotkeyStateMachine(timing: timing)
+        // Before the first read and long before `observeDefaults`: a later user write is never
+        // mistaken for a legacy fn (see `migrateLegacyBindingIfNeeded`).
+        if bindingKey == Self.bindingDefaultsKey { Self.migrateLegacyBindingIfNeeded(defaults: defaults) }
         binding = Self.storedBinding(defaults: defaults, key: bindingKey) ?? defaultBinding
         surfaceShowing = bindingKey == HotkeyService.bindingDefaultsKey ? { PillSurfaceVisibility.isShowing } : { false }
     }
 
-    /// Reads the persisted binding, migrating anything this build no longer recognises.
+    /// Reads the persisted binding. A pure read: it never writes, so calling it from the
+    /// `didChangeNotification` reload cannot rewrite what the user just picked (the X1 migration
+    /// lives in `migrateLegacyBindingIfNeeded`).
     ///
     /// Every 1.6.7 install has one of the five bare-modifier raw values here, and all five survive
     /// verbatim — a user who picked Right ⌥ keeps Right ⌥, and it now costs no permission. A value
     /// this build cannot parse (a future binding, a corrupted write) falls back to the default
     /// rather than leaving the service with no binding at all.
     static func storedBinding(defaults: UserDefaults, key: String) -> HotkeyBinding? {
-        guard var raw = defaults.string(forKey: key) else { return nil }
-        if key == bindingDefaultsKey, !defaults.bool(forKey: optionMigrationDefaultsKey) {
-            defaults.set(true, forKey: optionMigrationDefaultsKey)
-            if raw == HotkeyBinding.Kind.fn.rawValue {
-                Log.app.notice("hotkey: dictation key moves from fn to Option (owner round 4)")
-                raw = HotkeyBinding.Kind.option.rawValue
-                defaults.set(raw, forKey: key)
-            }
-        }
+        guard let raw = defaults.string(forKey: key) else { return nil }
         guard let kind = HotkeyBinding.Kind(rawValue: raw) else {
             Log.app.warning("hotkey: stored binding \"\(raw)\" is not one this build knows — using the default")
             return nil
