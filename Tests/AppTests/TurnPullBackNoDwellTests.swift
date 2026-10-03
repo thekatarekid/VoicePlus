@@ -166,15 +166,15 @@ struct TurnPullBackNoDwellTests {
         #expect(h.system.postCount == 0)
     }
 
-    @Test("pulled back, but the target is now a password field: held, never typed")
+    @Test("pulled back, but the target is now a password field: refused, never typed, nothing kept (H23)")
     func passwordAfterPullBackHolds() async throws {
         let h = H(dwell: .immediate)
         Self.setUp(h, secureAfter: true)
         let id = try #require(await Self.run(h) { Self.switchToMail(h) })
-        #expect(h.store.entry(id)?.stage == .held)
-        // Held under D01 (as every pre-write refusal reads); the focus guard keeps the reason.
-        #expect(h.events.landed.first?.delivery == .held(reason: DeliveryReason.destinationChanged))
-        #expect(h.focusGuard.heldText(turn: id) != nil)
+        #expect(h.store.entry(id)?.stage == .failed)
+        #expect(h.events.landed.first?.injection == .refused(.secureField))
+        #expect(h.focusGuard.heldText(turn: id) == nil, "a password field keeps nothing")
+        #expect(h.store.entry(id)?.record.finalText == "")
         #expect(h.system.postCount == 0)
     }
 

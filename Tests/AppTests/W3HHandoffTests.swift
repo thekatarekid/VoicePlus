@@ -70,7 +70,8 @@ struct W3HHandoffTests {
     func driveDoubleTapThenHold(latch: Bool) -> [HotkeyStateMachine.Action] {
         let store = InMemorySettingsStore()
         LatchGestureSettings.setEnabled(latch, store: store)
-        let service = HotkeyService(defaults: UserDefaults(suiteName: "vp.w3h.\(UUID().uuidString)")!)
+        let service = HotkeyService(defaults: UserDefaults(suiteName: "vp.w3h.\(UUID().uuidString)")!,
+                                    defaultBinding: HotkeyBinding(kind: .fn))
         let actions = Box<[HotkeyStateMachine.Action]>([])
         let downstream: (HotkeyStateMachine.Action) -> Void = { actions.value.append($0) }
         let hook = LatchGestureHook(isEnabled: { LatchGestureSettings.isEnabled(store) },

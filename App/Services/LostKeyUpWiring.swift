@@ -32,5 +32,20 @@ extension TurnWiring {
             previous?()
             controller()?.lostKeyUp()
         }
+        wireOptionTapFallback(hotkey, controller: controller)
+    }
+
+    /// X2 — when the active Option tap cannot be armed, say once (ever) how to stop Claude's own
+    /// double-tap-Option shortcut. A failure before this wiring existed is told now.
+    @MainActor
+    static func wireOptionTapFallback(_ hotkey: HotkeyService, controller: @escaping () -> TurnController?,
+                                      defaults: UserDefaults = .standard) {
+        let tell = {
+            guard OptionTapFallbackNotice.takeOnce(defaults) else { return }
+            controller()?.showNote(OptionTapFallbackNotice.text)
+        }
+        let previous = hotkey.onOptionTapUnavailable
+        hotkey.onOptionTapUnavailable = { previous?(); tell() }
+        if hotkey.optionTapUnavailable { tell() }
     }
 }

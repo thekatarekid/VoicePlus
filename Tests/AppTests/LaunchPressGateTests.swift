@@ -133,7 +133,7 @@ struct LaunchPressGateTests {
         var l = await launch()
         l.down(0); l.up(0.1)
         l.down(0.2); l.up(0.3)           // latched
-        l.down(2.0)                      // a tap while latched stops it (.finalize)
+        l.down(2.0); l.up(2.05)          // a tap while latched stops it (.finalize at key-up, X1)
         await land(l)
         #expect(l.log.actions.isEmpty)
     }

@@ -403,6 +403,35 @@ public final class HotkeyService {
     /// are ignored (the tap drops a second press the monitors never see).
     public var tapFeeds = false
 
+    /// X2 — the live Option tap, while armed.
+    public private(set) var optionTap: OptionKeyEventTap?
+    /// X2 — the Option tap could not be armed (no Accessibility, or macOS refused it): the passive
+    /// monitors serve the key and Claude may still see a double tap.
+    public private(set) var optionTapUnavailable = false
+    /// X2 — told once per arm failure; the wiring shows `OptionTapFallbackNotice` (once ever).
+    public var onOptionTapUnavailable: (() -> Void)?
+
+    /// X2 — arms the active Option tap for the dictation key on a system backend.
+    private func armOptionTap() {
+        disarmOptionTap()
+        guard isRunning, installer == nil, bindingKey == Self.bindingDefaultsKey, binding.kind.isOption else { return }
+        if let tap = OptionKeyEventTap.install(for: self) {
+            optionTap = tap
+            tapFeeds = true
+            optionTapUnavailable = false
+        } else {
+            optionTapUnavailable = true
+            Log.app.notice("hotkey: Option event tap unavailable — passive monitors only (Claude may see a double tap)")
+            onOptionTapUnavailable?()
+        }
+    }
+
+    private func disarmOptionTap() {
+        optionTap?.invalidate()
+        optionTap = nil
+        tapFeeds = false
+    }
+
     public static func systemOtherInputWithin(_ seconds: TimeInterval) -> Bool {
         let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         return types.contains { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) < seconds }
@@ -474,7 +503,7 @@ public final class HotkeyService {
         updateReleasePoll()
         // A chord and a bare modifier are served by different mechanisms, so a change between them
         // has to re-install, not just re-interpret. Same-mechanism changes need nothing.
-        if isRunning, ruledBackendKind != previousBackend { rearm() }
+        if isRunning, ruledBackendKind != previousBackend { rearm() } else if isRunning { armOptionTap() }
     }
 
     /// Re-read the binding from `UserDefaults` and apply it if it changed.
@@ -652,6 +681,7 @@ public final class HotkeyService {
         eventsReceived = 0
         armedAt = clock()
         armCount += 1
+        armOptionTap()
         // `.notice` (not `.info`): info-level lines are memory-only and had already aged out by the
         // time the 1.6.5 report was diagnosed, so the whole question "was the source ever armed?" had
         // to be answered from tccd's log instead of ours. Arming is rare; persist it.
@@ -673,6 +703,7 @@ public final class HotkeyService {
 
     /// Idempotent, and safe from `deinit`.
     private func teardownSource() {
+        disarmOptionTap()
         installedSource?.setEnabled(false)
         installedSource?.invalidate()
         installedSource = nil

@@ -289,8 +289,9 @@ struct LatchBehaviourTests {
         rig.session.start(.hotkey, mode: .latched)
         await rig.settle()
 
-        // One tap: key-down while latched is the stop (and the key-up after it emits nothing).
-        let actions = machine.keyDown(at: 1.0)
+        // One tap: X1 — the stop is decided at its key-up (an Option chord keeps the session).
+        #expect(machine.keyDown(at: 1.0) == [])
+        let actions = machine.keyUp(at: 1.05)
         #expect(actions == [.finalize])
         for action in actions { rig.session.handle(action) }
         await rig.settle()

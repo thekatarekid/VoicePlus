@@ -615,3 +615,107 @@ public enum HotkeyGestureContext {
         }
     }
 }
+
+// MARK: - X2: keeping a double tap of Option from reaching Claude
+
+extension HotkeyBinding.Kind {
+    /// X2 — the Option bindings the active event tap serves.
+    public var isOption: Bool { self == .option || self == .leftOption || self == .rightOption }
+}
+
+/// X2 (owner round 4, "Override Claude's double-tap Option") — the pure decision behind the
+/// active `CGEventTap`: Claude opens its quick-entry window on a double tap of Option, read by a
+/// passive `NSEvent` global monitor. VoicePlus lets the **first** tap through, **drops** the second
+/// press and its release when it starts within `doubleTapWindow` of a clean tap (so Claude sees a
+/// single tap) and latches hands-free itself. A key, click or scroll during that dropped press
+/// turns it into a chord: the dropped Option-down is re-posted, then the interleaved event, both
+/// tagged as VoicePlus's own, and the rest of the press passes through.
+///
+/// Fed with the dictation binding's edges and "other input" events; no CGEvent in here.
+public struct OptionDoubleTapSuppressor: Equatable, Sendable {
+    public enum Decision: Equatable, Sendable {
+        /// Let the event through untouched.
+        case pass
+        /// Swallow the event.
+        case drop
+        /// Swallow it, post the held-back Option-down, then re-post this event (both tagged).
+        case repostOptionDownThenEvent
+    }
+
+    public let tapGuard: TimeInterval
+    public let doubleTapWindow: TimeInterval
+    /// The press currently down (passed or dropped), from its first edge.
+    public private(set) var pressDownAt: TimeInterval?
+    /// The press now down is being dropped.
+    public private(set) var suppressing = false
+    /// Something else happened during the passed press: it is not a clean tap.
+    public private(set) var pressDirty = false
+    /// Key-up time of the last clean tap that passed; the next press within the window is dropped.
+    public private(set) var lastCleanTapUp: TimeInterval?
+
+    public init(timing: HotkeyStateMachine.Timing = .default) {
+        tapGuard = timing.tapGuard
+        doubleTapWindow = timing.doubleTapWindow
+    }
+
+    /// An Option edge of the dictation binding (`HotkeyBinding.edge`). A `.down` while a press is
+    /// already down (the other side, or one side released with the other held) belongs to it.
+    public mutating func option(_ edge: HotkeyBinding.Edge, at t: TimeInterval) -> Decision {
+        switch edge {
+        case .down:
+            if pressDownAt != nil { return suppressing ? .drop : .pass }
+            pressDownAt = t
+            pressDirty = false
+            if let up = lastCleanTapUp, t - up <= doubleTapWindow {
+                lastCleanTapUp = nil
+                suppressing = true
+                return .drop
+            }
+            lastCleanTapUp = nil
+            return .pass
+        case .up:
+            guard let down = pressDownAt else { return .pass }
+            pressDownAt = nil
+            if suppressing {
+                suppressing = false
+                lastCleanTapUp = nil
+                return .drop
+            }
+            lastCleanTapUp = (!pressDirty && t - down < tapGuard) ? t : nil
+            return .pass
+        }
+    }
+
+    /// A key-down, another modifier, a mouse button or a scroll.
+    public mutating func otherInput(at t: TimeInterval) -> Decision {
+        if suppressing {
+            // The second press became a chord: give it back to the app, marked as ours.
+            suppressing = false
+            pressDirty = true
+            return .repostOptionDownThenEvent
+        }
+        if pressDownAt != nil { pressDirty = true } else { lastCleanTapUp = nil }
+        return .pass
+    }
+
+    public mutating func reset() { self = OptionDoubleTapSuppressor(tapGuard: tapGuard, doubleTapWindow: doubleTapWindow) }
+
+    private init(tapGuard: TimeInterval, doubleTapWindow: TimeInterval) {
+        self.tapGuard = tapGuard
+        self.doubleTapWindow = doubleTapWindow
+    }
+}
+
+/// X2 — the fallback when the active tap cannot be installed (no Accessibility, or macOS refused
+/// it): one notice, once, pointing at Claude's own setting.
+public enum OptionTapFallbackNotice {
+    public static let shownDefaultsKey = "optionTapFallbackNoticeShown"
+    public static let text = "Double-tap Option may also open Claude. To stop it: Claude › Settings › General › Quick access shortcut."
+
+    /// True the first time only; marks it shown.
+    public static func takeOnce(_ defaults: UserDefaults = .standard) -> Bool {
+        guard !defaults.bool(forKey: shownDefaultsKey) else { return false }
+        defaults.set(true, forKey: shownDefaultsKey)
+        return true
+    }
+}

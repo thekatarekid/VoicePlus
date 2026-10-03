@@ -309,6 +309,15 @@ struct TurnControllerTests {
         #expect(h.system.field.value == before)
         let result = try #require(h.events.landed.first)
         let delivery = try #require(result.delivery)
+        if change == .passwordField {
+            // H23 — a password field is refused outright: nothing held, the turn keeps no words.
+            #expect(result.injection == .refused(.secureField))
+            #expect(h.focusGuard.heldText(turn: id) == nil)
+            #expect(h.store.entry(id)?.stage == .failed)
+            #expect(h.store.entry(id)?.record.finalText == "")
+            _ = info
+            return
+        }
         #expect(delivery == .held(reason: DeliveryReason.destinationChanged))
         let entry = try #require(RecoveryCatalog.entry(for: delivery))
         #expect(entry.id == .D01)

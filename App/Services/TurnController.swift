@@ -222,6 +222,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// H2 (owner Q2(a)) — how long the tap hint stays up.
     public static let tapHintDwellDefault: TimeInterval = 1.6
     public var tapHintDwell: TimeInterval = TurnController.tapHintDwellDefault
+    /// X2 — a one-line informational note on the notch (the Option-tap fallback). Unset: logged.
+    public var onNote: ((String) -> Void)?
+    /// How long a note stays up.
+    public static let noteDwell: TimeInterval = 6
     /// H2 — the tap hint's dwell is over: take it down if it is still what the notch shows.
     public var onTapHintExpired: (() -> Void)?
     /// H2 / X3-taps — a tap over a visible non-capture notch: take whatever it shows down.
@@ -504,6 +508,13 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         guard lock.withLock({ turns[id]?.stage.isCapturing ?? false }) else { return }
         end(id, stage: .cancelled)
         retract()
+    }
+
+    /// X2 — shows `text` as a transient note when no turn owns the notch (else it is only logged).
+    public func showNote(_ text: String) {
+        Log.app.notice("turn: note — \(text)")
+        guard !hasOpenCapture else { return }
+        ui { [weak self] in self?.onNote?(text) }
     }
 
     /// X1 (owner round 4) — the dictation key became a chord (Option + key, click or scroll): the
@@ -1383,6 +1394,15 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             let fallback = TurnTarget(revision: TargetRevision(focus: payload.pending?.focus), takenAt: clock.now)
             return await write(id, payload, lander: lander, target: fallback)
         }
+        // X3-handsfree (owner round 3) — the stop tap of a hands-free session: a focused text box
+        // takes the last piece; nothing focused → the last piece goes to Notes ("no text field").
+        if lock.withLock({ turns[id]?.latched ?? false }) {
+            let now = focusGuard.targetRevision()
+            if !Self.textBoxFocused(now) {
+                Log.app.notice("turn \(id.description): hands-free stop with no text box focused — last piece to Notes")
+                return hold(id, payload, lander: lander, reason: DeliveryReason.noDestination, actual: now.focus)
+            }
+        }
         let check = preWriteCheck(id, target: target, reviewed: reviewed, anchor: anchor, lander: lander)
         store.setExtras(id, save: false) { extras in
             extras.setStage(TurnRecordExtras.Stage.preWriteCheck, ms: Self.ms(started, self.clock.now))
@@ -1456,6 +1476,16 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         return check
     }
 
+    /// X3-handsfree — is a text box focused? Nothing focused, or a known non-text role (a button,
+    /// a list, the desktop) is "no". An unreadable role is given the benefit of the doubt: the
+    /// injector still refuses where it cannot type.
+    static func textBoxFocused(_ revision: TargetRevision) -> Bool {
+        guard revision.focus != nil else { return false }
+        if revision.isSecure { return true }   // refused (and cleared) by the secure rule, not Notes
+        guard let role = revision.role, !role.isEmpty else { return true }
+        return CanvasFocus.textRoles.contains(role)
+    }
+
     static func ms(_ a: Date, _ b: Date) -> Int { max(0, Int((b.timeIntervalSince(a) * 1000).rounded())) }
 
     /// "Caret still inside our landing memory": our own landing into this same element happened
@@ -1519,6 +1549,21 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     }
 
     private func hold(_ id: TurnID, _ payload: LandingResult, lander: UtteranceLander, reason: String, actual: FocusSnapshot?) -> LandingResult {
+        // H23 — a password field is refused outright: nothing held, nothing to Notes, nothing in
+        // history, and the turn keeps no words (finalText / rawText cleared).
+        if FocusGuard.isSecureReason(reason) {
+            var refused = payload
+            refused.injection = .refused(.secureField)
+            end(id, stage: .failed) { record in
+                record.finalText = ""
+                record.rawText = ""
+                record.uncertainSpans = []
+                record.outcome = refused.delivery
+            }
+            lock.withLock { turns[id]?.partialText = nil }
+            Log.app.notice("turn \(id.description): password field — refused, nothing kept (H23)")
+            return refused
+        }
         let result = lander.hold(payload: payload, reason: reason, in: focusGuard, actual: actual, turnID: id)
         end(id, stage: .held) { $0.outcome = result.delivery }
         return result
@@ -1568,7 +1613,15 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         // The gate task first (it is parked on the dwell or the gate), then the record.
         exitDwell(id, .cancel)
         wakeWaiter(id)
-        end(id, stage: .cancelled)
+        // H23 (Q6) — Escape after words: the words recognised so far go to Notes ("Cancelled ·
+        // Saved to Notes", `TurnStore.settleForNotes`). A password-field turn keeps nothing.
+        let partial = lock.withLock { turns[id]?.partialText }
+        end(id, stage: .cancelled) { record in
+            let secure = record.outcome?.reason.map(FocusGuard.isSecureReason) == true
+            if !secure, record.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let partial {
+                record.finalText = partial
+            }
+        }
         if showCancelled { self.showCancelled() }
     }
 
@@ -2113,6 +2166,14 @@ public final class TurnWiring {
         }
         controller.onTapDismiss = { [weak pill] in
             pill?.hide()
+        }
+        // X2 — the Option-tap fallback note: a transient line, gone after `noteDwell`.
+        controller.onNote = { [weak pill] text in
+            pill?.present(.preview(text: text))
+            DispatchQueue.main.asyncAfter(deadline: .now() + TurnController.noteDwell) { [weak pill] in
+                guard let pill, pill.state == .preview(text: text) else { return }
+                pill.hide()
+            }
         }
         controller.surfaceShowing = { PillSurfaceVisibility.isShowing }
         controller.holdPresentDelay = TurnController.holdPresentDelayDefault
