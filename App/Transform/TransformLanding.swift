@@ -2,6 +2,7 @@ import Engine
 import Foundation
 import Injection
 import Pipeline
+import Providers
 import Shared
 
 /// `TransformReplaceSink` (Pipeline) → Injection's AX replace-range (P1.8 T5), 1:1 mapping.
@@ -73,7 +74,9 @@ public final class SystemAccessSelectionDetector: SelectionDetecting, @unchecked
     private let system: SystemAccess
     public init(system: SystemAccess) { self.system = system }
     public func currentSelection() -> SelectionSnapshot? {
-        guard let info = try? system.focusedElement(), let value = info.value, let range = info.selectedRange else { return nil }
+        // H8 — a password field is never read as a selection (nothing to a model, Notes or history).
+        guard let info = try? system.focusedElement(), !info.isSecure,
+              let value = info.value, let range = info.selectedRange else { return nil }
         let front = system.frontmostApp()
         return SelectionSnapshot.from(value: value, selectedRange: range, bundleID: front?.bundleID, elementToken: front?.elementToken)
     }
@@ -109,6 +112,14 @@ public final class TransformLanding: @unchecked Sendable {
     public static let copiedLine = "Copied"
     public static let copyFailedLine = "Couldn't copy · nothing changed"
     public static let nothingToUndoLine = "Nothing to undo"
+    /// H8 — an LLM command with no model: the words went to Notes, the selection is untouched.
+    public static let needsModelLine = "Needs the on-device model · Saved to Notes"
+    /// H8 — the same when Notes could not keep the words (no route installed, or the save failed).
+    public static let needsModelUnsavedLine = "Needs the on-device model"
+    /// H8 — the `.failed(.unavailable)` reason a needs-model turn ends with (logs, tests).
+    public static let needsModelReason = "needs the on-device model"
+    /// H8 — the reason the Notes funnel files the words under (`NoteReason.editFailed`).
+    public static let needsModelNoteReason = NoteReason.editFailed.rawValue
 
     public let session: TransformSession
     public let detector: any SelectionDetecting
@@ -127,6 +138,13 @@ public final class TransformLanding: @unchecked Sendable {
         guard seconds > 0 else { await Task.yield(); return }
         try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
+    /// H8 — saves the spoken words of an edit that could not run (text, intended app, reason) and
+    /// reports what happened. Live: the Notes funnel behind the delivery pill (H23).
+    public var saveToNotes: (String, String, String) -> TurnOutcome? = { text, app, reason in
+        HeldNotesRoute.shared.route(text: text, destination: app, reason: reason)
+    }
+    /// X5 — when the notch may offer the model download (once, then Settings only).
+    public var offerPolicy: ModelOfferPolicy = EditModels.offerPolicy
     private var lastInstruction: [TranscriptSpan]?
     private var lastContext: StageContext?
     /// H9 — set only by an applied edit (or its undo): follow-ups chain on the result, not after
@@ -163,6 +181,12 @@ public final class TransformLanding: @unchecked Sendable {
     }
 
     public func handle(_ spans: [TranscriptSpan], decision: GatekeeperDecision, context: StageContext) async -> Outcome {
+        // H8 — a password field first: no selection or context is read, nothing reaches a model,
+        // Notes or history. Declining hands the turn to the lander, whose injector refuses it.
+        if (try? system.focusedElement())?.isSecure == true {
+            sync { pendingReplace = nil }
+            return .notHandled
+        }
         // H6 — "replace" said alone earlier: this utterance is the new text, while the selection is
         // still the one we asked about (or nothing else got selected) and within the warm window.
         if decision.route != .none, let pending = takePendingReplace() {
@@ -313,6 +337,10 @@ public final class TransformLanding: @unchecked Sendable {
         let staged: (TransformSession.Step, TransformReplaceRequest?)
         do {
             staged = try await stager.staging { try await session.run(instruction: spans, context: context, now: clock()) }
+        } catch TransformError.needsModel {
+            sync { gate.cancel() }
+            needsModel(spans, destination: destination)
+            return .failed(.unavailable(reason: Self.needsModelReason))
         } catch {
             let why = Self.describe(error)
             sync { gate.cancel() }
@@ -394,6 +422,19 @@ public final class TransformLanding: @unchecked Sendable {
     /// writes nothing and only restores the session's selection.
     private func rollback(_ stager: InjectionTransformReplaceSink) {
         stager.discarding { _ = session.undoLast() }
+    }
+
+    /// H8 / X5 — an LLM command with no model: nothing was written (the selection is untouched), the
+    /// spoken words go to Notes, and the first time (ModelOfferPolicy) the row offers the download.
+    private func needsModel(_ spans: [TranscriptSpan], destination: String?) {
+        lastTurnAt = nil
+        let words = spans.renderedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var saved = false
+        if !words.isEmpty, case .savedToNotes? = saveToNotes(words, destination ?? "", Self.needsModelNoteReason) { saved = true }
+        let offer = offerPolicy.shouldOfferInNotch(hasReadyModel: false)
+        if offer { offerPolicy.recordNotchOfferShown() }
+        Log.app.notice("edit needs the on-device model (saved to Notes: \(saved), download offered: \(offer))")
+        onEvent?(.needsModel(line: saved ? Self.needsModelLine : Self.needsModelUnsavedLine, offerDownload: offer))
     }
 
     private func hold(_ kind: TransformRecovery.Kind, text: String, destination: String?, failure: TransformTargetCheck.Failure) {

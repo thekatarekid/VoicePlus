@@ -38,6 +38,10 @@ public enum TransformError: Error, Equatable, Sendable {
     case uncertainInstruction([String])
     case emptySelection
     case emptyOutput
+    /// H8 — an LLM command (a catalogue L entry or free-form) with no model to run it: no pinned
+    /// provider, no on-device model, and the deterministic rules could not do it. The selection is
+    /// untouched; the landing saves the words to Notes and may offer the download once.
+    case needsModel
 }
 
 /// P2.2 — runs a `TransformRequest` through the provider hook (Providers routing, wired by the
@@ -55,7 +59,9 @@ public struct TransformExecutor: Sendable {
     public func execute(_ request: TransformRequest, context: StageContext) async throws -> TransformResult {
         let start = DispatchTime.now().uptimeNanoseconds
         guard request.selection.isMeaningful else { throw TransformError.emptySelection }
-        let uncertain = request.uncertainInstructionWords
+        // H8 (old H5) — T05 only when an uncertain word decides the command; an uncertain filler
+        // ("um", "this", "please") does not stop the edit.
+        let uncertain = request.decisiveUncertainWords
         if !uncertain.isEmpty { throw TransformError.uncertainInstruction(uncertain.map(\.text)) }
 
         // H7 — the deterministic catalogue first: instant, no model. Delete / cut empty the
@@ -84,12 +90,20 @@ public struct TransformExecutor: Sendable {
 
         var source = TransformResult.Source.local
         var text = ""
-        if providers.isProviderEnabled(for: id, context: stageContext) {
+        let modelAvailable = providers.isProviderEnabled(for: id, context: stageContext)
+        if modelAvailable {
             if let out = try? await providers.complete(stage: id, prompt: request.prompt, input: request.selection.text, context: stageContext) {
                 text = Self.clean(out); source = .provider
             }
         }
-        if text.isEmpty { text = Self.clean(local.transform(request)); source = .local }
+        if text.isEmpty {
+            text = Self.clean(local.transform(request)); source = .local
+            // H8 — no model at all and the rules left the text as it was: say so instead of a
+            // silent "no change" (with a model that failed, "no change" stands).
+            if !modelAvailable, !text.isEmpty, WordDiff.compute(old: request.selection.text, new: text).isIdentity {
+                throw TransformError.needsModel
+            }
+        }
         guard !text.isEmpty else { throw TransformError.emptyOutput }
 
         let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000

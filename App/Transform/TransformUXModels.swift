@@ -100,6 +100,9 @@ public struct TransformPillReducer: Equatable, Sendable {
         case prompt(String)
         /// H7 — a closing notice for a command that edits nothing ("Copied", "Nothing to undo").
         case notice(String)
+        /// H8 / X5 — an LLM command with no model: `line` ("Needs the on-device model · Saved to
+        /// Notes"); `offerDownload` puts the one-time Download button on the row (ModelOfferPolicy).
+        case needsModel(line: String, offerDownload: Bool)
         case tick
         case ended
     }
@@ -127,10 +130,15 @@ public struct TransformPillReducer: Equatable, Sendable {
     public private(set) var awaitsDecision = false
     /// S12 — the edited preview is on the row; hover on the pill freezes its dwell.
     public private(set) var isPreviewing = false
+    /// H8 / X5 — the row offers "Download" (the one-time notch offer). Cleared by any other event.
+    public private(set) var offersDownload = false
+    /// How long the needs-model row stays: long enough to read, longer with the Download button.
+    public static let needsModelNotice: TimeInterval = 4
+    public static let downloadOfferNotice: TimeInterval = 10
 
     @discardableResult
     public mutating func reduce(_ event: Event, now: Date) -> PillState {
-        if event != .tick { hideAt = nil; awaitsDecision = false; isPreviewing = false }
+        if event != .tick { hideAt = nil; awaitsDecision = false; isPreviewing = false; offersDownload = false }
         switch event {
         case .began(let n):
             words = n; ghost = nil; morph = nil; warmSince = nil
@@ -172,12 +180,17 @@ public struct TransformPillReducer: Equatable, Sendable {
         case .notice(let line):
             ghost = nil; morph = nil; warmSince = nil; hideAt = now + Self.closingNotice
             state = .transform(.init(editingWords: words, stage: .notice(line)))
+        case .needsModel(let line, let offer):
+            ghost = nil; morph = nil; warmSince = nil
+            offersDownload = offer
+            hideAt = now + (offer ? Self.downloadOfferNotice : Self.needsModelNotice)
+            state = .transform(.init(editingWords: words, stage: .notice(line)))
         case .undone:
             ghost = nil; morph = nil; warmSince = now
             state = .transform(.init(editingWords: words, stage: .notice("put back")))
         case .tick:
             if let end = hideAt {
-                if now >= end { hideAt = nil; state = .hidden }
+                if now >= end { hideAt = nil; offersDownload = false; state = .hidden }
                 break
             }
             guard let since = warmSince else { break }

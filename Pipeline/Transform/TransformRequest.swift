@@ -57,6 +57,21 @@ public struct TransformRequest: Equatable, Sendable {
     /// the user asked for ("make it *formal*" vs "*normal*"). We refuse to guess.
     public var uncertainInstructionWords: [TranscriptSpan] { instruction.filter(\.isLowConfidence) }
 
+    /// H8 (old H5) — the uncertain words that decide the command. Fillers, politeness and the
+    /// words that only point at the selection ("this", "it", "the text") never do.
+    public var decisiveUncertainWords: [TranscriptSpan] {
+        uncertainInstructionWords.filter { span in
+            let words = GatekeeperTokenizer.words(span.text)
+            return !words.isEmpty && !words.allSatisfy(Self.nonDecidingWords.contains)
+        }
+    }
+
+    static let nonDecidingWords: Set<String> = [
+        "um", "uh", "er", "erm", "ah", "hmm", "mm", "like", "so", "well", "okay", "ok", "please", "just", "now",
+        "can", "could", "would", "you", "hey", "the", "a", "an", "this", "it", "that", "these", "those",
+        "selection", "selected", "text", "bit", "little",
+    ]
+
     public var systemPrompt: String {
         var s = "You rewrite text in place. Apply the user's instruction to the SELECTION only. "
         s += "Return ONLY the rewritten selection — no quotes, no commentary, no preamble. "

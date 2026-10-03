@@ -18,6 +18,18 @@ public final class TransformPillDriver {
     public var onCancel: (() -> Void)?
     /// S12 — hover on the pill during the preview: wired to `TransformLanding.pausePreview(_:)`.
     public var onPause: ((Bool) -> Void)?
+    /// H8 / X5 — the one-time "Download" on the needs-model row: wired (AppDelegate) to the model
+    /// manager's download of the recommended model. Never called on its own.
+    public var onDownloadModel: (() -> Void)?
+
+    /// Actions on the transform row that are not ghost actions.
+    public enum Action: Equatable, Sendable {
+        /// H8 / X5 — "Download" on "Needs the on-device model · Saved to Notes".
+        case downloadModel
+    }
+
+    /// The row's Download button is showing (the pill draws it while this is true).
+    public var offersDownload: Bool { reducer.offersDownload }
     /// S12 — the Escape hot key, registered only while `reducer.awaitsDecision`. nil: no Escape.
     public var escape: EscapeHotkey? {
         didSet {
@@ -59,6 +71,16 @@ public final class TransformPillDriver {
         if case .hidden = state { stopTimer() }
         syncEscape()
         syncPause(pointerInside: pill.pointerInside)
+    }
+
+    /// A row action. `.downloadModel` only acts while the offer is on the row; the row then closes.
+    public func perform(_ action: Action) {
+        switch action {
+        case .downloadModel:
+            guard reducer.offersDownload else { return }
+            onDownloadModel?()
+            handle(.ended)
+        }
     }
 
     func tick() {

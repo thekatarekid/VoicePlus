@@ -81,6 +81,8 @@ public struct AXSelectionDetector: SelectionDetecting {
     public func currentSelection() -> SelectionSnapshot? {
         // K18 — own pid off-main → refuse; the guard owns the system-wide root.
         guard let element = AXGuard.focusedElement() else { return nil }
+        // H8 — a password field is never read: role/subrole first, before range or value.
+        guard !Self.isSecure(element) else { return nil }
         var rangeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
               let rangeValue = rangeRef else { return nil }
@@ -100,6 +102,15 @@ public struct AXSelectionDetector: SelectionDetecting {
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selRef) == .success,
               let sel = selRef as? String, !sel.isEmpty else { return nil }
         return SelectionSnapshot(text: sel, range: range, bundleID: bundle, elementToken: token)
+    }
+
+    static func isSecure(_ element: AXUIElement) -> Bool {
+        for attr in [kAXRoleAttribute, kAXSubroleAttribute] {
+            var ref: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, attr as CFString, &ref) == .success,
+               (ref as? String) == "AXSecureTextField" { return true }
+        }
+        return false
     }
 }
 #endif
