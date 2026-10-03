@@ -4,40 +4,59 @@ import Shared
 import Testing
 @testable import VoicePlusApp
 
-/// I1 (V4.51) — fn / 🌐 is the default dictation key; a stored binding wins; every hint names the
-/// configured key; macOS's own 🌐 action is surfaced as a conflict.
-@Suite("I1 — fn default, labels and the 🌐 conflict")
+/// I1 (V4.51), X1 (owner round 4) — Option (left or right) is the default dictation key; a stored
+/// binding wins except a stored fn, which moves to Option once; every hint names the configured
+/// key; macOS's own 🌐 action is surfaced as a conflict when fn is picked.
+@Suite("I1/X1 — Option default, labels and the 🌐 conflict")
 struct HotkeyFnDefaultTests {
     private func defaults() -> UserDefaults { UserDefaults(suiteName: "AppTests.fnDefault.\(UUID())")! }
+    /// Every stored key survives verbatim except fn, which X1 moves to Option once.
+    static let keptKinds: [HotkeyBinding.Kind] = [.rightOption, .leftOption, .rightCommand, .rightControl, .option,
+                                                  .controlOptionD, .controlOptionA]
 
     // MARK: Default resolution
 
-    @Test func theDefaultIsFn() {
-        #expect(HotkeyService.defaultBinding.kind == .fn)
+    @Test func theDefaultIsOption() {
+        #expect(HotkeyService.defaultBinding.kind == .option)
         #expect(HotkeyBinding.default == HotkeyService.defaultBinding)
-        #expect(HotkeyBinding().kind == .fn)
+        #expect(HotkeyBinding().kind == .option)
     }
 
-    @Test func aFreshInstallResolvesToFnAtNoPermissionCost() {
+    @Test func aFreshInstallResolvesToOptionAtNoPermissionCost() {
         let d = defaults()
         let service = HotkeyService(defaults: d)
-        #expect(service.binding.kind == .fn)
+        #expect(service.binding.kind == .option)
         #expect(service.backendKind == .globalMonitor)
         #expect(service.requiredPermission == nil)
         #expect(HotkeyService.currentRequiredPermission(defaults: d) == nil)
         #expect(d.string(forKey: HotkeyService.bindingDefaultsKey) == nil, "resolving the default writes nothing")
     }
 
-    @Test func aFreshServiceAnswersFnEdgesAndIgnoresRightOption() {
+    @Test func aFreshServiceAnswersEitherOptionAndIgnoresFn() {
         let service = HotkeyService(defaults: defaults())
+        service.otherInputWithin = { _ in false }
         var actions: [HotkeyStateMachine.Action] = []
         service.onAction = { actions.append($0) }
-        service.handle(keyCode: 61, flags: CGEventFlags.maskAlternate.rawValue, timestamp: 0)
-        service.handle(keyCode: 61, flags: 0, timestamp: 0.5)
-        #expect(actions.isEmpty, "Right ⌥ is no longer the default")
-        service.handle(keyCode: 63, flags: CGEventFlags.maskSecondaryFn.rawValue, timestamp: 1)
-        service.handle(keyCode: 63, flags: 0, timestamp: 1.4)
-        #expect(actions == [.startCapture, .finalize])
+        service.handle(keyCode: 63, flags: CGEventFlags.maskSecondaryFn.rawValue, timestamp: 0)
+        service.handle(keyCode: 63, flags: 0, timestamp: 0.5)
+        #expect(actions.isEmpty, "fn is no longer the default")
+        service.handle(keyCode: 61, flags: CGEventFlags.maskAlternate.rawValue | 0x40, timestamp: 1)
+        service.handle(keyCode: 61, flags: 0, timestamp: 1.4)
+        service.handle(keyCode: 58, flags: CGEventFlags.maskAlternate.rawValue | 0x20, timestamp: 2)
+        service.handle(keyCode: 58, flags: 0, timestamp: 2.4)
+        #expect(actions == [.startCapture, .finalize, .startCapture, .finalize])
+    }
+
+    /// X1 — a stored fn (the V4.51 default many installs wrote) moves to Option once; picking fn
+    /// again afterwards sticks.
+    @Test func aStoredFnMovesToOptionOnce() {
+        let d = defaults()
+        d.set(HotkeyBinding.Kind.fn.rawValue, forKey: HotkeyService.bindingDefaultsKey)
+        let first = HotkeyService(defaults: d)
+        #expect(first.binding.kind == .option)
+        #expect(d.string(forKey: HotkeyService.bindingDefaultsKey) == "option")
+        first.setBinding(.fn)
+        #expect(HotkeyService(defaults: d).binding.kind == .fn, "a later explicit fn is kept")
     }
 
     /// The act key keeps its own default; only the dictation key moved.
@@ -49,7 +68,7 @@ struct HotkeyFnDefaultTests {
 
     // MARK: Stored binding precedence
 
-    @Test(arguments: HotkeyBinding.Kind.allCases)
+    @Test(arguments: HotkeyFnDefaultTests.keptKinds)
     func aStoredBindingWinsOverTheDefault(kind: HotkeyBinding.Kind) {
         let d = defaults()
         d.set(kind.rawValue, forKey: HotkeyService.bindingDefaultsKey)
@@ -66,22 +85,22 @@ struct HotkeyFnDefaultTests {
         #expect(upgraded.label == "Right Option")
     }
 
-    @Test func anUnreadableStoredValueFallsBackToFn() {
+    @Test func anUnreadableStoredValueFallsBackToOption() {
         let d = defaults()
         d.set("someFutureKey", forKey: HotkeyService.bindingDefaultsKey)
-        #expect(HotkeyService(defaults: d).binding.kind == .fn)
+        #expect(HotkeyService(defaults: d).binding.kind == .option)
     }
 
     // MARK: Label interpolation
 
-    @Test func theHintNamesFn() {
-        #expect(HotkeyBinding.default.label == "fn / 🌐")
-        #expect(HotkeyBinding.default.readyHint() == "Hold or Double Tap fn / 🌐 to dictate")
-        #expect(HotkeyBinding.default.readyHint(latchEnabled: false) == "Hold fn / 🌐 to dictate")
+    @Test func theHintNamesOption() {
+        #expect(HotkeyBinding.default.label == "Option")
+        #expect(HotkeyBinding.default.readyHint() == "Hold or Double Tap Option to dictate")
+        #expect(HotkeyBinding.default.readyHint(latchEnabled: false) == "Hold Option to dictate")
         let service = HotkeyService(defaults: defaults())
-        #expect(service.label == "fn / 🌐")
-        #expect(service.readyHint() == "Hold or Double Tap fn / 🌐 to dictate")
-        #expect(service.readyHint(latchEnabled: false) == "Hold fn / 🌐 to dictate")
+        #expect(service.label == "Option")
+        #expect(service.readyHint() == "Hold or Double Tap Option to dictate")
+        #expect(HotkeyBinding(kind: .fn).readyHint(latchEnabled: false) == "Hold fn / 🌐 to dictate")
     }
 
     @Test func theHintFollowsTheStoredKey() {
@@ -110,9 +129,9 @@ struct HotkeyFnDefaultTests {
         #expect(sentences.contains("Hold or Double Tap Right Control to dictate"))
         for sentence in sentences {
             #expect(HotkeyBinding(kind: .rightControl).rendering(sentence) == sentence)
-            let fn = HotkeyBinding.default.rendering(sentence)
-            #expect(!fn.contains("Right Control"))
-            #expect(fn == sentence.replacingOccurrences(of: "Right Control", with: "fn / 🌐"))
+            let option = HotkeyBinding.default.rendering(sentence)
+            #expect(!option.contains("Right Control"))
+            #expect(option == sentence.replacingOccurrences(of: "Right Control", with: "Option"))
         }
         #expect(HotkeyBinding.default.rendering("Hold or Double Tap Right Control to dictate")
                 == HotkeyBinding.default.readyHint())
@@ -143,7 +162,7 @@ struct HotkeyFnDefaultTests {
     }
 
     @Test func doNothingIsTheOnlyValueWithoutAConflict() {
-        let service = HotkeyService(defaults: defaults())
+        let service = HotkeyService(defaults: defaults(), defaultBinding: HotkeyBinding(kind: .fn))
         service.fnUsage = .defaults(fnDefaults(0))
         #expect(service.fnSystemAction == .doNothing)
         #expect(!service.fnSystemActionConflict)
@@ -153,7 +172,7 @@ struct HotkeyFnDefaultTests {
     @Test(arguments: [(1, FnKeySystemAction.changeInputSource), (2, .showEmojiAndSymbols),
                       (3, .startDictation), (7, .unrecognised(7))])
     func anyOtherValueIsAConflict(value: Int, action: FnKeySystemAction) throws {
-        let service = HotkeyService(defaults: defaults())
+        let service = HotkeyService(defaults: defaults(), defaultBinding: HotkeyBinding(kind: .fn))
         service.fnUsage = .defaults(fnDefaults(value))
         #expect(service.fnSystemAction == action)
         #expect(service.fnSystemActionConflict)
@@ -164,7 +183,7 @@ struct HotkeyFnDefaultTests {
 
     /// No value stored means macOS's own default, which is an action — still a conflict.
     @Test func aMissingValueIsAConflict() {
-        let service = HotkeyService(defaults: defaults())
+        let service = HotkeyService(defaults: defaults(), defaultBinding: HotkeyBinding(kind: .fn))
         service.fnUsage = .defaults(fnDefaults(nil))
         #expect(service.fnSystemAction == .systemDefault)
         #expect(service.fnSystemActionConflict)
@@ -183,13 +202,13 @@ struct HotkeyFnDefaultTests {
         service.fnUsage = .defaults(fnDefaults(2))
         #expect(!service.fnSystemActionConflict)
         #expect(HotkeyService.fnConflict(for: HotkeyBinding(kind: .rightOption), reader: .defaults(fnDefaults(2))) == nil)
-        #expect(HotkeyService.fnConflict(for: .default, reader: .defaults(fnDefaults(2))) != nil)
+        #expect(HotkeyService.fnConflict(for: HotkeyBinding(kind: .fn), reader: .defaults(fnDefaults(2))) != nil)
     }
 
     /// Read fresh every time: the user changes it in System Settings while the app runs.
     @Test func theFlagFollowsALiveChange() {
         let store = fnDefaults(2)
-        let service = HotkeyService(defaults: defaults())
+        let service = HotkeyService(defaults: defaults(), defaultBinding: HotkeyBinding(kind: .fn))
         service.fnUsage = .defaults(store)
         #expect(service.fnSystemActionConflict)
         store.set(0, forKey: FnKeySystemAction.defaultsKey)

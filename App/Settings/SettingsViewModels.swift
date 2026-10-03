@@ -15,6 +15,8 @@ import Shared
 /// express and wrote to its own key, so choosing here changed nothing. It now writes the binding
 /// key `HotkeyService` reads, and the running service picks the change up live.
 public enum HotkeyChoice: String, CaseIterable, Identifiable, Sendable {
+    /// X1 (owner round 4) — either Option key, the default.
+    case option
     case rightOption, leftOption, rightCommand, rightControl, fn
     case controlOptionD, controlOptionA
     public var id: String { rawValue }
@@ -45,7 +47,7 @@ public enum HotkeyChoice: String, CaseIterable, Identifiable, Sendable {
     /// V4.51 (owner decision, build doc §0): fn / 🌐, the same default `HotkeyService` listens on.
     /// It was Right ⌥ through 1.10, which made Settings and Today name a key the service no longer
     /// used (wave 1 I1 hand-off).
-    public static let `default` = HotkeyChoice(rawValue: HotkeyService.defaultBinding.kind.rawValue) ?? .fn
+    public static let `default` = HotkeyChoice(rawValue: HotkeyService.defaultBinding.kind.rawValue) ?? .option
 
     /// The key as every hint names it ("fn / 🌐", "Right Option").
     public var label: String { binding.label }

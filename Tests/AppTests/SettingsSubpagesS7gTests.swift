@@ -52,6 +52,14 @@ struct SettingsSubpagesS7gTests {
                                  applyTheme: { themes?($0) })
     }
 
+    /// X1 — the default is Option now; tests about the fn key start from a stored fn.
+    static func fnStore() -> InMemorySettingsStore {
+        let store = InMemorySettingsStore()
+        store.set(HotkeyChoice.fn.rawValue, for: HotkeyService.bindingDefaultsKey)
+        store.set(HotkeyChoice.fn.rawValue, for: SettingsKeys.hotkey)
+        return store
+    }
+
     static func eventually(_ timeout: TimeInterval = 15, _ condition: () -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
@@ -63,14 +71,14 @@ struct SettingsSubpagesS7gTests {
 
     // MARK: - Hand-off: the key every hint names (wave 1 I1)
 
-    @Test("Settings' default dictation key is fn / 🌐, the key the service listens on")
+    @Test("Settings' default dictation key is Option (X1), the key the service listens on")
     func defaultKeyIsFn() {
-        #expect(HotkeyChoice.default == .fn)
+        #expect(HotkeyChoice.default == .option)
         #expect(HotkeyChoice.default.binding == HotkeyService.defaultBinding.kind)
-        #expect(HotkeyChoice.default.label == "fn / 🌐")
+        #expect(HotkeyChoice.default.label == "Option")
         let general = Self.general()
-        #expect(general.hotkey == .fn)
-        #expect(general.hotkeyLabel == "fn / 🌐")
+        #expect(general.hotkey == .option)
+        #expect(general.hotkeyLabel == "Option")
         // A stored choice still wins.
         let store = InMemorySettingsStore()
         store.set(HotkeyChoice.rightOption.rawValue, for: HotkeyService.bindingDefaultsKey)
@@ -269,8 +277,8 @@ struct SettingsSubpagesS7gTests {
         let general = Self.general(store)
         general.actKey = .key(.rightCommand)
         let change = general.apply(.key(.rightCommand))
-        #expect(change == .conflict(attempted: .rightCommand, kept: .fn, reason: "Right Command is your Actions key."))
-        #expect(general.hotkey == .fn, "the previous shortcut stays active")
+        #expect(change == .conflict(attempted: .rightCommand, kept: .option, reason: "Right Command is your Actions key."))
+        #expect(general.hotkey == .option, "the previous shortcut stays active")
         #expect(store.string(HotkeyService.bindingDefaultsKey) == nil, "nothing was written")
         let banner = try? #require(change?.banner)
         #expect(banner?.headline == "This shortcut is already in use")
@@ -278,11 +286,11 @@ struct SettingsSubpagesS7gTests {
         #expect(banner?.recoveryID == .K01)
 
         let refused = general.apply(.unsupported("Left Command"))
-        #expect(refused == .unsupported(name: "Left Command", kept: .fn))
+        #expect(refused == .unsupported(name: "Left Command", kept: .option))
         #expect(refused?.banner?.headline == "Left Command can’t be held for dictation")
         #expect(refused?.banner?.body?.contains("Left and right modifiers are distinct.") == true)
         #expect(general.apply(.cancelled) == nil)
-        #expect(general.apply(.key(.fn)) == .unchanged(.fn))
+        #expect(general.apply(.key(.option)) == .unchanged(.option))
     }
 
     @Test("a recorded key becomes the binding HotkeyService reads, live")
@@ -290,7 +298,7 @@ struct SettingsSubpagesS7gTests {
         let store = InMemorySettingsStore()
         let general = Self.general(store)
         let change = general.apply(.key(.rightOption))
-        #expect(change == .changed(from: .fn, to: .rightOption))
+        #expect(change == .changed(from: .option, to: .rightOption))
         #expect(change?.confirmation == "Right Option is now your dictation key.")
         #expect(store.string(HotkeyService.bindingDefaultsKey) == "rightOption")
         #expect(store.string(SettingsKeys.hotkey) == "rightOption")
@@ -309,7 +317,7 @@ struct SettingsSubpagesS7gTests {
         #expect(shortcuts.isRecording && installed == 1)
         shortcuts.record(.key(.rightControl))
         #expect(!shortcuts.isRecording && removed == 1)
-        #expect(shortcuts.lastChange == .changed(from: .fn, to: .rightControl))
+        #expect(shortcuts.lastChange == .changed(from: .option, to: .rightControl))
         #expect(general.hotkey == .rightControl)
         shortcuts.record(.key(.fn))
         #expect(general.hotkey == .rightControl, "a capture outside recording changes nothing")
@@ -329,11 +337,11 @@ struct SettingsSubpagesS7gTests {
         let shortcuts = ShortcutsPageModel(general: general, clock: { 0 },
                                            installMonitor: { _ in NSObject() }, removeMonitor: { _ in })
         shortcuts.choose(.controlOptionA)
-        #expect(general.hotkey == .fn)
+        #expect(general.hotkey == .option)
         #expect(shortcuts.lastChange?.banner?.recoveryID == .K01)
         shortcuts.choose(.controlOptionD)
         #expect(general.hotkey == .controlOptionD)
-        #expect(shortcuts.lastChange == .changed(from: .fn, to: .controlOptionD))
+        #expect(shortcuts.lastChange == .changed(from: .option, to: .controlOptionD))
     }
 
     // MARK: - Shortcuts · test area
@@ -413,7 +421,7 @@ struct SettingsSubpagesS7gTests {
 
     @Test("testing on the default listener: the page reads the bound key and keeps it from the dictation key")
     func testAreaKeepsTheKeyToItself() throws {
-        let general = Self.general()
+        let general = Self.general(Self.fnStore())
         var now: TimeInterval = 10
         let shortcuts = ShortcutsPageModel(general: general, clock: { now },
                                            installMonitor: { _ in NSObject() }, removeMonitor: { _ in })
@@ -441,7 +449,7 @@ struct SettingsSubpagesS7gTests {
 
     @Test("recording: pressing the current key again neither dictates nor strands it")
     func recordingKeepsTheCurrentKey() throws {
-        let general = Self.general()
+        let general = Self.general(Self.fnStore())
         let shortcuts = ShortcutsPageModel(general: general, clock: { 0 },
                                            installMonitor: { _ in NSObject() }, removeMonitor: { _ in })
         shortcuts.startRecording()
@@ -476,7 +484,7 @@ struct SettingsSubpagesS7gTests {
     func fnConflictPrompt() throws {
         let conflict = try #require(FnKeyConflict(.showEmojiAndSymbols))
         var opened = 0
-        let general = Self.general(fn: conflict, opened: { opened += 1 })
+        let general = Self.general(Self.fnStore(), fn: conflict, opened: { opened += 1 })
         #expect(general.fnConflict == conflict)
         #expect(general.fnConflict?.headline == "The 🌐 key also shows Emoji & Symbols")
         #expect(FnKeyConflict.actionTitle == "Open Keyboard settings")

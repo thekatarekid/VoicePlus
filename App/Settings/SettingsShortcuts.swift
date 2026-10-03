@@ -222,8 +222,10 @@ public struct ShortcutTestProbe: Equatable, Sendable {
     public mutating func edge(_ edge: HotkeyBinding.Edge, at t: TimeInterval, latchEnabled: Bool) {
         switch edge {
         case .down:
+            // X1 — a press while latched stops at its key-up; the test reports it on the press.
+            let wasLatched = machine.phase == .latched
             let actions = LatchGestureSettings.filter(machine.keyDown(at: t), enabled: latchEnabled)
-            if actions.contains(.finalize) { result = .latchFinished; downAt = nil; return }
+            if wasLatched || actions.contains(.finalize) { result = .latchFinished; downAt = nil; return }
             if actions.contains(.startCapture) { downAt = t; result = .pressed }
         case .up:
             let actions = LatchGestureSettings.filter(machine.keyUp(at: t), enabled: latchEnabled)
@@ -231,7 +233,7 @@ public struct ShortcutTestProbe: Equatable, Sendable {
             if actions.contains(.enterLatch) {
                 result = .latched
             } else if actions.contains(.finalize) {
-                result = .hold(seconds: t - (downAt ?? t))
+                if result != .latchFinished { result = .hold(seconds: t - (downAt ?? t)) }
             } else if actions.contains(.cancelCapture) {
                 // Latch off: the state machine may have latched; the filter turned it into a
                 // cancel, so reset it rather than leave it waiting for a finishing tap.

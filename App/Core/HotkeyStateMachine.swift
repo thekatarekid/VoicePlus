@@ -44,6 +44,22 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         case keyDown(since: TimeInterval)
         /// Latched: capture continues with no key held (R3.1).
         case latched
+        /// X1 — the key went down while latched. The stop is decided at key-up: a clean press
+        /// stops (`.finalize`); a press that became a chord (Option + key / click / scroll) leaves
+        /// the session latched and the combo passes through untouched.
+        case latchedKeyDown(since: TimeInterval)
+        /// X1 — the held key became a chord: capture was cancelled silently; the key-up ends the
+        /// press with no action.
+        case chorded
+    }
+
+    /// Why the machine last emitted `.cancelCapture`.
+    public enum CancelKind: Equatable, Sendable {
+        /// A tap (< hold threshold), or a press over a visible notch up to `visibleTapCeiling`.
+        case tap
+        /// X1 — the key was combined with another key, a click or a scroll: cancel **silently**
+        /// (no hint, no row, nothing saved) and let the combo through.
+        case chord
     }
 
     public let timing: Timing
@@ -53,13 +69,15 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     /// X3-taps — the current (or last) press went down while the notch showed something that is not
     /// a live capture. Such a press up to `visibleTapCeiling` ends as a tap that dismisses.
     public private(set) var pressOverSurface = false
+    /// Reason for the most recent `.cancelCapture` (nil before any).
+    public private(set) var lastCancel: CancelKind?
 
     public init(timing: Timing = .default) { self.timing = timing }
 
     public var isCapturing: Bool {
         switch phase {
-        case .idle: return false
-        case .keyDown, .latched: return true
+        case .idle, .chorded: return false
+        case .keyDown, .latched, .latchedKeyDown: return true
         }
     }
 
@@ -68,13 +86,14 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     @discardableResult
     public mutating func keyDown(at t: TimeInterval, surfaceShowing: Bool = false) -> [Action] {
         switch phase {
-        case .keyDown:
-            return [] // key repeat — ignore
+        case .keyDown, .latchedKeyDown, .chorded:
+            return [] // key repeat (or the other side of Option) — ignore
         case .latched:
-            // A single tap while latched stops and finalizes (V3 §4.3).
-            phase = .idle
+            // A single press while latched stops and finalizes (V3 §4.3) — X1: at its key-up, so
+            // an Option chord made during hands-free passes through without ending the session.
+            phase = .latchedKeyDown(since: t)
             lastTapUp = nil
-            return [.finalize]
+            return []
         case .idle:
             phase = .keyDown(since: t)
             pressOverSurface = surfaceShowing
@@ -84,6 +103,16 @@ public struct HotkeyStateMachine: Equatable, Sendable {
 
     @discardableResult
     public mutating func keyUp(at t: TimeInterval) -> [Action] {
+        switch phase {
+        case .chorded:
+            phase = .idle
+            return []
+        case .latchedKeyDown:
+            phase = .idle
+            lastTapUp = nil
+            return [.finalize]
+        default: break
+        }
         guard case .keyDown(let since) = phase else { return [] }
         let duration = t - since
         // X3-taps — over a visible notch, a press up to ~0.8 s is a tap: it dismisses, never
@@ -91,6 +120,7 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         if pressOverSurface, duration >= timing.holdThreshold, duration <= timing.visibleTapCeiling {
             phase = .idle
             lastTapUp = nil
+            lastCancel = .tap
             return [.cancelCapture]
         }
         if duration >= timing.holdThreshold {
@@ -106,12 +136,39 @@ public struct HotkeyStateMachine: Equatable, Sendable {
             }
             lastTapUp = t
             phase = .idle
+            lastCancel = .tap
             return [.cancelCapture]
         }
         // Ambiguous press: neither a clean tap nor a hold. Cancel; does not arm a double-tap.
         phase = .idle
         lastTapUp = nil
+        lastCancel = .tap
         return [.cancelCapture]
+    }
+
+    /// X1 (owner round 4) — another key went down, or a mouse button, or a scroll, while the
+    /// dictation key may be held. Held from idle → capture is cancelled **silently** and the rest
+    /// of the press does nothing (the combo belongs to the app in front). During a latched stop
+    /// press → the session stays latched. From idle → a pending double tap is forgotten
+    /// (Option, ⌥E, Option is not a double tap).
+    @discardableResult
+    public mutating func otherInput(at t: TimeInterval) -> [Action] {
+        switch phase {
+        case .keyDown:
+            phase = .chorded
+            lastTapUp = nil
+            lastCancel = .chord
+            return [.cancelCapture]
+        case .latchedKeyDown:
+            // Back to latched: the key-up that follows finds `.latched` and does nothing.
+            phase = .latched
+            return []
+        case .idle:
+            lastTapUp = nil
+            return []
+        case .latched, .chorded:
+            return []
+        }
     }
 
     /// K02 (design §5 "lost key-up", §13 scenario 9) — the key is no longer down but its key-up never
@@ -122,6 +179,11 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     /// (its words are kept), anything shorter cancels. Nothing outside `.keyDown`.
     @discardableResult
     public mutating func lostKeyUp(at t: TimeInterval) -> [Action] {
+        switch phase {
+        case .chorded: phase = .idle; return []
+        case .latchedKeyDown: phase = .latched; return []
+        default: break
+        }
         guard case .keyDown(let since) = phase else { return [] }
         phase = .idle
         lastTapUp = nil
@@ -232,6 +294,8 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
 
     public enum Kind: String, Codable, Sendable, CaseIterable {
         case rightOption, leftOption, rightCommand, rightControl, fn
+        /// X1 (owner round 4) — either Option key: hold to talk, double tap for hands-free.
+        case option
         /// ⌃⌥D — a chord, so it runs on Carbon and needs no permission at all.
         case controlOptionD
         /// ⌃⌥A — the chord counterpart for the act key.
@@ -244,6 +308,7 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
             case .rightCommand: return "Right ⌘"
             case .rightControl: return "Right ⌃"
             case .fn: return "fn / 🌐"
+            case .option: return "⌥ Option"
             case .controlOptionD: return "⌃⌥D"
             case .controlOptionA: return "⌃⌥A"
             }
@@ -259,6 +324,7 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
             case .rightCommand: return "Right Command"
             case .rightControl: return "Right Control"
             case .fn: return "fn / 🌐"
+            case .option: return "Option"
             case .controlOptionD: return "Control + Option + D"
             case .controlOptionA: return "Control + Option + A"
             }
@@ -266,7 +332,7 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
 
         public var style: Style {
             switch self {
-            case .rightOption, .leftOption, .rightCommand, .rightControl, .fn: return .bareModifier
+            case .rightOption, .leftOption, .rightCommand, .rightControl, .fn, .option: return .bareModifier
             case .controlOptionD, .controlOptionA: return .chord
             }
         }
@@ -275,7 +341,7 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
         public var keyCode: Int64 {
             switch self {
             case .rightOption: return 61
-            case .leftOption: return 58
+            case .leftOption, .option: return 58
             case .rightCommand: return 54
             case .rightControl: return 62
             case .fn: return 63
@@ -291,11 +357,36 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
         /// `HotkeyBackendFlagWordTests` pins that equivalence.
         public var flagMask: UInt64 {
             switch self {
-            case .rightOption, .leftOption: return 0x0008_0000 // maskAlternate
+            case .rightOption, .leftOption, .option: return 0x0008_0000 // maskAlternate
             case .rightCommand: return 0x0010_0000           // maskCommand
             case .rightControl: return 0x0004_0000           // maskControl
             case .fn: return 0x0080_0000                     // maskSecondaryFn
             case .controlOptionD, .controlOptionA: return 0
+            }
+        }
+
+        /// X1 — the key codes whose `flagsChanged` this binding reads: both Option keys for `.option`.
+        public var keyCodes: Set<Int64> {
+            self == .option ? [Self.leftOptionKeyCode, Self.rightOptionKeyCode] : [keyCode]
+        }
+        public static let leftOptionKeyCode: Int64 = 58
+        public static let rightOptionKeyCode: Int64 = 61
+        /// `NX_DEVICELALTKEYMASK` / `NX_DEVICERALTKEYMASK` — the per-side Option bits. The shared
+        /// `maskAlternate` stays set while *either* side is down, so with Left ⌥ held a Right ⌥
+        /// release was never seen (the per-side bug); these tell the sides apart.
+        public static let deviceLeftAltMask: UInt64 = 0x20
+        public static let deviceRightAltMask: UInt64 = 0x40
+
+        /// Is this binding's key down in `flags`? Option kinds read the per-side device bits when
+        /// the word carries any (every real event does); a word with only `maskAlternate` (a
+        /// synthetic event) falls back to the shared bit.
+        public func isDown(flags: UInt64) -> Bool {
+            let device = flags & (Self.deviceLeftAltMask | Self.deviceRightAltMask)
+            switch self {
+            case .leftOption where device != 0: return flags & Self.deviceLeftAltMask != 0
+            case .rightOption where device != 0: return flags & Self.deviceRightAltMask != 0
+            case .option where device != 0: return true
+            default: return flags & flagMask != 0
             }
         }
 
@@ -304,7 +395,7 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
         /// never fire.
         public var chord: Chord? {
             switch self {
-            case .rightOption, .leftOption, .rightCommand, .rightControl, .fn: return nil
+            case .rightOption, .leftOption, .rightCommand, .rightControl, .fn, .option: return nil
             case .controlOptionD: return Chord(keyCode: Chord.keyD, carbonModifiers: Chord.control | Chord.option)
             case .controlOptionA: return Chord(keyCode: Chord.keyA, carbonModifiers: Chord.control | Chord.option)
             }
@@ -312,11 +403,11 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
     }
 
     public var kind: Kind
-    public init(kind: Kind = .fn) { self.kind = kind }
-    /// V4.51 (owner decision, build doc §0) — the dictation key an install with no stored choice
-    /// gets is fn / 🌐: hold to dictate, double tap to latch. It was Right ⌥ through 1.10. A stored
-    /// binding always wins (`HotkeyService.storedBinding`), so anyone who picked a key keeps it.
-    public static let `default` = HotkeyBinding(kind: .fn)
+    public init(kind: Kind = .option) { self.kind = kind }
+    /// X1 (owner round 4) — the dictation key is Option (left or right): hold to talk, double tap
+    /// for hands-free. It was fn / 🌐 (V4.51) and Right ⌥ through 1.10. A stored binding wins
+    /// (`HotkeyService.storedBinding`), except a stored fn, which moves to Option once.
+    public static let `default` = HotkeyBinding(kind: .option)
 
     public var style: Style { kind.style }
 
@@ -339,8 +430,8 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
     /// this binding. Always nil for a chord: chords arrive as Carbon press/release callbacks, not as
     /// flag words.
     public func edge(keyCode: Int64, flags: UInt64) -> Edge? {
-        guard kind.style == .bareModifier, keyCode == kind.keyCode else { return nil }
-        return (flags & kind.flagMask) != 0 ? .down : .up
+        guard kind.style == .bareModifier, kind.keyCodes.contains(keyCode) else { return nil }
+        return kind.isDown(flags: flags) ? .down : .up
     }
 
     public enum Edge: Equatable, Sendable { case down, up }
@@ -501,4 +592,26 @@ public struct FnKeyProbe: Equatable, Sendable {
 
     /// "Try again": forget the attempts, keep a confirmation.
     public mutating func reset() { attempts = 0 }
+}
+
+// MARK: - X1: a chord cancel is silent
+
+/// X1 — hands the *reason* for a dictation-key `.cancelCapture` to the session without widening
+/// `HotkeyStateMachine.Action` (every consumer switches over it exhaustively). The dictation
+/// key's `HotkeyService` marks a chord cancel just before it emits `.cancelCapture`;
+/// `SessionCoordinator` takes the mark when it handles that action. A chord cancel shows nothing,
+/// saves nothing and schedules no hint.
+public enum HotkeyGestureContext {
+    private static let lock = NSLock()
+    private static var chordCancelPending = false
+
+    public static func markChordCancel() { lock.withLock { chordCancelPending = true } }
+
+    /// True once per marked chord cancel.
+    public static func takeChordCancel() -> Bool {
+        lock.withLock { () -> Bool in
+            defer { chordCancelPending = false }
+            return chordCancelPending
+        }
+    }
 }

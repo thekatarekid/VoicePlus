@@ -43,7 +43,8 @@ struct LostKeyUpK02Tests {
     // MARK: The service
 
     private func service(flags: @escaping () -> UInt64, uptime: TimeInterval = 5) -> (HotkeyService, Box<[Machine.Action]>, Box<Int>) {
-        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.k02.\(UUID())")!)
+        let service = HotkeyService(defaults: UserDefaults(suiteName: "AppTests.k02.\(UUID())")!,
+                                    defaultBinding: HotkeyBinding(kind: .fn))
         #expect(service.binding.kind == .fn)
         let actions = Box<[Machine.Action]>([]), lost = Box(0)
         service.onAction = { actions.value.append($0) }

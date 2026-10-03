@@ -125,7 +125,8 @@ struct HotkeyNoSurfaceTests {
         _ = l.keyDown(at: 0.2)
         #expect(l.keyUp(at: 0.3) == [.enterLatch])
         #expect(l.isCapturing, "latched capture continues with no key held")
-        #expect(l.keyDown(at: 1.0) == [.finalize], "a tap while latched stops and finalizes")
+        #expect(l.keyDown(at: 1.0) == [])
+        #expect(l.keyUp(at: 1.05) == [.finalize], "a tap while latched stops and finalizes (at key-up, X1)")
 
         // K02: the key is up but its key-up never arrived. Without this the machine stays in
         // `.keyDown` and drops every later key-down as key repeat — the key goes dead.

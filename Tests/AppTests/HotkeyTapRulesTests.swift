@@ -49,7 +49,8 @@ struct HotkeyTapRulesTests {
         var m = HotkeyStateMachine()
         m.keyDown(at: 0); m.keyUp(at: 0.1); m.keyDown(at: 0.2); m.keyUp(at: 0.25)
         #expect(m.phase == .latched)
-        #expect(m.keyDown(at: 3, surfaceShowing: true) == [.finalize])
+        #expect(m.keyDown(at: 3, surfaceShowing: true) == [])
+        #expect(m.keyUp(at: 3.5) == [.finalize], "X1: the stop lands at key-up")
     }
 
     @Test("HotkeyService feeds the surface flag at key-down (dictation key only)")

@@ -250,7 +250,10 @@ public final class HotkeyService {
     public static let forceEventTapDefaultsKey = "hotkeyForceEventTap"
     /// V4.51 — the dictation key when nothing is stored: fn / 🌐 (hold = dictate, double tap =
     /// Latch). Stored bindings always win; the act key passes its own default (Right ⌘).
-    public static let defaultBinding = HotkeyBinding(kind: .fn)
+    public static let defaultBinding = HotkeyBinding(kind: .option)
+    /// X1 — set once a stored fn binding has been moved to Option (owner round 4). After that a
+    /// user who picks fn again keeps it.
+    public static let optionMigrationDefaultsKey = "hotkeyOptionMigrationV1"
 
     public var onAction: ((HotkeyStateMachine.Action) -> Void)?
     /// Whether this service should hold a live source at all. Read fresh on every arming tick, so
@@ -390,13 +393,35 @@ public final class HotkeyService {
     /// Seconds since boot, the clock `NSEvent` / `CGEvent` timestamps use, for the synthesized key-up.
     public var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     /// Polls in a row that saw the key up while the machine still thought it was down.
+    /// X1 — did a key, a mouse button or a scroll happen in the last `seconds`? Read when a held
+    /// dictation key comes up and on the 250 ms poll, so Option + anything cancels silently even
+    /// without the event tap. Tests replace it.
+    /// nil: the system's own counters, but only for a running service on a system backend — a
+    /// service a test drives by hand never reads the real keyboard.
+    public var otherInputWithin: ((TimeInterval) -> Bool)?
+    /// X2 — while the Option event tap feeds this service, flag words from the passive monitors
+    /// are ignored (the tap drops a second press the monitors never see).
+    public var tapFeeds = false
+
+    public static func systemOtherInputWithin(_ seconds: TimeInterval) -> Bool {
+        let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        return types.contains { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) < seconds }
+    }
+
     private var releaseUpStrikes = 0
     private var releasePoll: Timer?
 
     /// The poll is due: a live source serves a bare modifier that the machine holds down.
     var wantsReleasePoll: Bool {
-        guard isRunning, binding.style == .bareModifier, case .keyDown = machine.phase else { return false }
-        return true
+        isRunning && binding.style == .bareModifier && machineHoldsKey
+    }
+
+    /// The machine believes the key is down (a press, a latched stop press, a chorded press).
+    var machineHoldsKey: Bool {
+        switch machine.phase {
+        case .keyDown, .latchedKeyDown, .chorded: return true
+        case .idle, .latched: return false
+        }
     }
 
     public init(defaults: UserDefaults = .standard, timing: HotkeyStateMachine.Timing = .default,
@@ -416,7 +441,15 @@ public final class HotkeyService {
     /// this build cannot parse (a future binding, a corrupted write) falls back to the default
     /// rather than leaving the service with no binding at all.
     static func storedBinding(defaults: UserDefaults, key: String) -> HotkeyBinding? {
-        guard let raw = defaults.string(forKey: key) else { return nil }
+        guard var raw = defaults.string(forKey: key) else { return nil }
+        if key == bindingDefaultsKey, !defaults.bool(forKey: optionMigrationDefaultsKey) {
+            defaults.set(true, forKey: optionMigrationDefaultsKey)
+            if raw == HotkeyBinding.Kind.fn.rawValue {
+                Log.app.notice("hotkey: dictation key moves from fn to Option (owner round 4)")
+                raw = HotkeyBinding.Kind.option.rawValue
+                defaults.set(raw, forKey: key)
+            }
+        }
         guard let kind = HotkeyBinding.Kind(rawValue: raw) else {
             Log.app.warning("hotkey: stored binding \"\(raw)\" is not one this build knows — using the default")
             return nil
@@ -488,13 +521,48 @@ public final class HotkeyService {
     }
 
     private func apply(edge: HotkeyBinding.Edge, at timestamp: TimeInterval) {
+        if edge == .up, binding.style == .bareModifier { pollOtherInput() }
         let actions: [HotkeyStateMachine.Action]
         switch edge {
         case .down: actions = machine.keyDown(at: timestamp, surfaceShowing: surfaceShowing())
         case .up: actions = machine.keyUp(at: timestamp)
         }
         updateReleasePoll()
-        for action in actions { onAction?(action) }
+        emit(actions)
+    }
+
+    private func emit(_ actions: [HotkeyStateMachine.Action]) {
+        for action in actions {
+            if action == .cancelCapture, machine.lastCancel == .chord, bindingKey == Self.bindingDefaultsKey {
+                HotkeyGestureContext.markChordCancel()
+            }
+            onAction?(action)
+        }
+    }
+
+    /// X1 — another key, a click or a scroll while the key is held: cancel silently, pass the
+    /// combo through (nothing here consumes it). Fed by the Option event tap; public for tests.
+    public func noteOtherInput(at timestamp: TimeInterval) {
+        guard !isPaused else { return }
+        let actions = machine.otherInput(at: timestamp)
+        if !actions.isEmpty { Log.app.info("hotkey: \(binding.kind.displayName) + another input — cancelled silently") }
+        updateReleasePoll()
+        emit(actions)
+    }
+
+    /// X1 — the passive check: anything typed, clicked or scrolled since the key went down?
+    @discardableResult
+    public func pollOtherInput() -> Bool {
+        let since: TimeInterval
+        switch machine.phase {
+        case .keyDown(let t), .latchedKeyDown(let t): since = t
+        default: return false
+        }
+        let window = max(0, uptime() - since)
+        let check = otherInputWithin ?? ((isRunning && installer == nil) ? Self.systemOtherInputWithin : nil)
+        guard window > 0, let check, check(window) else { return false }
+        noteOtherInput(at: uptime())
+        return true
     }
 
     /// Called by the coordinator when the engine failed so a stuck key-down doesn't leave us "capturing".
@@ -511,7 +579,7 @@ public final class HotkeyService {
     /// Driven by a 250 ms timer while the key is down, and on every tap-disabled event.
     @discardableResult
     public func checkForLostKeyUp() -> Bool {
-        guard binding.style == .bareModifier, case .keyDown = machine.phase else {
+        guard binding.style == .bareModifier, machineHoldsKey else {
             releaseUpStrikes = 0
             return false
         }
@@ -525,7 +593,7 @@ public final class HotkeyService {
         let actions = machine.lostKeyUp(at: uptime())
         updateReleasePoll()
         Log.app.notice("hotkey: \(binding.kind.displayName) is up but its key-up never arrived — ending the press (K02)")
-        for action in actions { onAction?(action) }
+        emit(actions)
         onLostKeyUp?()
         return true
     }
@@ -542,7 +610,8 @@ public final class HotkeyService {
         }
         guard releasePoll == nil, installer == nil, Thread.isMainThread else { return }
         let timer = Timer(timeInterval: Self.releasePollInterval, repeats: true) { [weak self] _ in
-            self?.checkForLostKeyUp()
+            guard let self else { return }
+            if !self.pollOtherInput() { self.checkForLostKeyUp() }
         }
         RunLoop.main.add(timer, forMode: .common)
         releasePoll = timer
@@ -688,6 +757,12 @@ public final class HotkeyService {
 
     /// Counts the event for the liveness probe, then runs the gesture recogniser. Main thread only.
     private func receiveModifier(keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
+        if tapFeeds { return }
+        receiveTapped(keyCode: keyCode, flags: flags, timestamp: timestamp)
+    }
+
+    /// X2 — a flag word from the Option event tap (it also sees the presses it drops).
+    public func receiveTapped(keyCode: Int64, flags: UInt64, timestamp: TimeInterval) {
         eventsReceived += 1
         noteFnEvent(keyCode: keyCode)
         handle(keyCode: keyCode, flags: flags, timestamp: timestamp)

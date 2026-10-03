@@ -22,7 +22,7 @@ struct PresenceHoverTests {
         // The hint is the configured key's, with no brand prefix and no "Ready".
         #expect(!hint.contains("VoicePlus") && !hint.contains("Ready"))
         #expect(HotkeyBinding(kind: .rightOption).readyHint() == "Hold or Double Tap Right Option to dictate")
-        #expect(HotkeyBinding.default.readyHint(latchEnabled: false) == "Hold fn / 🌐 to dictate")
+        #expect(HotkeyBinding(kind: .fn).readyHint(latchEnabled: false) == "Hold fn / 🌐 to dictate")
     }
 
     @Test func keyboardFocusNeverOpensTheHover() {

@@ -40,8 +40,9 @@ struct HotkeyStateMachineTests {
         #expect(m.keyUp(at: 0.25) == [.enterLatch])
         #expect(m.phase == .latched)
         #expect(m.isCapturing)
-        #expect(m.keyDown(at: 3) == [.finalize])
-        #expect(m.keyUp(at: 3.05) == [])
+        // X1 — the stop is decided at key-up (an Option chord keeps the session).
+        #expect(m.keyDown(at: 3) == [])
+        #expect(m.keyUp(at: 3.05) == [.finalize])
         #expect(m.phase == .idle)
     }
 

@@ -228,6 +228,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var onTapDismiss: (() -> Void)?
     /// H2 / X3-taps — the notch shows something that is not a live capture (read at key-down).
     public var surfaceShowing: (() -> Bool)?
+    /// X1 (owner round 4) — audio is buffered from key-down, but the notch shows only after this
+    /// long with no other input (Option + a key must never flash it). 0 shows it at key-down
+    /// (tests); the live wiring uses `holdPresentDelayDefault`. A latch shows it at once.
+    public var holdPresentDelay: TimeInterval = 0
+    public static let holdPresentDelayDefault: TimeInterval = 0.300
     /// H2 — bumped by every hint shown and every dismissing tap, so a stale hint expiry never fires.
     /// H3 — and by every key-down, so a tap's delayed hint never lands over (or after) a new hold.
     private var tapHintGeneration = 0
@@ -348,6 +353,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             }
             if turns.values.contains(where: { $0.origin == .hold && $0.stage == .finishing }) { return false }
             guard let id = captureID, let turn = turns[id] else { return !holdingPresentation }
+            if turn.presentDeferred, turn.stage.isCapturing { return false }
             switch turn.stage {
             case .starting, .listening:
                 switch state {
@@ -385,13 +391,20 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             holdingPresentation = false
             tapHintGeneration &+= 1
             fx.save(turn)
-            fx.yieldToHold()
-            fx.present(.starting)
+            if holdPresentDelay > 0, !latched {
+                turn.presentDeferred = true
+            } else {
+                fx.yieldToHold()
+                fx.present(.starting)
+            }
             return .began(turn.id)
         }
         switch verdict {
         case .began(let id):
             fx.run(self)
+            if holdPresentDelay > 0, !latched {
+                _ = clock.schedule(after: holdPresentDelay) { [weak self] in self?.revealDeferred(id) }
+            }
             Log.app.info("turn \(id.description): key down")
             snapshotQueue { [weak self] in
                 guard let self else { return }
@@ -493,6 +506,18 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         retract()
     }
 
+    /// X1 (owner round 4) — the dictation key became a chord (Option + key, click or scroll): the
+    /// capture turn vanishes with no record, no row, no hint, nothing saved. The combo itself went
+    /// to the app in front untouched.
+    public func captureAborted(_ id: TurnID) {
+        guard lock.withLock({ turns[id]?.stage.isCapturing ?? false }) else { return }
+        Log.app.info("turn \(id.description): dictation key chorded with another input — silent cancel")
+        end(id, stage: .cancelled)
+        store.remove(id)
+        lock.withLock { tapHintGeneration &+= 1 }
+        retract()
+    }
+
     /// N17 — the key came up before the hold threshold (a tap, or the first tap of a double-tap).
     /// Not a failure and not a turn: the turn is dropped from the store (no "cancelled" row in
     /// history or `turn_records`), and once the double-tap window has passed with no new press the
@@ -535,12 +560,33 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// at where focus is when it stops, and a latched turn shows the latch timer, not "quiet".
     public func noteLatched(_ latched: Bool) {
         guard latched else { return }
-        lock.withLock {
-            guard let id = captureID, let turn = turns[id] else { return }
+        let id = lock.withLock { () -> TurnID? in
+            guard let id = captureID, let turn = turns[id] else { return nil }
             turn.latched = true
             turn.quietTimer?.cancel()
             turn.quietTimer = nil
+            return id
         }
+        // X1 — hands-free shows at once, not after the hold delay.
+        if let id { revealDeferred(id) }
+    }
+
+    /// X1 — the hold delay passed with the key still down and no other input: show the notch now
+    /// (the stage it has reached), yielding whatever it showed (H3).
+    func revealDeferred(_ id: TurnID) {
+        var fx = Effects()
+        lock.withLock {
+            guard let turn = turns[id], turn.presentDeferred else { return }
+            turn.presentDeferred = false
+            guard captureID == id, turn.stage.isCapturing else { return }
+            fx.yieldToHold()
+            switch turn.stage {
+            case .listening: fx.present(.listening(level: 0))
+            case .listeningQuiet: fx.present(.listeningQuiet)
+            default: fx.present(.starting)
+            }
+        }
+        fx.run(self)
     }
 
     /// VAD: speech started (`true`) or ended (`false`).
@@ -1836,6 +1882,8 @@ final class Turn {
     /// Owner decision — the key-down app/window/element to pull back to.
     var anchor: PullBackAnchor?
     var latched = false
+    /// X1 — the notch is not shown yet (inside `holdPresentDelay`); engine states are held back.
+    var presentDeferred = false
     /// H2 — the key went down while the notch showed something that is not a live capture.
     var overSurface = false
     var speaking = false
@@ -2067,6 +2115,7 @@ public final class TurnWiring {
             pill?.hide()
         }
         controller.surfaceShowing = { PillSurfaceVisibility.isShowing }
+        controller.holdPresentDelay = TurnController.holdPresentDelayDefault
         pill.$state
             .sink { [weak pill] state in
                 PillSurfaceVisibility.isShowing = PillSurfaceVisibility.isNonCaptureSurface(

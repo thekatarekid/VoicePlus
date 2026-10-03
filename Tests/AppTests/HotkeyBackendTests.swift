@@ -67,9 +67,9 @@ struct HotkeyBackendSelectionTests {
     }
 
     /// The default binding — what an install with no stored choice gets — must be free.
-    /// V4.51 (I1): fn / 🌐, a bare modifier on the global monitor.
+    /// X1 (owner round 4): Option, a bare modifier on the global monitor.
     @Test func theShippedDefaultCostsNothing() {
-        #expect(HotkeyBinding.default.kind == .fn)
+        #expect(HotkeyBinding.default.kind == .option)
         #expect(HotkeyBackendSelector.requiredPermission(for: .default) == nil)
     }
 }
@@ -163,6 +163,7 @@ struct CarbonDrivenStateMachineTests {
         #expect(actions == [.startCapture, .cancelCapture, .startCapture, .enterLatch])
         #expect(s.machine.phase == .latched)
         s.handleChord(down: true, timestamp: 3)
+        s.handleChord(down: false, timestamp: 3.05)      // X1: the stop lands at key-up
         #expect(actions.last == .finalize)
     }
 
@@ -202,11 +203,12 @@ struct HotkeyBackendLifecycleTests {
     /// Every binding a 1.6.7 install can have stored survives verbatim — and now costs nothing.
     /// A user who picked Right ⌥ keeps Right ⌥; nobody is silently moved to a chord.
     @Test func everyStoredBindingFrom167SurvivesAndBecomesFree() {
-        for kind in [HotkeyBinding.Kind.rightOption, .leftOption, .rightCommand, .rightControl, .fn] {
+        for kind in [HotkeyBinding.Kind.rightOption, .leftOption, .rightCommand, .rightControl, .fn, .option] {
             let d = defaults()
             d.set(kind.rawValue, forKey: HotkeyService.bindingDefaultsKey)
             let service = HotkeyService(defaults: d)
-            #expect(service.binding.kind == kind)
+            // X1 (owner round 4) — a stored fn moves to Option once; every other key survives.
+            #expect(service.binding.kind == (kind == .fn ? .option : kind))
             #expect(service.backendKind == .globalMonitor)
             #expect(service.requiredPermission == nil)
             #expect(HotkeyService.currentRequiredPermission(defaults: d) == nil)

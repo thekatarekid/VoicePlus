@@ -51,8 +51,8 @@ struct SettingsViewModelTests {
     @Test func hotkeyPersists() {
         let store = InMemorySettingsStore()
         let vm = GeneralSettingsViewModel(store: store)
-        // V4.51 (I1): fn / 🌐 is the default dictation key, the one `HotkeyService` listens on.
-        #expect(vm.hotkey == .fn)
+        // X1 (owner round 4): Option is the default dictation key, the one `HotkeyService` listens on.
+        #expect(vm.hotkey == .option)
         vm.hotkey = .rightOption
         #expect(store.string(SettingsKeys.hotkey) == "rightOption")
         #expect(GeneralSettingsViewModel(store: store).hotkey == .rightOption)

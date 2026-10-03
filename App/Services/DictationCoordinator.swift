@@ -578,7 +578,7 @@ public final class DictationCoordinator {
 
     /// `tapped`: N17 — the key came up under the hold threshold. The turn is dropped without a
     /// record and the pill hints how to dictate; any other cancel ends the turn quietly as before.
-    public func cancel(tapped: Bool) {
+    public func cancel(tapped: Bool, silently: Bool = false) {
         // S3 — the capture turn ends quietly (a too-short tap is not news; Escape shows its own
         // "Cancelled"). A turn already past key-up is not capture any more: it is left to finish.
         if let turns, let id = sessionLock.withLock({ () -> TurnID? in
@@ -587,7 +587,8 @@ public final class DictationCoordinator {
             refusedPress = false
             return id
         }) {
-            if tapped, !latched { turns.captureTapped(id) } else { turns.captureCancelled(id) }
+            if silently { turns.captureAborted(id) }
+            else if tapped, !latched { turns.captureTapped(id) } else { turns.captureCancelled(id) }
         }
         enqueue { [weak self] in
             guard let self else { return }
