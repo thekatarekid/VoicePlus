@@ -110,8 +110,9 @@ public enum MainWindowSection: String, CaseIterable, Identifiable, Sendable {
 public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// V5 CU1 adds `computerUse` after Providers: the act key, where the planner runs, its model,
     /// timeout and consent defaults (it is the one page past the design's seven). V5 LANG1 adds
-    /// `languages` after Appearance: the onboarding Languages answers, changed later.
-    case general, shortcuts, appearance, languages, models, providers, computerUse, sync, updates
+    /// `languages` after Appearance: the onboarding Languages answers, changed later. H10 adds
+    /// `editCommands` after Languages: every edit command, generated from `EditCommandCatalog`.
+    case general, shortcuts, appearance, languages, editCommands, models, providers, computerUse, sync, updates
 
     public var id: String { rawValue }
 
@@ -126,6 +127,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
         case .providers: return "Providers"
         case .computerUse: return ComputerUseCopy.title
         case .languages: return LanguagesCopy.title
+        case .editCommands: return EditCommandsCopy.title
         case .sync: return "Sync"
         case .updates: return "Updates"
         }
@@ -137,7 +139,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// screen), so they use the Settings screen's copy.
     public var screen: DesignScreen {
         switch self {
-        case .general, .appearance, .updates, .computerUse, .languages: return .settings
+        case .general, .appearance, .updates, .computerUse, .languages, .editCommands: return .settings
         case .shortcuts: return .shortcuts
         case .models: return .models
         case .providers, .sync: return .services
@@ -148,7 +150,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
     /// screen's subtitle but must not repeat its title over different rows.
     public var pageTitle: String {
         switch self {
-        case .appearance, .updates, .computerUse, .languages: return title
+        case .appearance, .updates, .computerUse, .languages, .editCommands: return title
         default: return screen.page?.title ?? title
         }
     }
@@ -157,6 +159,7 @@ public enum SettingsSubpage: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .computerUse: return ComputerUseCopy.subtitle
         case .languages: return LanguagesCopy.subtitle
+        case .editCommands: return EditCommandsCopy.subtitle
         default: return screen.page?.subtitle ?? ""
         }
     }
@@ -444,6 +447,8 @@ public enum SettingsReachability {
         .init(.general, "Computer use page (V5 CU1)", "ComputerUseSettingsPage(", .settings, .computerUse),
         // V5 LANG1 — Settings › Languages (the onboarding Languages step, changed later).
         .init(.general, "Languages page (V5 LANG1)", "LanguagesSettingsPage(", .settings, .languages),
+        // H10 — Settings › Edit commands (generated from `EditCommandCatalog`).
+        .init(.general, "Edit commands page (H10)", "EditCommandsPage(", .settings, .editCommands),
     ]
 
     /// Source files that make up each section's detail pane: the section's `SectionScreen` entry

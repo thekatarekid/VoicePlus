@@ -74,6 +74,8 @@ struct SettingsScreen: SectionScreen {
             ComputerUseSettingsPage(model: computerUse, general: general, hotkey: hotkey)
         case .languages:
             LanguagesSettingsPage(model: languages, hotkey: hotkey)
+        case .editCommands:
+            EditCommandsPage(hotkey: hotkey)
         case .sync:
             SyncSettingsPage(sync: window.sync, database: window.deps.database, hotkey: hotkey)
         case .updates:
