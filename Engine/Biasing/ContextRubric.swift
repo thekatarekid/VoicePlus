@@ -178,6 +178,10 @@ public struct ContextRubric: Sendable {
         public var neverUsedDictionaryWeight = 0.6
         /// F27: screen terms reach the per-turn boost layer only after the Lab measures a gain.
         public var screenTermsInBoost = false
+        /// H17: terms read near the caret of the focused field (`.screenNear`) join the per-turn
+        /// layer without the Lab gate (far-window terms stay behind `screenTermsInBoost`). A
+        /// screen-only common word still needs the gate.
+        public var nearCaretInBoost = true
         public var minBoostCharacters = BoostVocabulary.minCharacters
         public var maxTermCharacters = BoostVocabulary.maxCharacters
         public init() {}
@@ -324,7 +328,8 @@ public struct ContextRubric: Sendable {
         let stableKeys = Set(stable.map { $0.text.lowercased() })
         let perTurnPool = boostable.filter { t in
             !stableKeys.contains(t.text.lowercased())
-                && (config.screenTermsInBoost || !t.sources.allSatisfy(\.isScreen))
+                && (config.screenTermsInBoost || !t.sources.allSatisfy(\.isScreen)
+                    || (config.nearCaretInBoost && t.sources.contains(.screenNear) && !t.isCollision))
                 && !t.sources.contains(where: { stableSources.contains($0) && $0 != .surfaceLexicon })
         }
         let perTurn = select(perTurnPool, budget: config.perTurnBudget, guaranteed: 0)

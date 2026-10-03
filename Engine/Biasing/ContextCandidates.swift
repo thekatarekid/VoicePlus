@@ -94,6 +94,78 @@ public enum ContextCandidates {
         return out
     }
 
+    /// H17 / H18 — the focused field's text either side of the caret (the key-down read, already
+    /// bounded to a UTF-16 window) → `.screenNear` candidates, each with its distance from the caret
+    /// in UTF-16 units. Data, never instructions: only terms and short phrases are kept.
+    ///
+    /// - Entity-like words (Capitalised, camelCase, with digits / `-` / `_` / `.`) and capitalised
+    ///   runs; a single word that is an ordinary English word ("Will", "Code") is left out — near
+    ///   the caret it is usually a sentence start, and boosting it rewrites what the user said.
+    /// - Uncommon plain words (≥ 4 letters, e.g. `kubectl`) at lower evidence.
+    /// - H18: lowercase 2–3-word phrases close to the caret ("hold to talk") at lower evidence.
+    /// - Each term carries its heard aliases ("hold-to-talk" ↔ "hold to talk").
+    public static func nearCaret(before: String, after: String, observedAt: Date = Date(),
+                                 maxTerms: Int = 40, phraseRadius: Int = 160,
+                                 maxPhrases: Int = 6) -> [ContextCandidate] {
+        var found: [String: ContextCandidate] = [:]
+        var order: [String] = []
+        func add(_ text: String, distance: Int, evidence: Double, aliases: [String]) {
+            let k = text.lowercased()
+            if let e = found[k] {
+                if distance < (e.caretDistance ?? .max) { found[k]?.caretDistance = distance }
+                return
+            }
+            found[k] = ContextCandidate(text: text, source: .screenNear, caretDistance: distance, observedAt: observedAt,
+                                        evidence: evidence, onScreenNow: true, heardAliases: aliases)
+            order.append(k)
+        }
+        var phrases: [(text: String, d: Int)] = []
+        for side in [NearCaretWords.split(before, isBefore: true), NearCaretWords.split(after, isBefore: false)] {
+            var run: [NearCaretWords.Word] = []
+            func flushRun() {
+                if run.count >= 2 {
+                    add(run.map(\.text).joined(separator: " "), distance: run.map(\.distance).min() ?? 0,
+                        evidence: 1, aliases: [])
+                }
+                run.removeAll()
+            }
+            for (idx, w) in side.enumerated() {
+                let t = w.text
+                guard t.count >= 2, t.count <= 40, t.first?.isLetter == true else { flushRun(); continue }
+                if t.first!.isUppercase, !EntityExtractor.stop.contains(t.lowercased()) { run.append(w) } else { flushRun() }
+                if w.breakAfter { flushRun() }
+                let common = CollisionLexicon.isCommonWord(t)
+                if EntityExtractor.isEntityLike(t), !common {
+                    add(t, distance: w.distance, evidence: 1, aliases: HeardAliases.aliases(for: t))
+                } else if t.count >= 4, !common, !EntityExtractor.stop.contains(t.lowercased()), t.allSatisfy(\.isLetter) {
+                    add(t, distance: w.distance, evidence: 0.35, aliases: [])
+                }
+                // H18 — lowercase phrases close to the caret.
+                for n in 2...3 where idx + n <= side.count {
+                    let span = Array(side[idx..<(idx + n)])
+                    guard span.dropLast().allSatisfy({ !$0.breakAfter }),
+                          span.allSatisfy({ w in !w.text.isEmpty && w.text.allSatisfy { $0.isLetter && $0.isLowercase } }),
+                          !EntityExtractor.stop.contains(span.first!.text), !EntityExtractor.stop.contains(span.last!.text),
+                          span.reduce(0, { $0 + $1.text.count }) >= 8,
+                          let d = span.map(\.distance).min(), d <= phraseRadius else { continue }
+                    phrases.append((span.map(\.text).joined(separator: " "), d))
+                }
+            }
+            flushRun()
+        }
+        var out = order.compactMap { found[$0] }.sorted { ($0.caretDistance ?? 0) < ($1.caretDistance ?? 0) }
+        out = Array(out.prefix(maxTerms))
+        var taken = Set(out.map { $0.text.lowercased() })
+        var phraseCount = 0
+        for p in phrases.sorted(by: { $0.d < $1.d }) where phraseCount < maxPhrases {
+            guard taken.insert(p.text).inserted else { continue }
+            out.append(ContextCandidate(text: p.text, type: .word, source: .screenNear, caretDistance: p.d,
+                                        observedAt: observedAt, evidence: 0.35, onScreenNow: true))
+            phraseCount += 1
+        }
+        return out
+    }
+
     /// Distance in characters from `caret` to the nearest occurrence of `term`.
     static func nearestRange(of term: String, in text: String, to caret: Int) -> Int? {
         var best: Int?

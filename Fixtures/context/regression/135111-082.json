@@ -1,0 +1,14 @@
+{
+  "id": "135111-082",
+  "turn": "9B8EA8CB",
+  "recording": "Recordings/2026-10-03-135111-082-raw.wav (kept on the owner's machine; not in the repo)",
+  "app": "com.anthropic.claudefordesktop",
+  "surface": "chatComposer",
+  "note": "Near-caret text is a reconstruction of the composer around the caret (the term on screen was 'hold-to-talk'); the raw transcript and uncertain spans are from the turn record.",
+  "before": "Can you check why hold-to-talk drops the full stop? In case of ",
+  "after": "",
+  "raw": "In case of whole to talk.",
+  "uncertain": ["whole", "talk"],
+  "expectedTerm": "hold-to-talk",
+  "expected": "In case of hold-to-talk."
+}

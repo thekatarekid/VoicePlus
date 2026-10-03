@@ -106,9 +106,12 @@ struct ContextRubricN11Tests {
     }
 
     @Test func screenTermsStayOutOfBoostUntilMeasuredButReachThePrompt() {
-        let cands = ContextCandidates.screen(text: "Meeting with Priyanka about TeamViewer", caretOffset: 10)
+        // H17: window terms (no caret) stay gated; near-caret terms are admitted without the gate.
+        let cands = ContextCandidates.screen(text: "Meeting with Priyanka about TeamViewer")
         let r = ContextRubric.rank(candidates: cands, surface: surface(.prose))
         #expect(r.boostTerms.isEmpty, "F27 off by default")
+        let near = ContextCandidates.screen(text: "Meeting with Priyanka about TeamViewer", caretOffset: 10)
+        #expect(ContextRubric.rank(candidates: near, surface: surface(.prose)).perTurnLayer.contains { $0.text == "TeamViewer" })
         #expect(r.promptTerms.contains("Priyanka") && r.promptTerms.contains("TeamViewer"))
         #expect(!r.spellList.contains("Priyanka"), "screen-only terms are not spell-exactly terms")
         var c = ContextRubric.Config(); c.screenTermsInBoost = true

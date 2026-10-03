@@ -48,9 +48,13 @@ public actor CTCBoostingRuntime {
 
     private func rescorer(for terms: [String]) async throws -> (CustomVocabularyContext, VocabularyRescorer) {
         if let c = cached, c.key == terms { return (c.vocabulary, c.rescorer) }
+        // H18: the spotter listens for the heard form ("hold to talk"), the rescorer also matches
+        // the term's other heard aliases, and the written (on-screen) form is what lands.
         let vocabTerms = terms.compactMap { text -> CustomVocabularyTerm? in
-            let ids = tokenizer.encode(text)
-            return ids.isEmpty ? nil : CustomVocabularyTerm(text: text, ctcTokenIds: ids)
+            let ids = tokenizer.encode(HeardAliases.spokenForm(text))
+            let aliases = HeardAliases.aliases(for: text)
+            return ids.isEmpty ? nil : CustomVocabularyTerm(text: text, aliases: aliases.isEmpty ? nil : aliases,
+                                                            ctcTokenIds: ids)
         }
         let vocabulary = CustomVocabularyContext(terms: vocabTerms)
         let rescorer = try await VocabularyRescorer.create(spotter: spotter, vocabulary: vocabulary,
@@ -226,13 +230,18 @@ public struct CTCVocabularyBooster: VocabularyBooster, BoostReporting {
 
     public func boostReport(tokens: [DecodedToken], samples: [Float]) async -> BoostReport {
         guard !terms.isEmpty else { return BoostReport(outcome: nil, status: .notApplied) }
+        // H18: an exact heard alias of a listed term ("hold to talk" for "hold-to-talk") is written
+        // in the term's form first — model-free, so it holds even while the CTC model is loading.
+        let aliased = HeardAliasRewrite.apply(tokens, terms: terms)
+        let base = aliased?.tokens ?? tokens
         let t0 = DispatchTime.now()
         guard let rescorer = await source.readyRescorer() else {
-            return BoostReport(outcome: nil, status: .modelNotReady, modelWaitMs: Self.ms(since: t0))
+            return BoostReport(outcome: aliased, status: .modelNotReady, modelWaitMs: Self.ms(since: t0))
         }
         let wait = Self.ms(since: t0)
         let t1 = DispatchTime.now()
-        let outcome = await rescorer.rescore(tokens: tokens, samples: samples, terms: terms)
+        let rescored = await rescorer.rescore(tokens: base, samples: samples, terms: terms)
+        let outcome = HeardAliasRewrite.merge(aliased, rescored)
         return BoostReport(outcome: outcome, status: (outcome?.wasModified ?? false) ? .boosted : .unchanged,
                            modelWaitMs: wait, rescoreMs: Self.ms(since: t1))
     }

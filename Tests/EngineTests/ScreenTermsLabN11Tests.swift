@@ -29,7 +29,9 @@ struct ScreenTermsLabN11Tests {
     @Test func defaultRubricKeepsScreenTermsOutOfTheBoostList() throws {
         #expect(ContextRubric.Config.default.screenTermsInBoost == false)
         let item = try #require(try Self.suite().items.first)
-        let screen = ContextCandidates.screen(text: item.matching, caretOffset: item.matching.count)
+        // H17: window text (no caret) stays gated; terms near the caret are admitted (see
+        // NearCaretContextH17Tests).
+        let screen = ContextCandidates.screen(text: item.matching)
         let r = ContextRubric.rank(candidates: screen, surface: ScreenTermsExperiment.surface(item.surface))
         #expect(r.boostTerms.isEmpty)
         #expect(!r.promptTerms.isEmpty, "screen terms still reach the cleanup prompt")
