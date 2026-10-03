@@ -60,7 +60,34 @@ public final class TransformPillDriver {
         }
     }
 
+    /// H3 / H11 — a new hold took the notch while an edit was running or previewed: that edit was
+    /// cancelled (nothing written) and its closing events must not redraw over the listening row.
+    /// Cleared by the next edit's first event (`.began`, a prompt or notice).
+    public private(set) var yieldedEdit = false
+
+    /// H3 (owner Q3.2) / H11 — a new hold in any state: the edit pill gives the notch up. An edit
+    /// still running or in its preview is cancelled (the original stays; R1 writes nothing before
+    /// the outcome), Escape goes back to the turn (the newest claimant), and the edit's late
+    /// outcome (`.cancelled`, `.failed`, a preview) is dropped instead of drawn over the listening row.
+    public func yieldToHold() {
+        if reducer.awaitsDecision {
+            yieldedEdit = true
+            onCancel?()
+        }
+        handle(.ended)
+    }
+
     public func handle(_ event: TransformPillReducer.Event) {
+        if yieldedEdit {
+            switch event {
+            case .began, .prompt, .notice, .needsModel, .undone, .undoRefused:
+                yieldedEdit = false   // a new edit turn (or an undo the user asked for)
+            case .ended, .tick:
+                break
+            case .previewing, .applied, .noChange, .failed, .cancelled, .held:
+                return   // the yielded edit's own outcome
+            }
+        }
         let state = reducer.reduce(event, now: clock())
         push(state)
         if reducer.needsTicks, timer == nil {
