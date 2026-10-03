@@ -90,6 +90,12 @@ struct TransformSuiteTests {
         let ctx = StageContext(register: .email, extra: [TransformPreference.contextKey: "bestAvailable", "persona": "short and warm"])
         let request = TransformRequest(instruction: spans(instr), selection: selection, context: ctx)
         let result = try await exec.execute(request, context: ctx)
+        // H7 — a deterministic catalogue command runs instantly with no model; the scripted
+        // provider is never asked.
+        if EditCommandCatalog.match(instr, selection: sel) != nil {
+            #expect(result.source == .catalog && provider.calls.isEmpty, "\(instr)")
+            return
+        }
 
         #expect(result.output == expected, "\(category): \(instr)")
         #expect(result.source == .provider)

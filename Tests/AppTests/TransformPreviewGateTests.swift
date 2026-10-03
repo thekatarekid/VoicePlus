@@ -60,6 +60,7 @@ struct TransformPreviewGateTests {
             case .undoRefused: return "undoRefused"
             case .undone: return "undone"
             case .prompt: return "prompt"
+            case .notice: return "notice"
             case .tick: return "tick"
             case .ended: return "ended"
             }

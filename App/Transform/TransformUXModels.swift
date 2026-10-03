@@ -98,6 +98,8 @@ public struct TransformPillReducer: Equatable, Sendable {
         case undone
         /// H6 — the notch asks for something ("Say the new text") and waits up to the warm window.
         case prompt(String)
+        /// H7 — a closing notice for a command that edits nothing ("Copied", "Nothing to undo").
+        case notice(String)
         case tick
         case ended
     }
@@ -166,6 +168,9 @@ public struct TransformPillReducer: Equatable, Sendable {
             state = .transform(.init(editingWords: words, stage: .notice(why)))
         case .prompt(let line):
             warmSince = nil; ghost = nil; morph = nil; hideAt = now + warmWindow
+            state = .transform(.init(editingWords: words, stage: .notice(line)))
+        case .notice(let line):
+            ghost = nil; morph = nil; warmSince = nil; hideAt = now + Self.closingNotice
             state = .transform(.init(editingWords: words, stage: .notice(line)))
         case .undone:
             ghost = nil; morph = nil; warmSince = now

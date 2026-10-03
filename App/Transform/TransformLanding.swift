@@ -98,8 +98,17 @@ public final class TransformLanding: @unchecked Sendable {
         /// H6 — "replace" alone: the notch asks for the new text; the next utterance within the warm
         /// window replaces the selection.
         case awaitingReplacement
+        /// H7 — "copy this": the selection went to the clipboard (verified by read-back); text untouched.
+        case copied(verified: Bool)
+        /// H7 — "undo that" / "put it back" over a selection: the last edit's undo (nil: nothing to undo).
+        case undid(TransformReplaceOutcome?)
         case notHandled
     }
+
+    /// H7 — notch lines for the clipboard and undo commands.
+    public static let copiedLine = "Copied"
+    public static let copyFailedLine = "Couldn't copy · nothing changed"
+    public static let nothingToUndoLine = "Nothing to undo"
 
     public let session: TransformSession
     public let detector: any SelectionDetecting
@@ -176,6 +185,31 @@ public final class TransformLanding: @unchecked Sendable {
                     return .awaitingReplacement
                 }
             }
+            // H7 — catalogue commands that act outside the text: copy, cut's copy half, undo.
+            let surface = context.extra[EditCommandCatalog.surfaceKey].flatMap(SurfaceKind.init(id:))
+            if let sel = r.selection, let command = EditCommandCatalog.match(spans.joinedText, selection: sel.text, surface: surface) {
+                switch command.action {
+                case .copy:
+                    await settlePendingPreview()
+                    let ok = copyVerified(sel.text)
+                    onEvent?(.notice(ok ? Self.copiedLine : Self.copyFailedLine))
+                    return .copied(verified: ok)
+                case .undo:
+                    await settlePendingPreview()
+                    let o = undo()
+                    if o == nil { onEvent?(.notice(Self.nothingToUndoLine)) }
+                    return .undid(o)
+                case .cut:
+                    // Cut = a verified copy, then the delete runs as an edit (preview, revalidate, write).
+                    // A copy that did not stick deletes nothing.
+                    guard copyVerified(sel.text) else {
+                        onEvent?(.notice(Self.copyFailedLine))
+                        return .copied(verified: false)
+                    }
+                default:
+                    break
+                }
+            }
             guard let stager = session.sink as? InjectionTransformReplaceSink else {
                 // Without staging the edit could not be previewed before it replaced the text.
                 return .refused("can't preview this edit")
@@ -216,6 +250,14 @@ public final class TransformLanding: @unchecked Sendable {
         lastTurnAt = nil
         onEvent?(.ended)
         return .replaceSelection(spans)
+    }
+
+    /// H7 — writes the text to the clipboard and reads it back; true only when it reads back exactly.
+    private func copyVerified(_ text: String) -> Bool {
+        system.writePasteboard(string: text)
+        let items = system.readPasteboard().items
+        guard let data = items.first?.types["public.utf8-plain-text"] ?? items.first?.types["NSStringPboardType"] else { return false }
+        return String(data: data, encoding: .utf8) == text
     }
 
     private func takePendingReplace() -> (selection: SelectionSnapshot, at: Date)? {

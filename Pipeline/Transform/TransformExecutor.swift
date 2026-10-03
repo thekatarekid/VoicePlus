@@ -12,7 +12,8 @@ public enum TransformPreference: String, Sendable {
 }
 
 public struct TransformResult: Equatable, Sendable {
-    public enum Source: String, Sendable { case provider, local }
+    /// `catalog`: a deterministic edit command (H7), no model involved.
+    public enum Source: String, Sendable { case provider, local, catalog }
     public var request: TransformRequest
     /// The rewritten selection. Never empty on success.
     public var output: String
@@ -21,6 +22,10 @@ public struct TransformResult: Equatable, Sendable {
     public var diff: WordDiff
     public var source: Source
     public var latencyMs: Double
+    /// H7 — the catalogue entry the instruction named (`EditCommandEntry.id`), D or L; for logs.
+    public var commandID: String = EditCommandCatalog.freeForm.id
+    /// H7 — what a deterministic command does (nil for model / rule rewrites).
+    public var action: EditCommandAction?
     /// The replace-range request to hand to the injector (P1.8 T5).
     public var replace: TransformReplaceRequest {
         TransformReplaceRequest(range: request.selection.range, expected: request.selection.text, replacement: output,
@@ -53,6 +58,25 @@ public struct TransformExecutor: Sendable {
         let uncertain = request.uncertainInstructionWords
         if !uncertain.isEmpty { throw TransformError.uncertainInstruction(uncertain.map(\.text)) }
 
+        // H7 — the deterministic catalogue first: instant, no model. Delete / cut empty the
+        // selection on purpose; copy / undo leave it as is (the landing performs them).
+        let surface = context.extra[EditCommandCatalog.surfaceKey].flatMap(SurfaceKind.init(id:))
+        if let m = EditCommandCatalog.match(request.instructionText, selection: request.selection.text, surface: surface),
+           m.action != .replaceSelection {
+            let out: String
+            switch m.action {
+            case .rewrite(let t): out = t
+            case .delete, .cut: out = ""
+            default: out = request.selection.text
+            }
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+            var r = TransformResult(request: request, output: out,
+                                    instructionSpans: request.instruction.map { $0.isLowConfidence ? $0.flaggedForRepair(by: id) : $0.touched(by: id) },
+                                    diff: WordDiff.compute(old: request.selection.text, new: out), source: .catalog, latencyMs: ms)
+            r.commandID = m.entry.id; r.action = m.action
+            return r
+        }
+
         var stageContext = context
         stageContext.extra[TransformPreference.contextKey] = TransformPreference.from(context).rawValue
         stageContext.extra["transform.kind"] = request.kind.rawValue
@@ -69,9 +93,11 @@ public struct TransformExecutor: Sendable {
         guard !text.isEmpty else { throw TransformError.emptyOutput }
 
         let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
-        return TransformResult(request: request, output: text,
-                               instructionSpans: request.instruction.map { $0.isLowConfidence ? $0.flaggedForRepair(by: id) : $0.touched(by: id) },
-                               diff: WordDiff.compute(old: request.selection.text, new: text), source: source, latencyMs: ms)
+        var result = TransformResult(request: request, output: text,
+                                     instructionSpans: request.instruction.map { $0.isLowConfidence ? $0.flaggedForRepair(by: id) : $0.touched(by: id) },
+                                     diff: WordDiff.compute(old: request.selection.text, new: text), source: source, latencyMs: ms)
+        result.commandID = EditCommandCatalog.classify(request.instructionText, selection: request.selection.text, surface: surface).id
+        return result
     }
 
     /// Strip wrapper quotes / code fences / "Rewritten:" style preambles models add.
