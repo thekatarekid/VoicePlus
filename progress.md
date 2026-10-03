@@ -1960,3 +1960,11 @@ Initial checkpoint (superseded by the dated entries below):
 - Not installed to /Applications; running app untouched; appcast/cask/notes reverted; `.build-v7*` reclaimed. Tag `release/H-fixes/v1.15.0`.
 - Build included uncommitted working-tree edits to `App/Debug/ReplayHarness.swift` + `App/main.swift` (replay `--near`, debug-only; not committed by release).
 - Not verified: CTC inference in self-test (presence only), Gatekeeper/notarization on a clean Mac, real dictation with this build.
+
+## 2026-10-03 — H-fixes build (H1–H37 + rounds 2–4)
+- H1–H36 done, H4 delivered as X1, H30 as X7, H37 done at the gate (replay: 44D96491/7EA1E75A silent, E3C72C7E = hands-free session parent whose piece landed as ECA48A34; no lost speech). X1–X7 done (Option either side, chord-cancel, Claude second-tap drop, tap/hold thresholds, four LLM modes, Qwen 2B/4B download+delete, destination identity, hands-free routing). Per-item table: Investigation "Build status (H-fixes)".
+- Gate commits: 5c89231 (replay `--near`, was uncommitted in the 1.15.0 DMG), 257f12c (K18 AXGuard in DestinationIdentity + 7 stale fn/menu/W3H test expectations), 0af1e28 (PillPanelController deinit detaches SwiftUI hosts; fixes a signal-6 teardown abort).
+- **Full suite:** `--no-parallel`, .build-v7a: 5236 passed, 0 failed, 351 s (after two failing runs fixed above).
+- **Replay:** 135111-082 `--near "…hold-to-talk…"` → "In case of hold-to-talk."; 6 other recent chat recordings 0 swaps, full stop / "?" kept.
+- **New deps:** none.
+- **Open:** live checks (Claude double-tap drop + tap re-enable + Secure Input, per-side Option on external keyboards, Electron background writes / switch-back, hover menu tracking, favicons); Qwen download/RSS/tokens-s and the 60-case Lab set unmeasured (mocked); Bayes gatekeeper routes some long narration as repairCommand (harmless, falls to dictation; could cap at 8 words); 1.15.0 DMG predates 257f12c/0af1e28.

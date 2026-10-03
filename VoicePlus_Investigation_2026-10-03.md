@@ -664,4 +664,58 @@ Turn **9B8EA8CB** (13:51:08 IST, Claude desktop, surface chatComposer at 1.00). 
   - Needs a live check: tap re-enable, Secure Input, Claude's Option+Space setting.
 
 ## Build status (H-fixes)
-- Release 1.15.0: `Packaging/releases/VoicePlus_H-fixes_1.15.0.dmg`, 779 MB, SHA256 `e7c3b735286720e3f1ee955db9e86de127f35d219fc7f37d4aa5f3d1e147e9fc`; full installer (TDT v3 + EOU + speaker + CTC + Silero VAD + llama.framework; Qwen downloaded in onboarding); `FULL_INSTALLER=1 verify_install.sh` OK. Tag `release/H-fixes/v1.15.0`.
+- Release 1.15.0: `Packaging/releases/VoicePlus_H-fixes_1.15.0.dmg`, 779 MB, SHA256 `e7c3b735286720e3f1ee955db9e86de127f35d219fc7f37d4aa5f3d1e147e9fc`; full installer (TDT v3 + EOU + speaker + CTC + Silero VAD + llama.framework; Qwen downloaded in onboarding); `FULL_INSTALLER=1 verify_install.sh` OK. Tag `release/H-fixes/v1.15.0`. The DMG was built from 47f4dd8 plus the then-uncommitted replay `--near` edit (debug only), committed at the gate as 5c89231. Gate fixes after the DMG (257f12c) are not in 1.15.0.
+- **Gate (2026-10-03):** whole-package `swift build` clean; full suite `--no-parallel` (.build-v7a): run 1 — 5236 tests, 8 issues (7 stale test expectations after X1/H33 + 1 real K18 audit hit in DestinationIdentity) → fixed in 257f12c; run 2 — aborted (signal 6, objc "Cannot form weak reference" to a deallocating PillInteractionPanel) → PillPanelController.deinit detaches its SwiftUI hosts first (0af1e28); run 3 — **5236 passed, 0 failed, 351 s**.
+
+Status per item (status · what · tests):
+- H1 · done · silent hold < 0.6 s vanishes; ≥ 0.6 s "Didn't hear anything", gone 1.5 s after key-up, never X08 (a3e9de9) · rendered-row tests
+- H2 · done · tap < 250 ms → hint 1.6 s; tap over a visible notch dismisses, nothing new scheduled (a3e9de9) · tap/hint/double-tap tests
+- H3 · done · a hold in any state yields the notch and starts a fresh dictation; edit pill cannot hijack it (776cc64, dd66a02) · hold-over-row tests
+- H4 · done as X1 · Option + any key/click/scroll cancels silently and passes through (4a3695d) · chorded state-machine tests
+- H5 · done · one notice log line per press, Secure Input flag + app name, never text (cbd2d3c) · HotkeyPressLog tests
+- H6 · done · selection = edit mode; explicit replace verbs; no substring repair rules (36b20f5) · router matrix
+- H7 · done · EditCommandCatalog + deterministic executor for every D entry (82f7d13) · one test per entry
+- H8 · done · password refused before any read/model/Notes; needs-model → Notes + Download; T05 only when decisive (3235206, 55b0190) · secure native + web fields
+- H9 · done · result stays selected, chaining only after an applied edit (36b20f5) · selection-range tests
+- H10 · done · "Edit commands ›" menu submenu + Settings › Edit commands page from the catalogue (aa7b278, 3bd8c27) · page/menu == catalogue
+- H11 · done · one Escape owner (EscapeOwnership), edit pill yields to a new hold (c89370e, dd66a02) · -9878 stub tests
+- H12 · done · EditOutcomeRecord in extras_json, never text (fc8cdcd) · extras tests
+- H13 · done · on-device model serves transform/question; pinned → on-device → rules (42d30ab, a192373, 99dad5c) · mock provider tests
+- H14 · done · fenced context, think-strip, 4,096 budget, preamble/oversize rejection, newline-safe writes (42d30ab, a192373) · ChatML-token/oversize tests
+- H15 · done · EditContextBuilder (paragraphs ≤ 1,200 tokens) + destination; secure → empty (d1124e3) · boundary/cap tests
+- H16 · done (mocked) · Qwen3.5-2B/4B manager, residency, delete, Ollama/LM Studio option (99dad5c, 51c1e61) · residency + download-seam tests; real download/RSS/tokens-s and Lab 60-case set not measured
+- H17 · done · near-caret text → .screenNear candidates in the per-turn boost layer (c6ca3b0) · candidate tests
+- H18 · done · heard aliases for hyphen/underscore/camelCase, on-screen form written (c6ca3b0) · alias tests, fixture 135111-082
+- H19 · done · ContextRepairStage, uncertain spans only, near-caret evidence (3d1d8cc) · gate replay 135111-082 `--near` → "In case of hold-to-talk."; 6 other recordings 0 swaps
+- H20 · done · booster installed on every live decoder instance; boost status per turn (bbde0a4) · booster wiring tests
+- H21 · done · snapshot reads outward from the caret first; diagnostics persisted (451a06d) · long-chat fixture
+- H22 · done · full stop kept in chat for both modes; StyleProfile v2 resets learned no-period (98cbc2e) · chat/style tests; gate replay keeps "."/"?"
+- H23 · done · held queue retired → Notes; secure keeps nothing; Esc after words → Cancelled · Saved to Notes (d4cf15d, a5e878c, b5a906d, 37e519a, c399eb5) · every hold/secure path
+- H24 · done · notes carry intended app + reason (347e24b) · migration + row copy tests
+- H25 · done · one TurnOutcome type for pill/Today/menu/detail/Recent (6960dd7) · one test per string per surface
+- H26 · done · own windows skip window-identity check; no field → Notes only for native/own (1874afe) · DeliveryLadder tests
+- H27 · done · stale held rows settled at launch (ddf8556) · idempotent migration tests
+- H28 · done · hands-free notch stays out, status-line swap per piece, ribbon flies (6d6b018, 2b40018) · retract/latched tests
+- H29 · done · end summary line; re-press within 300 ms folds into the stop (cbd2d3c) · fold tests
+- H30 · done as X7 · destination rule (e4497c4, a15348f) · app-switch matrix
+- H31 · done · 22 pt destination badge, sweep/pulse/bounce, Reduce Motion static (52fe540, 5cd3320) · badge resolver tests
+- H32 · done · Recent: last 5, one line, Copy verified, secure never listed (f0c2c37, 02a7a46) · spec tests
+- H33 · done · hover opens the real menu centred under the pill at shared width (770a75d) · geometry tests
+- H34 · done · hover row no cap, centred growth (cb76367) · frame tests
+- H35 · done · black strip removed (backgroundCap 0), centred open (8b4a029) · NotchGeometry tests
+- H36 · done · one placement / one "no display" log per press (980dbd5) · PillPlacementGate tests
+- H37 · done (gate, diagnostics) · replayed the three "empty" turns: 44D96491 (4.2 s) and 7EA1E75A (2.7 s) are silent (replay raw empty, RMS −45/−57 dBFS); E3C72C7E is the hands-free session parent (51 s) whose piece landed as ECA48A34 — no lost speech; H1 copy stands
+- X1 · done · Option (left/right, device bits 0x20/0x40) replaces fn; chord-cancel; notch after 300 ms (4a3695d) · state-machine tests
+- X2 · done · active CGEventTap drops Claude's second Option tap within 350 ms; re-enable on timeout; fallback notice (a5e878c, dfc08ac) · OptionDoubleTapSuppressor tests
+- X3 · done · ≤ 0.8 s press over a visible notch = tap; hands-free tap: focused box → insert, nothing focused → Notes (a3e9de9, a5e878c, a15348f) · tap/stop tests
+- X4 · done · four LLM modes, Fast path ON, Per-app Polish / Auto-when-unsure / Every dictation OFF (99dad5c) · LLMModes tests
+- X5 · done (mocked) · Qwen 2B/4B pick in onboarding, one-time notch offer, Settings download/delete (2610def, 3235206, b437533, 6c47ffa) · download-seam tests
+- X6 · done · app icon + name; browser icon + name, favicon + tab title (never URL) (3457672, 52fe540; K18 guard 257f12c) · resolver tests
+- X7 · done · hands-free routing: new field in new app → switch; else background AX write; else switch back/insert/return; else Notes; never Return (e4497c4) · destination matrix
+
+Deviations / untested (need live tests):
+- Live only: CGEventTap drop of Claude's double-tap Option, tap re-enable after timeout, Secure Input, Claude's Option+Space; per-side Option on external keyboards; background AX writes into Electron (Claude) and switch-back insert; hover menu tracking with a real NSStatusItem; favicon from Chromium store; badge animations.
+- Qwen download, load, RSS, first-token time, tokens/s and the 60-case Lab set are unmeasured (mocked seams only); real rewrite quality unverified.
+- Gate observation (not fixed): the Bayes gatekeeper routes some long narration (13 words, e.g. "After that it gets back to normal…") as repairCommand; harmless today (RepairGrammar caps at 8 words, the lander formats it as dictation), but the Bayes route could also be capped at 8 words.
+- Not reproduced in isolation: the signal-6 teardown abort (seen once in 3 full runs); the 0af1e28 teardown is a mitigation, watch for recurrence.
+- 1.15.0 DMG predates gate fixes 257f12c and 0af1e28 (K18 guard for the browser tab-title AX read; off-main own-pid AX was unreachable in practice because VoicePlus is never a browser).
