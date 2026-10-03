@@ -28,8 +28,10 @@ struct UnavailableEngineTests {
     func unavailableEngineIsSilent() async throws {
         let engine = UnavailableEngine(lingerMs: 0)
         let events = engine.events()
-        var seen: [EngineState] = []
-        let states = engine.statePublisher.sink { seen.append($0) }
+        // The publisher can deliver on another thread, so the states are collected under a lock
+        // (an unguarded array crashed a full --no-parallel run in Array._checkSubscript).
+        let box = SeenStates()
+        let states = engine.statePublisher.sink { box.append($0) }
         defer { states.cancel() }
 
         try await engine.prewarm()
@@ -37,6 +39,7 @@ struct UnavailableEngineTests {
         // Long enough that any fixture-style timer would have fired several spans.
         try? await Task.sleep(nanoseconds: 250_000_000)
         let spans = try await engine.stop()
+        let seen = box.snapshot
 
         #expect(spans.isEmpty, "an unavailable engine must never produce transcript spans")
         #expect(seen.contains(.unavailable(engine.reason)))
@@ -121,4 +124,12 @@ struct UnavailableEngineTests {
         #expect(state.caseName == "unavailable")
         if case .preview = state { Issue.record("the notice must not be dressed up as transcript text") }
     }
+}
+
+/// Lock-guarded state log for `unavailableEngineIsSilent`.
+private final class SeenStates: @unchecked Sendable {
+    private let lock = NSLock()
+    private var states: [EngineState] = []
+    func append(_ s: EngineState) { lock.lock(); states.append(s); lock.unlock() }
+    var snapshot: [EngineState] { lock.lock(); defer { lock.unlock() }; return states }
 }

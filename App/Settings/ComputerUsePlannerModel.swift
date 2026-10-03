@@ -265,24 +265,29 @@ public final class PlannerModelInstaller: ObservableObject {
     private let store: SettingsStore
     private let downloader: LocalLLMDownloader
     private let plan: () -> ResidencyPlan
+    /// The rewrite model already on disk (X5), which `.automatic` prefers. Injected so a test does
+    /// not read whatever this Mac's real Application Support happens to hold.
+    private let downloaded: () -> LocalLLMModel?
 
     public init(store: SettingsStore, downloader: LocalLLMDownloader = LocalLLMDownloader(),
-                plan: @escaping () -> ResidencyPlan = { ResidencyPlanStore.shared.plan }) {
+                plan: @escaping () -> ResidencyPlan = { ResidencyPlanStore.shared.plan },
+                downloaded: @escaping () -> LocalLLMModel? = { EditModels.manager.activeModel }) {
         self.store = store
         self.downloader = downloader
         self.plan = plan
+        self.downloaded = downloaded
         refresh()
     }
 
     public func refresh() {
-        guard let model = ComputerUseSettings.resolvedPlannerModel(store, plan: plan()) else { status = .notOffered; return }
+        guard let model = ComputerUseSettings.resolvedPlannerModel(store, plan: plan(), downloaded: downloaded) else { status = .notOffered; return }
         if case .downloading(let m) = status, m == model { return }
         status = downloader.isInstalled(model) ? .installed(model) : .notDownloaded(model)
     }
 
     /// The user's click. SHA-verified; nothing lands at the final path unless the hash matches.
     public func download() {
-        guard status.canDownload, let model = ComputerUseSettings.resolvedPlannerModel(store, plan: plan()) else { return }
+        guard status.canDownload, let model = ComputerUseSettings.resolvedPlannerModel(store, plan: plan(), downloaded: downloaded) else { return }
         status = .downloading(model)
         let downloader = self.downloader
         Task { [weak self] in

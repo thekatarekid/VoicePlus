@@ -68,11 +68,11 @@ struct SharedLocalPlannerTests {
         #expect(LocalLLMCatalog.sharedDefault(localLLMKey: ResidencyKey.localLLM2B) == LocalLLMCatalog.qwen35_2B)
         #expect(LocalLLMCatalog.sharedDefault(localLLMKey: ResidencyKey.localLLM4B) == LocalLLMCatalog.qwen35_4B)
         let store = InMemorySettingsStore()
-        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.compact)) == nil)
-        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.standard)) == LocalLLMCatalog.qwen35_2B)
-        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.roomy)) == LocalLLMCatalog.qwen35_4B)
+        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.compact), downloaded: { nil }) == nil)
+        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.standard), downloaded: { nil }) == LocalLLMCatalog.qwen35_2B)
+        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.roomy), downloaded: { nil }) == LocalLLMCatalog.qwen35_4B)
         ComputerUseSettings.setPlannerModel(.qwen4B, store: store)
-        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.standard)) == LocalLLMCatalog.qwen35_4B)
+        #expect(ComputerUseSettings.resolvedPlannerModel(store, plan: .for(.standard), downloaded: { nil }) == LocalLLMCatalog.qwen35_4B)
         #expect(ComputerUseSettings.residencyKey(for: LocalLLMCatalog.qwen35_4B) == ResidencyKey.localLLM4B)
     }
 
@@ -183,7 +183,8 @@ struct SharedLocalPlannerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = InMemorySettingsStore()
         var plan = ResidencyPlan.for(.compact)
-        let installer = PlannerModelInstaller(store: store, downloader: LocalLLMDownloader(root: root), plan: { plan })
+        let installer = PlannerModelInstaller(store: store, downloader: LocalLLMDownloader(root: root), plan: { plan },
+                                              downloaded: { nil })   // not this Mac's real rewrite models
         #expect(installer.status == .notOffered)
         plan = .for(.standard)
         installer.refresh()
