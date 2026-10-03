@@ -70,7 +70,7 @@ public final class PillPanelController {
         // `.standardBounds`, which publishes the SwiftUI content's *minimum* size as the window's
         // `contentMinSize`; a wrapping notice's minimum is the fully wrapped paragraph, and AppKit grew
         // the panel to it. The pill's frame is placement math (`NotchGeometry`), never content.
-        let host = NSHostingView(rootView: PillPanelSurface(model: model, size: NotchGeometry.activeSize, attached: true, cap: 0))
+        let host = NSHostingView(rootView: PillPanelSurface(model: model, size: NotchGeometry.activeSize, attached: true))
         host.sizingOptions = []
         host.focusRingType = .none
         panel.contentView = host
@@ -267,7 +267,7 @@ public final class PillPanelController {
                 """)
         }
         if let host = panel.contentView as? NSHostingView<PillPanelSurface> {
-            host.rootView = PillPanelSurface(model: model, size: layout.contentFrame.size, attached: layout.attached, cap: layout.backgroundCap)
+            host.rootView = PillPanelSurface(model: model, size: layout.contentFrame.size, attached: layout.attached)
         }
         attached = layout.attached
         if let host = shadowPanel.contentView as? NSHostingView<PillShadowSurface> {
@@ -412,17 +412,19 @@ private struct PillPanelSurface: View {
     @ObservedObject var model: PillViewModel
     let size: CGSize
     let attached: Bool
-    let cap: CGFloat
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack(alignment: .top) {
             UnevenRoundedRectangle(cornerRadii: Tokens.Radius.pillCorners(attached: attached))
                 .fill(Tokens.Pill.Token.background.color)
-                .frame(width: size.width, height: size.height + cap)
+                .frame(width: size.width, height: size.height)
                 .allowsHitTesting(false)
             PillView(model: model, size: size, attached: attached)
-                .padding(.top, cap)
         }
-        .frame(width: size.width, height: size.height + cap, alignment: .topLeading)
+        .frame(width: size.width, height: size.height, alignment: .top)
+        // H35 — pinned top-centre and clipped by the (smaller) window while it opens from the centred
+        // line: the content is revealed outward from the centre and never slides vertically.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .clipped()
         .onHover { model.setPointerInside($0) }
         .preferredColorScheme(.dark)
     }
@@ -442,6 +444,9 @@ private struct PillShadowSurface: View {
             .padding(.horizontal, 40)
             .padding(.top, attached ? 0 : 40)
             .padding(.bottom, 60)
+            // H35 — follows the pill as it opens from the centred line (top-pinned, never sliding).
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .clipped()
             .allowsHitTesting(false)
             .preferredColorScheme(.dark)
     }

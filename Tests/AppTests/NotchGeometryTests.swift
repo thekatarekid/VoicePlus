@@ -144,9 +144,12 @@ struct NotchGeometryTests {
         #expect(l.attached)
         #expect(l.contentFrame == CGRect(x: 620, y: 970, width: 560, height: 160))
         #expect(l.contentFrame.maxY == 1130)          // flush under the menu bar / housing band
-        #expect(l.retracted == CGRect(x: 620, y: 1129, width: 560, height: 1))
-        #expect(l.shown.maxY == notched.frame.maxY)
-        #expect(l.backgroundCap == notched.topBand)
+        // H35 — opens from a centred, chin-width line; no black strip above the menu-bar band.
+        #expect(l.retracted == CGRect(x: 868, y: 1129, width: 64, height: 1))
+        #expect(l.retracted.midX == l.shown.midX)
+        #expect(l.shown == l.contentFrame)
+        #expect(l.shown.maxY <= notched.frame.maxY - notched.topBand)
+        #expect(l.backgroundCap == 0)
         #expect(l.cornerRadius == 18)
         let corners = Tokens.Radius.pillCorners(attached: l.attached)
         #expect(corners.topLeading == 0 && corners.topTrailing == 0)
@@ -156,6 +159,7 @@ struct NotchGeometryTests {
     @Test func floatingEightPointsBelowAnExternalMenuBarWithAllCornersRounded() {
         let l = NotchGeometry.pillLayout(for: external)
         #expect(l.backgroundCap == 0)
+        #expect(l.retracted.midX == l.shown.midX && l.retracted.width == NotchGeometry.retractedLineWidth)
         #expect(!l.attached)
         #expect(l.shown.maxY == CGFloat(1169 - 30 - 8))
         #expect(l.shown.midX == 2760)
@@ -309,6 +313,21 @@ struct NotchGeometryTests {
                 #expect(annotated.confidenceLane.maxY == annotated.wordsLane.maxY)
                 #expect(annotated.confidenceLane.maxY <= annotated.tapeTop)
                 #expect(plain.chipRow == nil)
+            }
+        }
+    }
+
+    /// H35 — on every display and for every surface: no strip above the menu-bar band, and the pill
+    /// opens from (and retracts to) a centred line no wider than itself.
+    @Test func turnPillHasNoStripAndOpensFromACentredLine() {
+        for metrics in [notched, external, externalNoMenuBar, autoHiddenMenuBar] {
+            for size in [NotchGeometry.activeSize, NotchGeometry.actionableSize, CGSize(width: 40, height: 20)] {
+                let l = NotchGeometry.pillLayout(for: metrics, size: size)
+                #expect(l.backgroundCap == 0)
+                #expect(l.shown.maxY <= metrics.frame.maxY - metrics.topBand)
+                #expect(l.retracted.midX == l.shown.midX)
+                #expect(l.retracted.width <= l.shown.width && l.retracted.width <= NotchGeometry.retractedLineWidth)
+                #expect(l.retracted.maxY == l.shown.maxY)
             }
         }
     }

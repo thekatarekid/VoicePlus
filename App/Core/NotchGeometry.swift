@@ -198,6 +198,9 @@ public enum NotchGeometry {
         metrics.frame.maxY - metrics.topBand - (metrics.isAttached ? 0 : floatingGap)
     }
 
+    /// H35 — width of the line the pill opens from and retracts to: the idle chin's width.
+    public static var retractedLineWidth: CGFloat { idleChinSize.width }
+
     /// S2 — the pill: centred, hanging off the housing (attached, upper corners square) or floating 8 pt
     /// below the menu-bar band (all corners rounded). Clamped to the ceiling and the display, so no
     /// caller can produce a slab, and never drawn behind the camera housing.
@@ -208,14 +211,15 @@ public enum NotchGeometry {
         size.height = min(max(1, size.height), bounds.height)
         let top = pillTopEdge(on: metrics)
         let x = centredX(width: size.width, on: metrics)
-        let cap = metrics.isAttached ? metrics.topBand : 0
-        let shown = CGRect(x: x, y: top - size.height, width: size.width, height: size.height + cap)
-        // Retract by rolling up to the top edge rather than translating off the top of the screen: a
-        // retracted frame above the band would drag the pill through the camera housing.
-        let retracted = CGRect(x: x, y: top - 1, width: size.width, height: 1)
-        var result = Layout(shown: shown, retracted: retracted, cornerRadius: cornerRadius, attached: metrics.isAttached)
-        result.backgroundCap = cap
-        return result
+        // H35 (Q10) — no black strip: the pill only ever extends below the menu bar, so the shown frame's
+        // top is the band's bottom edge and `backgroundCap` stays 0.
+        let shown = CGRect(x: x, y: top - size.height, width: size.width, height: size.height)
+        // H35 — retract to (and open from) a centred, chin-width 1 pt line at the top edge, so the pill
+        // grows out from its centre instead of from a full-width line. Never above the band: a retracted
+        // frame there would drag the pill through the camera housing.
+        let lineWidth = min(size.width, retractedLineWidth)
+        let retracted = CGRect(x: shown.midX - lineWidth / 2, y: top - 1, width: lineWidth, height: 1)
+        return Layout(shown: shown, retracted: retracted, cornerRadius: cornerRadius, attached: metrics.isAttached)
     }
 
     /// Generic anchor for other notch surfaces (the meeting prompt): top edge at the bottom of the
