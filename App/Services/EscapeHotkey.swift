@@ -84,11 +84,66 @@ public enum EscapeResolution: Equatable, Sendable {
 public struct EscapeKeyBackend {
     /// Register Escape; presses carry `token`. nil when it could not be registered.
     public var install: (_ token: Int) -> InstalledHotkeySource?
+    /// H11 — the key is one per process (Carbon refuses a second `kVK_Escape` registration with
+    /// -9878): every controller on this backend shares one `EscapeOwnership` by default.
+    public var isSystemWide: Bool
 
-    public init(install: @escaping (Int) -> InstalledHotkeySource?) { self.install = install }
+    public init(isSystemWide: Bool = false, install: @escaping (Int) -> InstalledHotkeySource?) {
+        self.install = install
+        self.isSystemWide = isSystemWide
+    }
 
     /// Carbon `RegisterEventHotKey(kVK_Escape, 0)`. Needs no permission.
-    public static let carbon = EscapeKeyBackend(install: EscapeHotkey.installCarbonEscape)
+    public static let carbon = EscapeKeyBackend(isSystemWide: true, install: EscapeHotkey.installCarbonEscape)
+}
+
+/// H11 (old H8) — one Escape owner for the turn and the edit pill. Several `EscapeHotkey`s may
+/// want Escape at once (the turn's, the transform preview's); only the newest claimant holds the
+/// registration, so the system key is registered at most once (no -9878) and a press goes to the
+/// surface on top. When it lets go, the previous claimant that still wants Escape gets it back.
+/// Main thread, like `EscapeHotkey`.
+public final class EscapeOwnership {
+    /// The app's one owner for the system key.
+    public static let shared = EscapeOwnership()
+
+    private final class Weak {
+        weak var hotkey: EscapeHotkey?
+        init(_ hotkey: EscapeHotkey) { self.hotkey = hotkey }
+    }
+    private var claimants: [Weak] = []
+
+    public init() {}
+
+    /// The controller that holds Escape now (the newest live claimant).
+    public var owner: EscapeHotkey? { claimants.last(where: { $0.hotkey != nil })?.hotkey }
+
+    func claim(_ hotkey: EscapeHotkey) {
+        claimants.removeAll { $0.hotkey == nil || $0.hotkey === hotkey }
+        claimants.append(Weak(hotkey))
+        arbitrate()
+    }
+
+    func release(_ hotkey: EscapeHotkey) {
+        let before = claimants.count
+        claimants.removeAll { $0.hotkey == nil || $0.hotkey === hotkey }
+        if claimants.count != before || hotkey.isRegistered { hotkey.uninstall() }
+        arbitrate()
+    }
+
+    /// A claimant went away without releasing (deinit): the next one takes Escape back.
+    func prune() {
+        claimants.removeAll { $0.hotkey == nil }
+        arbitrate()
+    }
+
+    func isClaiming(_ hotkey: EscapeHotkey) -> Bool { claimants.contains { $0.hotkey === hotkey } }
+
+    /// Everyone but the top lets go first; then the top registers.
+    private func arbitrate() {
+        let top = owner
+        for entry in claimants { if let h = entry.hotkey, h !== top { h.uninstall() } }
+        top?.install()
+    }
 }
 
 /// Token → controller, so a Carbon callback never holds a pointer (same reasoning as
@@ -172,12 +227,19 @@ public final class EscapeHotkey {
     private var dismissDraft: (() -> Bool)?
     private var physicalKeyDown = false
 
-    public init(backend: EscapeKeyBackend = .carbon) {
+    /// H11 — who holds the key among the controllers that want it.
+    public let ownership: EscapeOwnership
+
+    /// `ownership`: nil shares `EscapeOwnership.shared` for a system-wide backend (Carbon) and
+    /// gives a test backend its own, so parallel tests never take Escape from each other.
+    public init(backend: EscapeKeyBackend = .carbon, ownership: EscapeOwnership? = nil) {
         self.backend = backend
+        self.ownership = ownership ?? (backend.isSystemWide ? .shared : EscapeOwnership())
     }
 
     deinit {
-        unregister()
+        uninstall()
+        ownership.prune()
         stateSubscription?.cancel()
         if let menuCenter { menuObservers.forEach { menuCenter.removeObserver($0) } }
     }
@@ -298,7 +360,26 @@ public final class EscapeHotkey {
         if !compositionOwnsEscape, Self.wantsRegistration(phase, menuOpen: isMenuOpen) { register() } else { unregister() }
     }
 
+    /// H11 — wants Escape: claim it (the newest claimant holds the one registration).
     private func register() {
+        if ownership.isClaiming(self), ownership.owner === self, installed != nil { return }
+        ownership.claim(self)
+    }
+
+    /// H11 — no longer wants Escape: hand it back to the previous claimant, if any.
+    private func unregister() {
+        guard ownership.isClaiming(self) || installed != nil else {
+            physicalKeyDown = false
+            return
+        }
+        ownership.release(self)
+    }
+
+    /// Wants Escape but another surface on top holds it (H11).
+    public var isWaitingForEscape: Bool { ownership.isClaiming(self) && installed == nil }
+
+    /// The physical registration (`EscapeOwnership` decides when).
+    func install() {
         guard installed == nil else { return }
         let token = EscapeHotkeyRegistry.register(self)
         guard let source = backend.install(token) else {
@@ -313,7 +394,7 @@ public final class EscapeHotkey {
     }
 
     /// Idempotent, and safe from `deinit`.
-    private func unregister() {
+    func uninstall() {
         physicalKeyDown = false
         installed?.invalidate()
         installed = nil
