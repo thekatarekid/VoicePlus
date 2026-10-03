@@ -230,7 +230,7 @@ struct W3HHandoffTests {
             #expect(hooks.contains(call), "W3H block is missing \(call)")
         }
         // The latch hook wraps the deixis key controller, so it must come after it is installed.
-        let deixisKeys = try #require(source.range(of: "hotkey.onAction = { action in deixisKeys.handle(action) }"))
+        let deixisKeys = try #require(source.range(of: "deixisKeys.handle(action)"))   // H33 wraps it to close the hover menu
         #expect(deixisKeys.lowerBound < block.lowerBound)
     }
 

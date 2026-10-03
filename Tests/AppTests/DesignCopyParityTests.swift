@@ -206,7 +206,7 @@ struct DesignCopyParityTests {
         let ready = try #require(fixture["ready"]?.text)
         #expect(PillState.readyHint(key: "Right Control") == ready)
         #expect(HotkeyBinding(kind: .rightControl).readyHint() == ready)
-        #expect(HotkeyBinding.default.readyHint() == "Hold or Double Tap fn / 🌐 to dictate")
+        #expect(HotkeyBinding.default.readyHint() == "Hold or Double Tap Option to dictate")   // round 4: Option
         let hint = PillContent.make(.ready(hint: ready), context: PillTurnContext())
         #expect(hint.status == ready)
         #expect(hint.isHint && !hint.showsSpool && hint.buttons.isEmpty)

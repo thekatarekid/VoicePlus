@@ -324,7 +324,7 @@ struct MainWindowShellS7aTests {
         #expect(settings.page.title == "Shortcuts")
         #expect(settings.page.subtitle == "One key. A clear beginning and end.")
         #expect(settings.hotkey == Self.defaultKey)
-        #expect(settings.hotkey == "fn / 🌐", "owner decision: fn / 🌐 is the default key")
+        #expect(settings.hotkey == "Option", "owner decision (round 4): Option is the default key")
         store.set(HotkeyBinding.Kind.rightControl.rawValue, for: HotkeyService.bindingDefaultsKey)
         #expect(settings.hotkey == "Right Control")
         let today = SectionContext(window: window, section: .today)
@@ -408,7 +408,7 @@ struct MainWindowShellS7aTests {
         // The sidebar footer, with the configured key where the prototype says Right Control.
         let footer = WindowFooter(status: .ready, hotkey: "Right Control")
         #expect(html.contains(#"<footer><span class="dot"></span>\#(footer.statusLine)<br>\#(footer.hintLine)</footer>"#))
-        #expect(WindowFooter(status: .ready, hotkey: Self.defaultKey).hintLine == "Hold fn / 🌐 to speak")
+        #expect(WindowFooter(status: .ready, hotkey: Self.defaultKey).hintLine == "Hold Option to speak")
     }
 
     @Test("empty copy renders the configured key and changes nothing else")
@@ -490,7 +490,7 @@ struct MainWindowShellS7aTests {
             content
             """)
         #expect(SectionPageAnatomy.snapshot(pages["empty"]!) == """
-            empty-state[ready] Nothing dictated yet / Hold fn / 🌐 and say something. Your recent words will appear here. [Try dictation]
+            empty-state[ready] Nothing dictated yet / Hold Option and say something. Your recent words will appear here. [Try dictation]
             """)
         #expect(SectionPageAnatomy.snapshot(pages["loading"]!) == """
             header Today
@@ -682,7 +682,7 @@ struct MainWindowShellS7aTests {
         mute.saveMuted(true)
         let window = Self.window(mute: mute)
         #expect(window.footer.status == .muted)
-        #expect(window.footer.hintLine == "Hold fn / 🌐 to speak")
+        #expect(window.footer.hintLine == "Hold Option to speak")
     }
 
     // MARK: - Components stay on the tokens

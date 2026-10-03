@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Shared
 
 /// X6 — who the words are going to, as the notch shows it (owner decision round 3, "Destination identity").
 /// Apps: app icon + app name. Web pages: browser icon + browser name, plus the real site favicon and the tab
@@ -174,8 +175,9 @@ public final class DestinationIdentityResolver {
     }
 
     /// The focused window of `pid` (for callers that have only the pid).
+    /// K18 — through `AXGuard`: never an AX root for our own pid (off-main own-pid AX deadlocks, FX1).
     public static func focusedWindow(pid: pid_t) -> AXUIElement? {
-        let app = AXUIElementCreateApplication(pid)
+        guard let app = AXGuard.application(pid: pid) else { return nil }
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
               let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }

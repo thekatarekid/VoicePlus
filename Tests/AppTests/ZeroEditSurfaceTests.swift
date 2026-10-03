@@ -113,7 +113,8 @@ struct ZeroEditSurfaceTests {
         #expect(item.isEnabled == false && item.action == nil, "a stat, not an action")
         #expect(item.title == "50% landed without edits this week")
         #expect(item.view != nil, "hosts ZeroEditMenuView's trend")
-        #expect(rig.controller.menu.items.count == StatusMenuSpec.entries(rig.controller.menuState()).count + 1)
+        // H33 — the zero-edit row is a spec slot now, so the menu draws exactly the spec.
+        #expect(rig.controller.menu.items.count == StatusMenuSpec.entries(rig.controller.menuState()).count)
     }
 
     @Test @MainActor func menuShowsNothingWithoutAWeekToCount() throws {
