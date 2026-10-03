@@ -208,7 +208,26 @@ public final class TransformLanding: @unchecked Sendable {
         return TransformRouter.decide(gatekeeper: decision, selection: fresh?.isMeaningful == true ? fresh : nil)
     }
 
+    /// H12 — the last handled edit's record (route, command, selection length, outcome, model; no
+    /// text). The lander takes it into `LandingResult.edit`; the turn writes it to `extras_json`.
+    public var lastRecord: EditOutcomeRecord? { sync { record } }
+    /// H12 — takes the last record (nil afterwards), so one landing never reports an older edit.
+    public func takeRecord() -> EditOutcomeRecord? { sync { defer { record = nil }; return record } }
+    private var record: EditOutcomeRecord?
+    /// H12 — the selection this utterance acted on (for its length and the command name only).
+    private var recordSelection: String?
+
     public func handle(_ spans: [TranscriptSpan], decision: GatekeeperDecision, context: StageContext) async -> Outcome {
+        sync { recordSelection = nil; record = nil }
+        let outcome = await dispatch(spans, decision: decision, context: context)
+        let surface = context.extra[EditCommandCatalog.surfaceKey].flatMap(SurfaceKind.init(id:))
+        let made = EditOutcomeRecord.make(outcome, selection: sync { recordSelection }, instruction: spans.joinedText, surface: surface)
+        sync { record = made; recordSelection = nil }
+        if let made { Log.app.notice("\(made.logLine)") }
+        return outcome
+    }
+
+    private func dispatch(_ spans: [TranscriptSpan], decision: GatekeeperDecision, context: StageContext) async -> Outcome {
         // H8 — a password field first: no selection or context is read, nothing reaches a model,
         // Notes or history. Declining hands the turn to the lander, whose injector refuses it.
         if (try? system.focusedElement())?.isSecure == true {
@@ -220,10 +239,12 @@ public final class TransformLanding: @unchecked Sendable {
         if decision.route != .none, let pending = takePendingReplace() {
             let fresh = detector.currentSelection()
             if fresh?.isMeaningful != true || fresh!.isSameTarget(as: pending.selection) {
+                sync { recordSelection = pending.selection.text }
                 return await replaceSelection(pending.selection, with: spans)
             }
         }
         let r = route(decision)
+        sync { recordSelection = r.selection?.text }
         switch r.route {
         case .transform:
             if let sel = r.selection, let command = SelectionReplaceCommand.parse(spans) {

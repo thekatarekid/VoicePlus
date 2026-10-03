@@ -879,7 +879,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         fx.run(self)
         let payload = await lander.land(spans, startedAt: turn.record.startedAt, focus: focus, inject: false)
         // N7 — the context step is bounded by the turn snapshot; its time goes in stage_ms.
-        store.setExtras(id, save: false) { $0.setStage(TurnRecordExtras.Stage.context, ms: Int(payload.contextMs.rounded())) }
+        store.setExtras(id, save: false) {
+            $0.setStage(TurnRecordExtras.Stage.context, ms: Int(payload.contextMs.rounded()))
+            if let edit = payload.edit { $0.edit = edit }   // H12 — the edit's facts, never text
+        }
         // Escape, Cancel or an interruption may have ended the turn while it was being formatted.
         guard lock.withLock({ turns[id]?.stage == .finishing }) else {
             Log.app.notice("turn \(id.description): payload dropped — the turn ended while it was formatted")

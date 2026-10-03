@@ -19,6 +19,9 @@ public struct LandingResult: Sendable {
     public var repair: RepairResult?
     /// P2.3 — set when the utterance was a transform / question on a selection.
     public var transform: TransformLanding.Outcome?
+    /// H12 — what the selection edit did (route, command, selection length, outcome, model; no
+    /// text), for the turn's `extras_json`. nil when no edit handled the utterance.
+    public var edit: EditOutcomeRecord?
     /// P1.5.2 — set when "put it back" reverted a silent correction.
     public var revertedCorrection: CorrectionEntry?
     public var pipelineMs: Double
@@ -285,6 +288,7 @@ public final class UtteranceLander: @unchecked Sendable {
         var replacingSelection = false
         if let transform {
             let outcome = await transform.handle(spans, decision: decision, context: ctx)
+            result.edit = transform.takeRecord()
             if case .replaceSelection(let rest) = outcome {
                 // "replace with …": the rest is dictation, formatted below and typed over the
                 // selection by the normal injector (secure-field refusal and Q1 newline rules apply).

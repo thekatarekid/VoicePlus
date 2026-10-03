@@ -58,6 +58,8 @@ public struct TurnRecordExtras: Codable, Equatable, Sendable {
     public var editCommand: String?
     /// H25 Recent — the hands-free session this piece belongs to; one session is one Recent row.
     public var handsFreeSessionID: String?
+    /// H12 — the selection edit's facts (route, command id, selection length, outcome, model; no text).
+    public var edit: EditOutcomeRecord?
 
     public init(surfaceKind: String? = nil, surfaceSignals: [String: String]? = nil, fieldRole: String? = nil,
                 writeMethod: String? = nil, verification: TurnVerification? = nil, stageMs: [String: Int]? = nil,
