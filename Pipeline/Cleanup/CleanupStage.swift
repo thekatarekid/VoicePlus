@@ -63,6 +63,11 @@ public struct CleanupStage: PipelineStage {
     public var deadline: TimeInterval
     public var outputGuard: @Sendable () -> CleanupGuard
     public var observer: (@Sendable (CleanupOutcome) -> Void)?
+    /// X4 — per-run mode from the four LLM modes (per-app Polish needs the run's bundle ID). When
+    /// set it replaces `mode`; a `cleanup.mode` override in the context still wins (Lab, tests).
+    public var modeResolver: (@Sendable (StageContext) -> CleanupMode)?
+    /// X4 — deadline per resolved mode (a whole-dictation polish gets ~2.5 s). Nil = `deadline`.
+    public var deadlineForMode: (@Sendable (CleanupMode) -> TimeInterval)?
 
     public init(generator: (any CleanupGenerating)?,
                 mode: @escaping @Sendable () -> CleanupMode = { .default },
@@ -80,7 +85,9 @@ public struct CleanupStage: PipelineStage {
 
     public func process(_ spans: [TranscriptSpan], context: StageContext) async throws -> [TranscriptSpan] {
         let untouched = spans.map { $0.touched(by: id) }
-        let mode = context.extra[CleanupMode.contextKey].flatMap(CleanupMode.init(rawValue:)) ?? self.mode()
+        let mode = context.extra[CleanupMode.contextKey].flatMap(CleanupMode.init(rawValue:))
+            ?? modeResolver?(context) ?? self.mode()
+        let deadline = deadlineForMode?(mode) ?? self.deadline
         if let skip = Self.skipReason(spans, context: context, mode: mode, hasGenerator: generator != nil) {
             report(.skipped(skip))
             return untouched

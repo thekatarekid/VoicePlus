@@ -11,6 +11,9 @@ public enum RouteChoice: Codable, Equatable, Sendable {
     case auto
     case provider(ProviderID)
     case localOnly
+    /// H13 — exactly this provider (then the rules fallback, which callers treat as "no model").
+    /// Used for on-device LLM edits so a failed shared model never falls through to another model.
+    case only(ProviderID)
 }
 
 public protocol NetworkLogger: Sendable {
@@ -75,6 +78,7 @@ public final class RoutingTable: @unchecked Sendable {
             case .auto: out = local + cloud
             case .localOnly: out = local
             case .provider(let id): out = (provider(id).map { [$0] } ?? []) + local
+            case .only(let id): out = provider(id).map { [$0] } ?? []
             }
         }
         out.removeAll { $0.id == fallback.id }

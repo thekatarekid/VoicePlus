@@ -28,6 +28,47 @@ public protocol LocalLLMEngine: AnyObject, Sendable {
     /// One greedy completion of a system + user chat. Must stop at `maxTokens` and throw
     /// `ProviderError.timeout` once `deadline` passes.
     func generate(system: String, user: String, maxTokens: Int, deadline: Date) async throws -> String
+    /// H14 — the same with an explicit sampler. Default: greedy (the original path).
+    func generate(system: String, user: String, maxTokens: Int, deadline: Date, sampling: LlamaSampling) async throws -> String
+}
+
+public extension LocalLLMEngine {
+    func generate(system: String, user: String, maxTokens: Int, deadline: Date, sampling: LlamaSampling) async throws -> String {
+        try await generate(system: system, user: user, maxTokens: maxTokens, deadline: deadline)
+    }
+}
+
+/// H14 — how tokens are picked. Cleanup stays greedy (as the cleanup models were evaluated); the
+/// shared Qwen3.5 model uses Qwen's published non-thinking settings plus a mild repetition penalty
+/// over the generated tokens only (the prompt is never penalised, so copying source words is free).
+public enum LlamaSampling: Equatable, Sendable {
+    case greedy
+    case qwenNonThinking
+
+    public struct Parameters: Equatable, Sendable {
+        public var temperature: Float, topP: Float, topK: Int32, minP: Float
+        public var repeatPenalty: Float, presencePenalty: Float, penaltyLastN: Int32, seed: UInt32
+    }
+
+    /// Qwen3.x non-thinking: temperature 0.7, top-p 0.8, top-k 20, min-p 0; repeat 1.05 over the last
+    /// 64 generated tokens. Fixed seed so the same edit gives the same answer.
+    public var parameters: Parameters? {
+        switch self {
+        case .greedy: return nil
+        case .qwenNonThinking:
+            return Parameters(temperature: 0.7, topP: 0.8, topK: 20, minP: 0, repeatPenalty: 1.05,
+                              presencePenalty: 0, penaltyLastN: 64, seed: 42)
+        }
+    }
+}
+
+/// H16 — the on-device model refused to load because the Mac is under critical memory pressure.
+public enum LocalLLMRefusal: Error, Equatable, Sendable {
+    case notEnoughMemory
+
+    public var message: String {
+        switch self { case .notEnoughMemory: return "Not enough memory for this edit right now" }
+    }
 }
 
 public struct LlamaCppConfig: Sendable, Equatable {
@@ -44,10 +85,25 @@ public struct LlamaCppConfig: Sendable, Equatable {
     /// Wall-clock budget for one generation (D2: 500 ms p95 on the cleanup path).
     public var deadline: TimeInterval
     public var lighterAlternative: String?
+    /// H14 — token picking (greedy for cleanup, Qwen non-thinking for the shared model).
+    public var sampling: LlamaSampling
+    /// H16 — unload this model once it has been idle this long (nil = the residency's global sweep).
+    public var idleUnloadAfter: TimeInterval?
+    /// H16 — refuse to *load* while the residency reports critical memory pressure.
+    public var refuseUnderCriticalPressure: Bool
+    /// Stages this provider answers (nil = any). The cleanup specialist serves `cleanup` only, so an
+    /// edit routed through the table never lands on it.
+    public var servedStages: Set<StageID>?
 
     public init(modelPath: URL, residencyKey: String = "cleanup.llm", tier: ResidencyTier = .onDemand,
                 estimatedBytes: Int64 = 700_000_000, maxTokens: Int? = nil, deadline: TimeInterval = 0.5,
-                lighterAlternative: String? = nil) {
+                lighterAlternative: String? = nil, sampling: LlamaSampling = .greedy,
+                idleUnloadAfter: TimeInterval? = nil, refuseUnderCriticalPressure: Bool = false,
+                servedStages: Set<StageID>? = nil) {
+        self.sampling = sampling
+        self.idleUnloadAfter = idleUnloadAfter
+        self.refuseUnderCriticalPressure = refuseUnderCriticalPressure
+        self.servedStages = servedStages
         self.modelPath = modelPath
         self.residencyKey = residencyKey
         self.tier = tier
@@ -70,6 +126,8 @@ public final class LlamaCppProvider: TextGenerator, @unchecked Sendable {
     private let residency: ModelResidency
     private let engine: any LocalLLMEngine
     private let fileExists: @Sendable (URL) -> Bool
+    private let idleLock = NSLock()
+    private var generation = 0
 
     public init(config: LlamaCppConfig, displayName: String = "On this Mac (llama.cpp)",
                 residency: ModelResidency = .shared, engine: (any LocalLLMEngine)? = nil,
@@ -106,15 +164,26 @@ public final class LlamaCppProvider: TextGenerator, @unchecked Sendable {
 
     public func generate(prompt: String, system: String, stage: StageID) async throws
         -> (text: String, bytesOut: Int, bytesIn: Int, host: String) {
+        if let served = config.servedStages, !served.contains(stage) {
+            throw ProviderError.unavailable("llama.cpp provider does not serve \(stage)")
+        }
         guard await isAvailable() else { throw ProviderError.unavailable("llama.cpp model not installed") }
         await registerWithResidency()
+        // H16 — never start a load under critical pressure; an already-resident model may still run.
+        if config.refuseUnderCriticalPressure, await residency.isRunningLighter,
+           await !residency.isResident(config.residencyKey) {
+            throw LocalLLMRefusal.notEnoughMemory
+        }
+        let ticket = idleLock.withLock { generation += 1; return generation }
+        defer { scheduleIdleUnload(after: ticket) }
         let deadline = Date().addingTimeInterval(config.deadline)
         let maxTokens = config.maxTokens ?? Self.derivedMaxTokens(forCharacters: prompt.count)
-        let engine = self.engine
+        let engine = self.engine, sampling = config.sampling
         let text: String
         do {
             text = try await residency.withModel(config.residencyKey) {
-                try await engine.generate(system: system, user: prompt, maxTokens: maxTokens, deadline: deadline)
+                try await engine.generate(system: system, user: prompt, maxTokens: maxTokens, deadline: deadline,
+                                          sampling: sampling)
             }
         } catch let e as ProviderError {
             throw e
@@ -125,6 +194,17 @@ public final class LlamaCppProvider: TextGenerator, @unchecked Sendable {
         }
         // Local: nothing crosses the network, so the byte counters stay 0.
         return (Self.stripReasoning(text), 0, 0, "on-device")
+    }
+
+    /// H16 — unload ~`idleUnloadAfter` after the last generation, unless another one started since.
+    private func scheduleIdleUnload(after ticket: Int) {
+        guard let idle = config.idleUnloadAfter else { return }
+        let residency = self.residency, key = config.residencyKey
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, idle) * 1_000_000_000))
+            guard let self, self.idleLock.withLock({ self.generation == ticket }) else { return }
+            await residency.unload(key, reason: .idle)
+        }
     }
 
     /// Qwen-family models may emit a `<think>…</think>` block; it is never part of the answer.
@@ -245,8 +325,15 @@ public final class LlamaCppEngine: LocalLLMEngine, @unchecked Sendable {
     }
 
     public func generate(system: String, user: String, maxTokens: Int, deadline: Date) async throws -> String {
+        try await generate(system: system, user: user, maxTokens: maxTokens, deadline: deadline, sampling: .greedy)
+    }
+
+    public func generate(system: String, user: String, maxTokens: Int, deadline: Date,
+                         sampling: LlamaSampling) async throws -> String {
         #if canImport(llama)
-        return try await onQueue { [self] in try run(system: system, user: user, maxTokens: maxTokens, deadline: deadline) }
+        return try await onQueue { [self] in
+            try run(system: system, user: user, maxTokens: maxTokens, deadline: deadline, sampling: sampling)
+        }
         #else
         throw LlamaCppError.runtimeMissing
         #endif
@@ -258,13 +345,18 @@ public final class LlamaCppEngine: LocalLLMEngine, @unchecked Sendable {
         llama_log_set({ _, _, _ in }, nil)   // llama.cpp logs every tensor at load; keep os_log clean
     }()
 
-    private func run(system: String, user: String, maxTokens: Int, deadline: Date) throws -> String {
+    private func run(system: String, user: String, maxTokens: Int, deadline: Date, sampling: LlamaSampling) throws -> String {
         guard let model, let context else { throw LlamaCppError.notLoaded }
         let vocab = llama_model_get_vocab(model)
-        let prompt = Self.chatPrompt(model: model, system: system, user: user)
         llama_memory_clear(llama_get_memory(context), true)
 
-        var tokens = try Self.tokenize(vocab, prompt)
+        // H14 — ChatML built segment by segment: only the template's own markers are parsed as
+        // special tokens; system/user content (screen text, the selection) is tokenized with
+        // parse_special off, so a typed "<|im_start|>" stays plain text.
+        var tokens: [llama_token] = []
+        for (i, seg) in ChatMLSegments.render(system: system, user: user).enumerated() {
+            tokens += try Self.tokenize(vocab, seg.text, addSpecial: i == 0, parseSpecial: seg.special)
+        }
         let room = Int(contextTokens) - 8
         guard tokens.count < room - 16 else {
             throw LlamaCppError.promptTooLong(tokens: tokens.count, context: Int(contextTokens))
@@ -283,7 +375,17 @@ public final class LlamaCppEngine: LocalLLMEngine, @unchecked Sendable {
 
         let sampler = llama_sampler_chain_init(llama_sampler_chain_default_params())
         defer { llama_sampler_free(sampler) }
-        llama_sampler_chain_add(sampler, llama_sampler_init_greedy())
+        if let p = sampling.parameters {
+            llama_sampler_chain_add(sampler, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), p.penaltyLastN,
+                                                                          p.repeatPenalty, 0, p.presencePenalty))
+            llama_sampler_chain_add(sampler, llama_sampler_init_top_k(p.topK))
+            llama_sampler_chain_add(sampler, llama_sampler_init_top_p(p.topP, 1))
+            llama_sampler_chain_add(sampler, llama_sampler_init_min_p(p.minP, 1))
+            llama_sampler_chain_add(sampler, llama_sampler_init_temp(p.temperature))
+            llama_sampler_chain_add(sampler, llama_sampler_init_dist(p.seed))
+        } else {
+            llama_sampler_chain_add(sampler, llama_sampler_init_greedy())
+        }
 
         var bytes: [UInt8] = []
         let limit = min(maxTokens, room - tokens.count)
@@ -299,33 +401,14 @@ public final class LlamaCppEngine: LocalLLMEngine, @unchecked Sendable {
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    /// The model's own chat template (ChatML for the Qwen family); hand-written ChatML when the
-    /// template is not one llama.cpp knows without Jinja.
-    static func chatPrompt(model: OpaquePointer, system: String, user: String) -> String {
-        let roles = [strdup("system"), strdup("user")]
-        let contents = [strdup(system), strdup(user)]
-        defer { (roles + contents).forEach { free($0) } }
-        var messages = [llama_chat_message(role: roles[0], content: contents[0]),
-                        llama_chat_message(role: roles[1], content: contents[1])]
-        let template = llama_model_chat_template(model, nil)
-        var size = Int32(2 * (system.utf8.count + user.utf8.count) + 512)
-        for _ in 0..<2 {
-            var buf = [CChar](repeating: 0, count: Int(size))
-            let n = llama_chat_apply_template(template, &messages, messages.count, true, &buf, size)
-            if n < 0 { break }
-            if n <= size { return String(decoding: buf.prefix(Int(n)).map { UInt8(bitPattern: $0) }, as: UTF8.self) }
-            size = n + 1
-        }
-        return "<|im_start|>system\n\(system)<|im_end|>\n<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
-    }
-
-    static func tokenize(_ vocab: OpaquePointer?, _ text: String) throws -> [llama_token] {
+    static func tokenize(_ vocab: OpaquePointer?, _ text: String, addSpecial: Bool, parseSpecial: Bool) throws -> [llama_token] {
+        if text.isEmpty { return [] }
         let count = Int32(text.utf8.count)
         var tokens = [llama_token](repeating: 0, count: Int(count) + 16)
-        var n = llama_tokenize(vocab, text, count, &tokens, Int32(tokens.count), true, true)
+        var n = llama_tokenize(vocab, text, count, &tokens, Int32(tokens.count), addSpecial, parseSpecial)
         if n < 0 {
             tokens = [llama_token](repeating: 0, count: Int(-n))
-            n = llama_tokenize(vocab, text, count, &tokens, Int32(tokens.count), true, true)
+            n = llama_tokenize(vocab, text, count, &tokens, Int32(tokens.count), addSpecial, parseSpecial)
         }
         guard n >= 0 else { throw LlamaCppError.tokenizeFailed }
         return Array(tokens.prefix(Int(n)))
@@ -341,4 +424,30 @@ public final class LlamaCppEngine: LocalLLMEngine, @unchecked Sendable {
         return n > 0 ? buf.prefix(Int(n)).map { UInt8(bitPattern: $0) } : []
     }
     #endif
+}
+
+
+// MARK: - H14 · ChatML with content kept out of the special-token parser
+
+/// The Qwen-family chat prompt as segments. `special` segments are the template's own markers and
+/// are tokenized with parse_special on; content segments (system text that may quote screen
+/// context, the user's selection) with it off. Every catalogue model is Qwen-family ChatML, so the
+/// template is written out here rather than applied without Jinja. The assistant turn opens with an
+/// empty `<think></think>` block: Qwen3.x then answers directly (non-thinking), and
+/// `LlamaCppProvider.stripReasoning` removes any think block that still appears.
+public enum ChatMLSegments {
+    public struct Segment: Equatable, Sendable {
+        public var text: String
+        public var special: Bool
+    }
+
+    public static let emptyThink = "<think>\n\n</think>\n\n"
+
+    public static func render(system: String, user: String, prefillEmptyThink: Bool = true) -> [Segment] {
+        [Segment(text: "<|im_start|>system\n", special: true),
+         Segment(text: system, special: false),
+         Segment(text: "<|im_end|>\n<|im_start|>user\n", special: true),
+         Segment(text: user, special: false),
+         Segment(text: "<|im_end|>\n<|im_start|>assistant\n" + (prefillEmptyThink ? emptyThink : ""), special: true)]
+    }
 }

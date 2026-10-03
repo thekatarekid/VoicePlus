@@ -87,6 +87,14 @@ public enum LocalLLMCatalog {
 
     /// The shared model for an HW2 plan's `localLLMKey` (`Engine.ResidencyKey.localLLM2B` = "llm.qwen3.5-2b",
     /// `.localLLM4B` = "llm.qwen3.5-4b"); nil when the plan offers no on-device shared LLM (8 GB).
+    /// The HW2 residency key a shared model registers under (`Engine.ResidencyKey.localLLM2B/4B`).
+    public static func residencyKey(for model: LocalLLMModel) -> String {
+        model.id == qwen35_4B.id ? "llm.qwen3.5-4b" : "llm.qwen3.5-2b"
+    }
+
+    /// H16 — physical memory from which the 4B is the recommended pick (24 GB+).
+    public static let fourBRecommendedBytes: UInt64 = 24 << 30
+
     public static func sharedDefault(localLLMKey: String?) -> LocalLLMModel? {
         switch localLLMKey {
         case "llm.qwen3.5-4b"?: return qwen35_4B
@@ -134,11 +142,20 @@ public struct LocalLLMDownloader: Sendable {
             throw LocalLLMDownloadError.transport("\(error)")
         }
         defer { try? FileManager.default.removeItem(at: temp) }
+        return try installVerified(temp, as: model)
+    }
+
+    /// Verify a fetched file's SHA-256 and move it into place. Throws (and leaves nothing at the
+    /// final path) on a mismatch.
+    @discardableResult
+    public func installVerified(_ temp: URL, as model: LocalLLMModel) throws -> URL {
+        let target = model.localURL(root: root)
         let actual = try Self.sha256(of: temp)
         guard actual == model.sha256 else {
             throw LocalLLMDownloadError.checksumMismatch(expected: model.sha256, actual: actual)
         }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
         try FileManager.default.moveItem(at: temp, to: target)
         Log.providers.info("downloaded \(model.fileName) (\(model.sizeLabel))")
         return target

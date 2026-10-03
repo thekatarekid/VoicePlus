@@ -19,12 +19,14 @@ import Shared
 extension ComputerUseSettings {
     /// The GGUF the shared model runs: the user's pick, else the memory tier's (nil on an 8 GB Mac,
     /// where the plan offers no on-device shared LLM).
+    /// X5 — Automatic prefers the model the user downloaded (onboarding / Settings), then the plan's.
     public static func resolvedPlannerModel(_ store: SettingsStore?,
-                                            plan: ResidencyPlan = ResidencyPlanStore.shared.plan) -> LocalLLMModel? {
+                                            plan: ResidencyPlan = ResidencyPlanStore.shared.plan,
+                                            downloaded: () -> LocalLLMModel? = { EditModels.manager.activeModel }) -> LocalLLMModel? {
         switch plannerModel(store) {
         case .qwen2B: return LocalLLMCatalog.qwen35_2B
         case .qwen4B: return LocalLLMCatalog.qwen35_4B
-        case .automatic: return LocalLLMCatalog.sharedDefault(localLLMKey: plan.localLLMKey)
+        case .automatic: return downloaded() ?? LocalLLMCatalog.sharedDefault(localLLMKey: plan.localLLMKey)
         }
     }
 
@@ -32,6 +34,17 @@ extension ComputerUseSettings {
     public static func residencyKey(for model: LocalLLMModel) -> String {
         model.id == LocalLLMCatalog.qwen35_4B.id ? ResidencyKey.localLLM4B : ResidencyKey.localLLM2B
     }
+}
+
+/// X5 — the app's one model manager (Qwen3.5-2B / 4B for edits; onboarding, notch offer, Settings).
+public enum EditModels {
+    public static let manager = LocalModelManager()
+    public static let offerPolicy = ModelOfferPolicy()
+    /// H16 — unload the edit model after ~2 min idle.
+    public static let idleUnloadAfter: TimeInterval = 120
+}
+
+extension ComputerUseSettings {
 
     /// V5 CU9 — one 4B at a time. Where the plan runs CUA-S1-4B `.exclusive` (16 GB), a 4B planner the
     /// user picked is `.exclusive` too, so the two are never resident together (`ModelResidency`
@@ -51,8 +64,9 @@ public final class SharedLocalLLMProvider: TextGenerator, @unchecked Sendable {
     public static let notesFollowUpStage: StageID = "notes.followup"
     public static let explainStage: StageID = "explain.why"
     /// Every stage this model is registered for (CU8).
+    /// H13 — plus LLM edits: rewrite (`transform`) and questions about a selection (`question`).
     public static let servedStages: Set<StageID> = [ProviderPlanner.stage, .meetingNotes, .meetingAsk, .style,
-                                                    notesFollowUpStage, explainStage]
+                                                    notesFollowUpStage, explainStage, "transform", "question"]
     /// Planner/notes/Ask: a step plan or a few paragraphs, never an essay.
     public static let maxTokens = 1_024
     public static let deadline: TimeInterval = 90
@@ -86,7 +100,10 @@ public final class SharedLocalLLMProvider: TextGenerator, @unchecked Sendable {
                     config: LlamaCppConfig(modelPath: model.localURL(), residencyKey: key,
                                            tier: ComputerUseSettings.plannerTier(for: model, plan: plan),
                                            estimatedBytes: model.residentBytes, maxTokens: maxTokens,
-                                           deadline: deadline, lighterAlternative: plan.lighterAlternative(for: key)),
+                                           deadline: deadline, lighterAlternative: plan.lighterAlternative(for: key),
+                                           sampling: .qwenNonThinking,                       // H14
+                                           idleUnloadAfter: EditModels.idleUnloadAfter,      // H16
+                                           refuseUnderCriticalPressure: true),               // H16
                     displayName: "\(model.displayName) on this Mac", residency: residency)
             })
     }

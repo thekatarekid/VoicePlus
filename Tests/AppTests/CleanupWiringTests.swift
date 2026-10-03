@@ -59,8 +59,8 @@ private struct EchoProvider: TextGenerator {
 
     @Test func modeComesFromSettings() {
         let settings = InMemorySettingsStore()
-        #expect(CleanupWiring.mode(settings: settings) == .automatic)
-        settings.set("always", for: CleanupMode.settingsKey)
+        #expect(CleanupWiring.mode(settings: settings) == .off)   // X4: fast path only by default
+        settings.set("always", for: CleanupMode.settingsKey)       // pre-X4 "Always" carries over
         #expect(CleanupWiring.mode(settings: settings) == .always)
     }
 

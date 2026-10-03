@@ -3,6 +3,7 @@ import Foundation
 import Pipeline
 import Providers
 import Shared
+import AppKit
 import SwiftUI
 
 // V5 D2 — Settings › Models "AI cleanup": Off / Automatic (default) / Always, and the model row
@@ -16,6 +17,8 @@ public final class AICleanupSettingsModel: ObservableObject {
     private let residency: ModelResidency
     public let model: LocalLLMModel
     @Published public private(set) var mode: CleanupMode
+    /// X4 — the four independent LLM modes.
+    @Published public private(set) var modes: LLMModes
     @Published public private(set) var install: LocalLLMInstallState
     @Published public private(set) var resident = false
 
@@ -26,18 +29,54 @@ public final class AICleanupSettingsModel: ObservableObject {
         self.downloader = downloader
         self.residency = residency
         self.mode = CleanupWiring.mode(settings: settings)
+        self.modes = CleanupWiring.llmModes(settings: settings)
         self.install = downloader.isInstalled(model) ? .downloaded : .notDownloaded
     }
 
-    public func select(_ mode: CleanupMode) {
-        settings.set(mode.rawValue, for: CleanupMode.settingsKey)
+    /// X4 — one of the four switches changed. Persisted; applies from the next dictation.
+    public func update(_ change: (inout LLMModes) -> Void) {
+        var m = modes
+        change(&m)
+        CleanupWiring.setLLMModes(m, settings: settings)
+        modes = m
+        let mode = CleanupWiring.mode(settings: settings)
         self.mode = mode
+        syncResidency(mode)
+    }
+
+    public func setFastPathOnly(_ on: Bool) { update { $0.setFastPathOnly(on) } }
+    public func setPerAppPolish(_ on: Bool) { update { $0.perAppPolish = on } }
+    public func setAutoPolish(_ on: Bool) { update { $0.autoPolishWhenUnsure = on } }
+    public func setEveryDictation(_ on: Bool) { update { $0.everyDictation = on } }
+    public func setPolish(_ bundleID: String, _ on: Bool) {
+        update { if on { $0.polishApps.insert(bundleID) } else { $0.polishApps.remove(bundleID) } }
+    }
+
+    /// Pre-X4 entry point (Off / Automatic / Always), kept for callers: maps onto the modes.
+    public func select(_ mode: CleanupMode) {
+        switch mode {
+        case .off: setFastPathOnly(true)
+        case .automatic: update { $0.everyDictation = false; $0.autoPolishWhenUnsure = true }
+        case .always: setEveryDictation(true)
+        }
+    }
+
+    private func syncResidency(_ mode: CleanupMode) {
         let residency = self.residency
         Task { await CleanupWiring.syncResidency(CleanupWiring.provider(model: model, residency: residency),
                                                  mode: mode, residency: residency) }
     }
 
     public var modeDetail: String { mode.detail }
+
+    public static let fastPathTitle = "Fast path only"
+    public static let fastPathDetail = "Built-in rules only. Nothing loads, nothing waits."
+    public static let perAppTitle = "Polish in chosen apps"
+    public static let perAppDetail = "A small model on this Mac tidies every dictation in the apps you pick."
+    public static let unsureTitle = "Polish automatically when unsure"
+    public static let unsureDetail = "The model steps in for self-corrections, lists, numbers and long dictations."
+    public static let everyTitle = "Use the model on every dictation"
+    public static let everyDetail = "Checks every dictation. Adds about 1 to 2.5 s."
 
     public var modelDetail: String {
         let state: String
@@ -79,11 +118,24 @@ struct AICleanupGroup: View {
     @StateObject private var model = AICleanupSettingsModel()
 
     var body: some View {
+        VStack(spacing: 12) {
         GroupBox("AI cleanup", layout: .rows) {
-            SettingsPickerRow(title: "AI cleanup", detail: model.modeDetail,
-                              selection: Binding(get: { model.mode }, set: { model.select($0) }),
-                              options: CleanupMode.allCases, label: { $0.title },
-                              identifier: "settings.models.cleanupMode")
+            // X4 — four independent switches (fast path is on exactly when the other three are off).
+            SettingsToggleRow(title: AICleanupSettingsModel.fastPathTitle, detail: AICleanupSettingsModel.fastPathDetail,
+                              isOn: Binding(get: { model.modes.fastPathOnly }, set: { model.setFastPathOnly($0) }),
+                              identifier: "settings.models.llm.fastPath")
+            SettingsToggleRow(title: AICleanupSettingsModel.perAppTitle, detail: AICleanupSettingsModel.perAppDetail,
+                              isOn: Binding(get: { model.modes.perAppPolish }, set: { model.setPerAppPolish($0) }),
+                              identifier: "settings.models.llm.perApp")
+            if model.modes.perAppPolish {
+                PolishAppsRow(model: model)
+            }
+            SettingsToggleRow(title: AICleanupSettingsModel.unsureTitle, detail: AICleanupSettingsModel.unsureDetail,
+                              isOn: Binding(get: { model.modes.autoPolishWhenUnsure }, set: { model.setAutoPolish($0) }),
+                              identifier: "settings.models.llm.unsure")
+            SettingsToggleRow(title: AICleanupSettingsModel.everyTitle, detail: AICleanupSettingsModel.everyDetail,
+                              isOn: Binding(get: { model.modes.everyDictation }, set: { model.setEveryDictation($0) }),
+                              identifier: "settings.models.llm.every")
             RowView(model.model.displayName, detail: model.modelDetail) {
                 if model.canDownload {
                     Button("Download") { model.download() }
@@ -96,5 +148,123 @@ struct AICleanupGroup: View {
             .accessibilityIdentifier("settings.models.cleanupModel")
         }
         .task { await model.refresh() }
+        EditModelsGroup()   // X5 — Qwen3.5-2B / 4B for rewrite commands
+        }
+    }
+}
+
+// MARK: - X5 · Settings › Models "Rewrite models" (download / delete / use)
+
+@MainActor
+public final class EditModelsSettingsModel: ObservableObject {
+    public let manager: any LocalModelManaging
+    @Published public private(set) var states: [String: LocalModelState] = [:]
+    @Published public private(set) var activeID: String?
+    @Published public private(set) var lastError: String?
+    private var token: UUID?
+
+    public init(manager: any LocalModelManaging = EditModels.manager) {
+        self.manager = manager
+        refresh()
+        if let m = manager as? LocalModelManager {
+            token = m.addObserver { [weak self] in Task { @MainActor in self?.refresh() } }
+        }
+    }
+
+    deinit {
+        if let token, let m = manager as? LocalModelManager { m.removeObserver(token) }
+    }
+
+    public var models: [LocalLLMModel] { manager.models }
+
+    public func refresh() {
+        states = Dictionary(uniqueKeysWithValues: manager.models.map { ($0.id, manager.state($0.id)) })
+        activeID = manager.activeModel?.id
+    }
+
+    public func line(for model: LocalLLMModel) -> String {
+        let rec = (manager as? LocalModelManager)?.recommended()?.id == model.id ? " · Recommended for this Mac" : ""
+        switch states[model.id] ?? .notDownloaded {
+        case .notDownloaded: return "\(model.sizeLabel) to download\(rec). Nothing downloads until you click."
+        case .downloading(let p): return "Downloading… \(Int(p * 100))%"
+        case .ready: return activeID == model.id ? "On this Mac · in use for rewrites" : "On this Mac"
+        case .failed(let why): return why
+        }
+    }
+
+    public func download(_ id: String) {
+        let manager = self.manager
+        Task { await manager.download(id); refresh() }
+        refresh()
+    }
+
+    public func delete(_ id: String) {
+        let manager = self.manager
+        Task {
+            do { try await manager.delete(id); lastError = nil } catch { lastError = "Couldn't delete it right now." }
+            refresh()
+        }
+    }
+
+    public func use(_ id: String) {
+        manager.setPreferred(id)
+        refresh()
+    }
+}
+
+struct EditModelsGroup: View {
+    @StateObject private var model = EditModelsSettingsModel()
+
+    var body: some View {
+        GroupBox("Rewrite models", layout: .rows) {
+            ForEach(model.models) { m in
+                RowView(m.displayName, detail: model.line(for: m)) {
+                    HStack(spacing: 8) {
+                        switch model.states[m.id] ?? .notDownloaded {
+                        case .notDownloaded, .failed:
+                            Button("Download") { model.download(m.id) }
+                                .accessibilityIdentifier("settings.models.edit.\(m.id).download")
+                        case .downloading(let p):
+                            ProgressView(value: p).frame(width: 80)
+                        case .ready:
+                            if model.activeID != m.id {
+                                Button("Use") { model.use(m.id) }
+                                    .accessibilityIdentifier("settings.models.edit.\(m.id).use")
+                            }
+                            Button("Delete") { model.delete(m.id) }
+                                .accessibilityIdentifier("settings.models.edit.\(m.id).delete")
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear { model.refresh() }
+    }
+}
+
+/// The apps that get Polish, by bundle ID; each row can be removed.
+struct PolishAppsRow: View {
+    @ObservedObject var model: AICleanupSettingsModel
+    @State private var draft = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(model.modes.polishApps.sorted(), id: \.self) { id in
+                HStack {
+                    Text(NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+                        .map { FileManager.default.displayName(atPath: $0.path) } ?? id)
+                    Spacer()
+                    Button("Remove") { model.setPolish(id, false) }
+                }
+            }
+            HStack {
+                TextField("App bundle ID (e.g. com.apple.mail)", text: $draft)
+                Button("Add") {
+                    let id = draft.trimmingCharacters(in: .whitespaces)
+                    if !id.isEmpty { model.setPolish(id, true); draft = "" }
+                }
+            }
+        }
+        .accessibilityIdentifier("settings.models.llm.polishApps")
     }
 }

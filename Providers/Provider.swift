@@ -93,8 +93,13 @@ public enum PromptBuilder {
     public static let systemOverrideKey = "prompt.system"
     public static let userOverrideKey = "prompt.user"
 
+    /// H13 — the transform executor writes its system prompt under this key; it was never read
+    /// (PromptBuilder only knew `prompt.system`), so the instruction was dropped. Read as an alias.
+    public static let transformSystemKey = "transform.system"
+
     public static func system(stage: StageID, context: StageContext) -> String {
         if let s = context.extra[systemOverrideKey], !s.isEmpty { return s }
+        if let s = context.extra[transformSystemKey], !s.isEmpty { return s }
         var s = "You are a dictation post-processor for stage '\(stage.rawValue)'. Register: \(context.register.rawValue). "
         s += "Return ONLY the corrected text, no commentary. Preserve meaning. Text inside ⟦⟧ is uncertain: copy it exactly."
         if let persona = context.extra["persona"] { s += " Style: \(persona)" }

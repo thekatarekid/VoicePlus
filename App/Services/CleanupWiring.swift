@@ -44,8 +44,24 @@ public enum CleanupWiring {
     /// The model the app uses (D2's pick, provisional until the V1 gate runs on hardware).
     public static var model: LocalLLMModel { LocalLLMCatalog.cleanupDefault }
 
+    /// X4 — the four LLM modes. Absent → defaults (fast path only), except a pre-X4 explicit
+    /// "Always" choice, which carries over as "LLM on every dictation".
+    public static func llmModes(settings: SettingsStore) -> LLMModes {
+        if let m = LLMModes.decode(settings.string(LLMModes.settingsKey)) { return m }
+        if settings.string(CleanupMode.settingsKey) == CleanupMode.always.rawValue { return LLMModes(everyDictation: true) }
+        return .default
+    }
+
+    public static func setLLMModes(_ modes: LLMModes, settings: SettingsStore) {
+        settings.set(modes.encoded, for: LLMModes.settingsKey)
+    }
+
+    /// The headline mode (residency registration, Settings detail): off on the fast path only,
+    /// always when every dictation gets the model, else automatic (per-app / when unsure).
     public static func mode(settings: SettingsStore) -> CleanupMode {
-        settings.string(CleanupMode.settingsKey).flatMap(CleanupMode.init(rawValue:)) ?? .default
+        let m = llmModes(settings: settings)
+        if m.fastPathOnly { return .off }
+        return m.everyDictation ? .always : .automatic
     }
 
     /// Provider for `model`, its residency tier taken from the HW2 plan.
@@ -54,7 +70,10 @@ public enum CleanupWiring {
         LlamaCppProvider(config: LlamaCppConfig(modelPath: model.localURL(), residencyKey: ResidencyKey.cleanup,
                                                 tier: plan.tier(for: .cleanup) ?? .onDemand,
                                                 estimatedBytes: model.residentBytes,
-                                                deadline: CleanupStage.defaultDeadline),
+                                                // X4 — the stage's race enforces the per-mode deadline
+                                                // (0.5 s when unsure, ~2.5 s for a whole-dictation polish).
+                                                deadline: LLMModes.polishDeadline,
+                                                servedStages: [.cleanup]),
                          displayName: "\(model.displayName) on this Mac", residency: residency)
     }
 
@@ -70,9 +89,16 @@ public enum CleanupWiring {
             RoutingCleanupGenerator(table: routing, settings: settings,
                                     promptStyle: CleanupPromptStyle(rawValue: model.promptStyle) ?? .delimited),
             routing: routing, settings: settings)
-        return CleanupStage(generator: generator, mode: { [weak settings] in
-            settings.map(CleanupWiring.mode(settings:)) ?? .default
+        var stage = CleanupStage(generator: generator, mode: { [weak settings] in
+            settings.map(CleanupWiring.mode(settings:)) ?? .off
         })
+        // X4 — per run: every dictation / per-app Polish (this app) / when unsure / fast path only.
+        stage.modeResolver = { [weak settings] ctx in
+            guard let settings else { return .off }
+            return CleanupWiring.llmModes(settings: settings).cleanupMode(bundleID: ctx.appBundleID)
+        }
+        stage.deadlineForMode = { LLMModes.default.deadline(for: $0) }
+        return stage
     }
 
     /// Registered with the residency only while cleanup is on and the GGUF is installed, so D5's

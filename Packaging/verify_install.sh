@@ -82,6 +82,9 @@ fi
 SILERO="$MNT/VoicePlus.app/Contents/Resources/Models/silero-vad"
 [ -f "$SILERO/silero-vad-unified-256ms-v6.2.1.mlmodelc/coremldata.bin" ] || fail "Silero VAD missing from bundle (V5 C6)"
 [ -f "$SILERO/voiceplus-manifest.json" ] || fail "Silero VAD manifest missing (V5 C6)"
+# X5 — the rewrite LLMs (Qwen3.5-2B / 4B) and the cleanup GGUF are opt-in downloads, never in the DMG.
+GGUF=$(find "$MNT/VoicePlus.app" -iname '*.gguf' -print -quit)
+[ -z "$GGUF" ] || fail "LLM weights must not be bundled in the installer: $GGUF"
 echo "[verify] Silero VAD bundled"
 # The full bundled-stack self-test needs the speech models, which only a full installer carries.
 if [ -d "$MNT/VoicePlus.app/Contents/Resources/Models/parakeet-tdt-0.6b-v3" ]; then

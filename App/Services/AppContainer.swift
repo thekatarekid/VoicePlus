@@ -163,7 +163,8 @@ public final class AppContainer {
         injector = TextInjector(system: system, registry: .standard(), store: outcomes)
 
         // Pipeline (P1.7): gatekeeper → register-routed formatter → style, providers behind the hook.
-        let providerRouting = RoutingTableProviderRouting(table: routing, settings: settings)
+        // H13 — LLM edits (.transform/.question) use the on-device shared model without a pin.
+        let providerRouting = RoutingTableProviderRouting(table: routing, settings: settings, onDevice: .shared())
         let styleStore: any StyleProfileStore = database.map { DatabaseStyleProfileStore(database: $0) } ?? InMemoryStyleProfileStore()
         // P2.6 snippets: exact-trigger pre-route ahead of every other rule, expansion first among stages.
         let snippetStore: any SnippetStoring = database.map { DatabaseSnippetStore(database: $0) } ?? InMemorySnippetStore()
