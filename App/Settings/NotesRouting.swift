@@ -182,8 +182,8 @@ public enum NotesWiring {
     }
 
     /// H23 — installs the Notes sink on the turn store (a `.held` / cancelled-with-words turn) and on
-    /// the injector's `FocusGuard` (every `hold`), then settles rows an earlier version left held
-    /// (H27). A password field is never saved. A failed save keeps the words in history with Copy.
+    /// the injector's `FocusGuard` (every `hold`), then clears rows an earlier version left held
+    /// (H27: settled, not re-noted — they duplicate text that already landed). A password field is never saved. A failed save keeps the words in history with Copy.
     nonisolated public static func routeFormerHolds(
         turns: TurnStore?, focusGuard: FocusGuard?,
         save: @escaping (String, String?, NoteReason) -> Result<String, NotesFunnelError> = {

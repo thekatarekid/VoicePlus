@@ -148,7 +148,7 @@ struct NotesFormerHoldsTests {
         #expect(store.save(Self.record("x", reason: DeliveryReason.destinationChanged), stage: .held).stage == .held)
     }
 
-    @Test("H27: stale held rows from an earlier version settle on upgrade; their words go to Notes")
+    @Test("H27: stale held rows from an earlier version are cleared on upgrade, not re-noted (duplicate of landed text)")
     func staleHeldRows() throws {
         let db = try AppDatabase.inMemory()
         let old = TurnStore(database: db)
@@ -171,13 +171,32 @@ struct NotesFormerHoldsTests {
         NotesWiring.routeFormerHolds(turns: store, focusGuard: nil, save: sink.save)
         store.flush()
         #expect(store.recoverable().isEmpty)
-        #expect(sink.saved.map(\.text) == ["left behind"])
+        #expect(sink.saved.isEmpty, "a stale held row duplicates landed text: no Notes copy")
+        #expect(store.entry(legacy.turnID)?.record.finalText == "left behind", "history keeps the words with Copy")
+        if case .held = store.entry(legacy.turnID)?.record.outcome { Issue.record("held outcome survived") }
         let reopened = TurnStore(database: db)
         #expect(reopened.recoverable().isEmpty)
         #expect(reopened.entry(secret.turnID)?.record.finalText == "")
         #expect(reopened.entry(legacy.turnID)?.stage == .resolved)
+        #expect(reopened.entry(secret.turnID)?.record.rawText == "")
         // Idempotent.
         #expect(store.settleStaleHeldRows() == 0)
+    }
+
+    @Test("H27: with history off a stale held row leaves the database entirely")
+    func staleHeldRowHistoryOff() throws {
+        let db = try AppDatabase.inMemory()
+        let old = TurnStore(database: db)
+        let legacy = Self.record("already landed", reason: DeliveryReason.destinationChanged)
+        old.save(legacy, stage: .held)
+        old.flush()
+        let store = TurnStore(database: db)
+        store.historyEnabled = { false }
+        #expect(store.settleStaleHeldRows() == 1)
+        store.flush()
+        let reopened = TurnStore(database: db)
+        #expect(reopened.recoverable().isEmpty)
+        #expect(reopened.entry(legacy.turnID) == nil)
     }
 
     @Test("a real NotesStore receives the intended app and reason")

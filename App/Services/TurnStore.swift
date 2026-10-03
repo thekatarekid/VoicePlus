@@ -332,17 +332,26 @@ public final class TurnStore: @unchecked Sendable {
         return (record, stage == .held ? .resolved : stage, outcome)
     }
 
-    /// H27 / H23 — rows left `held` by an earlier version: their words go to Notes (when a sink is
-    /// installed) and the row settles, so no orange "Needs you" survives the upgrade. Secure rows
-    /// lose their words. Returns how many rows were settled. Idempotent.
+    /// H27 — rows left `held` by an earlier version are cleared on upgrade. Such a row is a
+    /// duplicate of text that already landed, so it is NOT re-saved to Notes (that would make a
+    /// duplicate note); it settles as `.resolved`. With history on its words stay in history with
+    /// Copy (nothing is lost); with history off the row leaves the database. A password-field row
+    /// loses its words. Returns how many rows were cleared. Idempotent.
     @discardableResult
     public func settleStaleHeldRows() -> Int {
         let rows = recoverable(limit: 500).filter { $0.stage == .held }
-        for row in rows where save(row.record, stage: .held).stage == .held {
-            // No Notes store: the row still settles; history keeps the words with Copy.
-            save(row.record, stage: .failed)
+        for row in rows {
+            var record = row.record
+            // The row is no longer held: drop the held outcome so no surface reads it as one.
+            if case .held = record.outcome { record.outcome = nil }
+            if row.record.outcome?.reason.map(FocusGuard.isSecureReason) == true {
+                record.finalText = ""
+                record.rawText = ""
+                record.uncertainSpans = []
+            }
+            save(record, stage: .resolved)
         }
-        if !rows.isEmpty { Log.db.notice("turn store: settled \(rows.count) stale held row(s)") }
+        if !rows.isEmpty { Log.db.notice("turn store: cleared \(rows.count) stale held row(s)") }
         return rows.count
     }
 
