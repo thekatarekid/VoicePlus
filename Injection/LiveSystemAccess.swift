@@ -573,3 +573,13 @@ extension LiveSystemAccess: FocusedWindowReading {
         return windows.contains { String(CFHash($0)) == token }
     }
 }
+
+/// H26 — our own windows: is an editable text view of ours first responder? Read on the main
+/// thread (hopped to when needed); a hop that times out is "can't tell".
+extension LiveSystemAccess: OwnTextFieldReading {
+    public func ownEditableTextFocused() -> Bool? {
+        try? MainThreadHop.run { [self] in
+            MainActor.assumeIsolated { ownTextResponder()?.isEditable ?? false }
+        }
+    }
+}

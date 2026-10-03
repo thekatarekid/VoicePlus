@@ -180,3 +180,46 @@ public enum CanvasFocus {
         return isCanvasElement(focused) ? false : nil
     }
 }
+
+// MARK: - H26 — "no field → Notes": native apps and VoicePlus's own windows only
+
+/// H26 — VoicePlus's own focused text, read in-process (main thread): the in-process writer
+/// decides between "type into the field" and "Saved to Notes · no text field".
+public protocol OwnTextFieldReading: AnyObject {
+    /// `true` an editable text view of ours is first responder; `false` none is; `nil` can't tell.
+    func ownEditableTextFocused() -> Bool?
+}
+
+extension DeliveryLadder {
+    /// Whether the focused element is somewhere text can land.
+    public enum FieldPresence: String, Equatable, Sendable {
+        case textField, none, unknown
+    }
+
+    /// Roles that are certainly not text: a focus on one of these is "no text field". Anything
+    /// else unfamiliar (a group, a scroll area, a custom view) is `.unknown` — N3 delivers there.
+    public static let nonTextRoles: Set<String> = [
+        "AXButton", "AXList", "AXOutline", "AXTable", "AXRow", "AXCell", "AXWindow", "AXApplication",
+        "AXImage", "AXMenu", "AXMenuBar", "AXMenuItem", "AXMenuBarItem", "AXMenuButton", "AXCheckBox",
+        "AXRadioButton", "AXPopUpButton", "AXSlider", "AXTabGroup", "AXToolbar", "AXStaticText",
+        "AXBrowser", "AXColumn", "AXDisclosureTriangle", "AXIncrementor", "AXLink", "AXSplitter"
+    ]
+
+    /// The field question from the key-down/now AX role. `nil`/empty/"unknown" role → `.unknown`
+    /// (a failed read is never "no field"); a secure field counts as a field (refused elsewhere).
+    public static func fieldPresence(role: String?, isSecure: Bool = false) -> FieldPresence {
+        if isSecure { return .textField }
+        guard let role, !role.isEmpty, role != "unknown" else { return .unknown }
+        if CanvasFocus.textRoles.contains(role) { return .textField }
+        return nonTextRoles.contains(role) ? .none : .unknown
+    }
+
+    /// H26 — whether a turn with `field` focused goes to Notes ("no text field") instead of the
+    /// N3 ladder. Only VoicePlus's own windows and native apps: Electron, Chromium and WebKit
+    /// content (Claude, ChatGPT, browsers) keep "deliver unverified" (N3) — their AX trees lie.
+    /// An unknown runtime is not native.
+    public static func noFieldGoesToNotes(ownProcess: Bool, runtime: SurfaceRuntime?, field: FieldPresence) -> Bool {
+        guard field == .none else { return false }
+        return ownProcess || runtime == .native
+    }
+}

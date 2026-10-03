@@ -1411,6 +1411,12 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         if let reason = check.holdReason {
             return hold(id, payload, lander: lander, reason: reason, actual: focusGuard.snapshot())
         }
+        // H26 — no text field focused in a native app or one of our own windows → Notes ("no text
+        // field"). Web/Electron content keeps N3's "deliver unverified".
+        if let now = noTextField(payload) {
+            Log.app.notice("turn \(id.description): no text field in \(now.bundleID) — saved to Notes (H26)")
+            return hold(id, payload, lander: lander, reason: DeliveryReason.noDestination, actual: now)
+        }
         // Aim the write at the key-down destination (the app may have been switched before key-up)
         // and its window, so the delivery ladder's window check compares against the right one.
         var aimed = payload
@@ -1484,6 +1490,21 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         if revision.isSecure { return true }   // refused (and cleared) by the secure rule, not Notes
         guard let role = revision.role, !role.isEmpty else { return true }
         return CanvasFocus.textRoles.contains(role)
+    }
+
+    /// H26 — the focus now (same app as key-down: the pre-write check passed) when it has no text
+    /// field and the no-field rule applies to it (own window or native app); `nil` = write as usual.
+    private func noTextField(_ payload: LandingResult) -> FocusSnapshot? {
+        guard payload.pending != nil, !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let now = focusGuard.targetRevision()
+        guard let focus = now.focus else { return nil }
+        let own = OwnProcess.owns(focus)
+        var field = DeliveryLadder.fieldPresence(role: now.role, isSecure: now.isSecure)
+        if own, let reader = lander.system as? OwnTextFieldReading, let editable = reader.ownEditableTextFocused() {
+            field = editable ? .textField : .none
+        }
+        let runtime = own ? nil : (lander.system as? AppRuntimeReading)?.appRuntime(pid: focus.pid)
+        return DeliveryLadder.noFieldGoesToNotes(ownProcess: own, runtime: runtime, field: field) ? focus : nil
     }
 
     static func ms(_ a: Date, _ b: Date) -> Int { max(0, Int((b.timeIntervalSince(a) * 1000).rounded())) }

@@ -86,6 +86,8 @@ public final class SystemFocusPullBack: FocusPullBacking {
 
     public func remember(_ focus: FocusSnapshot) -> PullBackAnchor {
         let token = windows?.focusedWindowToken(pid: focus.pid)
+        // H26 — the key-down window token, logged (diagnostics: which window the turn aimed at).
+        Log.app.info("key-down window token \(token ?? "none") in \(focus.bundleID)")
         guard captureLive, !OwnProcess.owns(focus) else { return PullBackAnchor(focus: focus, windowToken: token) }
         guard let app = AXGuard.application(pid: focus.pid) else { return PullBackAnchor(focus: focus, windowToken: token) }
         AXUIElementSetMessagingTimeout(app, 0.1)
@@ -95,6 +97,10 @@ public final class SystemFocusPullBack: FocusPullBacking {
     }
 
     public func windowState(_ anchor: PullBackAnchor) -> DeliveryLadder.WindowState {
+        // H26 — VoicePlus's own windows skip the window-identity check: the pill, notch and our
+        // panels take key status around a turn, so a "changed" window there means nothing. The
+        // in-process writer decides: type into the field, or Notes (no text field).
+        if OwnProcess.owns(anchor.focus) { return .unknown }
         guard let windows, let token = anchor.windowToken else { return .unknown }
         let current = windows.focusedWindowToken(pid: anchor.focus.pid)
         if current == token { return .same }
