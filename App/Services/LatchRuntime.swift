@@ -513,13 +513,28 @@ public final class LatchRuntime: @unchecked Sendable {
     /// One VAD event from the capture pipeline. Positions are stream-relative seconds.
     public func noteVAD(_ event: VADEvent) {
         guard isLatched() else { return }
+        var sentenceEnd = false
         let firstSpeech = lock.withLock { () -> SegmentID? in
             switch event {
             case .speechStart(let t): endpointState.speechStarted(at: t - segmentStart)
-            case .speechEnd(let t): endpointState.speechEnded(at: t - segmentStart)
+            case .speechEnd(let t):
+                endpointState.speechEnded(at: t - segmentStart)
+                // A sentence end held for this speech end: the words it confirmed ended before it
+                // arrived. Speech that ended later is new speech — that waits for its own pause.
+                if let pending = pendingSentenceEnd {
+                    pendingSentenceEnd = nil
+                    if pending.segment == openSegment, t <= pending.at, closesAtSentenceEnd {
+                        sentenceEndClosures += 1
+                        sentenceEnd = true
+                    }
+                }
             }
             guard case .speechStart = event, let open = openSegment, beganFocus[open] == nil else { return nil }
             return open
+        }
+        if sentenceEnd {
+            Log.app.notice("latch: sentence end after the speech ended — the piece lands now")
+            closeSegmentAtEndpoint()
         }
         // B1 — where this segment's words were going when they began.
         if let firstSpeech, source == .dictation, let focus = delivery.currentFocus() {
@@ -587,6 +602,7 @@ public final class LatchRuntime: @unchecked Sendable {
     public func closeSegmentAtEndpoint(at position: TimeInterval? = nil) {
         let engine = lock.withLock { () -> SegmentSessionEngine? in
             let continuing = endpointState.inSpeech
+            pendingSentenceEnd = nil
             endpointState = endpointer
             endpointState.reset()
             if continuing { endpointState.speechStarted(at: 0) }
@@ -603,6 +619,10 @@ public final class LatchRuntime: @unchecked Sendable {
     public var closesAtSentenceEnd = true
     /// Sentence-end closures (tests and diagnostics).
     public private(set) var sentenceEndClosures = 0
+    /// Verification fix — a sentence end confirmed while the voice detector was still in its
+    /// hangover (~0.5 s after the last word): the stream position it arrived at. The EOU manager
+    /// confirms once per segment, so dropping it here meant waiting out the whole pause instead.
+    private var pendingSentenceEnd: (segment: SegmentID, at: TimeInterval)?
 
     /// RC5 — the streaming recognizer confirmed an end of utterance (Parakeet EOU: the speaker
     /// finished a sentence, ~1.3 s of no new words) in `segment`. While latched, with speech heard
@@ -612,7 +632,13 @@ public final class LatchRuntime: @unchecked Sendable {
     public func sentenceEnded(in segment: SegmentID) {
         guard closesAtSentenceEnd, source == .dictation, isLatched() else { return }
         let closes = lock.withLock { () -> Bool in
-            guard openSegment == segment, endpointState.speechHeard, !endpointState.inSpeech else { return false }
+            guard openSegment == segment, endpointState.speechHeard else { return false }
+            guard !endpointState.inSpeech else {
+                // Lands on the speech end that is still coming for these words (`noteVAD`).
+                pendingSentenceEnd = (segment, lastPosition)
+                return false
+            }
+            pendingSentenceEnd = nil
             sentenceEndClosures += 1
             return true
         }
@@ -633,6 +659,7 @@ public final class LatchRuntime: @unchecked Sendable {
             beganFocus.removeAll()
             provisionalFocus.removeAll()
             segmentAudio.removeAll()
+            pendingSentenceEnd = nil
             generation += 1
         }
     }
