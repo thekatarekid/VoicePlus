@@ -101,16 +101,45 @@ public final class RoutingTableProviderRouting: PipelineProviderRouting, @unchec
         guard Self.editStages.contains(stage), let onDevice, onDevice.isReady() else {
             throw ProviderRoutingError.disabled(stage: stage)
         }
+        // H14 — a selection over ~1,000 words is refused, never truncated (truncation loses text).
+        let plan: LocalLLMBudget.Plan
+        switch LocalLLMBudget().plan(selection: input) {
+        case .failure(let refusal): throw refusal
+        case .success(let p): plan = p
+        }
         if let refusal = await onDevice.refusal() { throw refusal }
         table.setChoice(.only(onDevice.providerID), for: stage)
         let outcome: RouteOutcome
         do {
-            outcome = try await table.complete(stage: stage, spans: [span], context: ctx, purpose: "local:\(stage.rawValue)")
+            outcome = try await LocalLLMBudget.$outputCap.withValue(plan.maxOutputTokens) {
+                try await table.complete(stage: stage, spans: [span], context: ctx, purpose: "local:\(stage.rawValue)")
+            }
+        } catch let refusal as LocalLLMRefusal {
+            throw refusal
         } catch {
             throw ProviderRoutingError.unavailable
         }
         guard outcome.provider == onDevice.providerID else { throw ProviderRoutingError.unavailable }
-        return outcome.completion.spans.map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+        let raw = outcome.completion.spans.map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+        return try Self.checkedOutput(stage: stage, raw: raw, selection: input)
+    }
+
+    /// H14 — an edit's output must be the edited text: empty, a chatty preamble ("Sure, here is…")
+    /// or more than 3× the selection is rejected (the executor then falls back to its rules).
+    /// Answers to a question are free-length; only an empty one is rejected.
+    static func checkedOutput(stage: StageID, raw: String, selection: String) throws -> String {
+        if stage == .question {
+            let answer = LlamaCppProvider.stripReasoning(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            // An empty reply comes back as the selection itself (SpanRewriter keeps the input): no answer.
+            guard !answer.isEmpty, answer != selection.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw ProviderRoutingError.unavailable
+            }
+            return answer
+        }
+        switch LocalLLMOutputCheck.check(output: raw, selection: selection) {
+        case .accepted(let text, _): return text
+        case .empty, .preamble, .tooLong: throw ProviderRoutingError.unavailable
+        }
     }
 }
 

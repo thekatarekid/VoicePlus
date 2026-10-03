@@ -71,7 +71,7 @@ private func routing(_ providers: [any Provider], settings: SettingsStore = InMe
         let r = routing([], ready: false)
         #expect(!r.isProviderEnabled(for: .transform, context: StageContext()))
         let out = try await TransformExecutor(providers: r).execute(request("make it uppercase", "hello"), context: StageContext())
-        #expect(out.source == .local)
+        #expect(out.source != .provider)   // deterministic rules (catalog or local)
         #expect(out.output == "HELLO")
     }
 

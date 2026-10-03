@@ -16,6 +16,10 @@ public struct LocalLLMBudget: Equatable, Sendable {
     public var maxSelectionWords: Int = 1_000
     public init() {}
 
+    /// H14 — per-call generation cap (2 × selection + 64) for the edit in flight. The provider reads
+    /// it (`LlamaCppProvider.generate`) ahead of its config cap; nil outside an edit.
+    @TaskLocal public static var outputCap: Int?
+
     public static let tooLongMessage = "That selection is too long to edit on this Mac. Select under 1,000 words and try again."
 
     public enum Refusal: Error, Equatable, Sendable {

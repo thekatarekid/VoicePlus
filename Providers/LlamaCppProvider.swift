@@ -177,7 +177,7 @@ public final class LlamaCppProvider: TextGenerator, @unchecked Sendable {
         let ticket = idleLock.withLock { generation += 1; return generation }
         defer { scheduleIdleUnload(after: ticket) }
         let deadline = Date().addingTimeInterval(config.deadline)
-        let maxTokens = config.maxTokens ?? Self.derivedMaxTokens(forCharacters: prompt.count)
+        let maxTokens = LocalLLMBudget.outputCap ?? config.maxTokens ?? Self.derivedMaxTokens(forCharacters: prompt.count)
         let engine = self.engine, sampling = config.sampling
         let text: String
         do {
