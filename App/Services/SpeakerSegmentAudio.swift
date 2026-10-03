@@ -9,7 +9,9 @@ import Foundation
 /// his words to Notes. This keeps only voiced stretches:
 ///
 /// * 20 ms frames, RMS energy per frame;
-/// * a frame is loud when it is within `dynamicRange` of the loudest frame and above `floor`;
+/// * a frame is loud when it is within `dynamicRange` of the loudest frame, above `floor`, and
+///   `noiseMargin` above the room's own level (the `noisePercentile` frame) — capped at
+///   `peakCeiling` of the peak so a segment that is all voice keeps its voice;
 /// * loud runs shorter than `minimumRunFrames` are dropped (a key click is one or two frames; a
 ///   syllable is four or more);
 /// * the remaining runs are widened by `hangoverFrames` on each side so word edges are kept.
@@ -24,6 +26,13 @@ public enum SpeakerSegmentAudio {
     public static let minimumRunFrames = 4          // 80 ms
     public static let hangoverFrames = 2            // 40 ms each side
     public static let minimumSeconds: Double = 0.5
+    /// Verification fix — the room. On the owner's MacBook mic the quiet room sits at −49…−45 dBFS
+    /// and speech peaks near −30, so "24 dB under the peak" (−54) kept every frame of a 42 s segment
+    /// and the embedding heard the room (similarity 0.04 → "another voice"; its 6 s of voice alone:
+    /// 0.73). A frame must also clear the room's level by `noiseMargin`.
+    public static let noisePercentile = 0.2
+    public static let noiseMargin: Float = 2.5      // ≈ +8 dB over the room
+    public static let peakCeiling: Float = 0.25     // ≈ −12 dB under the peak, at most
 
     /// The voiced part of `samples`, or `samples` itself when too little voice is found.
     public static func voiced(_ samples: [Float]) -> [Float] {
@@ -37,8 +46,9 @@ public enum SpeakerSegmentAudio {
             energy[f] = (sum / Float(frameSamples)).squareRoot()
         }
         let peak = energy.max() ?? 0
-        let threshold = max(floor, peak * dynamicRange)
         guard peak >= floor else { return samples }
+        let room = energy.sorted()[min(frames - 1, Int(Double(frames) * noisePercentile))]
+        let threshold = max(floor, peak * dynamicRange, min(room * noiseMargin, peak * peakCeiling))
         var loud = energy.map { $0 >= threshold }
         // Drop short bursts (clicks, taps).
         var f = 0
