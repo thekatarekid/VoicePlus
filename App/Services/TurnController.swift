@@ -1545,7 +1545,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turn.record.writeAttempted = true
             turn.record.capture.writeDispatched = now
             fx.save(turn)
-            if !newerCaptureOpenLocked(than: id) { fx.present(.inserting(text: payload.text)) }
+            if !insertingRowHiddenLocked(id) { fx.present(.inserting(text: payload.text)) }
             return true
         }
         guard proceed else { return payload }
@@ -1880,6 +1880,16 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     private func newerCaptureOpenLocked(than id: TurnID) -> Bool {
         guard let open = captureID, open != id, let turn = turns[open] else { return false }
         return turn.stage.isCapturing
+    }
+
+    /// Hands-free fix (RC2) — does `id`'s "being typed" row stay off the pill? A newer capture owns
+    /// the pill (N23, H28). A hands-free piece is the exception: it was admitted while the latched
+    /// capture is open, the pill draws its `.inserting` on the hands-free row, and the ribbon needs
+    /// `.finalPreview` → `.inserting` → `.landed` to fly to the caret.
+    private func insertingRowHiddenLocked(_ id: TurnID) -> Bool {
+        guard newerCaptureOpenLocked(than: id) else { return false }
+        guard let open = captureID, let capture = turns[open], capture.latched else { return true }
+        return turns[id]?.origin != .admitted
     }
 
     /// N23 — a hold capture is open (the pill shows it; an older turn's ending must not touch it).

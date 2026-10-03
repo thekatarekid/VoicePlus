@@ -109,13 +109,19 @@ actor UtteranceBuffer {
     var openSegmentSampleCount: Int { max(0, samples.count - segmentStart) }
 
     /// Runs preview on `block` after any in-flight preview finishes; calls `onText` only on change.
-    func schedulePreview(_ block: [Float], using preview: PreviewRecognizer, onText: @escaping @Sendable (String) -> Void) {
+    func schedulePreview(_ block: [Float], using preview: PreviewRecognizer,
+                         onEndOfUtterance: (@Sendable () -> Void)? = nil,
+                         onText: @escaping @Sendable (String) -> Void) {
         let previous = previewTask
         previewTask = Task { [weak self] in
             await previous?.value
             guard !Task.isCancelled, let self else { return }
             guard let text = try? await preview.feed(block) else { return }
             if await self.updateText(text) { onText(text) }
+            // RC5 — a sentence end the recognizer confirmed on this block.
+            if let onEndOfUtterance, let eou = preview as? EndOfUtteranceReporting, await eou.takeEndOfUtterance() {
+                onEndOfUtterance()
+            }
         }
     }
 
@@ -638,9 +644,19 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         if let toPreview, let preview {
             Task { [weak self] in
                 guard let self else { return }
-                await self.buffer.schedulePreview(toPreview, using: preview) { [weak self] text in self?.emitPartial(text) }
+                await self.buffer.schedulePreview(toPreview, using: preview,
+                                                  onEndOfUtterance: { [weak self] in self?.emitEndOfUtterance() }) { [weak self] text in
+                    self?.emitPartial(text)
+                }
             }
         }
+    }
+
+    /// RC5 — the preview recognizer confirmed an end of utterance in the open segment.
+    private func emitEndOfUtterance() {
+        lock.lock(); let live = listening; lock.unlock()
+        guard live, let open = segments.openSegment else { return }
+        segmentBroadcaster.send(.endOfUtterance(segment: open))
     }
 
     private func emitPartial(_ text: String) {

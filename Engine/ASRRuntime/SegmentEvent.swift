@@ -24,6 +24,10 @@ public enum SegmentEvent: Equatable, Sendable {
     /// Preview text for the open segment. Spans are `.provisional`; the pill owns them.
     case preview(segment: SegmentID, spans: [TranscriptSpan])
 
+    /// Hands-free fix (RC5) — the streaming recognizer confirmed an end of utterance (a sentence
+    /// end, Parakeet EOU) in the open segment. A hint, never a closure: the latch decides.
+    case endOfUtterance(segment: SegmentID)
+
     /// The segment closed and its text is committed. Released in ascending `SegmentID` order,
     /// once per segment. `stability` is `.committed` while the session continues, `.final` for
     /// the segment that ended it.

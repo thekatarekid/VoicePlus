@@ -264,6 +264,13 @@ public final class LatchRuntime: @unchecked Sendable {
     /// R3.3 — asked once per closed segment while speaker filtering is on. `nil` means "no filter
     /// configured", which is not the same as "filter says yes": see `SpeakerFilter`.
     public var speakerGuard: (() -> SpeakerFilter.Decision)?
+    /// Hands-free fix (RC3) — the speaker check on one closed segment's own audio, cut when that
+    /// segment closed (`cutSegmentAudio`). Preferred over `speakerGuard` when set; nil = no filter.
+    public var speakerCheck: (([Float]?) -> SpeakerFilter.Decision)?
+    /// RC3 — hands over the capture audio since the previous cut and starts over. Called once per
+    /// segment boundary (`.opened` of the next segment, else the segment's `.closed`) — for every
+    /// segment, empty ones included — so a check never hears earlier segments' silence and typing.
+    public var cutSegmentAudio: (() -> [Float]?)?
     /// V5 N2 — the routes into Notes only the runtime can see. Given the segment's text and why,
     /// stores it and returns true (`NotesWiring.wireLatch`). Nil keeps the pre-N2 behaviour: an
     /// app switch holds the segment for where it began (D01), another voice is only suppressed.
@@ -314,6 +321,8 @@ public final class LatchRuntime: @unchecked Sendable {
     /// Focus at latch entry for the segment open then; used only if no speech start is heard.
     private var provisionalFocus: [SegmentID: FocusSnapshot] = [:]
     private var lastEnqueued: SegmentID?
+    /// RC3 — each closed segment's audio, cut at the boundary, until its `.closed` takes it.
+    private var segmentAudio: [SegmentID: [Float]] = [:]
     // X7 / H30 — the hands-free session target (the field focused at latch entry).
     private var sessionTarget: FocusSnapshot?
     // B4
@@ -589,6 +598,29 @@ public final class LatchRuntime: @unchecked Sendable {
         Task { await engine.closeSegmentAtEndpoint() }
     }
 
+    /// Hands-free fix (RC5, owner spec) — a piece also lands at the end of a sentence, not only after
+    /// the full "Insert after a pause of" silence. On by default.
+    public var closesAtSentenceEnd = true
+    /// Sentence-end closures (tests and diagnostics).
+    public private(set) var sentenceEndClosures = 0
+
+    /// RC5 — the streaming recognizer confirmed an end of utterance (Parakeet EOU: the speaker
+    /// finished a sentence, ~1.3 s of no new words) in `segment`. While latched, with speech heard
+    /// in the segment and the voice detector no longer hearing any, the segment closes now — the
+    /// same closure a pause makes. A hint about a segment that is no longer open, or one heard while
+    /// the user is talking again, changes nothing.
+    public func sentenceEnded(in segment: SegmentID) {
+        guard closesAtSentenceEnd, source == .dictation, isLatched() else { return }
+        let closes = lock.withLock { () -> Bool in
+            guard openSegment == segment, endpointState.speechHeard, !endpointState.inSpeech else { return false }
+            sentenceEndClosures += 1
+            return true
+        }
+        guard closes else { return }
+        Log.app.notice("latch: sentence end in \(segment.description) — the piece lands now")
+        closeSegmentAtEndpoint()
+    }
+
     /// A fresh session: the endpointer starts from this position.
     public func sessionStarted(at position: TimeInterval = 0) {
         lock.withLock {
@@ -600,6 +632,7 @@ public final class LatchRuntime: @unchecked Sendable {
             openSegment = nil
             beganFocus.removeAll()
             provisionalFocus.removeAll()
+            segmentAudio.removeAll()
             generation += 1
         }
     }
@@ -609,6 +642,16 @@ public final class LatchRuntime: @unchecked Sendable {
     public func handle(_ event: SegmentEvent) {
         switch event {
         case .opened(let segment):
+            // RC3 — the segment that was open has just been cut by the engine: its audio ends here.
+            let previous = lock.withLock { openSegment }
+            if let previous, previous != segment, let cut = cutSegmentAudio {
+                let audio = cut()
+                lock.withLock {
+                    // Entries of sessions that ended before their `.closed` never pile up.
+                    if segmentAudio.count >= 8 { segmentAudio.removeAll() }
+                    segmentAudio[previous] = audio ?? []
+                }
+            }
             let continuing = lock.withLock { () -> Bool in
                 openSegment = segment
                 return endpointState.inSpeech && beganFocus[segment] == nil
@@ -620,7 +663,13 @@ public final class LatchRuntime: @unchecked Sendable {
             }
         case .preview, .rejected:
             break
+        case .endOfUtterance(let segment):
+            // `isLatched` and the endpointer live on the feed's queue (main), like VAD events.
+            feedQueue { [weak self] in self?.sentenceEnded(in: segment) }
         case .closed(let segment, let spans, _, let reason):
+            // RC3 — this segment's audio: cut at the next segment's opening, else now.
+            let stored = lock.withLock { segmentAudio.removeValue(forKey: segment) }
+            let audio: [Float]? = stored ?? ((reason == .endpoint || reason == .backlogBound) ? cutSegmentAudio?() : nil)
             switch reason {
             case .endpoint, .backlogBound:
                 // A segment that closed while capture continued. This is the latch path, and the
@@ -643,7 +692,7 @@ public final class LatchRuntime: @unchecked Sendable {
                     return beganFocus.removeValue(forKey: segment) ?? provisional
                 }
                 let closedFocus = source == .dictation ? delivery.currentFocus() : nil
-                enqueue(Job(segment: segment, spans: spans, began: began, closed: closedFocus))
+                enqueue(Job(segment: segment, spans: spans, began: began, closed: closedFocus, audio: audio))
             case .keyRelease:
                 // The segment that ended the session. `DictationCoordinator.finalize()` lands it
                 // through `UtteranceLander`, exactly as in hold mode — delivering it here as well
@@ -721,6 +770,8 @@ public final class LatchRuntime: @unchecked Sendable {
         var began: FocusSnapshot?
         /// Focus when the segment closed.
         var closed: FocusSnapshot?
+        /// RC3 — the segment's own audio, for the speaker check.
+        var audio: [Float]? = nil
     }
 
     private func enqueue(_ job: Job) {
@@ -757,7 +808,9 @@ public final class LatchRuntime: @unchecked Sendable {
             record(.transcript(text), for: segment)
             return
         }
-        if let decision = speakerGuard?(), case .suppress(let reason) = decision {
+        let check = speakerCheck
+        let decision = check.map { $0(job.audio) } ?? speakerGuard?()
+        if let decision, case .suppress(let reason) = decision {
             Log.app.notice("latch: insertion suppressed — \(reason.rawValue)")
             // V5 N2 / K4 — latched speech in another voice is never typed, but it is kept in Notes.
             if reason == .mismatch, notesRoute?(text, .otherVoice) == true {

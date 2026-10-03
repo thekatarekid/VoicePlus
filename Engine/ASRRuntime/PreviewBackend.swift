@@ -56,3 +56,9 @@ public final class FormattedPreviewRecognizer: PreviewRecognizer, @unchecked Sen
 
     public func reset() async { await base.reset() }
 }
+
+extension FormattedPreviewRecognizer: EndOfUtteranceReporting {
+    public func takeEndOfUtterance() async -> Bool {
+        await (base as? EndOfUtteranceReporting)?.takeEndOfUtterance() ?? false
+    }
+}

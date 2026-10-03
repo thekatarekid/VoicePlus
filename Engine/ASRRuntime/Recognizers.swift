@@ -10,6 +10,12 @@ public protocol PreviewRecognizer: AnyObject, Sendable {
     func reset() async
 }
 
+/// Hands-free fix (RC5) — a preview recognizer that can tell when the speaker finished a sentence.
+public protocol EndOfUtteranceReporting: AnyObject, Sendable {
+    /// True once per confirmed end of utterance since the last `reset()`.
+    func takeEndOfUtterance() async -> Bool
+}
+
 /// Final pass over the whole utterance → word spans with confidence + timestamps.
 public protocol FinalRecognizer: AnyObject, Sendable {
     var name: String { get }
@@ -69,6 +75,9 @@ public final class EOUPreviewRecognizer: PreviewRecognizer, @unchecked Sendable 
     private let manager: StreamingEouAsrManager
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
 
+    private let eouLock = NSLock()
+    private var eouReported = false
+
     public init(manager: StreamingEouAsrManager) { self.manager = manager }
 
     public func feed(_ samples: [Float]) async throws -> String {
@@ -82,7 +91,22 @@ public final class EOUPreviewRecognizer: PreviewRecognizer, @unchecked Sendable 
         return await manager.getPartialTranscript()
     }
 
-    public func reset() async { await manager.reset() }
+    public func reset() async {
+        await manager.reset()
+        eouLock.withLock { eouReported = false }
+    }
+}
+
+extension EOUPreviewRecognizer: EndOfUtteranceReporting {
+    /// The EOU head's debounced verdict (`StreamingEouAsrManager.eouDetected`), reported once per
+    /// segment (the manager is reset when a segment closes).
+    public func takeEndOfUtterance() async -> Bool {
+        guard await manager.eouDetected else { return false }
+        return eouLock.withLock { () -> Bool in
+            defer { eouReported = true }
+            return !eouReported
+        }
+    }
 }
 
 /// Preview that echoes the final recognizer over the accumulated buffer every `interval` seconds

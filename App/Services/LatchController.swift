@@ -566,15 +566,28 @@ extension LatchController {
     /// What the attached runtime's guard answers for the segment that just closed.
     public func latchSegmentDecision() -> SpeakerFilter.Decision {
         let audio = speakerLock.withLock { segmentAudio }
-        return decideLatchSegment(samples: audio?() ?? [])
+        return decideLatchSegment(samples: SpeakerSegmentAudio.voiced(audio?() ?? []))
+    }
+
+    /// Hands-free fix (RC3) — the decision for one closed segment's own audio (cut when it closed,
+    /// `LatchRuntime.cutSegmentAudio`), voiced part only (`SpeakerSegmentAudio.voiced`).
+    public func latchSegmentDecision(audio: [Float]?) -> SpeakerFilter.Decision {
+        decideLatchSegment(samples: SpeakerSegmentAudio.voiced(audio ?? []))
     }
 
     func syncSpeakerGuard() {
-        let (runtime, on) = speakerLock.withLock { (self.runtime, _speakerFilteringEnabled) }
+        let (runtime, on, audio) = speakerLock.withLock { (self.runtime, _speakerFilteringEnabled, segmentAudio) }
         guard let runtime else { return }
         runtime.speakerGuard = on ? { [weak self] in
             guard let self, self.onlyMyVoice() else { return .allow(similarity: nil) }   // V5 K3
             return self.latchSegmentDecision()
+        } : nil
+        // RC3 — the segment's audio is cut at its close, not when the check runs: an empty segment
+        // (or a long pause) no longer leaves up to 30 s of silence and typing in the next check.
+        runtime.cutSegmentAudio = audio
+        runtime.speakerCheck = on ? { [weak self] samples in
+            guard let self, self.onlyMyVoice() else { return .allow(similarity: nil) }   // V5 K3
+            return self.latchSegmentDecision(audio: samples)
         } : nil
     }
 
@@ -588,10 +601,18 @@ extension LatchController {
         }
         let embedder = self.embedder
         let embedding = samples.isEmpty ? nil : try? embedder.embed(samples)
-        let decision = filter.decide(embedding.map { filter.gate.verdict(for: $0) } ?? .unknown)
+        let verdict = embedding.map { filter.gate.verdict(for: $0) } ?? .unknown
+        let decision = filter.decide(verdict)
+        // RC3 — the numbers behind a verdict, so a wrong "another voice" can be diagnosed (no audio).
+        let similarity: String
+        switch verdict {
+        case .user(let s), .other(let s): similarity = String(format: "%.2f", s)
+        case .unknown: similarity = "none"
+        }
+        Log.app.info("latch: speaker check \(String(format: "%.1f", Double(samples.count) / 16_000)) s voiced, similarity \(similarity), threshold \(String(format: "%.2f", filter.gate.effectiveThreshold))")
         if let reason = decision.suppression {
             lastRejection = reason.rawValue
-            Log.app.notice("latch: speaker filter suppressed a segment — \(reason.rawValue)")
+            Log.app.notice("latch: speaker filter suppressed a segment — \(reason.rawValue) (similarity \(similarity))")
         } else if let embedding {
             lastRejection = nil
             // So a "Not you" right after this segment knows which voice to learn from.
