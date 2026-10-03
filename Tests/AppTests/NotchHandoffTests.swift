@@ -69,6 +69,38 @@ struct NotchHandoffTests {
         #expect(model.state == .hidden, "the session's end is the way out")
     }
 
+    @Test("a retraction held from before the session began is released onto the hands-free row, never .hidden")
+    func heldRetractionNeverClosesALatchedNotch() {
+        let model = PillViewModel()
+        var clock = Self.t0
+        model.now = { clock }
+        model.present(.cancelled)
+        model.hide()
+        #expect(model.state == .cancelled, "the row's minimum dwell holds the retraction")
+        model.latched = true   // the double-tap entered hands-free before the held retraction ran
+        clock = clock.addingTimeInterval(5)
+        model.flushPillHold()
+        #expect(model.state.caseName == "latched")
+        model.latched = false
+        model.hide()
+        #expect(model.state == .hidden)
+    }
+
+    @Test("the pointer on the notch (reaching for Finish dictation) never swaps a non-waiting piece's row under it")
+    func hoverPausedImmediatePieceStaysOnTheRow() {
+        let (model, _) = latchedModel()
+        let latchedFace = model.content()
+        model.present(.finalPreview(FinalPreviewInfo(text: "Piece.", dwellRemaining: 0, paused: true,
+                                                     pauseReason: .hover)))
+        let face = model.content()
+        #expect(face.designKey == latchedFace.designKey)
+        #expect(face.buttons == latchedFace.buttons, "Finish dictation stays under the pointer")
+        // A timed dwell that is really waiting on the pause keeps its own row.
+        model.present(.finalPreview(FinalPreviewInfo(text: "Piece.", dwellRemaining: 0.6, paused: true,
+                                                     pauseReason: .hover)))
+        #expect(model.content().designKey != latchedFace.designKey)
+    }
+
     @Test("a manual preview during hands-free keeps its own row (it waits for the user)")
     func manualPreviewKeepsItsRow() {
         let (model, _) = latchedModel()

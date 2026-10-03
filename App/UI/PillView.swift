@@ -706,13 +706,20 @@ public final class PillViewModel: ObservableObject {
     /// every landing drew its own row and then retracted the pill. The piece's automatic preview and
     /// its write are drawn the same way (its words on the hands-free row, "Inserting in <App>…"), so
     /// the row, its size and its Finish dictation button never change under the pointer between
-    /// pieces. A manual or paused preview keeps its own row (it waits for the user).
+    /// pieces. A manual preview, or a paused one whose dwell is still waiting, keeps its own row (it
+    /// waits for the user).
+    ///
+    /// Fix notch (verify) — a hover pause on a piece that does not wait (no preview pause, the default:
+    /// `dwellRemaining` 0, its insert already decided) stays on the hands-free row. The pointer is on
+    /// the notch exactly when the user is reaching for Finish dictation; swapping in the preview's own
+    /// row (other size, Insert / Cancel) under it moved the button the click was aimed at.
     func latchedPieceFace(over row: PillContent, at date: Date? = nil) -> PillContent? {
         guard latched, !isEditingDraft else { return nil }
         let showsPieceWords: Bool
         switch state {
         case .landed(let info) where info.clearsOnItsOwn: showsPieceWords = false
-        case .finalPreview(let info) where !info.manual && !info.paused: showsPieceWords = true
+        case .finalPreview(let info) where !info.manual && (!info.paused || info.dwellRemaining <= 0):
+            showsPieceWords = true
         case .inserting: showsPieceWords = true
         default: return nil
         }
@@ -863,7 +870,14 @@ public final class PillViewModel: ObservableObject {
     }
 
     /// Test seam and timer callback: let a held retraction through once its deadline has passed.
-    public func flushPillHold() { apply(decision: presenter.flush(now: now())) }
+    public func flushPillHold() {
+        let decision = presenter.flush(now: now())
+        // Fix notch (verify) — a retraction held from before the session began (a row's minimum
+        // dwell) is released here, outside `route`: during hands-free it returns to the hands-free
+        // row like every other retraction instead of closing the notch under an open session.
+        if latched, case .show(.hidden) = decision { return route(.hidden) }
+        apply(decision: decision)
+    }
 
     private func apply(decision: PillPresenter.Decision) {
         switch decision {
