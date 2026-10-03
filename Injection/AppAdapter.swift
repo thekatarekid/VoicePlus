@@ -69,6 +69,13 @@ public enum Readback {
     /// `elementID` (when both sides know it) or another role (when both sides read one). Claude
     /// desktop moved focus from a non-text `AXGroup` into its composer *during* the write, and the
     /// composer's caret (2 > 0) was taken as proof the sentence had landed.
+    /// rq — after a focus move, the element focused now holds the whole (non-trivial) text.
+    static func wholeTextIn(_ after: FocusedElementInfo, text: String) -> Bool {
+        let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard needle.count >= 4, let value = after.value else { return false }
+        return value.contains(needle)
+    }
+
     public static func focusMoved(before: FocusedElementInfo, after: FocusedElementInfo) -> Bool {
         if let a = before.elementID, let b = after.elementID, a != b { return true }
         let known: (String) -> Bool = { !$0.isEmpty && $0 != "unknown" }
@@ -83,8 +90,13 @@ public enum Readback {
     /// live. Only a readback that *ran* and showed nothing is `unconfirmed`; when neither side could
     /// answer, verification is skipped (`unavailable`), never reported as a failure.
     public static func byValueOrCaret(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
-        // rq — the value or caret of another element is never proof (focus moved during the write).
-        if let before, let after, focusMoved(before: before, after: after) { return .unconfirmed }
+        // rq — the caret of another element is never proof (focus moved during the write). Only
+        // the whole text in the element focused now is: Chromium can hand focus from a ProseMirror
+        // root (AXGroup) to the caret's paragraph (AXStaticText) as the first characters land, and
+        // that write did land. Claude's "r?" composer does not contain the sentence.
+        if let before, let after, focusMoved(before: before, after: after) {
+            return Self.wholeTextIn(after, text: text) ? .confirmed : .unconfirmed
+        }
         let byValue = Readback.byValue(text: text, before: before, after: after)
         if byValue == .confirmed { return .confirmed }
         let bySelection = Readback.byCaretOrSelection(text: text, before: before, after: after)

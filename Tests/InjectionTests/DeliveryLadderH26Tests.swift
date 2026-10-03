@@ -105,4 +105,25 @@ struct DeliveryLadderH26Tests {
         #expect(L.decide(focusSame: true, window: .same, secureInput: false, fieldReadable: true,
                          surface: .terminal, multiline: false, field: .none) == .deliver(method: .paste, verify: true))
     }
+
+    @Test("TargetRevision: an empty group reading \"\\n\" is blank (Claude's empty contenteditable)")
+    func revisionNewlineIsBlank() {
+        let focus = FocusSnapshot(pid: 9, bundleID: "com.anthropic.claudefordesktop")
+        let group = TargetRevision(focus: focus, role: "AXGroup", textVersion: TargetRevision.version(of: "\n"),
+                                   isTextSettable: false)
+        #expect(group.fieldPresence(runtime: .electron) == .none)
+        var typed = group; typed.textVersion = TargetRevision.version(of: "r?")
+        #expect(typed.fieldPresence(runtime: .electron) == .unknown, "a group with text is not certain")
+        #expect(group.fieldPresence(runtime: .native) == .unknown, "native AXGroup: H26 role rule, unchanged")
+    }
+
+    @Test("decide: a password field in web content is refused, never Notes")
+    func passwordBeatsNoField() {
+        let secure = DeliveryLadder.fieldPresence(role: "AXTextField", value: "", textSettable: false,
+                                                  runtime: .chromium, isSecure: true)
+        #expect(secure == .textField)
+        #expect(DeliveryLadder.decide(focusSame: true, window: .same, secureInput: true, fieldReadable: false,
+                                      surface: nil, multiline: false, webContent: true, passwordField: true,
+                                      field: .none) == .hold(.passwordField))
+    }
 }

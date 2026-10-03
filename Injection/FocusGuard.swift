@@ -86,7 +86,8 @@ public struct TargetRevision: Equatable, Sendable {
     /// rq (2026-10-04) — is a text field focused? `DeliveryLadder.fieldPresence` over this read:
     /// the value is blank when AX exposed none or exposed exactly "" (`textVersion`).
     public func fieldPresence(runtime: SurfaceRuntime?) -> DeliveryLadder.FieldPresence {
-        let blank = textVersion == nil || textVersion == Self.version(of: "")
+        // An empty ProseMirror / contenteditable reads "\n" (Claude's empty composer does).
+        let blank = textVersion.map { [Self.version(of: ""), Self.version(of: "\n")].contains($0) } ?? true
         return DeliveryLadder.fieldPresence(role: role, valueBlank: blank, textSettable: isTextSettable,
                                             runtime: runtime, isSecure: isSecure)
     }

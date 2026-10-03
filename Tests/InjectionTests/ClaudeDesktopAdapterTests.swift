@@ -103,11 +103,33 @@ import Shared
         // Another element by identity (same role) is not proof either, even with the exact caret.
         var a = FocusedElementInfo(role: "AXTextArea", value: "", selectedRange: 0 ..< 0,
                                    isValueSettable: true, isSelectedTextSettable: true, elementID: 1)
-        var b = a; b.elementID = 2; b.selectedRange = 34 ..< 34; b.value = text
+        var b = a; b.elementID = 2; b.selectedRange = 34 ..< 34; b.value = "r?"
         #expect(ElectronAdapter().verifyReadback(text: text, before: a, after: b) == .unconfirmed)
+        b.value = nil
+        #expect(ElectronAdapter().verifyReadback(text: text, before: a, after: b) == .unconfirmed,
+                "a caret in another element, no value: not proof")
+        // ...unless the element focused now holds the whole sentence: then it did land.
+        b.value = text
+        #expect(ElectronAdapter().verifyReadback(text: text, before: a, after: b) == .confirmed)
         a.elementID = nil
         #expect(ElectronAdapter().verifyReadback(text: text, before: a, after: b) == .confirmed,
                 "one side without identity: the role is compared, and it matches")
+    }
+
+    /// ChatGPT-like ProseMirror: focus starts on the editable root (AXGroup) and, once text lands,
+    /// is reported on the caret's paragraph (AXStaticText, another element). The paragraph holds
+    /// the whole sentence, so the write is confirmed, not a spurious "Couldn't confirm insertion".
+    @Test func aRoleFlipIntoTheParagraphHoldingTheTextIsConfirmed() {
+        let text = "Is the dictation working properly?"
+        let before = FocusedElementInfo(role: "AXGroup", value: "", selectedRange: 0 ..< 0,
+                                        isValueSettable: true, isSelectedTextSettable: true, elementID: 1)
+        let after = FocusedElementInfo(role: "AXStaticText", value: text, selectedRange: 34 ..< 34,
+                                       isValueSettable: false, isSelectedTextSettable: false, elementID: 2)
+        #expect(WebContentAdapter().verifyReadback(text: text, before: before, after: after) == .confirmed)
+        #expect(ChromiumAdapter().verifyReadback(text: text, before: before, after: after) == .confirmed)
+        // A trivial text is never "contained" proof across a focus move.
+        var tiny = after; tiny.value = "ok then"
+        #expect(WebContentAdapter().verifyReadback(text: "ok", before: before, after: tiny) == .unconfirmed)
     }
 
     /// Same element, but the caret moved 2 for a 34-character write: characters were dropped.
