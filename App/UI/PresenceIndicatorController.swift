@@ -60,6 +60,10 @@ public final class PresenceIndicatorController {
     private var hoverTimer: Timer?
     /// The width the expanded row currently needs; drives both the panel frame and the hover rect.
     private var rowWidth: CGFloat?
+    /// H34 — the frame an in-flight grow/shrink is heading for (the target-frame guard).
+    private var animatingTo: CGRect?
+    /// H34 — the in-flight animation is a collapse back to the chin: the dot waits for it to finish.
+    private var collapseInFlight = false
     /// Last logged microphone ownership, so the 5 Hz refresh logs changes and not a stream.
     private var lastOwnership: MicrophoneOwnership?
     private var observers: [NSObjectProtocol] = []
@@ -366,11 +370,14 @@ public final class PresenceIndicatorController {
         }
         guard force || next != state || expanded != hovered || width?.width != rowWidth else { return }
         let changed = next != state || expanded != hovered
+        let wasExpanded = hovered
         state = next
         hovered = expanded
         rowWidth = width?.width
 
         guard next.isVisible else {
+            animatingTo = nil
+            collapseInFlight = false
             panel.ignoresMouseEvents = true
             panel.orderOut(nil)
             if changed { Log.app.notice("presence state: off (enabled=\(self.inputs.enabled) pill=\(self.inputs.pillVisible) menuBar=\(self.inputs.menuBarPresent))") }
@@ -385,16 +392,43 @@ public final class PresenceIndicatorController {
         // content, so it is laid out once, at its final size. Assigning `rootView` first laid the new
         // content out at the old (hover-row) size and then resized it, and a repeating animation
         // started in between captured that resize — the chin's off-centre, shrunken pulse.
-        let cap = expanded && layout.attached ? metrics.topBand : 0
-        var panelFrame = layout.frame
-        panelFrame.size.height += cap
-        panel.setFrame(panelFrame, display: false)
+        // H34 — no cap above the row: the panel frame is the layout frame, top edge = the pill's.
+        let target = PresenceResize.panelFrame(for: layout)
+        let collapsing = !expanded && (wasExpanded || collapseInFlight)
+        let step = PresenceResize.step(current: panel.frame, inFlightTarget: animatingTo, target: target,
+                                       reduceMotion: MotionPreference.shared.reduced, visible: panel.isVisible)
+        switch step {
+        case .none:
+            break
+        case .snap(let frame):
+            animatingTo = nil
+            collapseInFlight = false
+            panel.setFrame(frame, display: false)
+        case .animate(let frame):
+            // H34 — the window frame itself animates from its centre (left, right and down; the top
+            // edge is fixed). A refresh that asks for the same target mid-flight lands in `.none`.
+            animatingTo = frame
+            collapseInFlight = collapsing
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = PresenceResize.duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                panel.animator().setFrame(frame, display: true)
+            }, completionHandler: { [weak self] in
+                guard let self, self.animatingTo == frame else { return }
+                self.animatingTo = nil
+                let wasCollapse = self.collapseInFlight
+                self.collapseInFlight = false
+                // The dot comes back only now that the frame is the chin's.
+                if wasCollapse { self.refresh(force: true) }
+            })
+        }
         // Belt and braces on top of `PresenceContainerView.layout()`: the chin is 4 pt tall at rest
         // and an off-by-one hosting frame is the difference between a hairline and nothing at all.
         hosting.frame = container.bounds
         hosting.rootView = PresenceIndicatorView(state: next, hovered: expanded,
                                                  cornerRadius: layout.cornerRadius, hint: hotkeyHint(),
-                                                 rowText: width?.text, attached: layout.attached, readyHint: hint, backgroundCap: cap,
+                                                 rowText: width?.text, attached: layout.attached, readyHint: hint,
+                                                 collapsing: collapseInFlight,
                                                  heldWaiting: needsYou ? heldWaiting : 0)
         panel.displayIfNeeded()
         // `orderFrontRegardless`, never `makeKeyAndOrderFront` and never `NSApp.activate`: the

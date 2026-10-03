@@ -205,3 +205,44 @@ public enum PresenceInteraction {
         current > 0 || everObserved <= 0
     }
 }
+
+/// H34 — how the presence panel moves between the chin and the hover row.
+///
+/// * No cap: the panel frame **is** the layout frame, so its top edge is the pill's top edge (the
+///   bottom of the menu bar or the housing) and nothing is ever painted into the menu bar.
+/// * Grow and shrink animate the window frame itself, from its centre: both frames share centre-x
+///   and the top edge (`PresenceGeometry.frame`), so the row widens left and right and drops down.
+/// * Target-frame guard: the 5 Hz refresh asks for the same target again mid-flight; that is a no-op,
+///   never a restart.
+/// * Reduce Motion, a hidden panel or a move to another anchor (display change) snaps.
+public enum PresenceResize {
+    public enum Step: Equatable, Sendable {
+        case none
+        case snap(CGRect)
+        case animate(CGRect)
+    }
+
+    /// Grow/shrink duration (seconds).
+    public static let duration: TimeInterval = 0.18
+
+    /// The panel frame for a layout — the layout frame, with no cap above it.
+    public static func panelFrame(for layout: PresenceGeometry.Layout) -> CGRect { layout.frame }
+
+    public static func step(current: CGRect, inFlightTarget: CGRect?, target: CGRect,
+                            reduceMotion: Bool, visible: Bool) -> Step {
+        if let inFlightTarget {
+            if inFlightTarget == target { return .none }
+        } else if current == target {
+            return .none
+        }
+        if reduceMotion || !visible || current.isEmpty { return .snap(target) }
+        // Only a resize about the same anchor animates; anything else is a move and snaps.
+        guard sharesAnchor(current, target) else { return .snap(target) }
+        return .animate(target)
+    }
+
+    /// Same centre-x and the same top edge (within half a point of rounding).
+    public static func sharesAnchor(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.midX - b.midX) <= 0.5 && abs(a.maxY - b.maxY) <= 0.5
+    }
+}

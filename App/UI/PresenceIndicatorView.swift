@@ -18,14 +18,15 @@ struct PresenceIndicatorView: View {
     let attached: Bool
     /// The I1 hint for the configured key; also the chin's accessible description (design §4).
     let readyHint: String
-    let backgroundCap: CGFloat
+    /// H34 — the panel is shrinking back to the chin: the rest body (the dot) waits until it has.
+    let collapsing: Bool
     /// N22 — held texts waiting; above zero the resting chin is the Needs you badge.
     let heldWaiting: Int
     /// S10 — Reduce Motion (system or Settings › Appearance).
     @ObservedObject private var motion = MotionPreference.shared
 
     init(state: PresenceState, hovered: Bool, cornerRadius: CGFloat, hint: String, rowText: String? = nil,
-         attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint(), backgroundCap: CGFloat = 0,
+         attached: Bool = true, readyHint: String = HotkeyBinding.default.readyHint(), collapsing: Bool = false,
          heldWaiting: Int = 0) {
         self.state = state
         self.hovered = hovered
@@ -33,7 +34,7 @@ struct PresenceIndicatorView: View {
         self.hint = hint
         self.attached = attached
         self.readyHint = readyHint
-        self.backgroundCap = backgroundCap
+        self.collapsing = collapsing
         let needsYou = PresenceFace.of(state, heldWaiting: heldWaiting) == .needsYou
         self.heldWaiting = needsYou ? heldWaiting : 0
         self.rowText = rowText
@@ -44,10 +45,8 @@ struct PresenceIndicatorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if backgroundCap > 0 { Color.clear.frame(height: backgroundCap) }
-            content.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        // H34 — no cap: the row never paints above its own top edge (the bottom of the menu bar).
+        content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(background)
             .clipShape(UnevenRoundedRectangle(cornerRadii: corners))
@@ -60,7 +59,9 @@ struct PresenceIndicatorView: View {
 
     /// FX6 — the seam the tests read: which body this view renders, and therefore whether a dot is
     /// in the presentation at all.
-    var contentKind: PresenceContent { PresenceContent.kind(state: state, hovered: hovered, needsYou: needsYou) }
+    var contentKind: PresenceContent {
+        PresenceContent.kind(state: state, hovered: hovered, needsYou: needsYou, collapsing: collapsing)
+    }
 
     /// N22 — the chin is the Needs you face.
     var needsYou: Bool { heldWaiting > 0 }
@@ -82,7 +83,7 @@ struct PresenceIndicatorView: View {
     /// and `.transition(.opacity)` says the only thing that may animate is opacity: the dot
     /// cross-fades out where it stands and is genuinely absent from the hint layout.
     @ViewBuilder private var content: some View {
-        let kind = PresenceContent.kind(state: state, hovered: hovered, needsYou: needsYou)
+        let kind = contentKind
         ZStack {
             switch kind {
             case .empty:
@@ -151,8 +152,13 @@ enum PresenceContent: Equatable {
     case hint
     case row
 
-    static func kind(state: PresenceState, hovered: Bool, needsYou: Bool = false) -> PresenceContent {
+    /// H34 — `collapsing`: the panel is still shrinking from the hover row, so the dot (which used
+    /// to be laid out mid-shrink — the old FX5 "shrunken, off-centre dot") is not drawn until the
+    /// frame has reached the chin.
+    static func kind(state: PresenceState, hovered: Bool, needsYou: Bool = false,
+                     collapsing: Bool = false) -> PresenceContent {
         guard state != .off else { return .empty }
+        if collapsing, !hovered, !needsYou, state == .ready { return .empty }
         // N22 — Needs you is a badge at rest and its row on hover (never the ready dot or hint).
         if needsYou { return hovered ? .row : .badge }
         if hovered { return state == .ready ? .hint : .row }
