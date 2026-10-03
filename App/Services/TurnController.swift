@@ -226,6 +226,18 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var onNote: ((String) -> Void)?
     /// How long a note stays up.
     public static let noteDwell: TimeInterval = 6
+    /// H29 — the hands-free session's pieces so far (the latch runtime's tally). Read when the
+    /// session's last piece has ended. Unset: no summary line.
+    public var handsFreeTally: (() -> HandsFreeTally?)?
+    /// H29 — "Hands-free ended · 3 inserted in Claude": shown once per session, after the last
+    /// piece's own brief outcome.
+    public var onHandsFreeEnded: ((TurnOutcome) -> Void)?
+    /// H29 — how long after the last piece ends the summary replaces its brief outcome row (Q8:
+    /// each piece flashes where it went first). Pieces still queued in the runtime land meanwhile.
+    public var handsFreeSummaryDelay: TimeInterval = TurnController.handsFreeSummaryDelayDefault
+    public static let handsFreeSummaryDelayDefault: TimeInterval = 1.0
+    /// How long the summary line stays up.
+    public static let handsFreeSummaryDwell: TimeInterval = 3
     /// H2 — the tap hint's dwell is over: take it down if it is still what the notch shows.
     public var onTapHintExpired: (() -> Void)?
     /// H2 / X3-taps — a tap over a visible non-capture notch: take whatever it shows down.
@@ -1798,9 +1810,13 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         var fx = Effects()
         typealias Parked = (preview: CheckedContinuation<Void, Never>?, exit: CheckedContinuation<DwellExit, Never>?,
                             gate: CheckedContinuation<Void, Never>?)
+        var summary: HandsFreeTally.LastPiece?
         let ended = lock.withLock { () -> Parked? in
             guard let turn = turns[id] else { return nil }
             change(&turn.record)
+            if turn.latched, turn.origin == .hold {
+                summary = HandsFreeTally.LastPiece(stage: stage, app: TurnOutcome.clean(turn.record.destination.appName))
+            }
             turn.stage = stage
             turn.cancelTimers()
             turns[id] = nil
@@ -1822,6 +1838,23 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         fx.run(self)
         Log.app.info("turn \(id.description): \(stage.rawValue)")
         ui { [weak self] in self?.onTurnEnded?(id, stage) }
+        if let summary { scheduleHandsFreeSummary(summary) }
+    }
+
+    /// H29 — the hands-free session's last piece ended: after `handsFreeSummaryDelay`, one line
+    /// for the whole session (pieces typed, pieces saved to Notes, the app when there was one).
+    /// Escape / Cancel / a failure say their own thing instead; a new capture by then keeps the notch.
+    private func scheduleHandsFreeSummary(_ last: HandsFreeTally.LastPiece) {
+        guard last.endsWithSummary, let tallyReader = handsFreeTally else { return }
+        _ = clock.schedule(after: handsFreeSummaryDelay) { [weak self] in
+            guard let self else { return }
+            var tally = tallyReader() ?? HandsFreeTally()
+            tally.note(last)
+            guard let outcome = tally.outcome else { return }
+            if self.lock.withLock({ self.captureID != nil }) { return }
+            Log.app.notice("turn: \(outcome.text)")
+            self.ui { [weak self] in self?.onHandsFreeEnded?(outcome) }
+        }
     }
 
     private func busyTurnLocked() -> TurnID? {
@@ -2026,6 +2059,57 @@ struct UndoOffer {
 
 // MARK: - App wiring
 
+/// H29 — one hands-free session, counted for its end line ("Hands-free ended · 3 inserted in
+/// Claude · 1 saved to Notes"). Counts only; never any text.
+public struct HandsFreeTally: Equatable, Sendable {
+    public private(set) var inserted = 0
+    public private(set) var savedToNotes = 0
+    /// Distinct apps typed into, in order.
+    public private(set) var apps: [String] = []
+
+    public init() {}
+
+    /// The session's last piece (the one the stop tap closed), as its turn ended.
+    public struct LastPiece: Equatable, Sendable {
+        public var stage: TurnStage
+        public var app: String?
+        public init(stage: TurnStage, app: String?) {
+            self.stage = stage
+            self.app = app
+        }
+        /// Escape / Cancel and failures say their own thing; every other end gets the summary.
+        public var endsWithSummary: Bool {
+            switch stage {
+            case .landed, .held, .empty, .consumed, .resolved: return true
+            default: return false
+            }
+        }
+    }
+
+    public mutating func noteInserted(app: String?) {
+        inserted += 1
+        if let app = TurnOutcome.clean(app), !apps.contains(app) { apps.append(app) }
+    }
+
+    public mutating func noteSavedToNotes() { savedToNotes += 1 }
+
+    public mutating func note(_ last: LastPiece) {
+        switch last.stage {
+        case .landed: noteInserted(app: last.app)
+        case .held: noteSavedToNotes()
+        default: break
+        }
+    }
+
+    /// The one app every piece went to; nil for none or several.
+    public var app: String? { apps.count == 1 ? apps[0] : nil }
+    public var isEmpty: Bool { inserted == 0 && savedToNotes == 0 }
+    /// The end line's outcome; nil when nothing was typed or saved (the notch just goes).
+    public var outcome: TurnOutcome? {
+        isEmpty ? nil : .handsFreeEnded(app: app, inserted: inserted, savedToNotes: savedToNotes)
+    }
+}
+
 /// S3 — the composition root's one call: builds the turn store and controller over the container,
 /// makes the controller the lander's gate and the dictation coordinator's turn owner, and connects
 /// the pill (present, retract, rendered-final acknowledgment, hover, the turn's buttons), notices,
@@ -2202,6 +2286,16 @@ public final class TurnWiring {
         controller.onNote = { [weak pill] text in
             pill?.present(.preview(text: text))
             DispatchQueue.main.asyncAfter(deadline: .now() + TurnController.noteDwell) { [weak pill] in
+                guard let pill, pill.state == .preview(text: text) else { return }
+                pill.hide()
+            }
+        }
+        // H29 — the session's summary line ("Hands-free ended · 3 inserted in Claude"), then gone.
+        controller.handsFreeTally = { [weak session] in session?.latch?.sessionTally }
+        controller.onHandsFreeEnded = { [weak pill] outcome in
+            let text = outcome.pillLine
+            pill?.present(.preview(text: text))
+            DispatchQueue.main.asyncAfter(deadline: .now() + TurnController.handsFreeSummaryDwell) { [weak pill] in
                 guard let pill, pill.state == .preview(text: text) else { return }
                 pill.hide()
             }

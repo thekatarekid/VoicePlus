@@ -17,12 +17,16 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         /// X3-taps (owner round 3, "Short presses") — while the notch shows something that is not a
         /// live capture, a press up to this long is a tap (it dismisses), not a hold.
         public var visibleTapCeiling: TimeInterval
+        /// H29 (old H11) — a press that goes down within this long of the key-up that stopped
+        /// hands-free is folded into the stop: no capture, no K04, its key-up does nothing.
+        public var stopFoldWindow: TimeInterval
         public init(holdThreshold: TimeInterval = 0.250, tapGuard: TimeInterval = 0.180, doubleTapWindow: TimeInterval = 0.350,
-                    visibleTapCeiling: TimeInterval = 0.800) {
+                    visibleTapCeiling: TimeInterval = 0.800, stopFoldWindow: TimeInterval = 0.300) {
             self.holdThreshold = holdThreshold
             self.tapGuard = tapGuard
             self.doubleTapWindow = doubleTapWindow
             self.visibleTapCeiling = visibleTapCeiling
+            self.stopFoldWindow = stopFoldWindow
         }
         public static let `default` = Timing()
     }
@@ -51,6 +55,28 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         /// X1 — the held key became a chord: capture was cancelled silently; the key-up ends the
         /// press with no action.
         case chorded
+        /// H29 — a re-press right after the hands-free stop: folded into the stop, nothing happens
+        /// until its key-up.
+        case folded
+    }
+
+    /// H5 — what a finished press was, for the one per-press log line (never any text).
+    public enum Gesture: String, Equatable, Sendable {
+        case tap
+        /// X3-taps — a press over a visible notch up to `visibleTapCeiling`: dismisses.
+        case tapOverNotch = "tap-over-notch"
+        /// Neither a clean tap nor a hold (between the tap guard and the hold threshold).
+        case ambiguous
+        case doubleTap = "double-tap"
+        case hold
+        /// The press that stopped hands-free.
+        case latchStop = "hands-free-stop"
+        /// X1 — Option + key / click / scroll (from idle, or during a hands-free stop press).
+        case chord
+        /// H29 — folded into the hands-free stop.
+        case folded
+        /// K02 — the key-up never arrived; the press was ended from the modifier state.
+        case lostKeyUp = "lost-key-up"
     }
 
     /// Why the machine last emitted `.cancelCapture`.
@@ -71,12 +97,16 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public private(set) var pressOverSurface = false
     /// Reason for the most recent `.cancelCapture` (nil before any).
     public private(set) var lastCancel: CancelKind?
+    /// H5 — the gesture of the press that ended last (nil before any).
+    public private(set) var lastGesture: Gesture?
+    /// H29 — key-up time of the press that stopped hands-free; `nil` once consumed or expired.
+    public private(set) var lastStopUp: TimeInterval?
 
     public init(timing: Timing = .default) { self.timing = timing }
 
     public var isCapturing: Bool {
         switch phase {
-        case .idle, .chorded: return false
+        case .idle, .chorded, .folded: return false
         case .keyDown, .latched, .latchedKeyDown: return true
         }
     }
@@ -86,7 +116,7 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     @discardableResult
     public mutating func keyDown(at t: TimeInterval, surfaceShowing: Bool = false) -> [Action] {
         switch phase {
-        case .keyDown, .latchedKeyDown, .chorded:
+        case .keyDown, .latchedKeyDown, .chorded, .folded:
             return [] // key repeat (or the other side of Option) — ignore
         case .latched:
             // A single press while latched stops and finalizes (V3 §4.3) — X1: at its key-up, so
@@ -95,6 +125,15 @@ public struct HotkeyStateMachine: Equatable, Sendable {
             lastTapUp = nil
             return []
         case .idle:
+            // H29 — a quick re-press after the stop (a habitual double tap to end hands-free)
+            // belongs to the stop: no new capture, so no K04 while the last piece is finishing.
+            if let stop = lastStopUp, t - stop >= 0, t - stop <= timing.stopFoldWindow {
+                lastStopUp = nil
+                lastTapUp = nil
+                phase = .folded
+                return []
+            }
+            lastStopUp = nil
             phase = .keyDown(since: t)
             pressOverSurface = surfaceShowing
             return [.startCapture]
@@ -106,10 +145,17 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         switch phase {
         case .chorded:
             phase = .idle
+            lastGesture = .chord
+            return []
+        case .folded:
+            phase = .idle
+            lastGesture = .folded
             return []
         case .latchedKeyDown:
             phase = .idle
             lastTapUp = nil
+            lastStopUp = t
+            lastGesture = .latchStop
             return [.finalize]
         default: break
         }
@@ -121,28 +167,33 @@ public struct HotkeyStateMachine: Equatable, Sendable {
             phase = .idle
             lastTapUp = nil
             lastCancel = .tap
+            lastGesture = .tapOverNotch
             return [.cancelCapture]
         }
         if duration >= timing.holdThreshold {
             phase = .idle
             lastTapUp = nil
+            lastGesture = .hold
             return [.finalize]
         }
         if duration < timing.tapGuard {
             if let previous = lastTapUp, t - previous <= timing.doubleTapWindow {
                 phase = .latched
                 lastTapUp = nil
+                lastGesture = .doubleTap
                 return [.enterLatch]
             }
             lastTapUp = t
             phase = .idle
             lastCancel = .tap
+            lastGesture = .tap
             return [.cancelCapture]
         }
         // Ambiguous press: neither a clean tap nor a hold. Cancel; does not arm a double-tap.
         phase = .idle
         lastTapUp = nil
         lastCancel = .tap
+        lastGesture = .ambiguous
         return [.cancelCapture]
     }
 
@@ -162,11 +213,12 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         case .latchedKeyDown:
             // Back to latched: the key-up that follows finds `.latched` and does nothing.
             phase = .latched
+            lastGesture = .chord
             return []
         case .idle:
             lastTapUp = nil
             return []
-        case .latched, .chorded:
+        case .latched, .chorded, .folded:
             return []
         }
     }
@@ -180,13 +232,14 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     @discardableResult
     public mutating func lostKeyUp(at t: TimeInterval) -> [Action] {
         switch phase {
-        case .chorded: phase = .idle; return []
-        case .latchedKeyDown: phase = .latched; return []
+        case .chorded, .folded: phase = .idle; lastGesture = .lostKeyUp; return []
+        case .latchedKeyDown: phase = .latched; lastGesture = .lostKeyUp; return []
         default: break
         }
         guard case .keyDown(let since) = phase else { return [] }
         phase = .idle
         lastTapUp = nil
+        lastGesture = .lostKeyUp
         return t - since >= timing.holdThreshold ? [.finalize] : [.cancelCapture]
     }
 
@@ -194,6 +247,7 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public mutating func reset() {
         phase = .idle
         lastTapUp = nil
+        lastStopUp = nil
         pressOverSurface = false
     }
 }
@@ -738,5 +792,75 @@ public enum EventClock {
         let best = abs(asNanos - uptime) <= abs(asTicks - uptime) ? asNanos : asTicks
         // A zero or nonsense stamp (a synthesized event) — use the time it arrived.
         return eventTimestamp == 0 || abs(best - uptime) > 60 ? uptime : best
+    }
+}
+
+// MARK: - H5 · one log line per press
+
+/// H5 — Secure Event Input as the key went down. The app is named only while it is on, and only by
+/// its name (never a window title, never field text).
+public struct HotkeySecureInput: Equatable, Sendable {
+    public var on: Bool
+    public var app: String?
+    public init(on: Bool, app: String? = nil) {
+        self.on = on
+        self.app = on ? app : nil
+    }
+    public static let off = HotkeySecureInput(on: false)
+}
+
+/// H5 — one finished press: sequence, duration, gesture class, result and the Secure Input flag.
+/// Carries no text of any kind.
+public struct HotkeyPressRecord: Equatable, Sendable {
+    public var sequence: Int
+    public var durationMs: Int
+    public var gesture: HotkeyStateMachine.Gesture?
+    /// What the press did: `finalize`, `cancel`, `hands-free`, `none` or `reset`.
+    public var result: String
+    public var secureInput: HotkeySecureInput
+
+    /// The notice line (`Log.app.notice`).
+    public var line: String {
+        let secure = secureInput.on ? "on (\(secureInput.app ?? "unknown app"))" : "off"
+        return "hotkey: press #\(sequence) \(durationMs) ms · \(gesture?.rawValue ?? "unclassified") · result \(result) · secure input \(secure)"
+    }
+
+    static func result(of actions: [HotkeyStateMachine.Action]) -> String {
+        if actions.contains(.enterLatch) { return "hands-free" }
+        if actions.contains(.finalize) { return "finalize" }
+        if actions.contains(.cancelCapture) { return "cancel" }
+        return "none"
+    }
+}
+
+/// H5 — pairs each key-down with its end so every press yields exactly one record. Pure; the
+/// service feeds it and logs what it returns.
+public struct HotkeyPressLog: Equatable, Sendable {
+    public private(set) var sequence = 0
+    private var openSince: TimeInterval?
+    private var openSecure: HotkeySecureInput = .off
+
+    public init() {}
+
+    public var isOpen: Bool { openSince != nil }
+
+    /// A key-down. Opens a press unless one is already open (key repeat, the other Option side).
+    @discardableResult
+    public mutating func keyDown(at t: TimeInterval, secureInput: HotkeySecureInput) -> Bool {
+        guard openSince == nil else { return false }
+        sequence += 1
+        openSince = t
+        openSecure = secureInput
+        return true
+    }
+
+    /// The press ended (key-up, a synthesized lost key-up, or a reset). Nil when no press was open.
+    public mutating func end(at t: TimeInterval, gesture: HotkeyStateMachine.Gesture?,
+                             actions: [HotkeyStateMachine.Action], result: String? = nil) -> HotkeyPressRecord? {
+        guard let since = openSince else { return nil }
+        openSince = nil
+        let ms = Int((max(0, t - since) * 1000).rounded())
+        return HotkeyPressRecord(sequence: sequence, durationMs: ms, gesture: gesture,
+                                 result: result ?? HotkeyPressRecord.result(of: actions), secureInput: openSecure)
     }
 }

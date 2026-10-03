@@ -282,6 +282,10 @@ public final class LatchRuntime: @unchecked Sendable {
     public var onTargetChanged: ((FocusSnapshot) -> Void)?
     /// X7 / H30 — the hands-free session target, for tests and the pill.
     public var latchTarget: FocusSnapshot? { lock.withLock { sessionTarget } }
+    /// H29 — this (or the last) hands-free session's pieces so far. Reset on latch entry; pieces
+    /// still queued after the stop keep counting into it.
+    public var sessionTally: HandsFreeTally { lock.withLock { tally } }
+    private var tally = HandsFreeTally()
     /// Where feed callbacks run. The feed calls back on capture threads; `isLatched` and the pill
     /// live on the main thread, so by default every event hops there, in arrival order.
     public var feedQueue: (@escaping () -> Void) -> Void = { work in DispatchQueue.main.async(execute: work) }
@@ -398,6 +402,7 @@ public final class LatchRuntime: @unchecked Sendable {
     /// speech start is heard before the segment closes (the words were already under way).
     public func enterLatch(feed newFeed: LatchAudioFeed?) {
         let segment = lock.withLock { () -> SegmentID? in
+            tally = HandsFreeTally()
             elapsed = 0
             elapsedAnchor = nil
             publishedSecond = 0
@@ -756,6 +761,7 @@ public final class LatchRuntime: @unchecked Sendable {
             Log.app.notice("latch: insertion suppressed — \(reason.rawValue)")
             // V5 N2 / K4 — latched speech in another voice is never typed, but it is kept in Notes.
             if reason == .mismatch, notesRoute?(text, .otherVoice) == true {
+                lock.withLock { tally.noteSavedToNotes() }
                 Log.app.notice("latch: another voice's \(segment.description) stored in Notes")
             }
             record(.suppressed(reason), for: segment)
@@ -776,7 +782,8 @@ public final class LatchRuntime: @unchecked Sendable {
         // A piece never ends with Return (Q1): delivery inserts text only.
         // With no session target (nothing was focused at latch entry) B1 below still applies.
         if source == .dictation, delivery.routesHandsFree, let target = lock.withLock({ sessionTarget }) {
-            record(await routeHandsFree(job, text: text, target: target), for: segment)
+            let routed = await routeHandsFree(job, text: text, target: target)
+            record(routed, for: segment, app: LatchFocus.name(lock.withLock { sessionTarget }))
             return
         }
         // B1 — focus moved while this segment was being spoken: the words were meant for where
@@ -784,6 +791,7 @@ public final class LatchRuntime: @unchecked Sendable {
         if let began = job.began, !LatchFocus.sameDestination(began, job.closed) {
             // V5 N2 — the app switched mid-segment: Notes keeps the words, typed into neither app.
             if notesRoute?(text, .appSwitch) == true {
+                lock.withLock { tally.noteSavedToNotes() }
                 Log.app.notice("latch: focus changed during \(segment.description); stored in Notes")
                 record(.consumed, for: segment)
                 return
@@ -801,7 +809,7 @@ public final class LatchRuntime: @unchecked Sendable {
             record(outcome(for: kept, text: text), for: segment)
             return
         }
-        record(outcome(for: result, text: text), for: segment)
+        record(outcome(for: result, text: text), for: segment, app: LatchFocus.name(job.closed))
     }
 
     /// X7 / H30 — one piece, routed by `HandsFreeRoute`.
@@ -840,6 +848,7 @@ public final class LatchRuntime: @unchecked Sendable {
     /// The piece could not be typed anywhere: Notes (V5 N2), or held when no Notes route exists.
     private func toNotes(_ text: String, segment: SegmentID, destination: FocusSnapshot?) -> LatchSegmentOutcome {
         if notesRoute?(text, .appSwitch) == true {
+            lock.withLock { tally.noteSavedToNotes() }
             Log.app.notice("latch: \(segment.description) could not be typed; stored in Notes")
             return .consumed
         }
@@ -863,8 +872,16 @@ public final class LatchRuntime: @unchecked Sendable {
         }
     }
 
-    private func record(_ outcome: LatchSegmentOutcome, for segment: SegmentID) {
-        lock.withLock { outcomes.append((segment, outcome)) }
+    private func record(_ outcome: LatchSegmentOutcome, for segment: SegmentID, app: String? = nil) {
+        lock.withLock {
+            outcomes.append((segment, outcome))
+            // H29 — typed pieces count toward the end line; a held piece is kept in Notes (H23).
+            switch outcome {
+            case .delivered: tally.noteInserted(app: app)
+            case .held: tally.noteSavedToNotes()
+            default: break
+            }
+        }
         onOutcome?(outcome, segment)
     }
 }

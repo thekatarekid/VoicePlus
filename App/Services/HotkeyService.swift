@@ -399,6 +399,19 @@ public final class HotkeyService {
     /// nil: the system's own counters, but only for a running service on a system backend — a
     /// service a test drives by hand never reads the real keyboard.
     public var otherInputWithin: ((TimeInterval) -> Bool)?
+    /// H5 — Secure Event Input at key-down (app name only). Live: `IsSecureEventInputEnabled()` and
+    /// the frontmost app's name; tests inject their own.
+    public var secureInputProbe: () -> HotkeySecureInput = HotkeyService.liveSecureInput
+    /// H5 — every finished press, after its notice line is logged. Tests read it; nothing else.
+    public var onPressLogged: ((HotkeyPressRecord) -> Void)?
+    public private(set) var lastPressRecord: HotkeyPressRecord?
+    private var pressLog = HotkeyPressLog()
+
+    /// H5 — the live probe. Main thread (it asks `NSWorkspace` for the app name only when on).
+    public static func liveSecureInput() -> HotkeySecureInput {
+        guard IsSecureEventInputEnabled() else { return .off }
+        return HotkeySecureInput(on: true, app: NSWorkspace.shared.frontmostApplication?.localizedName)
+    }
     /// X2 — while the Option event tap feeds this service, flag words from the passive monitors
     /// are ignored (the tap drops a second press the monitors never see).
     public var tapFeeds = false
@@ -505,7 +518,7 @@ public final class HotkeyService {
     /// The machine believes the key is down (a press, a latched stop press, a chorded press).
     var machineHoldsKey: Bool {
         switch machine.phase {
-        case .keyDown, .latchedKeyDown, .chorded: return true
+        case .keyDown, .latchedKeyDown, .chorded, .folded: return true
         case .idle, .latched: return false
         }
     }
@@ -610,11 +623,23 @@ public final class HotkeyService {
         if edge == .up, binding.style == .bareModifier { pollOtherInput() }
         let actions: [HotkeyStateMachine.Action]
         switch edge {
-        case .down: actions = machine.keyDown(at: timestamp, surfaceShowing: surfaceShowing())
-        case .up: actions = machine.keyUp(at: timestamp)
+        case .down:
+            if !pressLog.isOpen { pressLog.keyDown(at: timestamp, secureInput: secureInputProbe()) }
+            actions = machine.keyDown(at: timestamp, surfaceShowing: surfaceShowing())
+        case .up:
+            actions = machine.keyUp(at: timestamp)
+            logPress(pressLog.end(at: timestamp, gesture: machine.lastGesture, actions: actions))
         }
         updateReleasePoll()
         emit(actions)
+    }
+
+    /// H5 — one notice line per press: sequence, duration, gesture, result, Secure Input. No text.
+    private func logPress(_ record: HotkeyPressRecord?) {
+        guard let record else { return }
+        lastPressRecord = record
+        Log.app.notice("\(record.line)")
+        onPressLogged?(record)
     }
 
     private func emit(_ actions: [HotkeyStateMachine.Action]) {
@@ -653,6 +678,7 @@ public final class HotkeyService {
 
     /// Called by the coordinator when the engine failed so a stuck key-down doesn't leave us "capturing".
     public func resetGesture() {
+        logPress(pressLog.end(at: uptime(), gesture: machine.lastGesture, actions: [], result: "reset"))
         machine.reset()
         updateReleasePoll()
     }
@@ -676,7 +702,9 @@ public final class HotkeyService {
         releaseUpStrikes += 1
         guard releaseUpStrikes >= Self.releasePollStrikes else { return false }
         releaseUpStrikes = 0
-        let actions = machine.lostKeyUp(at: uptime())
+        let now = uptime()
+        let actions = machine.lostKeyUp(at: now)
+        logPress(pressLog.end(at: now, gesture: machine.lastGesture, actions: actions))
         updateReleasePoll()
         Log.app.notice("hotkey: \(binding.kind.displayName) is up but its key-up never arrived — ending the press (K02)")
         emit(actions)
