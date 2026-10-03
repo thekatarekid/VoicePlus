@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import Engine
+import Pipeline
 import Providers
 import Shared
 @testable import VoicePlusApp
@@ -60,5 +61,46 @@ final class ScriptedModelManager: LocalModelManaging, @unchecked Sendable {
         #expect(inner.config.sampling == .qwenNonThinking)
         #expect(inner.config.idleUnloadAfter == 120)
         #expect(inner.config.refuseUnderCriticalPressure)
+    }
+}
+
+// H16 — the optional "use my Ollama / LM Studio" path for rewrites (localhost; detection injected).
+@MainActor @Suite struct RewriteServerPinTests {
+    @Test func pinningAServerRoutesBothEditStagesAndUnpinningClearsOnlyThat() async {
+        let store = InMemorySettingsStore()
+        let vm = EditModelsSettingsModel(manager: ScriptedModelManager(), settings: store,
+                                         detectServers: { [.lmStudio, .ollama] })
+        await vm.refreshServers()
+        #expect(vm.servers == [.ollama, .lmStudio])
+        #expect(vm.serverPin == nil)
+        vm.useServer(.ollama, true)
+        #expect(vm.serverPin == .ollama)
+        #expect(store.string(SettingsKeys.routingPrefix + "transform") == "provider:local.ollama")
+        #expect(store.string(SettingsKeys.routingPrefix + StageID.question.rawValue) == "provider:local.ollama")
+        vm.useServer(.lmStudio, false)          // not the pinned one: no change
+        #expect(vm.serverPin == .ollama)
+        vm.useServer(.ollama, false)
+        #expect(vm.serverPin == nil)
+        #expect(store.string(SettingsKeys.routingPrefix + "transform") == nil)
+    }
+
+    @Test func aCloudPinIsNeverClearedAndNoServerMeansNoRows() async {
+        let store = InMemorySettingsStore()
+        store.set("provider:openrouter", for: SettingsKeys.routingPrefix + "transform")
+        RewriteServerPin.set(nil, in: store)
+        #expect(store.string(SettingsKeys.routingPrefix + "transform") == "provider:openrouter")
+        let vm = EditModelsSettingsModel(manager: ScriptedModelManager(), settings: store, detectServers: { [] })
+        await vm.refreshServers()
+        #expect(vm.servers.isEmpty)
+        #expect(vm.serverPin == nil)
+    }
+
+    @Test func aPinnedServerStaysListedWhenItIsDown() async {
+        let store = InMemorySettingsStore()
+        RewriteServerPin.set(.lmStudio, in: store)
+        let vm = EditModelsSettingsModel(manager: ScriptedModelManager(), settings: store, detectServers: { [] })
+        await vm.refreshServers()
+        #expect(vm.servers == [.lmStudio])
+        #expect(vm.serverPin == .lmStudio)
     }
 }

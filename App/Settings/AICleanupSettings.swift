@@ -161,10 +161,21 @@ public final class EditModelsSettingsModel: ObservableObject {
     @Published public private(set) var states: [String: LocalModelState] = [:]
     @Published public private(set) var activeID: String?
     @Published public private(set) var lastError: String?
+    /// H16 — Ollama / LM Studio servers found on localhost (probed only when Settings asks).
+    @Published public private(set) var servers: [LocalServerKind] = []
+    @Published public private(set) var serverPin: LocalServerKind?
+    private let settings: SettingsStore
+    private let detectServers: @Sendable () async -> [LocalServerKind]
     private var token: UUID?
 
-    public init(manager: any LocalModelManaging = EditModels.manager) {
+    public init(manager: any LocalModelManaging = EditModels.manager,
+                settings: SettingsStore = UserDefaultsSettingsStore(),
+                detectServers: @escaping @Sendable () async -> [LocalServerKind] = {
+                    await LocalServerDetector().detect().map(\.kind)
+                }) {
         self.manager = manager
+        self.settings = settings
+        self.detectServers = detectServers
         refresh()
         if let m = manager as? LocalModelManager {
             token = m.addObserver { [weak self] in Task { @MainActor in self?.refresh() } }
@@ -180,6 +191,23 @@ public final class EditModelsSettingsModel: ObservableObject {
     public func refresh() {
         states = Dictionary(uniqueKeysWithValues: manager.models.map { ($0.id, manager.state($0.id)) })
         activeID = manager.activeModel?.id
+        serverPin = RewriteServerPin.current(settings)
+    }
+
+    /// Probes localhost only (no other host); the pinned server stays listed even when it is down.
+    public func refreshServers() async {
+        let found = await detectServers()
+        var list = LocalServerKind.allCases.filter { found.contains($0) }
+        if let pin = RewriteServerPin.current(settings), !list.contains(pin) { list.append(pin) }
+        servers = list
+        serverPin = RewriteServerPin.current(settings)
+    }
+
+    /// H16 — "use my Ollama / LM Studio" for rewrites (on), or back to the model on this Mac (off).
+    public func useServer(_ kind: LocalServerKind, _ on: Bool) {
+        if on { RewriteServerPin.set(kind, in: settings) }
+        else if RewriteServerPin.current(settings) == kind { RewriteServerPin.set(nil, in: settings) }
+        serverPin = RewriteServerPin.current(settings)
     }
 
     public func line(for model: LocalLLMModel) -> String {
@@ -239,6 +267,50 @@ struct EditModelsGroup: View {
             }
         }
         .onAppear { model.refresh() }
+        .task { await model.refreshServers() }
+        if !model.servers.isEmpty {
+            GroupBox("Your own model server", layout: .rows) {
+                ForEach(model.servers, id: \.self) { kind in
+                    SettingsToggleRow(title: "Use \(kind.displayName) for rewrites",
+                                      detail: RewriteServerPin.detail(kind),
+                                      isOn: Binding(get: { model.serverPin == kind },
+                                                    set: { model.useServer(kind, $0) }),
+                                      identifier: "settings.models.edit.server.\(kind.rawValue)")
+                }
+            }
+        }
+    }
+}
+
+/// H16 — the optional keyless "use my Ollama / LM Studio" path for rewrite commands: pins `.transform`
+/// and `.question` to the localhost server provider (`local.<kind>`). Clearing removes only a
+/// local-server pin; a provider the user pinned elsewhere is left alone. With no pin, rewrites run
+/// on the downloaded Qwen model, then the rules.
+public enum RewriteServerPin {
+    public static let stages: [StageID] = [.transform, .question]
+
+    static func providerID(_ kind: LocalServerKind) -> String { "local.\(kind.rawValue)" }
+
+    public static func current(_ settings: SettingsStore) -> LocalServerKind? {
+        guard let raw = settings.string(SettingsKeys.routingPrefix + StageID.transform.rawValue),
+              case .provider(let id)? = ProviderChoice(rawValue: raw) else { return nil }
+        return LocalServerKind.allCases.first { providerID($0) == id }
+    }
+
+    public static func set(_ kind: LocalServerKind?, in settings: SettingsStore) {
+        for stage in stages {
+            let key = SettingsKeys.routingPrefix + stage.rawValue
+            if let kind {
+                settings.set(ProviderChoice.provider(providerID(kind)).rawValue, for: key)
+            } else if let raw = settings.string(key), case .provider(let id)? = ProviderChoice(rawValue: raw),
+                      LocalServerKind.allCases.contains(where: { providerID($0) == id }) {
+                settings.set(nil, for: key)
+            }
+        }
+    }
+
+    public static func detail(_ kind: LocalServerKind) -> String {
+        "Runs rewrites on the model loaded in \(kind.displayName) on this Mac. No key needed."
     }
 }
 
