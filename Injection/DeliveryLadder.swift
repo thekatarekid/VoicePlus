@@ -42,6 +42,9 @@ public enum DeliveryLadder {
         case secureInputBlind = "secure input on, field unreadable"
         /// N15 — canvas-like focus with no editable text element.
         case notEditable = "Click into a text box first"
+        /// rq (2026-10-04) — the focused element is certainly not text (a button, an empty
+        /// non-editable web group): typing there drops or scatters the words, so they go to Notes.
+        case noField = "no text field"
     }
 
     public enum Decision: Equatable, Sendable {
@@ -66,9 +69,12 @@ public enum DeliveryLadder {
     ///   - webContent: an `AXWebArea` ancestor or a Chromium/Electron runtime (N5/N10).
     ///   - passwordField: the focused element is `AXSecureTextField` (role or subrole).
     ///   - editable: the focused element is editable text; `nil` = unknown (never refuse on unknown).
+    ///   - field: `fieldPresence(...)` of the focused element. `.none` (certain: a non-text role, or
+    ///     an empty, non-settable web group) is Notes — in every runtime, web content included.
     public static func decide(focusSame: Bool, window: WindowState, secureInput: Bool, fieldReadable: Bool,
                               surface: SurfaceKind?, multiline: Bool, webContent: Bool = false,
-                              passwordField: Bool = false, editable: Bool? = nil) -> Decision {
+                              passwordField: Bool = false, editable: Bool? = nil,
+                              field: FieldPresence = .unknown) -> Decision {
         // Certain refusals first — a password field is never typed into, whatever else holds.
         if passwordField || surface == .secure { return .hold(.passwordField) }
         guard focusSame else { return .hold(.focusMoved) }
@@ -85,6 +91,10 @@ public enum DeliveryLadder {
 
         // Terminals: bracketed paste (the terminal adapter), never Return.
         if surface == .terminal { return .deliver(method: .paste, verify: fieldReadable) }
+        // rq (2026-10-04) — no text field focused: never type. In Claude desktop a focused AXGroup /
+        // AXButton took the 20-unit keystroke chunks one character each ("Is the dictation wor" +
+        // "king properly?" landed as "r?"). Owner rule: no text field → Notes.
+        if field == .none, surface != .spreadsheetCell { return .notes(.noField) }
         guard fieldReadable else {
             // Unreadable: deliver anyway. Paste carries line breaks without a Return key and is
             // one event in web content (Chromium drops fast keystrokes); single-line native → keys.
@@ -214,12 +224,55 @@ extension DeliveryLadder {
         return nonTextRoles.contains(role) ? .none : .unknown
     }
 
+    /// Generic web containers: in web content a focused one that is empty and not settable is the
+    /// page (or a non-editable div) holding focus, not a composer. A composer is `AXTextArea`, or at
+    /// least exposes a settable value / selection (ChatGPT's ProseMirror root is a settable AXGroup).
+    public static let webContainerRoles: Set<String> = ["AXGroup", "AXWebArea"]
+
+    /// rq (2026-10-04) — the field question with the evidence web content needs.
+    ///
+    /// * Native (`runtime == .native`) or no runtime evidence (our own window, a test double): the
+    ///   role rule above, unchanged (H26).
+    /// * Web content — an Electron / Chromium / WebKit / unsniffable runtime, or an `AXWebArea`
+    ///   ancestor: a text role is a field; otherwise a non-text role or a generic container is
+    ///   `.none` only when its value is blank *and* its value and selected text are known not
+    ///   settable. `AXStaticText` is never `.none` here: Chromium can report the paragraph the
+    ///   caret sits in inside an editable composer. Anything else, or settability not read
+    ///   (`textSettable == nil`), is `.unknown` — N3 decides, as before.
+    public static func fieldPresence(role: String?, value: String?, textSettable: Bool?,
+                                     runtime: SurfaceRuntime?, inWebArea: Bool = false,
+                                     isSecure: Bool = false) -> FieldPresence {
+        fieldPresence(role: role, valueBlank: value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                      textSettable: textSettable, runtime: runtime, inWebArea: inWebArea, isSecure: isSecure)
+    }
+
+    /// The same rule when only "is the value blank" is known (a `TargetRevision` keeps a hash).
+    public static func fieldPresence(role: String?, valueBlank: Bool, textSettable: Bool?,
+                                     runtime: SurfaceRuntime?, inWebArea: Bool = false,
+                                     isSecure: Bool = false) -> FieldPresence {
+        let byRole = fieldPresence(role: role, isSecure: isSecure)
+        let web = inWebArea || (runtime.map { $0 != .native } ?? false)
+        guard web, byRole != .textField, let role else { return byRole }
+        guard role != "AXStaticText", nonTextRoles.contains(role) || webContainerRoles.contains(role) else { return .unknown }
+        return textSettable == false && valueBlank ? .none : .unknown
+    }
+
+    /// The same question for a live `FocusedElementInfo` (the injector's pre-write read).
+    public static func fieldPresence(_ focused: FocusedElementInfo?, runtime: SurfaceRuntime?,
+                                     inWebArea: Bool = false) -> FieldPresence {
+        guard let focused else { return .unknown }
+        return fieldPresence(role: focused.role, value: focused.value,
+                             textSettable: focused.isValueSettable || focused.isSelectedTextSettable,
+                             runtime: runtime, inWebArea: inWebArea, isSecure: focused.isSecure)
+    }
+
     /// H26 — whether a turn with `field` focused goes to Notes ("no text field") instead of the
-    /// N3 ladder. Only VoicePlus's own windows and native apps: Electron, Chromium and WebKit
-    /// content (Claude, ChatGPT, browsers) keep "deliver unverified" (N3) — their AX trees lie.
-    /// An unknown runtime is not native.
+    /// N3 ladder. rq (2026-10-04, owner rule "to Notes if no text field"): every runtime. Before,
+    /// Electron / Chromium / WebKit kept "deliver unverified" here, and a focused AXButton / empty
+    /// AXGroup in Claude desktop turned a dictated sentence into "r?". Pass `field` from the
+    /// evidence-based `fieldPresence` (role, value, settability, runtime): there `.none` is only a
+    /// certain answer in web content, so an unreadable or unfamiliar focus still goes to N3.
     public static func noFieldGoesToNotes(ownProcess: Bool, runtime: SurfaceRuntime?, field: FieldPresence) -> Bool {
-        guard field == .none else { return false }
-        return ownProcess || runtime == .native
+        field == .none
     }
 }

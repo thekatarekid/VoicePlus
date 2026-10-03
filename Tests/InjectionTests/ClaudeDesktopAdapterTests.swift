@@ -86,4 +86,70 @@ import Shared
         let blind = FocusedElementInfo(role: "AXTextArea", value: nil, selectedRange: nil, isValueSettable: false, isSelectedTextSettable: false)
         #expect(ElectronAdapter().verifyReadback(text: "there", before: blind, after: blind) == .unavailable)
     }
+
+    // MARK: rq (2026-10-04) — "Is the dictation working properly?" landed as "r?"
+
+    /// Claude desktop: the focused element was a non-text `AXGroup` (value "", caret 0). The
+    /// 20-unit keystroke chunks kept one character each and focus moved into the composer, which
+    /// then read "r?" with the caret at 2. "Any forward move" called that confirmed.
+    @Test func aFocusMoveDuringTheWriteIsNotConfirmed() {
+        let text = "Is the dictation working properly?"
+        let before = FocusedElementInfo(role: "AXGroup", value: "", selectedRange: 0 ..< 0,
+                                        isValueSettable: false, isSelectedTextSettable: false)
+        let after = FocusedElementInfo(role: "AXTextArea", value: "r?", selectedRange: 2 ..< 2,
+                                       isValueSettable: true, isSelectedTextSettable: true)
+        #expect(ElectronAdapter().verifyReadback(text: text, before: before, after: after) == .unconfirmed)
+        #expect(Readback.byCaretOrSelection(text: text, before: before, after: after) == .unconfirmed)
+        // Another element by identity (same role) is not proof either, even with the exact caret.
+        var a = FocusedElementInfo(role: "AXTextArea", value: "", selectedRange: 0 ..< 0,
+                                   isValueSettable: true, isSelectedTextSettable: true, elementID: 1)
+        var b = a; b.elementID = 2; b.selectedRange = 34 ..< 34; b.value = text
+        #expect(ElectronAdapter().verifyReadback(text: text, before: a, after: b) == .unconfirmed)
+        a.elementID = nil
+        #expect(ElectronAdapter().verifyReadback(text: text, before: a, after: b) == .confirmed,
+                "one side without identity: the role is compared, and it matches")
+    }
+
+    /// Same element, but the caret moved 2 for a 34-character write: characters were dropped.
+    @Test func aCaretThatMovedFarLessThanTheTextIsNotConfirmed() {
+        let text = "Is the dictation working properly?"
+        let before = FocusedElementInfo(role: "AXTextArea", value: "\n", selectedRange: 0 ..< 0,
+                                        isValueSettable: false, isSelectedTextSettable: false, elementID: 7)
+        let after = FocusedElementInfo(role: "AXTextArea", value: "r?\n", selectedRange: 2 ..< 2,
+                                       isValueSettable: false, isSelectedTextSettable: false, elementID: 7)
+        #expect(ElectronAdapter().verifyReadback(text: text, before: before, after: after) == .unconfirmed)
+        #expect(CursorAdapter().verifyReadback(text: text, before: before, after: after) == .unconfirmed)
+        // Within tolerance (an app that trims a trailing space, a rich paste that renders shorter).
+        var near = after; near.value = nil; near.selectedRange = 33 ..< 33
+        #expect(ElectronAdapter().verifyReadback(text: text, before: before, after: near) == .confirmed)
+    }
+
+    /// End to end: Claude with a focused AXButton (value "") never receives keystrokes; the text is
+    /// held with "no text field", which the app's Notes sink files as "Saved to Notes · no text field".
+    @Test("no text field focused in Claude: nothing typed, held as 'no text field'",
+          arguments: ["AXButton", "AXGroup"])
+    func noTextFieldInClaudeIsNeverTyped(role: String) {
+        let (injector, mock, _) = makeStack(Self.claudeBundleID) {
+            $0.field = MockSystemAccess.Field(role: role, value: "")
+            $0.axWriteWorks = false        // not settable: no value, no selected text to write
+            $0.runtimeByPID[$0.frontmost!.pid] = .electron
+        }
+        let outcome = injector.inject(InjectionRequest(text: "Is the dictation working properly?",
+                                                       expectedFocus: mock.frontmost))
+        guard case .abortedFocusChanged = outcome else { Issue.record("\(outcome)"); return }
+        #expect(mock.postCount == 0, "nothing posted")
+        #expect(injector.lastLadderDecision == .notes(.noField))
+        #expect(injector.focusGuard.held.last?.reason == "no text field")
+    }
+
+    /// The composer itself (AXTextArea) is still typed into, verified.
+    @Test func theComposerItselfIsStillTyped() {
+        let (injector, mock, _) = makeStack(Self.claudeBundleID, value: "") {
+            $0.runtimeByPID[$0.frontmost!.pid] = .electron
+        }
+        let outcome = injector.inject(InjectionRequest(text: "Is the dictation working properly?",
+                                                       expectedFocus: mock.frontmost))
+        #expect(outcome == .injected(method: .keystroke, verified: true))
+        #expect(mock.field.value == "Is the dictation working properly?")
+    }
 }

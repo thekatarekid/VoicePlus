@@ -1413,7 +1413,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         // takes the last piece; nothing focused → the last piece goes to Notes ("no text field").
         if lock.withLock({ turns[id]?.latched ?? false }) {
             let now = focusGuard.targetRevision()
-            if !Self.textBoxFocused(now) {
+            let runtime = now.focus.flatMap { OwnProcess.owns($0) ? nil : (lander.system as? AppRuntimeReading)?.appRuntime(pid: $0.pid) }
+            if !Self.textBoxFocused(now, runtime: runtime) {
                 Log.app.notice("turn \(id.description): hands-free stop with no text box focused — last piece to Notes")
                 return hold(id, payload, lander: lander, reason: DeliveryReason.noDestination, actual: now.focus)
             }
@@ -1426,8 +1427,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         if let reason = check.holdReason {
             return hold(id, payload, lander: lander, reason: reason, actual: focusGuard.snapshot())
         }
-        // H26 — no text field focused in a native app or one of our own windows → Notes ("no text
-        // field"). Web/Electron content keeps N3's "deliver unverified".
+        // H26 / rq — no text field focused (any runtime: a button, or an empty non-editable web
+        // group in Claude desktop) → Notes ("no text field"). An unfamiliar focus keeps N3.
         if let now = noTextField(payload) {
             Log.app.notice("turn \(id.description): no text field in \(now.bundleID) — saved to Notes (H26)")
             return hold(id, payload, lander: lander, reason: DeliveryReason.noDestination, actual: now)
@@ -1498,26 +1499,26 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     }
 
     /// X3-handsfree — is a text box focused? Nothing focused, or a known non-text role (a button,
-    /// a list, the desktop) is "no". An unreadable or unfamiliar role (AXGroup, AXWebArea — web and
-    /// Electron content whose AX tree lies, N3) is given the benefit of the doubt: the injector
-    /// still refuses where it cannot type. Same rule as H26's `DeliveryLadder.fieldPresence`.
-    static func textBoxFocused(_ revision: TargetRevision) -> Bool {
+    /// a list, the desktop) is "no"; so is (rq) an empty, non-settable AXGroup / AXWebArea in web
+    /// or Electron content. An unreadable or unfamiliar role is given the benefit of the doubt: the
+    /// injector still refuses where it cannot type. Same rule as `DeliveryLadder.fieldPresence`.
+    static func textBoxFocused(_ revision: TargetRevision, runtime: SurfaceRuntime? = nil) -> Bool {
         guard revision.focus != nil else { return false }
-        return DeliveryLadder.fieldPresence(role: revision.role, isSecure: revision.isSecure) != .none
+        return revision.fieldPresence(runtime: runtime) != .none
     }
 
     /// H26 — the focus now (same app as key-down: the pre-write check passed) when it has no text
-    /// field and the no-field rule applies to it (own window or native app); `nil` = write as usual.
+    /// field (rq: in any runtime); `nil` = write as usual.
     private func noTextField(_ payload: LandingResult) -> FocusSnapshot? {
         guard payload.pending != nil, !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let now = focusGuard.targetRevision()
         guard let focus = now.focus else { return nil }
         let own = OwnProcess.owns(focus)
-        var field = DeliveryLadder.fieldPresence(role: now.role, isSecure: now.isSecure)
+        let runtime = own ? nil : (lander.system as? AppRuntimeReading)?.appRuntime(pid: focus.pid)
+        var field = now.fieldPresence(runtime: runtime)
         if own, let reader = lander.system as? OwnTextFieldReading, let editable = reader.ownEditableTextFocused() {
             field = editable ? .textField : .none
         }
-        let runtime = own ? nil : (lander.system as? AppRuntimeReading)?.appRuntime(pid: focus.pid)
         return DeliveryLadder.noFieldGoesToNotes(ownProcess: own, runtime: runtime, field: field) ? focus : nil
     }
 

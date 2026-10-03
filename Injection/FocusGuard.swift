@@ -69,14 +69,26 @@ public struct TargetRevision: Equatable, Sendable {
     public var textVersion: Int?
     /// A password field. Never written.
     public var isSecure: Bool
+    /// rq — the element's value or selected text is settable (`nil`: not read). With the role and
+    /// `textVersion` this answers `DeliveryLadder.fieldPresence` for web content.
+    public var isTextSettable: Bool?
 
     public init(focus: FocusSnapshot?, role: String? = nil, selection: Range<Int>? = nil,
-                textVersion: Int? = nil, isSecure: Bool = false) {
+                textVersion: Int? = nil, isSecure: Bool = false, isTextSettable: Bool? = nil) {
         self.focus = focus
         self.role = role
         self.selection = selection
         self.textVersion = textVersion
         self.isSecure = isSecure
+        self.isTextSettable = isTextSettable
+    }
+
+    /// rq (2026-10-04) — is a text field focused? `DeliveryLadder.fieldPresence` over this read:
+    /// the value is blank when AX exposed none or exposed exactly "" (`textVersion`).
+    public func fieldPresence(runtime: SurfaceRuntime?) -> DeliveryLadder.FieldPresence {
+        let blank = textVersion == nil || textVersion == Self.version(of: "")
+        return DeliveryLadder.fieldPresence(role: role, valueBlank: blank, textSettable: isTextSettable,
+                                            runtime: runtime, isSecure: isSecure)
     }
 
     /// The element identity as a number (`TurnRecord.Destination.elementHash`): the token itself
@@ -182,7 +194,8 @@ public final class FocusGuard {
         // A password field's value is never read into a version, not even as a hash.
         return TargetRevision(focus: focus, role: info.role, selection: info.selectedRange,
                               textVersion: info.isSecure ? nil : info.value.map(TargetRevision.version(of:)),
-                              isSecure: info.isSecure)
+                              isSecure: info.isSecure,
+                              isTextSettable: info.isValueSettable || info.isSelectedTextSettable)
     }
 
     /// Design §5 step 5: at the end of dwell, is the destination still the one the turn snapshot?

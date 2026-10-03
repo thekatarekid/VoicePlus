@@ -170,10 +170,12 @@ public final class TextInjector: Injector {
                 Log.injection.notice("N3 ladder: passwordField; refused, nothing written")
                 return TurnCommitReport(refuse(.secureField, request: request, segmentID: segmentID, focus: focus, turnID: turnID))
             case .hold(let reason), .notes(let reason):
-                // Only window changes reach here (focus and secure checks ran above): hold, never write.
-                Log.injection.notice("N3 ladder: \(reason.rawValue); held, nothing written")
+                // A window change, a canvas, or no text field focused: hold, never write. The hold
+                // carries its reason, so with a Notes sink "no text field" files as such (rq).
+                Log.injection.notice("N3 ladder: \(reason.rawValue); held, nothing written (focused \(focusedBefore?.role ?? "-"))")
+                let keep = reason == .notEditable || reason == .noField
                 return TurnCommitReport(abort(request, segmentID: segmentID, turnID: turnID,
-                                              reason: reason == .notEditable ? reason.rawValue : DeliveryReason.destinationChanged))
+                                              reason: keep ? reason.rawValue : DeliveryReason.destinationChanged))
             }
         }
         // N24 — rich paste by surface kind (a table into a sheet cell, Markdown into a Markdown
@@ -320,7 +322,12 @@ public final class TextInjector: Injector {
                                      multiline: request.text.contains(where: \.isNewline),
                                      webContent: context.isWebContent,
                                      passwordField: focused?.isSecure == true,
-                                     editable: CanvasFocus.editable(focused))
+                                     editable: CanvasFocus.editable(focused),
+                                     // rq — web content only: native "no field" is H26's call before the
+                                     // write (a native AXCell is Excel's cell, typed by its adapter).
+                                     field: context.isWebContent
+                                        ? DeliveryLadder.fieldPresence(focused, runtime: context.runtime, inWebArea: true)
+                                        : .unknown)
     }
 
     /// N4 — the pre-write safety check (password field; secure input on with no readable field).

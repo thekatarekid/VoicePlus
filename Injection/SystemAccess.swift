@@ -46,11 +46,16 @@ public struct FocusedElementInfo: Equatable, Sendable {
     /// the injector asked for it (`FocusedDocumentURLReading`). `nil` for native fields and by
     /// default: it costs a parent walk, so only a multi-line write into a browser reads it.
     public var documentURL: String?
+    /// rq (2026-10-04) — the element's identity (`CFHash` of its `AXUIElement`), so readback can
+    /// tell "the caret moved in this field" from "focus moved to another element". `nil` when
+    /// unknown (in-process reads, mocks): then only the role is compared.
+    public var elementID: Int?
 
     public init(role: String, value: String?, selectedRange: Range<Int>?, isValueSettable: Bool,
                 isSelectedTextSettable: Bool, subrole: String? = nil, selectedText: String? = nil,
-                hints: [String] = [], documentURL: String? = nil) {
+                hints: [String] = [], documentURL: String? = nil, elementID: Int? = nil) {
         self.documentURL = documentURL
+        self.elementID = elementID
         self.role = role
         self.subrole = subrole
         self.value = value

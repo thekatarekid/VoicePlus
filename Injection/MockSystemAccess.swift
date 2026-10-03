@@ -16,6 +16,8 @@ open class MockSystemAccess: SystemAccess {
         /// tree would report them. Set it to `["Terminal input"]` to model VS Code's integrated
         /// terminal, or `["Monaco editor"]` for its editor pane: same role, same bundle ID.
         public var hints: [String] = []
+        /// rq — the element identity `focusedElement()` reports (`FocusedElementInfo.elementID`).
+        public var elementID: Int?
         public init(role: String = "AXTextArea", value: String = "", selection: Range<Int>? = nil,
                     subrole: String? = nil, hints: [String] = []) {
             self.role = role
@@ -131,7 +133,8 @@ open class MockSystemAccess: SystemAccess {
                                   isSelectedTextSettable: axWriteWorks,
                                   subrole: field.subrole,
                                   selectedText: caretReadable ? Self.slice(of: field) : nil,
-                                  hints: FocusedElementInfo.hints(from: field.hints.map { $0 }))
+                                  hints: FocusedElementInfo.hints(from: field.hints.map { $0 }),
+                                  elementID: field.elementID)
     }
 
     // MARK: AX writes

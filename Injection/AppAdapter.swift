@@ -47,14 +47,32 @@ public enum Readback {
     /// whose `AXValue` is absent or stale but whose selection is live.
     public static func byCaretOrSelection(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
         guard let before, let after else { return .unavailable }
+        // rq — a caret in another element proves nothing about this write.
+        if focusMoved(before: before, after: after) { return .unconfirmed }
         // A field that leaves the insertion selected reads it straight back.
         if let selected = after.selectedText, !text.isEmpty, selected == text { return .confirmed }
         guard let start = before.selectedRange, let end = after.selectedRange else { return .unavailable }
         if text.isEmpty { return .unavailable }
-        // The caret sitting exactly `text` further on is the insertion, and any forward move at
-        // all means *something* went in — enough for "possibly landed", which is all we claim.
-        if end.lowerBound == start.lowerBound + text.utf16.count { return .confirmed }
-        return end.lowerBound > start.lowerBound ? .confirmed : .unconfirmed
+        // The caret sitting exactly `text` further on is the insertion.
+        let expected = text.utf16.count
+        let moved = end.lowerBound - start.lowerBound
+        if moved == expected { return .confirmed }
+        if let value = after.value, value != before.value, value.contains(text) { return .confirmed }
+        // rq (2026-10-04) — "any forward move" confirmed a 34-character write that left 2
+        // characters ("r?"). A move of at least half the text (a rich paste renders shorter than
+        // its Markdown) and not far past it is the insertion; anything else is unconfirmed.
+        let slack = max(2, expected / 10)
+        return moved >= (expected + 1) / 2 && moved <= expected + slack ? .confirmed : .unconfirmed
+    }
+
+    /// rq (2026-10-04) — the after-read is a different element from the before-read: another
+    /// `elementID` (when both sides know it) or another role (when both sides read one). Claude
+    /// desktop moved focus from a non-text `AXGroup` into its composer *during* the write, and the
+    /// composer's caret (2 > 0) was taken as proof the sentence had landed.
+    public static func focusMoved(before: FocusedElementInfo, after: FocusedElementInfo) -> Bool {
+        if let a = before.elementID, let b = after.elementID, a != b { return true }
+        let known: (String) -> Bool = { !$0.isEmpty && $0 != "unknown" }
+        return known(before.role) && known(after.role) && before.role != after.role
     }
 
     /// The verdict for any app whose editor owns its own text model — Chromium's web content,
@@ -65,6 +83,8 @@ public enum Readback {
     /// live. Only a readback that *ran* and showed nothing is `unconfirmed`; when neither side could
     /// answer, verification is skipped (`unavailable`), never reported as a failure.
     public static func byValueOrCaret(text: String, before: FocusedElementInfo?, after: FocusedElementInfo?) -> ReadbackVerdict {
+        // rq — the value or caret of another element is never proof (focus moved during the write).
+        if let before, let after, focusMoved(before: before, after: after) { return .unconfirmed }
         let byValue = Readback.byValue(text: text, before: before, after: after)
         if byValue == .confirmed { return .confirmed }
         let bySelection = Readback.byCaretOrSelection(text: text, before: before, after: after)

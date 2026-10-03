@@ -221,6 +221,12 @@ struct HandsFreeStopTests {
         #expect(TurnController.textBoxFocused(rev("AXGroup")), "unfamiliar web/Electron role: N3 delivers, not Notes")
         #expect(TurnController.textBoxFocused(rev("AXWebArea")), "unfamiliar web/Electron role: N3 delivers, not Notes")
         #expect(TurnController.textBoxFocused(rev("AXSecureTextField", secure: true)), "refused by the secure rule, not Notes")
+        // rq (2026-10-04) — Claude desktop's empty, non-settable AXGroup is no text box: the last
+        // piece goes to Notes instead of being typed as "r?".
+        let group = TargetRevision(focus: HandsFreeDestinationTests.slack, role: "AXGroup",
+                                   textVersion: TargetRevision.version(of: ""), isTextSettable: false)
+        #expect(!TurnController.textBoxFocused(group, runtime: .electron))
+        #expect(TurnController.textBoxFocused(group, runtime: .native), "a native custom view keeps the benefit of the doubt")
     }
 
     @Test("H23 — Escape after words: the words so far stay on the cancelled turn for Notes")

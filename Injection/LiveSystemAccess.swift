@@ -144,7 +144,7 @@ public final class LiveSystemAccess: SystemAccess {
                                   isValueSettable: isSettable(element, kAXValueAttribute),
                                   isSelectedTextSettable: isSettable(element, kAXSelectedTextAttribute),
                                   subrole: subrole, selectedText: selectedText,
-                                  hints: hints(of: element))
+                                  hints: hints(of: element), elementID: Int(bitPattern: CFHash(element)))
     }
 
     /// R4.2 — the four descriptive attributes, fetched in **one** batched request on the element
@@ -186,6 +186,10 @@ public final class LiveSystemAccess: SystemAccess {
     public func postUnicodeKeystrokes(_ text: String, toPID pid: Int32) throws {
         guard let source = CGEventSource(stateID: .combinedSessionState) else { throw SystemAccessError.eventPostFailed }
         // CGEventKeyboardSetUnicodeString handles up to 20 UTF-16 units per event reliably.
+        // rq (2026-10-04) — only into a focused *editable* element: a non-editable Chromium focus
+        // (Claude desktop's AXGroup / AXButton) keeps one character per multi-character event and
+        // then moves focus to the composer, so "Is the dictation working properly?" became "r?".
+        // `DeliveryLadder.decide` routes a certain "no text field" to Notes before this runs.
         let units = Array(text.utf16)
         var events: [CGEvent] = []
         var index = 0
