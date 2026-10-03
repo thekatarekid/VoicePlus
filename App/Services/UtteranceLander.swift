@@ -508,23 +508,35 @@ public final class UtteranceLander: @unchecked Sendable {
         return WriteStep(caret: caret, committed: committed, outcome: nil)
     }
 
-    /// S3 — the payload could not go in safely (the destination changed during the preview): it is
-    /// held in `focusGuard` for Insert here / Copy / Discard, recorded in history like any landing,
-    /// and the result reads as a focus-changed abort, exactly as the injector's own abort does.
+    /// S3 — the payload could not go in safely (the destination changed during the preview).
+    /// H23 — the held queue is retired: `focusGuard` saves it to Notes with the intended app and
+    /// this reason (a failed save keeps it with Copy), it is recorded in history like any landing,
+    /// and the result reads as a hold carrying the real reason, so the pill says "Saved to Notes ·
+    /// <why>". A password field is refused outright: nothing to Notes, the held list or history,
+    /// and the result keeps no words.
     public func hold(payload: LandingResult, reason: String, in focusGuard: FocusGuard,
                      actual: FocusSnapshot?, turnID: TurnID?) -> LandingResult {
         guard payload.isAwaitingInsertion, let pending = payload.pending else { return payload }
         var result = payload
+        if FocusGuard.isSecureReason(reason) {
+            result.injection = .refused(.secureField)
+            result.text = ""
+            result.pending = nil
+            result.totalMs = ms(since: pending.landStarted)
+            Log.app.notice("password field: \(payload.text.count) chars dropped, nothing kept (H23)")
+            return result
+        }
         let request = InjectionRequest(text: result.text, utteranceID: result.utteranceID.uuidString,
                                        expectedFocus: pending.focus)
         focusGuard.hold(request, reason: reason, destination: pending.focus, turnID: turnID)
         result.injection = .abortedFocusChanged(expected: pending.focus, actual: actual)
-        if reason == DeliveryReason.keptByUser || PullBackReason.all.contains(reason) { result.heldReason = reason }
+        // H23 / H24 — the real reason travels (Notes says why), not a generic "destination changed".
+        if !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.heldReason = reason }
         let utterance = Utterance(id: result.utteranceID, spans: pending.spans, startedAt: pending.startedAt,
                                   endedAt: clock(), register: result.register, route: result.route)
         recordHistory(utterance, text: result.text, bundleID: pending.bundleID)
         result.totalMs = ms(since: pending.landStarted)
-        Log.app.notice("held \(result.text.count) chars: \(reason)")
+        Log.app.notice("not typed, \(result.text.count) chars to Notes: \(reason)")
         return result
     }
 
