@@ -731,3 +731,10 @@ Deviations / untested (need live tests):
 - **Hands-free text not landing:** own voice judged "another voice" because the speaker check heard whole mostly-silent pieces; now only each piece's voiced audio, relative to the room's floor (5d248bd, 2ec1184). Sentence end lands the piece, including one confirmed during the VAD hangover (5d248bd, 3b5b584). Pause length remains the Settings value.
 - **Notch hides/reappears, no ribbon, double-flash on open/close:** hands-free row now tied to the session, every landing flies the ribbon, the chin waits 0.75 s before widening and the pill opens/closes through the chin's frame, late states from a cancelled tap are dropped (b27ce3e, 9197591).
 - Gate: full suite 5306/0. Replay of the hold "r?" recording gives the full sentence. Shipped as 1.15.3. Live check: a full hands-free session in Claude, tap/double-tap animation, short pieces vs the speaker check.
+
+## Post-1.15.3 fixes (after-launch hotkey, tap to talk, open at login)
+- **Dictation/hotkey dead after opening the app:** every new install recompiles the CoreML stack (40–50 s) while the app showed "ready"; a press then kept the mic open until the model loaded (the key-up's stop waited behind start), later presses were refused while that turn "finished", and the next capture queued behind the dropped final pass. Fixed in 39c2ef8: the mic closes at key-up, only the final pass waits for the model, the hint says "Loading speech model…".
+- **Holds cancelled as "Option + another input":** scroll momentum / resting-finger events counted as a chord (20 of 58 presses on 10-06). Fixed in 5b3227b.
+- **Tap to talk:** tap the dictation key to start, tap again to land; double tap stays hands-free; key and silence stop configurable in Settings › Shortcuts (0d725e2, 9fdcd0a).
+- **Open at login:** SMAppService login item, default on, Settings › General toggle (27649b7, 51805f3).
+- Gate: full suite 5371/0. Shipped as 1.15.4. Live check: first launch after install (press during model compile), tap-to-talk in Claude, login item after a real login.
