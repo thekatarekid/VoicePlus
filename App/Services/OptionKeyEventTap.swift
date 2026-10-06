@@ -133,11 +133,13 @@ public final class OptionKeyEventTap {
                 decision = .pass
             } else {
                 decision = suppressor.otherInput(at: t)
-                service.noteOtherInput(at: t)
+                service.noteOtherInput(at: t, kind: ChordInputFilter.label(for: type))
             }
         } else {
+            // Launch fix (RC5) — a scroll's momentum tail or a resting finger is not a chord.
+            guard ChordInputFilter.counts(type: type, event: event) else { return Unmanaged.passUnretained(event) }
             decision = suppressor.otherInput(at: t)
-            service.noteOtherInput(at: t)
+            service.noteOtherInput(at: t, kind: ChordInputFilter.label(for: type))
         }
         switch decision {
         case .pass:

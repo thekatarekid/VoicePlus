@@ -526,8 +526,15 @@ public final class HotkeyService {
     }
 
     public static func systemOtherInputWithin(_ seconds: TimeInterval) -> Bool {
-        let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
-        return types.contains { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) < seconds }
+        systemOtherInputWithin(seconds, includeScroll: true)
+    }
+
+    /// Launch fix (RC5) — `includeScroll: false` while the Option tap feeds the service: the tap
+    /// reports real scrolls with their phases, this check would also count a momentum tail.
+    public static func systemOtherInputWithin(_ seconds: TimeInterval, includeScroll: Bool) -> Bool {
+        ChordInputFilter.passiveTypes(includeScroll: includeScroll).contains {
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) < seconds
+        }
     }
 
     private var releaseUpStrikes = 0
@@ -673,10 +680,11 @@ public final class HotkeyService {
 
     /// X1 — another key, a click or a scroll while the key is held: cancel silently, pass the
     /// combo through (nothing here consumes it). Fed by the Option event tap; public for tests.
-    public func noteOtherInput(at timestamp: TimeInterval) {
+    public func noteOtherInput(at timestamp: TimeInterval, kind: String = "input") {
         guard !isPaused else { return }
         let actions = machine.otherInput(at: timestamp)
-        if !actions.isEmpty { Log.app.info("hotkey: \(binding.kind.displayName) + another input — cancelled silently") }
+        // Notice, not info: the 2026-10-06 investigation could not say *what* cancelled 20 presses.
+        if !actions.isEmpty { Log.app.notice("hotkey: \(binding.kind.displayName) + another input (\(kind)) — cancelled silently") }
         updateReleasePoll()
         emit(actions)
     }
@@ -690,9 +698,11 @@ public final class HotkeyService {
         default: return false
         }
         let window = max(0, uptime() - since)
-        let check = otherInputWithin ?? ((isRunning && installer == nil) ? Self.systemOtherInputWithin : nil)
+        let includeScroll = !tapFeeds
+        let check = otherInputWithin ?? ((isRunning && installer == nil)
+            ? { Self.systemOtherInputWithin($0, includeScroll: includeScroll) } : nil)
         guard window > 0, let check, check(window) else { return false }
-        noteOtherInput(at: uptime())
+        noteOtherInput(at: uptime(), kind: "passive check")
         return true
     }
 
