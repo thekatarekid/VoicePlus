@@ -7,9 +7,10 @@ import AppKit
 /// rounded enclosure (1, 2, 30 × 21, r 4, stroke 1.5), two eye circles (r 4 at (10, 10) and (22, 10),
 /// SVG's default stroke of 1) and the smile `M11 17q5 4 10 0`. `fill="none"` throughout: stroke only.
 ///
-/// The prototype sizes the SVG box to 18 × 16 pt and lets SVG's default `xMidYMid meet` fit the
-/// 4 : 3 viewBox into it, so the drawing here does the same: one uniform scale (18 / 32), centred
-/// vertically. Stroke widths scale with it, exactly as they do in the browser.
+/// The prototype sized the SVG box to 18 × 16 pt, which left the 4 : 3 viewBox 13.5 pt tall in a
+/// ~24 pt menu bar. The status item now uses a 24 × 18 pt box — exactly 4 : 3, so SVG's default
+/// `xMidYMid meet` fits it at one uniform scale (0.75) with no letterboxing. Stroke widths scale with
+/// it, exactly as they do in the browser.
 ///
 /// The image is a **template**: macOS draws it white on a dark menu bar and black on a light one.
 /// It is never tinted (no `contentTintColor`, no peach), never swapped for an SF symbol or the
@@ -29,8 +30,9 @@ public enum MenuBarGlyph {
 
     /// `viewBox="0 0 32 24"`.
     public static let viewBox = CGSize(width: 32, height: 24)
-    /// The status-item image size (design §4: 18 × 16 pt inside the status-item hit area).
-    public static let statusItemSize = NSSize(width: 18, height: 16)
+    /// The status-item image size: 24 × 18 pt, the viewBox at 0.75 (the prototype's 18 × 16 pt box
+    /// drew the glyph only 13.5 pt tall and left the menu bar's height unused).
+    public static let statusItemSize = NSSize(width: 24, height: 18)
     /// The glyph beside "VoicePlus · Ready" in the menu's status line (prototype `.menu-heading svg`).
     public static let menuHeadingSize = NSSize(width: 24, height: 21)
     /// SVG's initial `stroke-width`, which the eyes and the mouth inherit.

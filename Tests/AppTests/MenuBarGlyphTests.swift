@@ -69,9 +69,10 @@ struct MenuBarGlyphTests {
         let markSVG = String(html[mark]).replacingOccurrences(of: #"^<span[^>]*>|</span>$"#, with: "",
                                                               options: .regularExpression)
         #expect(markSVG == MenuBarGlyph.svg)
-        // The CSS box the prototype fits it into: `.menu-glyph svg{width:18px;height:16px}`.
+        // The prototype's CSS box was `.menu-glyph svg{width:18px;height:16px}`; the status item is
+        // deliberately larger — the viewBox at 0.75, filling the menu bar's height.
         #expect(html.contains(".menu-glyph svg{width:18px;height:16px}"))
-        #expect(MenuBarGlyph.statusItemSize == NSSize(width: 18, height: 16))
+        #expect(MenuBarGlyph.statusItemSize == NSSize(width: 24, height: 18))
         #expect(html.contains(".menu-heading svg{width:24px;height:21px}"))
         #expect(MenuBarGlyph.menuHeadingSize == NSSize(width: 24, height: 21))
     }
@@ -90,8 +91,8 @@ struct MenuBarGlyphTests {
     /// SVG's default `preserveAspectRatio="xMidYMid meet"`: one uniform scale, centred.
     @Test func fitsTheViewBoxLikeTheBrowser() {
         let status = MenuBarGlyph.fit(in: MenuBarGlyph.statusItemSize)
-        #expect(status.scale == 0.5625)
-        #expect(status.offset == CGPoint(x: 0, y: 1.25))
+        #expect(status.scale == 0.75)
+        #expect(status.offset == CGPoint(x: 0, y: 0))
         let heading = MenuBarGlyph.fit(in: MenuBarGlyph.menuHeadingSize)
         #expect(heading.scale == 0.75)
         #expect(heading.offset == CGPoint(x: 0, y: 1.5))
@@ -135,7 +136,7 @@ struct MenuBarGlyphTests {
     @Test(arguments: [1, 2])
     func rendersNonEmpty(scale: Int) throws {
         let rep = try Self.render(scale: scale)
-        #expect(rep.pixelsWide == 18 * scale && rep.pixelsHigh == 16 * scale)
+        #expect(rep.pixelsWide == 24 * scale && rep.pixelsHigh == 18 * scale)
         let inked = Self.inkedPixels(rep)
         #expect(inked > 20 * scale, "the glyph drew \(inked) pixels at \(scale)×")
         // Stroke only: a filled enclosure would ink ~70 % of the box; the outline stays well under.
@@ -163,7 +164,7 @@ struct MenuBarGlyphTests {
         // The smile's lowest point: the quadratic's midpoint, (16, 19).
         let smile = Self.pixel(CGPoint(x: 16, y: 19), scale: 2)
         #expect(Self.alpha(rep, smile.0, smile.1) > 0.2)
-        // Nothing outside the viewBox fit: the top 1.25 pt band above the enclosure stays clear.
+        // Nothing outside the viewBox: the 0.94 pt band above the enclosure's stroke stays clear.
         for x in 0..<rep.pixelsWide { #expect(Self.alpha(rep, x, 0) == 0) }
     }
 

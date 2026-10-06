@@ -6,7 +6,7 @@ import Shared
 /// The menu-bar item and **the one menu** (design §4 "menu-bar identity", §8.8; `DESIGN.md` §8.4, §10).
 ///
 /// **The glyph.** The status item shows `MenuBarGlyph` — the prototype's black-and-white cassette
-/// outline, a template image at 18 × 16 pt. It is never tinted, never dimmed, never swapped for an SF
+/// outline, a template image at 24 × 18 pt. It is never tinted, never dimmed, never swapped for an SF
 /// symbol or the detailed Spool, and it does not change with state: the state is the menu's first
 /// line ("VoicePlus · Ready" / "Muted" / "Blocked"), and the item's accessibility label says the same.
 ///
