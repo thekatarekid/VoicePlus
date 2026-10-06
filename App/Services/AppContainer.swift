@@ -474,6 +474,9 @@ public final class AppContainer {
     /// cross-process lock), the model preload and the capture-graph prewarm, and the route watcher
     /// that prepares the graph again after a device change.
     public func startBackgroundWork() {
+        // Open at login: default-ON registration / the user's persisted choice (`LoginItemService`).
+        // A no-op outside /Applications (DMG, translocated, build products, swift test).
+        Task { @MainActor in LoginItemService.shared.applyOnLaunch() }
         modelManager?.startMaintenance()
         warmUpEngine()
         guard case .real = engineKind, deviceMonitor == nil else { return }

@@ -82,10 +82,6 @@ struct GeneralSettingsPage: View {
     var open: (SettingsSubpage) -> Void
     var runOnboarding: () -> Void
 
-    /// Design §9: a failed save keeps the entered value and the previous active value (S02 inline,
-    /// Try again re-commits it).
-    @State private var launchAtLogin = SettingDraft(LaunchAtLogin.isEnabled)
-
     var body: some View {
         SectionPage(.settings(.general), state: .content, hotkey: hotkey) {
             VStack(alignment: .leading, spacing: MainWindowLayout.sectionGap) {
@@ -105,24 +101,8 @@ struct GeneralSettingsPage: View {
                     }
                     SettingsToggleRow(title: SettingsCopy.soundCuesTitle, detail: SettingsCopy.soundCuesDetail,
                                       isOn: $general.soundCues, identifier: "settings.soundCues")
-                    RowView(SettingsCopy.launchTitle,
-                            detail: LaunchAtLogin.isAvailable ? SettingsCopy.launchDetail : SettingsCopy.launchUnavailable) {
-                        Toggle(SettingsCopy.launchTitle, isOn: Binding(
-                            get: { launchAtLogin.entered },
-                            set: { on in
-                                launchAtLogin.entered = on
-                                commitLaunchAtLogin()
-                            }
-                        ))
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .disabled(!LaunchAtLogin.isAvailable)
-                        .accessibilityIdentifier("settings.launchAtLogin")
-                    }
-                }
-                if let failure = launchAtLogin.failureBanner {
-                    ScopedBanner(failure, onAction: { commitLaunchAtLogin() })
-                        .accessibilityIdentifier("settings.rowError.settings.launchAtLogin")
+                    // Open at login (SMAppService.mainApp, default ON) — `OpenAtLoginRow`.
+                    OpenAtLoginRow()
                 }
 
                 GroupBox(SettingsCopy.formattingTitle, layout: .rows) {
@@ -173,20 +153,8 @@ struct GeneralSettingsPage: View {
                 }
             }
         }
-        .onAppear {
-            if !launchAtLogin.isUnsaved { launchAtLogin = SettingDraft(LaunchAtLogin.isEnabled) }
-        }
-    }
-
-    private func commitLaunchAtLogin() {
-        launchAtLogin.commit { on in
-            guard LaunchAtLogin.set(enabled: on) else { throw LaunchAtLoginNotSaved() }
-        }
     }
 }
-
-/// `SMAppService` refused the change; `LaunchAtLogin` logged why.
-struct LaunchAtLoginNotSaved: Error {}
 
 // MARK: - Shortcuts
 

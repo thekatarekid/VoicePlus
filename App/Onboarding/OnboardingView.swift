@@ -866,6 +866,7 @@ public struct OnboardingView: View {
                 Text("Added \(n) names from Contacts to your dictionary.").foregroundStyle(.secondary)
             }
             OnboardingWhatToExpectCard { open(OnboardingReady.expectDictionarySection) }   // I1
+            OnboardingOpenAtLoginCheckbox()   // Open at login (default ON; `LoginItemService`)
             laterSteps
         }
     }
