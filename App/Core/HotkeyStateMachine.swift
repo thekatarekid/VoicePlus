@@ -9,6 +9,10 @@ import Foundation
 /// - Double-tap (two guarded taps within `doubleTapWindow`): **latch** — capture keeps running after
 ///   key-up, and endpoints close segments while listening continues (V3 §4.3).
 /// - Any key-down while latched: a single tap stops and finalizes, leaving latch.
+/// - Tap to talk (owner request, `tapToTalk` on): a tap (< holdThreshold) keeps capturing after its
+///   key-up (`.tapToTalk`); the next tap finishes and lands (`.finalize`). A second guarded tap
+///   within `doubleTapWindow` of a guarded first tap still means hands-free (`.enterLatch`), on the
+///   capture the first tap already opened (the first word is never lost).
 public struct HotkeyStateMachine: Equatable, Sendable {
     public struct Timing: Equatable, Sendable {
         public var holdThreshold: TimeInterval
@@ -41,6 +45,9 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         /// Second quick tap detected — latch: keep capturing until the next key-down. R3.1 renamed
         /// V3 §4.7 names this mode "latched" — the user-facing word is Latch.
         case enterLatch
+        /// Tap to talk — a short tap came up: capture keeps running as one dictation (no key held);
+        /// the next tap (`.finalize`) finishes and lands it. Only emitted with `tapToTalk` on.
+        case tapToTalk
     }
 
     public enum Phase: Equatable, Sendable {
@@ -58,6 +65,14 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         /// H29 — a re-press right after the hands-free stop: folded into the stop, nothing happens
         /// until its key-up.
         case folded
+        /// Tap to talk — a tap-to-talk dictation is capturing with no key held. `tapUp` is the key-up
+        /// of the tap that started it; `armed`: that tap was guarded (< tapGuard), so a second guarded
+        /// tap within `doubleTapWindow` of it turns the dictation into hands-free.
+        case tapTalking(tapUp: TimeInterval, armed: Bool)
+        /// Tap to talk — the key is down during a tap-to-talk dictation. Decided at key-up: the
+        /// second tap of a double tap → hands-free; anything else finishes and lands. `second`: it
+        /// went down inside the double-tap window of an armed first tap.
+        case tapTalkKeyDown(since: TimeInterval, second: Bool)
     }
 
     /// H5 — what a finished press was, for the one per-press log line (never any text).
@@ -77,6 +92,10 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         case folded
         /// K02 — the key-up never arrived; the press was ended from the modifier state.
         case lostKeyUp = "lost-key-up"
+        /// Tap to talk — a short tap that started a tap-to-talk dictation.
+        case tapToTalk = "tap-to-talk"
+        /// Tap to talk — the press that finished a tap-to-talk dictation.
+        case tapTalkStop = "tap-to-talk-stop"
     }
 
     /// Why the machine last emitted `.cancelCapture`.
@@ -101,13 +120,27 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     public private(set) var lastGesture: Gesture?
     /// H29 — key-up time of the press that stopped hands-free; `nil` once consumed or expired.
     public private(set) var lastStopUp: TimeInterval?
+    /// Tap to talk (owner request) — a short tap starts a dictation that the next tap finishes.
+    /// Off by default here (the act key never uses it); the dictation key reads the setting per press.
+    public var tapToTalk = false
+    /// Tap to talk — whether a double tap may still enter hands-free from a tap-to-talk dictation
+    /// ("Double-tap to latch"). Off: the second tap simply finishes the dictation.
+    public var doubleTapLatch = true
 
     public init(timing: Timing = .default) { self.timing = timing }
 
     public var isCapturing: Bool {
         switch phase {
         case .idle, .chorded, .folded: return false
-        case .keyDown, .latched, .latchedKeyDown: return true
+        case .keyDown, .latched, .latchedKeyDown, .tapTalking, .tapTalkKeyDown: return true
+        }
+    }
+
+    /// Tap to talk — a tap-to-talk dictation is running (key up or down).
+    public var isTapTalking: Bool {
+        switch phase {
+        case .tapTalking, .tapTalkKeyDown: return true
+        default: return false
         }
     }
 
@@ -116,8 +149,15 @@ public struct HotkeyStateMachine: Equatable, Sendable {
     @discardableResult
     public mutating func keyDown(at t: TimeInterval, surfaceShowing: Bool = false) -> [Action] {
         switch phase {
-        case .keyDown, .latchedKeyDown, .chorded, .folded:
+        case .keyDown, .latchedKeyDown, .chorded, .folded, .tapTalkKeyDown:
             return [] // key repeat (or the other side of Option) — ignore
+        case .tapTalking(let tapUp, let armed):
+            // Tap to talk — capture is already running; this press is decided at its key-up (a
+            // chord made with it passes through, `otherInput`).
+            let second = armed && doubleTapLatch && t - tapUp >= 0 && t - tapUp <= timing.doubleTapWindow
+            phase = .tapTalkKeyDown(since: t, second: second)
+            lastTapUp = nil
+            return []
         case .latched:
             // A single press while latched stops and finalizes (V3 §4.3) — X1: at its key-up, so
             // an Option chord made during hands-free passes through without ending the session.
@@ -157,6 +197,20 @@ public struct HotkeyStateMachine: Equatable, Sendable {
             lastStopUp = t
             lastGesture = .latchStop
             return [.finalize]
+        case .tapTalkKeyDown(let since, let second):
+            lastTapUp = nil
+            if second, t - since < timing.tapGuard {
+                // Tap, tap: hands-free, on the capture the first tap opened.
+                phase = .latched
+                lastGesture = .doubleTap
+                return [.enterLatch]
+            }
+            // Any other press finishes the dictation and lands it (a hold here lands too: the
+            // capture has been running since the first tap). A quick re-press folds into it (H29).
+            phase = .idle
+            lastStopUp = t
+            lastGesture = .tapTalkStop
+            return [.finalize]
         default: break
         }
         guard case .keyDown(let since) = phase else { return [] }
@@ -183,12 +237,15 @@ public struct HotkeyStateMachine: Equatable, Sendable {
                 lastGesture = .doubleTap
                 return [.enterLatch]
             }
+            if tapToTalk, !pressOverSurface { return startTapTalk(at: t, armed: true) }
             lastTapUp = t
             phase = .idle
             lastCancel = .tap
             lastGesture = .tap
             return [.cancelCapture]
         }
+        // Tap to talk — every press under the hold threshold is a tap (H2); it never arms a double tap.
+        if tapToTalk, !pressOverSurface { return startTapTalk(at: t, armed: false) }
         // Ambiguous press: neither a clean tap nor a hold. Cancel; does not arm a double-tap.
         phase = .idle
         lastTapUp = nil
@@ -197,14 +254,78 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         return [.cancelCapture]
     }
 
+    /// Tap to talk — the tap came up: capture keeps running as one dictation.
+    private mutating func startTapTalk(at t: TimeInterval, armed: Bool) -> [Action] {
+        phase = .tapTalking(tapUp: t, armed: armed)
+        lastTapUp = nil
+        lastGesture = .tapToTalk
+        return [.tapToTalk]
+    }
+
+    /// Tap to talk — the dictation ends without a tap (the silence timeout): finish and land it.
+    /// A key that is down at that moment is folded (its key-up does nothing). Nothing outside a
+    /// tap-to-talk dictation.
+    @discardableResult
+    public mutating func finishTapTalk(at t: TimeInterval) -> [Action] {
+        switch phase {
+        case .tapTalking:
+            phase = .idle
+            lastStopUp = nil
+        case .tapTalkKeyDown:
+            phase = .folded
+        default:
+            return []
+        }
+        lastTapUp = nil
+        lastGesture = .tapTalkStop
+        return [.finalize]
+    }
+
+    /// Tap to talk — the dictation ended elsewhere (Escape, a failure, mute): back to idle with no
+    /// action, so the next tap starts a new dictation instead of finishing one that is gone. A key
+    /// that is down is folded. Returns whether anything changed.
+    @discardableResult
+    public mutating func abandonTapTalk() -> Bool {
+        switch phase {
+        case .tapTalking: phase = .idle
+        case .tapTalkKeyDown: phase = .folded
+        default: return false
+        }
+        lastTapUp = nil
+        return true
+    }
+
     /// X1 (owner round 4) — another key went down, or a mouse button, or a scroll, while the
     /// dictation key may be held. Held from idle → capture is cancelled **silently** and the rest
     /// of the press does nothing (the combo belongs to the app in front). During a latched stop
     /// press → the session stays latched. From idle → a pending double tap is forgotten
     /// (Option, ⌥E, Option is not a double tap).
+    ///
+    /// Tap to talk — chord-cancel applies only before speech starts (`speechHeard`): a chord on the
+    /// stop press, or a typed key (`typing`) while the dictation listens with no key held, cancels
+    /// it silently; after speech the chord passes through and the dictation keeps listening.
+    /// Clicks and scrolls with no key held never cancel (clicking into the field is fine).
     @discardableResult
-    public mutating func otherInput(at t: TimeInterval) -> [Action] {
+    public mutating func otherInput(at t: TimeInterval, typing: Bool = true, speechHeard: Bool = false) -> [Action] {
         switch phase {
+        case .tapTalkKeyDown(let since, _):
+            if speechHeard {
+                // Back to listening: the key-up that follows finds `.tapTalking` and does nothing.
+                phase = .tapTalking(tapUp: since, armed: false)
+                lastGesture = .chord
+                return []
+            }
+            phase = .chorded
+            lastTapUp = nil
+            lastCancel = .chord
+            return [.cancelCapture]
+        case .tapTalking:
+            guard typing, !speechHeard else { return [] }
+            phase = .idle
+            lastTapUp = nil
+            lastCancel = .chord
+            lastGesture = .chord
+            return [.cancelCapture]
         case .keyDown:
             phase = .chorded
             lastTapUp = nil
@@ -234,6 +355,13 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         switch phase {
         case .chorded, .folded: phase = .idle; lastGesture = .lostKeyUp; return []
         case .latchedKeyDown: phase = .latched; lastGesture = .lostKeyUp; return []
+        case .tapTalkKeyDown:
+            // The press that would have finished the dictation: finish it (its words are kept).
+            phase = .idle
+            lastTapUp = nil
+            lastStopUp = t
+            lastGesture = .lostKeyUp
+            return [.finalize]
         default: break
         }
         guard case .keyDown(let since) = phase else { return [] }
@@ -470,9 +598,10 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
     public var label: String { kind.label }
 
     /// The I1 hover hint for this key — "Hold or Double Tap fn / 🌐 to dictate", or
-    /// "Hold fn / 🌐 to dictate" when the double-tap latch is off (design §5).
-    public func readyHint(latchEnabled: Bool = true) -> String {
-        PillState.readyHint(key: label, latchEnabled: latchEnabled)
+    /// "Hold fn / 🌐 to dictate" when the double-tap latch is off (design §5); with tap to talk on,
+    /// "Tap, Hold or Double Tap Option to dictate".
+    public func readyHint(latchEnabled: Bool = true, tapToTalk: Bool = false) -> String {
+        PillState.readyHint(key: label, latchEnabled: latchEnabled, tapToTalk: tapToTalk)
     }
 
     /// Prototype copy with its "Right Control" replaced by this key's label and nothing else
@@ -828,6 +957,7 @@ public struct HotkeyPressRecord: Equatable, Sendable {
 
     static func result(of actions: [HotkeyStateMachine.Action]) -> String {
         if actions.contains(.enterLatch) { return "hands-free" }
+        if actions.contains(.tapToTalk) { return "tap-to-talk" }
         if actions.contains(.finalize) { return "finalize" }
         if actions.contains(.cancelCapture) { return "cancel" }
         return "none"

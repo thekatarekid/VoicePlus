@@ -108,6 +108,8 @@ public enum OnboardingCopy {
         }
         var body = PillState.withHotkey(row.body, key: key)
         // Owner decision (round 4): Option is the dictation key; hold to talk, double-tap for hands-free.
+        // Tap to talk (owner request, on by default): one tap starts, the next tap finishes.
+        if step == .firstDictation { body += " " + TapToTalkCopy.onboardingHint(key) }
         if step == .firstDictation, isOptionKey(key) { body += " " + handsFreeHint(key) }
         return StepCopy(heading: PillState.withHotkey(row.heading, key: key),
                         body: body,

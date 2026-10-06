@@ -35,6 +35,9 @@ public final class DictationCoordinator {
     /// capture outright (hard mute, lock/sleep).
     public private(set) var latched = false
     public private(set) var paused = false
+    /// Tap to talk (owner request) — the running tap-to-talk dictation: its silence timeout and
+    /// whether speech has been heard (chord-cancel applies only before). The app wires its edges.
+    public let tapToTalk = TapToTalkWatch()
     /// Reported when `engine.start()` could not open a session. The app uses it to reset the hotkey
     /// gesture, so a key that is still physically down does not leave the recogniser "capturing".
     public var onStartFailure: ((Error) -> Void)?
@@ -191,7 +194,10 @@ public final class DictationCoordinator {
         let admitted = states.filter { [weak self] state in self?.turns?.admitsEngineState(state) ?? true }
         pill.model.bind(engineState: admitted.eraseToAnyPublisher(), audioLevel: capturedLevels.eraseToAnyPublisher())
         partialWords = states.sink { [weak self] state in
-            if case .previewing(let text) = state { self?.turns?.notePartial(text) }
+            if case .previewing(let text) = state {
+                self?.turns?.notePartial(text)
+                self?.tapToTalk.noteWords(text)
+            }
         }
         // Engines that publish levels for the whole utterance drive the waveform directly; the mock
         // engine (VOICEPLUS_FIXTURE) publishes none and keeps falling back to `.listening(level:)`.
@@ -249,8 +255,13 @@ public final class DictationCoordinator {
             for await event in events {
                 guard !Task.isCancelled else { return }
                 guard case .vad(let vad) = event else { continue }
-                if case .speechStart = vad { self?.turns?.noteVoiceActivity(speech: true) }
-                else { self?.turns?.noteVoiceActivity(speech: false) }
+                if case .speechStart = vad {
+                    self?.turns?.noteVoiceActivity(speech: true)
+                    self?.tapToTalk.noteSpeech(true)
+                } else {
+                    self?.turns?.noteVoiceActivity(speech: false)
+                    self?.tapToTalk.noteSpeech(false)
+                }
             }
         }
     }
@@ -299,7 +310,17 @@ public final class DictationCoordinator {
             finalize()
         // N17 — the gesture's own cancel is a key released under the hold threshold: a tap.
         case .cancelCapture: cancel(tapped: true)
+        case .tapToTalk:
+            // Tap to talk — the key came up and capture keeps running. A press the controller
+            // refused (K04), or one that opened no turn, has nothing to keep: the gesture resets.
+            if turns != nil, currentTurn == nil {
+                sessionLock.withLock { refusedPress = false }
+                tapToTalk.abandon()
+                return
+            }
+            tapToTalk.begin()
         case .enterLatch:
+            tapToTalk.end()
             latched = true
             pill.model.latched = true
             turns?.noteLatched(true)
@@ -372,6 +393,7 @@ public final class DictationCoordinator {
     public var preflight: (() async -> Void)?
 
     public func start() {
+        tapToTalk.captureStarting()
         // S3 — key down is a turn: snapshot the destination and show "Starting…" now, before
         // capture opens. A key repeat is not a second turn, and a press while the previous turn is
         // still finishing, previewing or inserting does not steal it (K04).
@@ -499,6 +521,7 @@ public final class DictationCoordinator {
         //
         // Taken here, on the key-release turn, not inside the queued work: the point of the snapshot
         // is what was focused when the user let go.
+        tapToTalk.end()
         let focus = focusSnapshot?()
         let started = startedAt
         // S3 — key up: the turn goes to `finishing` now (microphone closing, nothing written). A
@@ -597,6 +620,7 @@ public final class DictationCoordinator {
     /// `tapped`: N17 — the key came up under the hold threshold. The turn is dropped without a
     /// record and the pill hints how to dictate; any other cancel ends the turn quietly as before.
     public func cancel(tapped: Bool, silently: Bool = false) {
+        tapToTalk.end()
         // S3 — the capture turn ends quietly (a too-short tap is not news; Escape shows its own
         // "Cancelled"). A turn already past key-up is not capture any more: it is left to finish.
         if let turns, let id = sessionLock.withLock({ () -> TurnID? in

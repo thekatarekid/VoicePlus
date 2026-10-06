@@ -122,6 +122,11 @@ public struct DeixisKeyArbiter: Equatable, Sendable {
         case (.holding, .cancelCapture):
             mode = .idle
             return Effects(forward: [action], overlay: .hide(fading: false), capture: .cancel)
+        case (.holding, .tapToTalk):
+            // Tap to talk — the key is up and capture keeps running: drawing needs the key held,
+            // so the tap is released and the overlay goes. The dictation's end arrives from idle.
+            mode = .idle
+            return Effects(forward: [action], overlay: .hide(fading: false), capture: .release)
         case (.holding, .enterLatch):
             // Latch ends deixis capture: tap released, overlay gone. "Draw without a key" keeps
             // the tap so a bare drag can still draw.

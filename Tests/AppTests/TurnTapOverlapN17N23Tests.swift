@@ -4,7 +4,8 @@ import Shared
 import Testing
 @testable import VoicePlusApp
 
-/// N17 — a tap under the hold threshold is a hint, not a failed turn (no turn record); no speech
+/// N17 — a tap under the hold threshold is not a failed turn (no turn record; tap to talk replaced
+/// the old hint); no speech
 /// reads "Didn’t hear anything". N23 — a new press is allowed once the previous text is final; the
 /// two land in start order and the older turn never takes the pill from the newer capture.
 @Suite("Taps, silence and overlapping presses (N17, N23)")
@@ -16,31 +17,25 @@ struct TurnTapOverlapN17N23Tests {
 
     // MARK: N17
 
-    @Test("a tap: no turn record, no notice, and the hint once the double-tap window has passed")
-    func tapIsAHint() {
+    @Test("a tap: no turn record, no notice, no hint")
+    func tapIsNotATurn() {
         let h = H()
-        let hints = Count()
-        h.controller.onTapHint = { hints.value += 1 }
         guard case .began(let id) = h.controller.keyDown() else { Issue.record("no turn"); return }
         h.controller.captureOpened(id)
         h.controller.captureTapped(id)
         #expect(h.store.entry(id) == nil, "a tap is not stored as a cancelled turn")
         #expect(h.events.notices.isEmpty)
-        #expect(hints.value == 0, "not before the double-tap window")
-        h.clock.advance(h.controller.tapHintDelay)
-        #expect(hints.value == 1)
+        h.clock.advance(2)
+        #expect(!h.events.stateNames.contains("preview"))
     }
 
-    @Test("the first tap of a double-tap never flashes the hint")
+    @Test("the first tap of a double-tap leaves no record; the latched press is a real turn")
     func doubleTapNoHint() {
         let h = H()
-        let hints = Count()
-        h.controller.onTapHint = { hints.value += 1 }
         guard case .began(let first) = h.controller.keyDown() else { Issue.record("no turn"); return }
         h.controller.captureTapped(first)
         guard case .began(let second) = h.controller.keyDown(latched: true) else { Issue.record("no 2nd"); return }
-        h.clock.advance(h.controller.tapHintDelay)
-        #expect(hints.value == 0)
+        h.clock.advance(2)
         #expect(h.store.entry(first) == nil)
         #expect(h.store.entry(second) != nil, "the latched press is a real turn")
     }
@@ -55,12 +50,10 @@ struct TurnTapOverlapN17N23Tests {
         #expect(h.store.entry(id)?.stage == .finishing)
     }
 
-    @Test("copy: no speech reads “Didn’t hear anything”; the tap hint names the latch only when it is on")
+    @Test("copy: no speech reads “Didn’t hear anything”")
     func copy() {
         #expect(TurnWiring.noticeHeadline(for: RecoveryCatalog.entry(.A06)) == "Didn’t hear anything")
         #expect(TurnWiring.noticeHeadline(for: RecoveryCatalog.entry(.K04)) == RecoveryCatalog.entry(.K04).headline)
-        #expect(TurnWiring.tapHint(latchEnabled: true) == "Hold to talk · double-tap to lock")
-        #expect(TurnWiring.tapHint(latchEnabled: false) == "Hold to talk")
     }
 
     @Test("no speech still ends the turn as empty with A06 (drawn as “Didn’t hear anything”)")

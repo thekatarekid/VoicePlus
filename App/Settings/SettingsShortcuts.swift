@@ -211,6 +211,10 @@ public struct ShortcutTestProbe: Equatable, Sendable {
         case latched
         /// A tap while latched finishes.
         case latchFinished
+        /// Tap to talk — a short tap started a dictation.
+        case tapTalking
+        /// Tap to talk — the next tap finished it.
+        case tapTalkFinished
     }
 
     private var machine: HotkeyStateMachine
@@ -219,19 +223,28 @@ public struct ShortcutTestProbe: Equatable, Sendable {
 
     public init(timing: HotkeyStateMachine.Timing = .default) { machine = HotkeyStateMachine(timing: timing) }
 
-    public mutating func edge(_ edge: HotkeyBinding.Edge, at t: TimeInterval, latchEnabled: Bool) {
+    public mutating func edge(_ edge: HotkeyBinding.Edge, at t: TimeInterval, latchEnabled: Bool, tapToTalk: Bool = false) {
         switch edge {
         case .down:
+            machine.tapToTalk = tapToTalk
+            machine.doubleTapLatch = latchEnabled
+            // Tap to talk — the press that ends it is decided at its key-up.
+            if machine.isTapTalking { _ = machine.keyDown(at: t); return }
             // X1 — a press while latched stops at its key-up; the test reports it on the press.
             let wasLatched = machine.phase == .latched
             let actions = LatchGestureSettings.filter(machine.keyDown(at: t), enabled: latchEnabled)
             if wasLatched || actions.contains(.finalize) { result = .latchFinished; downAt = nil; return }
             if actions.contains(.startCapture) { downAt = t; result = .pressed }
         case .up:
+            let wasTapTalking = machine.isTapTalking
             let actions = LatchGestureSettings.filter(machine.keyUp(at: t), enabled: latchEnabled)
             defer { downAt = nil }
             if actions.contains(.enterLatch) {
                 result = .latched
+            } else if actions.contains(.tapToTalk) {
+                result = .tapTalking
+            } else if wasTapTalking, actions.contains(.finalize) {
+                result = .tapTalkFinished
             } else if actions.contains(.finalize) {
                 if result != .latchFinished { result = .hold(seconds: t - (downAt ?? t)) }
             } else if actions.contains(.cancelCapture) {
@@ -251,6 +264,8 @@ public struct ShortcutTestProbe: Equatable, Sendable {
         case .tooShort: return PillState.withHotkey(RecoveryCatalog.entry(.K03).headline, key: key)
         case .latched: return ShortcutCopy.testLatched
         case .latchFinished: return ShortcutCopy.testLatchFinished
+        case .tapTalking: return ShortcutCopy.testTapTalking(key)
+        case .tapTalkFinished: return ShortcutCopy.testTapTalkFinished
         }
     }
 }
@@ -307,6 +322,11 @@ public enum ShortcutCopy {
     public static let holdToTalk = "Hold to talk"
     public static let holdExplanation = "Hold while you speak. Let go to finish."
     public static let escapeCancels = "Escape cancels before insertion begins."
+    /// The Shortcuts page's explanation under the key cap: hold, then tap to talk when it is on.
+    public static func explanation(key: String, tapToTalk: Bool) -> String {
+        tapToTalk ? "\(holdExplanation)\n\(TapToTalkCopy.detail(key))\n\(escapeCancels)"
+                  : "\(holdExplanation)\n\(escapeCancels)"
+    }
     public static let changeShortcut = "Change shortcut…"
     public static func recordingPrompt(_ key: String) -> String { "Press the key you want to hold. Escape keeps \(key)." }
     public static let stopRecording = "Stop"
@@ -331,9 +351,9 @@ public enum ShortcutCopy {
     public static func testPrompt(_ key: String, mode: ShortcutTestMode = .isolated) -> String {
         switch mode {
         case .isolated:
-            return "Hold \(key) here, then let go. While this test runs, the key doesn’t start a dictation in this window."
+            return "Hold or tap \(key) here, then let go. While this test runs, the key doesn’t start a dictation in this window."
         case .sharedWithEventTap:
-            return "Hold \(key) here, then let go. The legacy listener sees the key too, so a dictation starts as well."
+            return "Hold or tap \(key) here, then let go. The legacy listener sees the key too, so a dictation starts as well."
         case .chord:
             return chordTestNote(key)
         }
@@ -347,6 +367,8 @@ public enum ShortcutCopy {
     }
     public static let testLatched = "Double tap — Latch. Tap once more to finish."
     public static let testLatchFinished = "Tap — Latch finished."
+    public static func testTapTalking(_ key: String) -> String { "Tap — tap to talk. Speak, then tap \(key) again to finish." }
+    public static let testTapTalkFinished = "Tap — tap to talk finished. Your words would preview, then insert."
 }
 
 // MARK: - The page's live half
@@ -437,7 +459,7 @@ public final class ShortcutsPageModel: ObservableObject {
     /// One edge of the bound key, at `t` (seconds).
     public func testEdge(_ edge: HotkeyBinding.Edge, at t: TimeInterval) {
         guard isTesting else { return }
-        probe.edge(edge, at: t, latchEnabled: general.latchDoubleTap)
+        probe.edge(edge, at: t, latchEnabled: general.latchDoubleTap, tapToTalk: general.tapToTalk)
     }
 
     public func stopAll() {

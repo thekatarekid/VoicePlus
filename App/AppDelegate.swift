@@ -857,6 +857,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                             resetGesture: { [weak hotkey = self.hotkey] in hotkey?.resetGesture() },
                                             forward: { dictationKey?($0) })
         hotkey.onAction = { latchGesture.handle($0) }
+        // Tap to talk (owner request) — a short tap starts a dictation, the next tap lands it; the
+        // switch and the silence timeout are read live from Settings › Shortcuts.
+        if let dictation = self.coordinator {
+            TapToTalkWiring.attach(hotkey: hotkey, coordinator: dictation, settings: w3hSettings,
+                                   showNote: { [weak pillModel] note in pillModel?.showLaneNote(note) })
+        }
         presence.readyHint = { [weak hotkey = self.hotkey, weak container] in
             LaunchModelHint.readyHint(LatchGestureHook.readyHint(binding: hotkey?.binding ?? .default, settings: w3hSettings),
                                       modelLoading: container?.isSpeechModelLoading ?? false)

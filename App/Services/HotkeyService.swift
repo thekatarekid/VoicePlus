@@ -290,6 +290,13 @@ public final class HotkeyService {
     /// Over such a surface a press up to ~0.8 s is a dismissing tap. The dictation key reads the
     /// pill's published visibility; any other key (the act key) never treats a press as over it.
     public var surfaceShowing: () -> Bool
+    /// Tap to talk (owner request) — read at every key-down, so the Settings switch applies live.
+    /// Off unless the app wires it (the act key never taps to talk).
+    public var tapToTalkEnabled: () -> Bool = { false }
+    /// Tap to talk — "Double-tap to latch", read at every key-down: off, a second tap finishes.
+    public var doubleTapLatchEnabled: () -> Bool = { true }
+    /// Tap to talk — has the running dictation heard speech yet? Chord-cancel applies only before.
+    public var speechHeard: () -> Bool = { false }
     public private(set) var machine: HotkeyStateMachine
     public private(set) var binding: HotkeyBinding
     public private(set) var isRunning = false
@@ -548,8 +555,8 @@ public final class HotkeyService {
     /// The machine believes the key is down (a press, a latched stop press, a chorded press).
     var machineHoldsKey: Bool {
         switch machine.phase {
-        case .keyDown, .latchedKeyDown, .chorded, .folded: return true
-        case .idle, .latched: return false
+        case .keyDown, .latchedKeyDown, .chorded, .folded, .tapTalkKeyDown: return true
+        case .idle, .latched, .tapTalking: return false
         }
     }
 
@@ -652,6 +659,8 @@ public final class HotkeyService {
         switch edge {
         case .down:
             if !pressLog.isOpen { pressLog.keyDown(at: timestamp, secureInput: secureInputProbe()) }
+            machine.tapToTalk = tapToTalkEnabled()
+            machine.doubleTapLatch = doubleTapLatchEnabled()
             actions = machine.keyDown(at: timestamp, surfaceShowing: surfaceShowing())
         case .up:
             actions = machine.keyUp(at: timestamp)
@@ -682,7 +691,8 @@ public final class HotkeyService {
     /// combo through (nothing here consumes it). Fed by the Option event tap; public for tests.
     public func noteOtherInput(at timestamp: TimeInterval, kind: String = "input") {
         guard !isPaused else { return }
-        let actions = machine.otherInput(at: timestamp)
+        let actions = machine.otherInput(at: timestamp, typing: kind == "key",
+                                         speechHeard: machine.isTapTalking && speechHeard())
         // Notice, not info: the 2026-10-06 investigation could not say *what* cancelled 20 presses.
         if !actions.isEmpty { Log.app.notice("hotkey: \(binding.kind.displayName) + another input (\(kind)) — cancelled silently") }
         updateReleasePoll()
@@ -694,7 +704,7 @@ public final class HotkeyService {
     public func pollOtherInput() -> Bool {
         let since: TimeInterval
         switch machine.phase {
-        case .keyDown(let t), .latchedKeyDown(let t): since = t
+        case .keyDown(let t), .latchedKeyDown(let t), .tapTalkKeyDown(let t, _): since = t
         default: return false
         }
         let window = max(0, uptime() - since)
@@ -710,6 +720,23 @@ public final class HotkeyService {
     public func resetGesture() {
         logPress(pressLog.end(at: uptime(), gesture: machine.lastGesture, actions: [], result: "reset"))
         machine.reset()
+        updateReleasePoll()
+    }
+
+    /// Tap to talk — the dictation's silence timeout: finish and land it as a tap would.
+    public func finishTapToTalk(reason: String) {
+        let actions = machine.finishTapTalk(at: uptime())
+        guard !actions.isEmpty else { return }
+        Log.app.notice("hotkey: tap-to-talk finished — \(reason)")
+        updateReleasePoll()
+        emit(actions)
+    }
+
+    /// Tap to talk — the dictation ended without the hotkey (Escape, a failure, mute): the next tap
+    /// starts a new dictation instead of finishing one that is gone.
+    public func abandonTapToTalk() {
+        guard machine.abandonTapTalk() else { return }
+        Log.app.notice("hotkey: tap-to-talk ended elsewhere — gesture reset")
         updateReleasePoll()
     }
 

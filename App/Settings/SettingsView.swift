@@ -177,6 +177,23 @@ struct ShortcutsSettingsPage: View {
                         .accessibilityIdentifier("settings.fnConflict")
                 }
                 GroupBox(layout: .rows) {
+                    SettingsToggleRow(title: TapToTalkCopy.title, detail: TapToTalkCopy.detail(general.hotkeyLabel),
+                                      isOn: $general.tapToTalk, identifier: "settings.tapToTalk")
+                    RowView(TapToTalkCopy.silenceTitle,
+                            detail: general.tapToTalk ? TapToTalkCopy.silenceDetail : TapToTalkCopy.offNote) {
+                        HStack(spacing: Tokens.Spacing.s) {
+                            Slider(value: $general.tapToTalkSilenceSeconds, in: TapToTalkSettings.silenceRange, step: 1)
+                                .frame(width: 140)
+                                .accessibilityLabel(TapToTalkCopy.silenceTitle)
+                                .accessibilityValue(TapToTalkCopy.seconds(general.tapToTalkSilenceSeconds))
+                                .accessibilityIdentifier("settings.tapToTalkSilence")
+                            Text(TapToTalkCopy.seconds(general.tapToTalkSilenceSeconds))
+                                .windowFont(Tokens.Typography.duration)
+                                .foregroundStyle(WindowColor.ink)
+                                .frame(minWidth: 40, alignment: .trailing)
+                        }
+                        .disabled(!general.tapToTalk)
+                    }
                     SettingsToggleRow(title: ShortcutCopy.latchTitle, detail: ShortcutCopy.latchDetail,
                                       isOn: $general.latchDoubleTap, identifier: "settings.latchDoubleTap")
                     RowView(ShortcutCopy.latchPauseTitle,
@@ -252,7 +269,7 @@ struct ShortcutsSettingsPage: View {
                     .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.control, style: .continuous)
                         .strokeBorder(WindowColor.controlBorder, lineWidth: 1))
                     .accessibilityLabel(KeyCap.accessibilityLabel(for: general.hotkeyLabel))
-                Text("\(ShortcutCopy.holdExplanation)\n\(ShortcutCopy.escapeCancels)")
+                Text(ShortcutCopy.explanation(key: general.hotkeyLabel, tapToTalk: general.tapToTalk))
                     .windowFont(Tokens.Typography.body)
                     .foregroundStyle(WindowColor.ink)
                     .fixedSize(horizontal: false, vertical: true)

@@ -120,7 +120,7 @@ struct LostKeyUpK02Tests {
                 if case .began(let id) = h.controller.keyDown() { current = id; h.controller.captureOpened(id) }
             case .finalize, .cancelCapture:
                 if let id = current { h.controller.keyUp(id) }
-            case .enterLatch:
+            case .enterLatch, .tapToTalk:
                 break
             }
         }

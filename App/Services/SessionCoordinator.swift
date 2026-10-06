@@ -386,6 +386,9 @@ public final class SessionCoordinator {
             latch?.cancelPending(reason: "cancelled")
             let chord = HotkeyGestureContext.takeChordCancel()
             if dictation.latched { release(.hotkey) } else { cancel(.hotkey, tapped: !chord, silently: chord) }
+        case .tapToTalk:
+            // Tap to talk — the hold's capture simply keeps running; the next tap is `.finalize`.
+            dictation.handle(.tapToTalk)
         case .enterLatch:
             dictation.handle(.enterLatch)
             lock.withLock { holder = .hotkey; requestedMode = .latched }

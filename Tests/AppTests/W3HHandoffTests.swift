@@ -104,9 +104,14 @@ struct W3HHandoffTests {
     func readyHintFollowsTheSwitch() {
         let store = InMemorySettingsStore()
         let fn = HotkeyBinding(kind: .fn)
+        // Tap to talk is on by default and is named first.
+        #expect(LatchGestureHook.readyHint(binding: fn, settings: store) == "Tap, Hold or Double Tap fn / 🌐 to dictate")
+        TapToTalkSettings.setEnabled(false, store: store)
         #expect(LatchGestureHook.readyHint(binding: fn, settings: store) == "Hold or Double Tap fn / 🌐 to dictate")
         LatchGestureSettings.setEnabled(false, store: store)
         #expect(LatchGestureHook.readyHint(binding: fn, settings: store) == "Hold fn / 🌐 to dictate")
+        TapToTalkSettings.setEnabled(true, store: store)
+        #expect(LatchGestureHook.readyHint(binding: fn, settings: store) == "Tap or Hold fn / 🌐 to dictate")
     }
 
     // MARK: - (2) Sound cues

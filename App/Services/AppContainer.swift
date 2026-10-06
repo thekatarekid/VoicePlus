@@ -837,6 +837,8 @@ final class LaunchPressGate {
         case held
         /// A double-tap latch was made → replay `.startCapture`, `.enterLatch`.
         case latched
+        /// Tap to talk: a tap started a dictation → replay `.startCapture`, `.tapToTalk`.
+        case tapTalking
         /// The press ended before the container landed → nothing.
         case released
     }
@@ -859,14 +861,17 @@ final class LaunchPressGate {
         if action == .startCapture {
             // One queued press max: a second down while one is held changes nothing; a new press
             // after a released one replaces it.
-            guard pending != .held, pending != .latched else { return }
+            guard pending != .held, pending != .latched, pending != .tapTalking else { return }
             pending = .held
             present(.starting)
         } else if action == .enterLatch {
-            guard pending == .held else { return }
+            guard pending == .held || pending == .tapTalking else { return }
             pending = .latched
+        } else if action == .tapToTalk {
+            guard pending == .held else { return }
+            pending = .tapTalking
         } else if action == .finalize || action == .cancelCapture {
-            guard pending == .held || pending == .latched else { return }
+            guard pending == .held || pending == .latched || pending == .tapTalking else { return }
             pending = .released
             dismiss()
         }
@@ -884,6 +889,9 @@ final class LaunchPressGate {
         case .latched:
             forward(.startCapture)
             forward(.enterLatch)
+        case .tapTalking:
+            forward(.startCapture)
+            forward(.tapToTalk)
         case .none, .released:
             break
         }

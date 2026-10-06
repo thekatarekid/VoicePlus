@@ -5,8 +5,8 @@ import Testing
 @testable import VoicePlusApp
 
 /// H1 — a silent hold: < 0.6 s vanishes; ≥ 0.6 s shows A06 "Didn’t hear anything", gone 1.5 s after
-/// key-up, never X08. H2 — tap rules: a tap with nothing showing hints for 1.6 s; a tap over a
-/// visible non-capture notch dismisses it and schedules nothing new; a double tap still latches.
+/// key-up, never X08. H2 — tap rules: a tap over a visible non-capture notch dismisses it and
+/// schedules nothing new; a double tap still latches. Tap to talk replaced the old tap hint.
 @Suite("Turn gestures: silent holds and taps (H1, H2)")
 struct TurnGestureTapSilenceTests {
     typealias H = TurnControllerTests.Harness
@@ -85,47 +85,32 @@ struct TurnGestureTapSilenceTests {
 
     // MARK: H2
 
-    @Test("tap with nothing showing → hint after the double-tap window, gone after 1.6 s")
-    func tapHintDwell() {
+    @Test("tap with nothing showing → no hint (tap to talk replaced it), no record, no dismiss")
+    func tapShowsNoHint() {
         let h = H()
-        let hints = Count(), expired = Count(), dismissed = Count()
+        let dismissed = Count()
         h.controller.surfaceShowing = { false }
-        h.controller.onTapHint = { hints.value += 1 }
-        h.controller.onTapHintExpired = { expired.value += 1 }
         h.controller.onTapDismiss = { dismissed.value += 1 }
         guard case .began(let id) = h.controller.keyDown() else { Issue.record("no turn"); return }
         h.controller.captureTapped(id)
-        h.clock.advance(h.controller.tapHintDelay)
-        #expect(hints.value == 1)
-        #expect(h.controller.tapHintDwell == 1.6)
-        h.clock.advance(1.59)
-        #expect(expired.value == 0)
-        h.clock.advance(0.02)
-        #expect(expired.value == 1)
+        h.clock.advance(5)
         #expect(dismissed.value == 0)
+        #expect(h.store.entry(id) == nil, "no cancelled row")
+        #expect(!h.events.stateNames.contains("preview"))
     }
 
-    @Test("tap again while the hint shows → dismissed, no new hint, no stray cancelled row")
-    func tapAgainDismisses() {
+    @Test("tap while a notice shows → dismissed, nothing new, no stray cancelled row")
+    func tapOverNoticeDismisses() {
         let h = H()
-        let hints = Count(), expired = Count(), dismissed = Count()
-        let showing = TurnControllerTests.Box(false)
+        let dismissed = Count()
+        let showing = TurnControllerTests.Box(true)
         h.controller.surfaceShowing = { showing.value }
-        h.controller.onTapHint = { hints.value += 1; showing.value = true }
-        h.controller.onTapHintExpired = { expired.value += 1 }
         h.controller.onTapDismiss = { dismissed.value += 1; showing.value = false }
-        guard case .began(let first) = h.controller.keyDown() else { Issue.record("no turn"); return }
-        h.controller.captureTapped(first)
-        h.clock.advance(h.controller.tapHintDelay)
-        #expect(hints.value == 1)
-        h.clock.advance(0.3)
-        guard case .began(let second) = h.controller.keyDown() else { Issue.record("no 2nd"); return }
-        h.controller.captureTapped(second)
+        guard case .began(let tap) = h.controller.keyDown() else { Issue.record("no turn"); return }
+        h.controller.captureTapped(tap)
         #expect(dismissed.value == 1)
         h.clock.advance(5)
-        #expect(hints.value == 1, "nothing new scheduled")
-        #expect(expired.value == 0, "the old hint's expiry is stale")
-        #expect(h.store.entry(first) == nil && h.store.entry(second) == nil, "no cancelled rows")
+        #expect(h.store.entry(tap) == nil, "no cancelled row")
         #expect(!h.events.stateNames.contains("cancelled"))
         #expect(h.events.notices.isEmpty)
     }
@@ -143,15 +128,12 @@ struct TurnGestureTapSilenceTests {
     @Test("pill surface classifier: hint, notices and outcome rows are surfaces; capture rows are not")
     func surfaceClassifier() {
         typealias V = PillSurfaceVisibility
-        #expect(V.isNonCaptureSurface(.preview(text: PillDeck.tapHint), captureOpen: false))
+        #expect(V.isNonCaptureSurface(.preview(text: "Saved to Notes · no text field"), captureOpen: false))
         #expect(!V.isNonCaptureSurface(.preview(text: "live words"), captureOpen: true))
         #expect(V.isNonCaptureSurface(.error(message: PillDeck.didntHearAnything), captureOpen: false))
         #expect(V.isNonCaptureSurface(.cancelled, captureOpen: false))
         for state in [PillState.hidden, .idle, .starting, .listening(level: 0), .listeningQuiet, .latched(elapsed: 1)] {
             #expect(!V.isNonCaptureSurface(state, captureOpen: false), "\(state.caseName)")
         }
-        #expect(TurnWiring.isTapHint(.preview(text: TurnWiring.tapHint(latchEnabled: true))))
-        #expect(TurnWiring.isTapHint(.preview(text: TurnWiring.tapHint(latchEnabled: false))))
-        #expect(!TurnWiring.isTapHint(.preview(text: "something else")))
     }
 }

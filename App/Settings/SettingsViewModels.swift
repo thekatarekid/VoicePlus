@@ -231,6 +231,20 @@ public final class GeneralSettingsViewModel: ObservableObject {
 
     // MARK: S7g · Shortcuts
 
+    /// Tap to talk (owner request) — a short tap starts a dictation, the next tap lands it. On by
+    /// default; read by the live key at every press.
+    @Published public var tapToTalk: Bool {
+        didSet { TapToTalkSettings.setEnabled(tapToTalk, store: store) }
+    }
+    /// Tap to talk — "Stop after silence of", 3–30 s (default 10).
+    @Published public var tapToTalkSilenceSeconds: TimeInterval {
+        didSet {
+            let clamped = TapToTalkSettings.clamp(tapToTalkSilenceSeconds)
+            guard clamped == tapToTalkSilenceSeconds else { tapToTalkSilenceSeconds = clamped; return }
+            guard clamped != oldValue else { return }
+            TapToTalkSettings.setSilenceSeconds(clamped, store: store)
+        }
+    }
     /// "Double-tap to latch" (design §8.6). On by default.
     @Published public var latchDoubleTap: Bool {
         didSet { LatchGestureSettings.setEnabled(latchDoubleTap, store: store) }
@@ -304,6 +318,8 @@ public final class GeneralSettingsViewModel: ObservableObject {
         soundCues = SoundCueSettings.isEnabled(store)
         spacing = FormattingSettings.spacing(store)
         unknownCaretStyle = FormattingSettings.unknownCaretStyle(store)
+        tapToTalk = TapToTalkSettings.isEnabled(store)
+        tapToTalkSilenceSeconds = TapToTalkSettings.silenceSeconds(store)
         latchDoubleTap = LatchGestureSettings.isEnabled(store)
         latchPauseSeconds = LatchSettings.pauseSeconds(store)
         drawWithoutKey = DeixisSettings.drawsWithoutKey(store)

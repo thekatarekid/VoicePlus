@@ -19,7 +19,6 @@ struct TurnGestureOptionChordTests {
         h.controller.surfaceShowing = { false }
         h.controller.onHoldYield = { log.value.append("yield") }
         h.controller.onPresent = { log.value.append($0.caseName) }
-        h.controller.onTapHint = { log.value.append("hint") }
         h.controller.onRetract = { log.value.append("retract") }
         return (h, log)
     }
@@ -82,14 +81,14 @@ struct TurnGestureOptionChordTests {
         #expect(log.value == ["yield", "starting"], "the delay timer does not show it twice")
     }
 
-    @Test("a tap inside the delay never flashes the notch; its hint still comes")
+    @Test("a tap inside the delay never flashes the notch and shows no hint (tap to talk replaced it)")
     func tapNeverFlashes() {
         let (h, log) = harness()
         guard case .began(let id) = h.controller.keyDown() else { Issue.record("no turn"); return }
         h.clock.advance(0.1)
         h.controller.captureTapped(id)
-        h.clock.advance(h.controller.tapHintDelay + 0.01)
+        h.clock.advance(2)
         #expect(!log.value.contains("starting"))
-        #expect(log.value.contains("hint"))
+        #expect(!log.value.contains("preview"))
     }
 }

@@ -350,7 +350,7 @@ struct SettingsSubpagesS7gTests {
     func shortcutTestProbe() {
         var probe = ShortcutTestProbe()
         #expect(probe.message(key: "fn / 🌐") ==
-                "Hold fn / 🌐 here, then let go. While this test runs, the key doesn’t start a dictation in this window.")
+                "Hold or tap fn / 🌐 here, then let go. While this test runs, the key doesn’t start a dictation in this window.")
         #expect(probe.message(key: "fn / 🌐", mode: .sharedWithEventTap).contains("a dictation starts as well"),
                 "the legacy event tap reads keys before the page can keep them")
         probe.edge(.down, at: 0, latchEnabled: true)
@@ -398,7 +398,7 @@ struct SettingsSubpagesS7gTests {
         general.hotkey = .fn
         #expect(shortcuts.testLine == ShortcutCopy.testDetail)
         shortcuts.startTesting()
-        #expect(shortcuts.testLine.hasPrefix("Hold fn / 🌐 here, then let go."))
+        #expect(shortcuts.testLine.hasPrefix("Hold or tap fn / 🌐 here, then let go."))
         shortcuts.choose(.controlOptionD)
         #expect(!shortcuts.isTesting, "picking a key ends the test")
     }
@@ -467,6 +467,7 @@ struct SettingsSubpagesS7gTests {
     func shortcutTestThroughTheModel() {
         let general = Self.general()
         general.latchDoubleTap = false
+        general.tapToTalk = false
         let shortcuts = ShortcutsPageModel(general: general, clock: { 0 },
                                            installMonitor: { _ in NSObject() }, removeMonitor: { _ in })
         shortcuts.testEdge(.down, at: 0)
@@ -476,6 +477,16 @@ struct SettingsSubpagesS7gTests {
             shortcuts.testEdge(edge, at: t)
         }
         #expect(shortcuts.probe.result == .tooShort)
+        // Tap to talk on (the default): the first tap starts it, the second (latch off) finishes it.
+        general.tapToTalk = true
+        shortcuts.stopTesting()
+        shortcuts.startTesting()
+        shortcuts.testEdge(.down, at: 1.0)
+        shortcuts.testEdge(.up, at: 1.1)
+        #expect(shortcuts.probe.result == .tapTalking)
+        shortcuts.testEdge(.down, at: 1.2)
+        shortcuts.testEdge(.up, at: 1.3)
+        #expect(shortcuts.probe.result == .tapTalkFinished)
     }
 
     // MARK: - Shortcuts · fn / 🌐 system action (I1)

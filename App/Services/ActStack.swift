@@ -225,6 +225,9 @@ public final class ActSessionController: @unchecked Sendable {
                 await self.engine.cancel()
                 self.deactivateIfIdle()
             }
+        case .tapToTalk:
+            // The act key never taps to talk (its machine has `tapToTalk` off).
+            break
         }
     }
 

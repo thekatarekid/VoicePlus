@@ -51,7 +51,13 @@ struct OnboardingCopyTests {
             (.model, OnboardingCopy.prototypeModel), (.firstDictation, OnboardingCopy.prototypeTry),
             (.done, OnboardingCopy.prototypeReady),
         ]
-        for (step, row) in pairs { #expect(OnboardingCopy.copy(for: step, key: key) == row, "\(step)") }
+        for (step, row) in pairs {
+            // Tap to talk (owner request) adds one sentence to the first-dictation step.
+            let expected = step == .firstDictation
+                ? OnboardingCopy.StepCopy(heading: row.heading, body: row.body + " " + TapToTalkCopy.onboardingHint(key), action: row.action)
+                : row
+            #expect(OnboardingCopy.copy(for: step, key: key) == expected, "\(step)")
+        }
         // …except Microphone, whose last sentence narrates the prototype itself (the real app does
         // exactly what it says, with the real prompt).
         let mic = OnboardingCopy.copy(for: .microphone, key: key)
@@ -65,7 +71,7 @@ struct OnboardingCopyTests {
     @Test func theConfiguredKeyReplacesRightControlAndNothingElse() {
         let fn = HotkeyBinding(kind: .fn).label
         let tryCopy = OnboardingCopy.copy(for: .firstDictation, key: fn)
-        #expect(tryCopy.body == "Hold fn / 🌐. Watch Spool’s reels turn counterclockwise and words appear above the tape. Release, review, then watch a clockwise feed place your sentence.")
+        #expect(tryCopy.body == "Hold fn / 🌐. Watch Spool’s reels turn counterclockwise and words appear above the tape. Release, review, then watch a clockwise feed place your sentence. Or tap fn / 🌐 once, speak, and tap again to finish.")
         #expect(tryCopy.heading == OnboardingCopy.prototypeTry.heading)
         #expect(tryCopy.action == OnboardingCopy.prototypeTry.action)
         for step in OnboardingStateMachine.Step.allCases {

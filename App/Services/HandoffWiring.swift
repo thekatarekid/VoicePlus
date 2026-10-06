@@ -38,7 +38,8 @@ public struct LatchGestureHook {
     /// The idle chin's hint names the gesture only when it exists (design §5): "Hold or Double Tap
     /// fn / 🌐 to dictate", or "Hold fn / 🌐 to dictate" with the switch off.
     public static func readyHint(binding: HotkeyBinding, settings: SettingsStore?) -> String {
-        binding.readyHint(latchEnabled: LatchGestureSettings.isEnabled(settings))
+        binding.readyHint(latchEnabled: LatchGestureSettings.isEnabled(settings),
+                          tapToTalk: TapToTalkSettings.isEnabled(settings))
     }
 }
 

@@ -291,6 +291,7 @@ names.
 |---|---|---|
 | **Hold** | Push-to-talk while the key is down; lands once on release | `hold` |
 | **Hands-free · listening** (pill status), "Tap <key> to finish" | Double-tap; listening continues across pauses, one landing per segment | `latched` |
+| **Tap to talk** (Settings › Shortcuts, on by default), lane note "Tap <key> to finish · Esc cancels" | One short tap (< 250 ms) starts a dictation with no key held; the next tap lands it once, like a hold. Nothing said for "Stop after silence of" (3–30 s, default 10 s) lands what was said. A second tap inside the double-tap window (350 ms) turns it into hands-free on the same capture. A tap while a notice / error / outcome row shows only dismisses it. Before speech, a chord on the finishing press or typing cancels silently; after speech it passes through | `tapToTalk`, `HotkeyStateMachine.Phase.tapTalking`, `TapToTalkWatch` |
 | **Muted** ("⊘ VoicePlus is muted") | Persistent hard mute; survives relaunch, never auto-clears | `muted`, `MuteController` |
 | **Held** ("⚠ Destination changed · text held") | Committed text waiting for an explicit destination | `held` |
 | **Recent dictations** (Today) | Retained dictation turns, newest first | `TurnRecord` / `TurnStore` |
@@ -474,7 +475,8 @@ changed the field. Unconfirmed and partial writes never auto-retry and never off
 Error, held and blocking notices stay until the user acts; dismissed retained text remains in Today.
 D06 (V5 Q4): the sticky "⚠ Couldn’t confirm insertion" is only for `.unconfirmed`; an `.unreadable`
 landing is the neutral, timed "Inserted in <app>" — never a ✓, never a warning (revives V4.20).
-Only transient cancellation / too-short hints fade, after 800–1600 ms. Error strings never masquerade
+Only transient cancellation rows fade, after 800–1600 ms (the old too-short tap hint "Hold to talk ·
+double-tap to lock" is gone: a tap now starts tap to talk). Error strings never masquerade
 as transcript text.
 
 ### 7.2 Error sizing
@@ -611,11 +613,11 @@ Spool treatment (design §6), and the status line and actions from `design_copy.
 | ID | Key | State | Spool, tape and pill content | Status (fixture) · actions | Exit |
 |---|---|---|---|---|---|
 | I0 | `idle` | Idle | 64 × 14 pt black chin, centred 6 pt green dot; Spool and tape absent. Microphone closed. | — | Pointer hover → I1; key → C0 |
-| I1 | `ready` | Ready | Only on pointer hover over idle. Text only; no green dot, brand prefix, Ready label or cassette. | Hold or Double Tap <key> to dictate | Leave → I0; hold → C0 |
+| I1 | `ready` | Ready | Only on pointer hover over idle. Text only; no green dot, brand prefix, Ready label or cassette. | Hold or Double Tap <key> to dictate (tap to talk on: "Tap, Hold or Double Tap <key> to dictate") | Leave → I0; hold or tap → C0 |
 | I2 | `muted` | Muted | Closed eye shutters, flat mouth, no tape motion. No green ready. | ⊘ VoicePlus is muted · **Unmute** | Explicit Unmute only |
 | I3 | `unavailable` | Unavailable | Parked reels, setup latch, "Install a speech model" or the named blocker. | ⚠ Dictation is unavailable · **Open Models** | Open the named setup pane |
 | C0 | `starting` | Starting | Attentive still cassette; tape lies flat. | Starting microphone… | Capture actually open → C1; failure → E0/E1 |
-| C1 | `listening` | Listening | Live words above flat ribbon faces with audio-reactive waves/twists; reels counterclockwise; oval mouth, occasional blink. | Listening · helper "Release <key> to finish" | Key release → F0; Esc → C4 |
+| C1 | `listening` | Listening | Live words above flat ribbon faces with audio-reactive waves/twists; reels counterclockwise; oval mouth, occasional blink. | Listening · helper "Release <key> to finish" (tap to talk: lane note "Tap <key> to finish · Esc cancels") | Key release → F0 (tap to talk: next tap or the silence timeout → F0); Esc → C4 |
 | C2 | `quiet` | Listening, quiet | Last words; flat tape, parked reels, patient open eyes. Label confirms capture is still open. | Listening · quiet | Speech → C1; release → F0 |
 | C3 | `latched` | Latched | Same live tape and counterclockwise reels; persistent latched label plus timer. | Hands-free · listening · helper "Tap <key> to finish" · Finish dictation | Tap stop; Esc cancel; lock stop |
 | C4 | `cancelled` | Cancelled | Reels brake without reversing; exposed tape retracts into the guide; neutral mouth. | Cancelled · "Nothing inserted" | 800 ms → idle |
@@ -817,7 +819,7 @@ setting that exists today stays reachable.
 | Subpage | Rows (design §8.6) | V4 rows added here (owner decision §0.1) |
 |---|---|---|
 | General | Launch at login; sound cues (off by default; no success sound before verified insertion); final preview 600 ms default / 1200 ms / manual review; low confidence adds no extra wait | Spacing: automatic / always / never (D6); unknown-caret style (D3) |
-| Shortcuts | Key recorder with conflict result; hold explanation; "Double-tap to latch" (Tap twice, speak hands-free, then tap to finish); shortcut test | **Latch pause** 1–5 s (B2); fn system-action prompt + "Open Keyboard settings" (I1); draw-without-key while latched (G1) |
+| Shortcuts | Key recorder with conflict result; hold explanation; **Tap to talk** (on; "Tap <key> once, speak, then tap again to insert. Holding still works.") with **Stop after silence of** 3–30 s (default 10 s); "Double-tap to latch" (Tap twice, speak hands-free, then tap to finish); shortcut test (reports tap to talk and its finish) | **Latch pause** 1–5 s (B2); fn system-action prompt + "Open Keyboard settings" (I1); draw-without-key while latched (G1) |
 | Appearance | Follow system / light / dark (windows only; the pill stays dark); Reduce Motion; presence visibility; Larger Text. No mascot picker | — |
 | Models | Compatible model, installed size, real byte progress → Verifying → Loading → Ready, retry / cancel, last working model. Never Ready before verification and loading | Speaker-embedding model row (H3) |
 | Providers | Selected route, connectivity, credentials in a secure control; secrets never in errors | — |

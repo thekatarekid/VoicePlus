@@ -162,8 +162,13 @@ public enum PillState: Equatable, Sendable {
 
     /// The I1 hover hint for the configured key. With the double-tap latch off the design drops the
     /// "or Double Tap" half (design_v3 §5).
-    public static func readyHint(key: String, latchEnabled: Bool = true) -> String {
-        latchEnabled ? "Hold or Double Tap \(key) to dictate" : "Hold \(key) to dictate"
+    public static func readyHint(key: String, latchEnabled: Bool = true, tapToTalk: Bool = false) -> String {
+        switch (tapToTalk, latchEnabled) {
+        case (true, true): return "Tap, Hold or Double Tap \(key) to dictate"
+        case (true, false): return "Tap or Hold \(key) to dictate"
+        case (false, true): return "Hold or Double Tap \(key) to dictate"
+        case (false, false): return "Hold \(key) to dictate"
+        }
     }
 
     /// Owner decision (build doc §0): every prototype string naming "Right Control" is rendered with

@@ -40,7 +40,7 @@ struct DeixisKeyGateTests {
                     switch a {
                     case .enterLatch: self.latched = true
                     case .finalize: self.latched = false
-                    case .startCapture, .cancelCapture: break
+                    case .startCapture, .cancelCapture, .tapToTalk: break
                     }
                 },
                 keyProbe: { [unowned self] in self.keyDown },

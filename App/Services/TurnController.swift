@@ -215,13 +215,6 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// H1 — a quiet notice (A06 after a silent hold) and how long after it is shown it must fade.
     /// Unset: `onNotice` with the catalogue's own fade.
     public var onQuietNotice: ((RecoveryEntry, TimeInterval) -> Void)?
-    /// N17 — a too-short tap: no turn was kept; show how to dictate instead of a failure.
-    public var onTapHint: (() -> Void)?
-    /// N17 — how long a tap waits before its hint, so the first tap of a double-tap never flashes it.
-    public var tapHintDelay: TimeInterval = HotkeyStateMachine.Timing.default.doubleTapWindow
-    /// H2 (owner Q2(a)) — how long the tap hint stays up.
-    public static let tapHintDwellDefault: TimeInterval = 1.6
-    public var tapHintDwell: TimeInterval = TurnController.tapHintDwellDefault
     /// X2 — a one-line informational note on the notch (the Option-tap fallback). Unset: logged.
     public var onNote: ((String) -> Void)?
     /// How long a note stays up.
@@ -238,8 +231,6 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public static let handsFreeSummaryDelayDefault: TimeInterval = 1.0
     /// How long the summary line stays up.
     public static let handsFreeSummaryDwell: TimeInterval = 3
-    /// H2 — the tap hint's dwell is over: take it down if it is still what the notch shows.
-    public var onTapHintExpired: (() -> Void)?
     /// H2 / X3-taps — a tap over a visible non-capture notch: take whatever it shows down.
     public var onTapDismiss: (() -> Void)?
     /// H2 / X3-taps — the notch shows something that is not a live capture (read at key-down).
@@ -249,9 +240,6 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// (tests); the live wiring uses `holdPresentDelayDefault`. A latch shows it at once.
     public var holdPresentDelay: TimeInterval = 0
     public static let holdPresentDelayDefault: TimeInterval = 0.300
-    /// H2 — bumped by every hint shown and every dismissing tap, so a stale hint expiry never fires.
-    /// H3 — and by every key-down, so a tap's delayed hint never lands over (or after) a new hold.
-    private var tapHintGeneration = 0
     /// H3 (owner Q3.2) — a new turn began: whatever the notch still shows (a hint, an outcome, an
     /// error, an edit row) yields to it. Runs on `ui` just before the turn's `.starting` row.
     public var onHoldYield: (() -> Void)?
@@ -371,8 +359,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             guard let id = captureID, let turn = turns[id] else {
                 // Fix notch (RC3) — no capture turn: a live-capture state is a late one from a press
                 // that already ended (a tap's capture opens ~440 ms after key-down, long after its
-                // cancel). Admitted, it opened the pill around the tap hint and reopened a notch a
-                // tap had just dismissed.
+                // cancel). Admitted, it reopened a notch a tap had just
+                // dismissed.
                 if PresenceStateReducer.describesLiveCapture(state) { return false }
                 if case .warning = state { return false }
                 return !holdingPresentation
@@ -413,7 +401,6 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             turns[turn.id] = turn
             captureID = turn.id
             holdingPresentation = false
-            tapHintGeneration &+= 1
             fx.save(turn)
             if holdPresentDelay > 0, !latched {
                 turn.presentDeferred = true
@@ -538,25 +525,24 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     }
 
     /// X1 (owner round 4) — the dictation key became a chord (Option + key, click or scroll): the
-    /// capture turn vanishes with no record, no row, no hint, nothing saved. The combo itself went
-    /// to the app in front untouched.
+    /// capture turn vanishes with no record, no row, nothing saved. The combo itself went to the
+    /// app in front untouched.
     public func captureAborted(_ id: TurnID) {
         guard lock.withLock({ turns[id]?.stage.isCapturing ?? false }) else { return }
         Log.app.info("turn \(id.description): dictation key chorded with another input — silent cancel")
         end(id, stage: .cancelled)
         store.remove(id)
-        lock.withLock { tapHintGeneration &+= 1 }
         retract()
     }
 
-    /// N17 — the key came up before the hold threshold (a tap, or the first tap of a double-tap).
-    /// Not a failure and not a turn: the turn is dropped from the store (no "cancelled" row in
-    /// history or `turn_records`), and once the double-tap window has passed with no new press the
-    /// pill says how to dictate. Key down/up times stay in the log only.
+    /// N17 — the key came up before the hold threshold and the tap did not start a dictation (tap
+    /// to talk is off, or the first tap of a double tap over a visible notch). Not a failure and
+    /// not a turn: the turn is dropped from the store (no "cancelled" row in history or
+    /// `turn_records`). Key down/up times stay in the log only.
     ///
-    /// H2 (owner Q2(a), Q3.1) — a tap while the notch showed anything that is not a live capture
-    /// (the hint itself, a notice, an outcome row) dismisses it and schedules nothing new. A hint
-    /// that is shown goes after `tapHintDwell` on its own.
+    /// Tap to talk (owner request) replaced the old tap hint ("Hold to talk · double-tap to
+    /// lock"): a tap never schedules a hint any more. H2 / X3-taps — a tap while the notch showed
+    /// anything that is not a live capture (a notice, an error, an outcome row) dismisses it.
     public func captureTapped(_ id: TurnID) {
         guard let overSurface = lock.withLock({ turns[id].flatMap { $0.stage.isCapturing ? $0.overSurface : nil } })
         else { return }
@@ -565,26 +551,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         retract()
         if overSurface {
             Log.app.info("turn \(id.description): tap over a visible notch — dismiss, no turn record")
-            lock.withLock { tapHintGeneration &+= 1 }
             if !hasOpenCapture { ui { [weak self] in self?.onTapDismiss?() } }
             return
         }
-        Log.app.info("turn \(id.description): tap under the hold threshold — hint, no turn record")
-        let tapGeneration = lock.withLock { () -> Int in tapHintGeneration &+= 1; return tapHintGeneration }
-        _ = clock.schedule(after: tapHintDelay) { [weak self] in
-            // H3 — a key-down since this tap (a hold, a double tap) owns the notch: no hint.
-            guard let self, self.lock.withLock({ self.captureID == nil && self.tapHintGeneration == tapGeneration })
-            else { return }
-            let generation = self.lock.withLock { () -> Int in
-                self.tapHintGeneration &+= 1
-                return self.tapHintGeneration
-            }
-            self.ui { [weak self] in self?.onTapHint?() }
-            _ = self.clock.schedule(after: self.tapHintDwell) { [weak self] in
-                guard let self, self.lock.withLock({ self.tapHintGeneration == generation }) else { return }
-                self.ui { [weak self] in self?.onTapHintExpired?() }
-            }
-        }
+        Log.app.info("turn \(id.description): tap under the hold threshold — no turn record")
     }
 
     /// The session entered latch. Sticky for the turn: the latched session's last words are aimed
@@ -2291,15 +2261,7 @@ public final class TurnWiring {
         controller.onFinalSpans = { [weak pill] spans, text in pill?.setFinalSpans(spans, text: text) }
         // N2 — the finishing row's buttons come from the turn's own offer, never the pill's clock.
         controller.onOffer = { [weak pill] _, offer in pill?.setFinishingOffer(offer) }
-        // N17 — a tap shows how to dictate (a transient line that fades), never a failure.
-        controller.onTapHint = { [weak pill] in
-            pill?.present(.preview(text: Self.tapHint(latchEnabled: LatchGestureSettings.isEnabled(settings))))
-        }
-        // H2 — the hint goes after 1.6 s; a tap over a visible non-capture notch takes it down.
-        controller.onTapHintExpired = { [weak pill] in
-            guard let pill, Self.isTapHint(pill.state) else { return }
-            pill.hide()
-        }
+        // H2 — a tap over a visible non-capture notch takes it down.
         controller.onTapDismiss = { [weak pill] in
             pill?.hide()
         }
@@ -2432,17 +2394,6 @@ public final class TurnWiring {
     /// entry its catalogue headline.
     static func noticeHeadline(for entry: RecoveryEntry) -> String {
         entry.id == .A06 ? PillDeck.didntHearAnything : entry.headline
-    }
-
-    /// H2 — is this state the tap hint (either wording)?
-    static func isTapHint(_ state: PillState) -> Bool {
-        guard case .preview(let text) = state else { return false }
-        return text == tapHint(latchEnabled: true) || text == tapHint(latchEnabled: false)
-    }
-
-    /// N17 — the tap hint, naming the latch only when the double-tap latch is on.
-    static func tapHint(latchEnabled: Bool) -> String {
-        latchEnabled ? PillDeck.tapHint : PillDeck.tapHintNoLatch
     }
 
     /// A pill button the turn owns. `true` when it was the turn's.

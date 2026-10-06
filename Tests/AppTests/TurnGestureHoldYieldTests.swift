@@ -35,40 +35,22 @@ struct TurnGestureHoldYieldTests {
         #expect(log.value.isEmpty)
     }
 
-    @Test("a tap's delayed hint never lands after a hold that began (and ended) inside the window")
-    func holdCancelsPendingTapHint() async {
+    @Test("tap to talk replaced the tap hint: a tap that starts nothing presents nothing afterwards")
+    func tapSchedulesNoHint() {
         let h = H()
-        let hints = TurnGestureTapSilenceTests.Count()
+        let log = Log()
         h.controller.surfaceShowing = { false }
-        h.controller.onTapHint = { hints.value += 1 }
         guard case .began(let tap) = h.controller.keyDown() else { Issue.record("no tap"); return }
+        let present = h.controller.onPresent
+        h.controller.onPresent = { state in log.value.append(state.caseName); present?(state) }
         h.controller.captureTapped(tap)
-        h.clock.advance(0.05)
-        // A short silent hold, over before the tap's hint would have shown.
-        guard case .began(let hold) = h.controller.keyDown() else { Issue.record("no hold"); return }
-        h.controller.captureOpened(hold)
-        h.clock.advance(0.2)
-        _ = h.controller.keyUp(hold)
-        await h.controller.finalize(hold, spans: [])
-        h.clock.advance(h.controller.tapHintDelay + 2)
-        #expect(hints.value == 0, "the hold owns the notch; the stale hint is dropped")
-    }
-
-    @Test("the plain tap hint still shows (H2 unchanged)")
-    func tapHintStillShows() {
-        let h = H()
-        let hints = TurnGestureTapSilenceTests.Count()
-        h.controller.surfaceShowing = { false }
-        h.controller.onTapHint = { hints.value += 1 }
-        guard case .began(let tap) = h.controller.keyDown() else { Issue.record("no tap"); return }
-        h.controller.captureTapped(tap)
-        h.clock.advance(h.controller.tapHintDelay)
-        #expect(hints.value == 1)
+        h.clock.advance(5)
+        #expect(log.value.isEmpty, "no hint row is ever scheduled")
     }
 
     @MainActor
     @Test("hint, X08 error, outcome and cancelled rows are replaced by the hold's .starting row",
-          arguments: [PillState.preview(text: TurnWiring.tapHint(latchEnabled: true)),
+          arguments: [PillState.preview(text: "Saved to Notes · no text field"),
                       .error(message: RecoveryCatalog.entry(.X08).headline),
                       .cancelled, .undoAvailable])
     func rowsGiveWay(row: PillState) {
