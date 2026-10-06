@@ -371,6 +371,7 @@ public enum SettingsReachability {
         .init(.general, "Run onboarding again", "settings.runOnboardingAgain", .settings, .general),
         .init(.general, "Silent corrections", "CorrectionSettingsSection(", .settings, .general),
         .init(.general, "Open at login", "OpenAtLoginRow(", .settings, .general),
+        .init(.general, "App icon", "AppIconRow(", .settings, .general),
         .init(.general, "Microphone picker", "settings.microphone", .voice),
         .init(.general, "Microphone note", "settings.microphoneNote", .voice),
         .init(.general, "Save recordings", "settings.saveRecordings", .privacy),

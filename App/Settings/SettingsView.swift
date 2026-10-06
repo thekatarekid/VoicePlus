@@ -103,6 +103,8 @@ struct GeneralSettingsPage: View {
                                       isOn: $general.soundCues, identifier: "settings.soundCues")
                     // Open at login (SMAppService.mainApp, default ON) — `OpenAtLoginRow`.
                     OpenAtLoginRow()
+                    // Spool curious (bundle default) or Spool ready — `AppIconRow`.
+                    AppIconRow()
                 }
 
                 GroupBox(SettingsCopy.formattingTitle, layout: .rows) {

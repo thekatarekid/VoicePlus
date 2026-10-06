@@ -190,7 +190,12 @@ strip_absolute_rpaths() {  # $1 = Mach-O path
 strip_absolute_rpaths "$CONTENTS/MacOS/$BIN_NAME"
 
 # --- 5. Icon ----------------------------------------------------------------
-if [ -f "$ROOT/App/Resources/AppIcon.icns" ]; then
+# Spool, the notch cassette: "uncertain" is the bundle icon; "ready" ships beside it for
+# Settings › General › App icon (AppIconChoice). Sources + 1024 masters live in Packaging/icon/.
+if [ -f "$PKG_DIR/icon/AppIcon-Uncertain.icns" ]; then
+  cp "$PKG_DIR/icon/AppIcon-Uncertain.icns" "$CONTENTS/Resources/AppIcon.icns"
+  cp "$PKG_DIR/icon/AppIcon-Ready.icns" "$CONTENTS/Resources/AppIcon-Ready.icns"
+elif [ -f "$ROOT/App/Resources/AppIcon.icns" ]; then
   cp "$ROOT/App/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
 else
   python3 "$PKG_DIR/make_icon.py" "$CONTENTS/Resources/AppIcon.icns"
