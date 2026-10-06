@@ -154,6 +154,9 @@ public final class LoginItemService: ObservableObject {
         let status = registrar.status
         let choice = userChoice
         let defaultApplied = defaults.bool(forKey: Self.defaultAppliedKey)
+        // The default is spent only once it actually took (or was not needed): a refused default
+        // registration is retried on the next launch instead of silently leaving the app off.
+        var defaultSettled = true
         do {
             switch (choice, status) {
             case (false, .enabled), (false, .requiresApproval):
@@ -164,7 +167,9 @@ public final class LoginItemService: ObservableObject {
                 Log.app.notice("login item: re-registered (user chose on)")
             case (nil, .notRegistered), (nil, .notFound):
                 if !defaultApplied {
+                    defaultSettled = false
                     try registrar.register()
+                    defaultSettled = true
                     Log.app.notice("login item: registered by default")
                 }
             default:
@@ -173,7 +178,7 @@ public final class LoginItemService: ObservableObject {
         } catch {
             Log.app.error("login item: launch apply failed: \(error)")
         }
-        if choice == nil { defaults.set(true, forKey: Self.defaultAppliedKey) }
+        if choice == nil && defaultSettled { defaults.set(true, forKey: Self.defaultAppliedKey) }
         refresh()
         Log.app.info("login item: status=\(self.registrar.status.rawValue) choice=\(choice.map(String.init) ?? "default")")
     }

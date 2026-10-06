@@ -56,6 +56,42 @@ struct LoginItemServiceTests {
         #expect(mock.registerCalls == 1)
     }
 
+    @Test("a refused default registration is retried on the next launch, then spent")
+    func refusedDefaultRetries() {
+        let mock = MockRegistrar(.notRegistered)
+        mock.failNext = true
+        let d = Self.defaults()
+        LoginItemService(registrar: mock, defaults: d, location: .installed).applyOnLaunch()
+        #expect(mock.registerCalls == 1 && mock.status == .notRegistered)
+        let service = LoginItemService(registrar: mock, defaults: d, location: .installed)
+        service.applyOnLaunch()
+        #expect(mock.registerCalls == 2 && service.state == .on)
+        #expect(service.userChoice == nil)
+        mock.status = .notRegistered   // later switched off in System Settings: left alone
+        LoginItemService(registrar: mock, defaults: d, location: .installed).applyOnLaunch()
+        #expect(mock.registerCalls == 2)
+    }
+
+    @Test("an opt-out made before the default ran (onboarding checkbox) is respected")
+    func earlyOptOutRespected() throws {
+        let mock = MockRegistrar(.notRegistered)
+        let d = Self.defaults()
+        let service = LoginItemService(registrar: mock, defaults: d, location: .installed)
+        try service.setEnabled(false)
+        service.applyOnLaunch()
+        #expect(mock.registerCalls == 0 && service.state == .off && service.userChoice == false)
+    }
+
+    @Test("an unusable copy does not spend the default for the installed copy")
+    func unusableCopyKeepsDefault() {
+        let mock = MockRegistrar(.notRegistered)
+        let d = Self.defaults()
+        LoginItemService(registrar: mock, defaults: d, location: .diskImage).applyOnLaunch()
+        #expect(mock.registerCalls == 0)
+        LoginItemService(registrar: mock, defaults: d, location: .installed).applyOnLaunch()
+        #expect(mock.registerCalls == 1 && mock.status == .enabled)
+    }
+
     @Test("the user's OFF choice persists and wins at launch")
     func userOffWins() throws {
         let mock = MockRegistrar(.notRegistered)
