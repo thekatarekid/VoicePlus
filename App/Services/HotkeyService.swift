@@ -603,7 +603,8 @@ public final class HotkeyService {
         let previousBackend = ruledBackendKind
         binding = HotkeyBinding(kind: kind)
         defaults.set(kind.rawValue, forKey: bindingKey)
-        machine.reset()
+        // A tap-to-talk or hands-free dictation keeps running; the new key's next tap ends it.
+        machine.rebind()
         updateReleasePoll()
         // A chord and a bare modifier are served by different mechanisms, so a change between them
         // has to re-install, not just re-interpret. Same-mechanism changes need nothing.
@@ -849,7 +850,10 @@ public final class HotkeyService {
         isRunning = false
         armedAt = nil
         eventsReceived = 0
-        machine.reset()
+        // A press in flight is dropped; a tap-to-talk or hands-free dictation (no key held) is not
+        // orphaned by a re-arm (binding moved to another backend, a deaf tap re-created): the next
+        // tap still ends it.
+        machine.rebind()
         updateReleasePoll()
     }
 

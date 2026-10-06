@@ -208,14 +208,14 @@ struct TapToTalkTests {
         #expect(s.lastPressRecord?.result == "tap-to-talk")
     }
 
-    @Test("a binding change applies live: the new key taps to talk, the old one does nothing")
+    @Test("a binding change applies live: the running dictation survives it, the new key's tap ends it, the old key does nothing")
     func bindingChangeAppliesLive() {
         let (s, box) = service()
         s.handle(keyCode: 58, flags: Self.left, timestamp: 0)
         s.handle(keyCode: 58, flags: 0, timestamp: 0.1)
         #expect(box.actions == [.startCapture, .tapToTalk])
         s.setBinding(.rightCommand)
-        #expect(s.machine.phase == .idle, "a binding change resets the gesture")
+        #expect(s.machine.isTapTalking, "the dictation running with no key held is not orphaned")
         box.actions = []
         s.handle(keyCode: 58, flags: Self.left, timestamp: 1)
         s.handle(keyCode: 58, flags: 0, timestamp: 1.1)
@@ -223,9 +223,10 @@ struct TapToTalkTests {
         let cmd = CGEventFlags.maskCommand.rawValue
         s.handle(keyCode: 54, flags: cmd, timestamp: 2)
         s.handle(keyCode: 54, flags: 0, timestamp: 2.1)
+        #expect(box.actions == [.finalize], "the new key's tap finishes the running dictation")
         s.handle(keyCode: 54, flags: cmd, timestamp: 4)
         s.handle(keyCode: 54, flags: 0, timestamp: 4.1)
-        #expect(box.actions == [.startCapture, .tapToTalk, .finalize])
+        #expect(box.actions == [.finalize, .startCapture, .tapToTalk])
     }
 
     @Test("the act key never taps to talk")

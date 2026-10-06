@@ -81,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let gate = LaunchPressGate(present: { [weak self] state in self?.pill.model.present(state) },
                                    dismiss: { [weak self] in self?.pill.model.hide() })
         hotkey.onAction = { action in gate.handle(action) }
+        // Tap to talk from the first press: the gate can hold a tap-started dictation too.
+        TapToTalkWiring.armEarly(hotkey: hotkey, settings: UserDefaultsSettingsStore())
         armHotkeys()
         Task { @MainActor in
             var options = AppContainer.Options()

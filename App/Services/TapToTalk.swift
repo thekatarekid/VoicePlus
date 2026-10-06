@@ -185,10 +185,19 @@ public enum TapToTalkWiring {
     /// How long after the tap the lane note waits: the notch reveals 300 ms after key-down (X1).
     public static let noteDelay: TimeInterval = TurnController.holdPresentDelayDefault + 0.15
 
-    public static func attach(hotkey: HotkeyService, coordinator: DictationCoordinator, settings: SettingsStore?,
-                              showNote: @escaping (String) -> Void) {
+    /// The gesture switches on the live key, before the container exists. The hotkey is armed
+    /// before `AppContainer.build` (A3) and `LaunchPressGate` holds one press until it lands; without
+    /// this a tap made in the first seconds after launch was a plain tap (cancelled) instead of
+    /// starting a dictation the gate replays. Settings live in `UserDefaults.standard`, the same
+    /// store the container reads later.
+    public static func armEarly(hotkey: HotkeyService, settings: SettingsStore?) {
         hotkey.tapToTalkEnabled = { TapToTalkSettings.isEnabled(settings) }
         hotkey.doubleTapLatchEnabled = { LatchGestureSettings.isEnabled(settings) }
+    }
+
+    public static func attach(hotkey: HotkeyService, coordinator: DictationCoordinator, settings: SettingsStore?,
+                              showNote: @escaping (String) -> Void) {
+        armEarly(hotkey: hotkey, settings: settings)
         let watch = coordinator.tapToTalk
         hotkey.speechHeard = { [weak watch] in watch?.heardSpeech ?? false }
         watch.silenceTimeout = { TapToTalkSettings.silenceSeconds(settings) }

@@ -167,7 +167,7 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         case .idle:
             // H29 — a quick re-press after the stop (a habitual double tap to end hands-free)
             // belongs to the stop: no new capture, so no K04 while the last piece is finishing.
-            if let stop = lastStopUp, t - stop >= 0, t - stop <= timing.stopFoldWindow {
+            if let stop = lastStopUp, t - stop >= 0, t - stop <= foldWindow {
                 lastStopUp = nil
                 lastTapUp = nil
                 phase = .folded
@@ -369,6 +369,37 @@ public struct HotkeyStateMachine: Equatable, Sendable {
         lastTapUp = nil
         lastGesture = .lostKeyUp
         return t - since >= timing.holdThreshold ? [.finalize] : [.cancelCapture]
+    }
+
+    /// H29 — how long after a stop a re-press is folded into it. With tap to talk on, a re-press
+    /// that is still inside the double-tap window (the second tap of a habitual double tap to stop)
+    /// would otherwise come up as a tap and start a new dictation — and the Option tap has already
+    /// kept that press from other apps as a double tap — so the window covers it.
+    var foldWindow: TimeInterval {
+        tapToTalk ? max(timing.stopFoldWindow, timing.doubleTapWindow) : timing.stopFoldWindow
+    }
+
+    /// The dictation key changed. A press in flight is dropped (its key is no longer the key), but a
+    /// dictation running with no key held — tap to talk, hands-free — keeps running, and the new
+    /// key's next tap finishes it. Resetting it to idle left that capture with no gesture able to
+    /// end it: the new key's tap opened a second press over it and the silence timeout found
+    /// nothing to finish.
+    public mutating func rebind() {
+        switch phase {
+        case .tapTalking:
+            phase = .tapTalking(tapUp: -.infinity, armed: false)
+        case .latched:
+            break
+        case .latchedKeyDown:
+            phase = .latched
+        case .tapTalkKeyDown:
+            phase = .tapTalking(tapUp: -.infinity, armed: false)
+        case .idle, .keyDown, .chorded, .folded:
+            phase = .idle
+        }
+        lastTapUp = nil
+        lastStopUp = nil
+        pressOverSurface = false
     }
 
     /// External reset (e.g. engine error, permission lost).
