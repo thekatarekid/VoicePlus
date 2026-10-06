@@ -47,14 +47,14 @@ struct RealEngineColdStartTests {
         let provider = SlowProvider(final: final, preview: ScriptedPreview(), delay: 0.3)
         let engine = RealEngine(audio: audio, provider: provider)
 
-        let start = Task { try await engine.start(prewarm: true) }
-        // Capture must already be open (and the state honest) while the model is still loading.
-        try await waitForCondition { audio.sink != nil }
-        #expect(engine.state.caseName == "prewarming", "a warm-up that is recording must still say so")
+        // Launch fix (RC2): `start()` returns as soon as capture is open; the model keeps loading.
+        try await engine.start(prewarm: true)
+        #expect(audio.sink != nil, "capture must be open")
+        #expect(!engine.isModelLoaded && engine.isModelLoading, "the model is still loading behind an open microphone")
+        #expect(engine.state.caseName == "listening", "the microphone is recording: that is listening, not \"Starting…\"")
         audio.push([Float](repeating: 0.2, count: 8_000))   // 0.5 s spoken during warm-up
 
-        try await start.value
-        #expect(engine.state.caseName == "listening")
+        try await waitForCondition { engine.isModelLoaded }
         audio.push([Float](repeating: 0.2, count: 8_000))
         _ = try await engine.stop()
         #expect(final.received.count == 16_000, "the words spoken during warm-up were dropped again")
@@ -66,26 +66,26 @@ struct RealEngineColdStartTests {
         let preview = ScriptedPreview()
         let audio = ManualAudioSource()
         let engine = RealEngine(audio: audio, provider: SlowProvider(final: ScriptedFinal(spans: []), preview: preview, delay: 0.3))
-        let start = Task { try await engine.start(prewarm: true) }
-        try await waitForCondition { audio.sink != nil }
+        try await engine.start(prewarm: true)
         audio.push([Float](repeating: 0.2, count: 8_000))
-        try await start.value
         try await waitForCondition { preview.fed > 0 }
         #expect(preview.fed == 8_000, "warm-up audio never reached the preview recognizer")
         await engine.cancel()
     }
 
     /// A cold start whose model never loads closes the microphone it opened. The session must not
-    /// be left holding capture with no recognizer behind it.
+    /// be left holding capture with no recognizer behind it, and the key-up reports the failure.
     @Test func aFailedColdStartReleasesCapture() async throws {
         struct Boom: Error {}
         let audio = CountingAudioSource()
         let engine = RealEngine(audio: audio, provider: SlowProvider(final: ScriptedFinal(spans: []), delay: 0.05, error: Boom()))
-        await #expect(throws: Boom.self) { try await engine.start(prewarm: true) }
-        #expect(audio.stops == 1, "a cold start that failed left the microphone open")
+        try await engine.start(prewarm: true)
+        try await waitForCondition { audio.stops == 1 }
         #expect(engine.state.caseName == "error")
+        await #expect(throws: Boom.self) { try await engine.stop() }
         // And the session rolled back: a second start is not refused as `alreadyListening`.
         #expect(await engine.bufferedSampleCount() == 0)
+        #expect(audio.stops == 1, "a cold start that failed left the microphone open, or closed it twice")
     }
 
     /// `preloadModel()` is the eager path the app runs at launch: it loads the model and publishes

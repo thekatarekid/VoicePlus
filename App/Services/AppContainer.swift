@@ -504,6 +504,13 @@ public final class AppContainer {
         }
     }
 
+    /// Launch fix (RC1) — the speech model is loading right now (the launch preload, or a press that
+    /// started it). The presence hint reads this instead of claiming the app is ready.
+    public var isSpeechModelLoading: Bool {
+        guard case .real = engineKind else { return false }
+        return (swappableEngine.current as? RealEngine)?.isModelLoading ?? false
+    }
+
     /// Builds the capture graph without opening the microphone. Skipped without microphone
     /// permission (preparing the HAL device must not be what first asks for it), while muted, and
     /// while somebody holds capture (a prewarm resets the VAD).

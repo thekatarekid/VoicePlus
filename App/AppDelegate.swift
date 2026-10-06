@@ -857,8 +857,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                             resetGesture: { [weak hotkey = self.hotkey] in hotkey?.resetGesture() },
                                             forward: { dictationKey?($0) })
         hotkey.onAction = { latchGesture.handle($0) }
-        presence.readyHint = { [weak hotkey = self.hotkey] in
-            LatchGestureHook.readyHint(binding: hotkey?.binding ?? .default, settings: w3hSettings)
+        presence.readyHint = { [weak hotkey = self.hotkey, weak container] in
+            LaunchModelHint.readyHint(LatchGestureHook.readyHint(binding: hotkey?.binding ?? .default, settings: w3hSettings),
+                                      modelLoading: container?.isSpeechModelLoading ?? false)
         }
         DictationHistoryGate.attach(settings: w3hSettings, lander: container.lander, coordinator: coordinator,
                                     store: TurnStore.current)

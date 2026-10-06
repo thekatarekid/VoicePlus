@@ -127,6 +127,7 @@ public final class DictationCoordinator {
                 previousEnd?(id, stage)
                 self?.presenceGate.turnEnded()
                 self?.turnEnds.send(stage)
+                self?.releaseFinalPassWait(for: id)
             }
         }
     }
@@ -164,6 +165,21 @@ public final class DictationCoordinator {
 
     /// The current capture turn, for tests and diagnostics.
     public var currentTurn: TurnID? { sessionLock.withLock { turnID } }
+
+    /// Launch fix (RC4) — the turn whose `engine.stop()` is running on the chain right now.
+    private var stoppingTurn: TurnID?
+
+    /// Launch fix (RC4) — a turn ended while its final pass was still waiting for the speech model
+    /// (the 10 s offer's Cancel, Escape, its live words used instead). Nothing from that pass will
+    /// be typed, so the wait is released: the next press's capture is queued behind it on `chain`,
+    /// and on 2026-10-06 it opened 3.9 s after key-down (`capture_open 3945`) for exactly this
+    /// reason — the first words of that dictation were never recorded.
+    private func releaseFinalPassWait(for id: TurnID) {
+        guard sessionLock.withLock({ stoppingTurn == id }) else { return }
+        let underlying = (engine as? SwappableEngine)?.current ?? engine
+        guard let engine = underlying as? RealEngine, engine.abandonPendingFinal() else { return }
+        Log.app.notice("turn \(id.description): ended while its final pass waited for the model — wait released")
+    }
 
     public init(engine: any EngineProtocol, database: AppDatabase?, pill: PillPanelController) {
         self.engine = engine
@@ -536,6 +552,8 @@ public final class DictationCoordinator {
             return
         }
         do {
+            sessionLock.withLock { stoppingTurn = turn }
+            defer { sessionLock.withLock { stoppingTurn = nil } }
             let spans = try await engine.stop()
             if let turn { FinalPassTimingRecorder.record(engine: engine, turn: turn) }   // N6: stage ms + pre-boost text
             if let turn, let turns {

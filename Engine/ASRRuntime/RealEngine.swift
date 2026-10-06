@@ -75,6 +75,7 @@ actor UtteranceBuffer {
     func append(_ block: [Float]) { samples.append(contentsOf: block); trim() }
     func reset() {
         samples.removeAll(); lastText = ""; previewTask?.cancel(); previewTask = nil
+        previewEpoch &+= 1
         segmentStart = 0; droppedSamples = 0
     }
 
@@ -113,9 +114,10 @@ actor UtteranceBuffer {
                          onEndOfUtterance: (@Sendable () -> Void)? = nil,
                          onText: @escaping @Sendable (String) -> Void) {
         let previous = previewTask
+        let epoch = previewEpoch
         previewTask = Task { [weak self] in
             await previous?.value
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self, await self.isCurrent(epoch) else { return }
             guard let text = try? await preview.feed(block) else { return }
             if await self.updateText(text) { onText(text) }
             // RC5 — a sentence end the recognizer confirmed on this block.
@@ -132,6 +134,54 @@ actor UtteranceBuffer {
     }
 
     func drain() async { await previewTask?.value }
+
+    /// Launch fix (RC2/RC4) — waits for the preview backlog for at most `nanoseconds`, then lets it
+    /// go: blocks still queued behind the one in flight are skipped, and the one in flight finishes
+    /// on its own without anyone waiting for it.
+    ///
+    /// `stop()` used to `drain()` unbounded. After a cold start the whole warm-up backlog (up to the
+    /// ring bound — 30 s of audio on 2026-10-06) is handed to the preview recognizer as one block
+    /// when the model lands, and key-up then sat behind that preview for seconds (10:16:47.9 →
+    /// 10:16:52.7, a final pass whose own stages took 987 ms) — with the next press's capture
+    /// queued behind it. Nobody reads a preview after key-up; the final pass replaces it.
+    /// Returns false when the backlog was abandoned.
+    @discardableResult
+    func drain(upTo nanoseconds: UInt64) async -> Bool {
+        guard let task = previewTask else { return true }
+        let finished = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let once = OneShotGate()
+            Task {
+                await task.value
+                if once.take() { continuation.resume(returning: true) }
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                if once.take() { continuation.resume(returning: false) }
+            }
+        }
+        if !finished {
+            previewEpoch &+= 1
+            previewTask = nil
+        }
+        return finished
+    }
+
+    /// Bumped whenever queued preview work stops mattering (a reset, an abandoned drain).
+    private var previewEpoch = 0
+    private func isCurrent(_ epoch: Int) -> Bool { epoch == previewEpoch }
+}
+
+/// The first of two racing callers to `take()` gets true. Resumes a continuation exactly once.
+final class OneShotGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    func take() -> Bool {
+        lock.withLock {
+            if fired { return false }
+            fired = true
+            return true
+        }
+    }
 }
 
 /// One closed segment's audio, its identity, and where it sits on the capture stream's clock.
@@ -206,7 +256,30 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     /// landed on disk since and the cache has to go.
     private var recognizerRevision = 0
     private var listening = false
+    /// Launch fix (RC2) — the one in-flight model load. Launch preload, `prewarm()` and a cold
+    /// `start()` all join it instead of each resolving the recognizers again (a press during the
+    /// launch preload used to start a second, concurrent CoreML load of the same models).
+    private var loadTask: Task<RecognizerPair, Error>?
+    private var loadRevision = 0
+    private var loadGeneration = 0
+    /// The load the current session is waiting on (nil: the model was in memory at `start()`).
+    private var sessionLoad: Task<RecognizerPair, Error>?
+    /// Bumped per `start()`, so a load that lands late only touches the session that asked for it.
+    private var sessionGeneration = 0
+    /// The session's model load failed while capture was open: capture was closed then, and the
+    /// key-up's `stop()` reports this instead of `notListening`.
+    private var sessionLoadError: Error?
+    /// A cold session's `stop()` is running (capture closed, the final pass may wait for the model).
+    private var stoppingCold = false
+    /// `abandonPendingFinal()` was asked for during this `stop()`.
+    private var abandonRequested = false
+    /// Resumes a `stop()` that is waiting for the model.
+    private var finalWaiter: (@Sendable (ColdLoadWait) -> Void)?
+    /// Longest `stop()` waits for the preview backlog before it lets it go.
+    static let previewDrainTimeout: UInt64 = 250_000_000
     private var lastLevelEmit = Date.distantPast
+    /// Captured blocks handed to `buffer` whose append has not run yet.
+    private var appendsInFlight = 0
     private let levelSubject = PassthroughSubject<Float, Never>()
     /// Seconds per preview block handed to the preview recognizer.
     public var previewBlock: TimeInterval = 0.16
@@ -350,8 +423,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         if !have {
             setState(.prewarming)
             do {
-                let r = try await provider.resolve()
-                lock.withLock { recognizers = r; recognizerRevision = revision }
+                _ = try await recognizerLoad(revision: revision).value
             } catch {
                 setState(.error(EngineMessage.describe(error))); throw error
             }
@@ -372,8 +444,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         if lock.withLock({ recognizers != nil && recognizerRevision == revision }) { return true }
         do {
             let t0 = Date()
-            let r = try await provider.resolve()
-            lock.withLock { recognizers = r; recognizerRevision = revision }
+            _ = try await recognizerLoad(revision: revision).value
             Log.engine.info("model preloaded in \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms — first dictation will not wait")
             return true
         } catch {
@@ -385,21 +456,66 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     /// Are the recognizers already in memory? `false` means the next `start()` is a cold one.
     public var isModelLoaded: Bool { lock.withLock { recognizers != nil } }
 
+    /// Launch fix (RC1) — a model load is running right now (the launch preload, or a cold press).
+    /// After an update this is the 40–50 s CoreML recompile; the presence hint says so instead of
+    /// claiming the app is ready.
+    public var isModelLoading: Bool { lock.withLock { loadTask != nil } }
+
+    typealias RecognizerPair = (final: FinalRecognizer, preview: PreviewRecognizer?)
+
+    /// The single in-flight load for `revision`: joins the running one, or starts it. A load for an
+    /// older revision is left to finish but no longer stores its result.
+    private func recognizerLoad(revision: Int) -> Task<RecognizerPair, Error> {
+        lock.withLock {
+            if let running = loadTask, loadRevision == revision { return running }
+            loadGeneration &+= 1
+            let generation = loadGeneration
+            let provider = self.provider
+            let task = Task<RecognizerPair, Error> { [weak self] in
+                do {
+                    let pair = try await provider.resolve()
+                    self?.loadFinished(generation, revision: revision, pair: pair)
+                    return pair
+                } catch {
+                    self?.loadFinished(generation, revision: revision, pair: nil)
+                    throw error
+                }
+            }
+            loadTask = task
+            loadRevision = revision
+            return task
+        }
+    }
+
+    private func loadFinished(_ generation: Int, revision: Int, pair: RecognizerPair?) {
+        lock.withLock {
+            guard generation == loadGeneration else { return }
+            if let pair { recognizers = pair; recognizerRevision = revision }
+            loadTask = nil
+        }
+    }
+
     public func start(prewarm: Bool) async throws {
         let already = lock.withLock { listening }
         if already { throw EngineError.alreadyListening }
-        // Is the model already in memory? If not, the load below can take tens of seconds on a cold
-        // CoreML compile — and until 1.7.4 that whole wait happened *before* `audio.start()`, so the
-        // pill sat on "Warming up…" with the microphone shut and the opening words of the utterance
-        // were simply gone. Capture opens first now and the samples accumulate in `buffer` while the
-        // recognizers resolve; preview text starts flowing the moment they land.
+        // Is the model already in memory? If not, the load can take tens of seconds on a cold CoreML
+        // compile (every first launch after an update: the compile cache is keyed to the files the
+        // installer just replaced). Capture opens first and the samples accumulate in `buffer` while
+        // the recognizers resolve; preview text starts flowing the moment they land.
+        //
+        // Launch fix (RC2) — and `start()` returns as soon as capture is open; the load continues
+        // without it. Until now `start()` awaited the load inline, so the caller's queued key-up
+        // (`stop()`) could not run until the model landed: the microphone stayed open long after the
+        // key was released (25.9 s of a background video typed into Claude on 2026-10-04; a 30.3 s
+        // recording for an 8.2 s hold on 2026-10-06), and the turn never left "Starting…".
         let revision = prewarm ? await provider.revision() : 0
         let ready = lock.withLock { recognizers != nil && (!prewarm || recognizerRevision == revision) }
         guard prewarm || ready else { throw EngineError.modelUnavailable("prewarm() not called") }
+        let load = ready ? nil : recognizerLoad(revision: revision)
         await buffer.reset()
         await buffer.setCapacity(samples: Int(segments.bounds.maxBufferedSeconds * Self.sampleRate))
         if ready { await lock.withLock { recognizers }?.preview?.reset() }
-        lock.withLock {
+        let generation = lock.withLock { () -> Int in
             listening = true
             previewPending.removeAll()
             closureFacts.removeAll()
@@ -409,14 +525,18 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             feedLive = false
             stopReason = nil
             finalPassTiming = nil   // N6: never attribute the previous turn's final pass to this one
+            sessionLoad = load
+            sessionLoadError = nil
+            sessionGeneration &+= 1
+            return sessionGeneration
         }
         // V4.21 — subscribe before capture opens, so the session's first VAD edge is not missed.
         startVADFeed()
         // R2.2 — a dictation session is a fresh UUID; segment 0 starts taking audio now.
         segmentBroadcaster.send(.opened(segments.beginSession()))
-        // "Warming up…" is only honest while it is *bounded and recording*. The state stays
-        // `.prewarming` until the model is in memory, but capture is already open underneath it.
-        setState(ready ? .listening(level: 0) : .prewarming)
+        // The microphone is open and recording from here on, model or not: that is `.listening`.
+        // (A cold start used to sit in `.prewarming` — "Starting…" on the pill for the whole hold.)
+        setState(.listening(level: 0))
         audio.sink = { [weak self] ptr in self?.ingest(Array(ptr)) }
         // `listening` is set *before* capture opens, because the sink can fire from inside
         // `audio.start()`. That makes the throw below the one place where the flag can outlive the
@@ -429,36 +549,94 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
             try audio.start()
         } catch {
             audio.sink = nil
-            lock.withLock { listening = false; previewPending.removeAll() }
+            lock.withLock { listening = false; previewPending.removeAll(); sessionLoad = nil }
             stopVADFeed()
             await buffer.reset()
             abandonSegmentSession()
             setState(.error(EngineMessage.describe(error)))
             throw error
         }
-        if !ready {
-            // Cold start: the model loads *while* the user is already being recorded.
-            do {
-                let t0 = Date()
-                let pair = try await provider.resolve()
-                await pair.preview?.reset()
-                lock.withLock { recognizers = pair; recognizerRevision = revision }
-                Log.engine.info("recognizers resolved in \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms (capture was already open)")
-                flushPendingPreview()
-            } catch {
-                await rollbackSession()
-                setState(.error(EngineMessage.describe(error)))
-                throw error
+        if let load {
+            Log.engine.notice("capture open; speech model still loading — the final pass will wait for it, the microphone will not")
+            let t0 = Date()
+            Task { [weak self] in await self?.coldLoadLanded(load, session: generation, since: t0) }
+        }
+    }
+
+    /// A cold session's model load finished (or failed) while — or after — the user was recorded.
+    private func coldLoadLanded(_ load: Task<RecognizerPair, Error>, session: Int, since t0: Date) async {
+        do {
+            let pair = try await load.value
+            guard lock.withLock({ listening && sessionGeneration == session }) else { return }
+            await pair.preview?.reset()
+            Log.engine.info("recognizers resolved in \(String(format: "%.0f", Date().timeIntervalSince(t0) * 1000)) ms (capture was already open)")
+            // Only while the key is still down: after key-up nobody reads a preview, and the
+            // backlog would only delay the final pass.
+            guard lock.withLock({ listening && sessionGeneration == session }) else { return }
+            flushPendingPreview()
+        } catch {
+            // Capture is open with no recognizer coming: close it now rather than record for
+            // nothing. The key-up's `stop()` reports the error (`sessionLoadError`).
+            let live = lock.withLock { () -> Bool in
+                guard listening, sessionGeneration == session else { return false }
+                sessionLoadError = error
+                return true
+            }
+            guard live else { return }
+            Log.engine.error("speech model failed to load while capturing: \(error)")
+            await rollbackSession()
+            setState(.error(EngineMessage.describe(error)))
+        }
+    }
+
+    /// Outcome of a `stop()` waiting for the session's model.
+    enum ColdLoadWait: Sendable {
+        case loaded(FinalRecognizer)
+        case failed(Error)
+        case abandoned
+    }
+
+    /// Launch fix (RC4) — the turn this `stop()` serves has ended (cancelled, its live words used):
+    /// a `stop()` still waiting for the model returns no text now instead of holding the caller —
+    /// and the next press queued behind it — until the model lands. The load itself carries on;
+    /// the next press needs it. True when a waiting `stop()` was released or will be.
+    @discardableResult
+    public func abandonPendingFinal() -> Bool {
+        let waiter = lock.withLock { () -> (@Sendable (ColdLoadWait) -> Void)?? in
+            guard stoppingCold else { return nil }
+            abandonRequested = true
+            return .some(finalWaiter)
+        }
+        guard let waiter else { return false }
+        waiter?(.abandoned)
+        return true
+    }
+
+    private func waitForModel(_ load: Task<RecognizerPair, Error>) async -> ColdLoadWait {
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<ColdLoadWait, Never>) in
+            let once = OneShotGate()
+            let finish: @Sendable (ColdLoadWait) -> Void = { outcome in
+                if once.take() { continuation.resume(returning: outcome) }
+            }
+            let abandoned = lock.withLock { () -> Bool in
+                if abandonRequested { return true }
+                finalWaiter = finish
+                return false
+            }
+            if abandoned { finish(.abandoned); return }
+            Task {
+                do { finish(.loaded(try await load.value.final)) } catch { finish(.failed(error)) }
             }
         }
-        setState(.listening(level: 0))
+        lock.withLock { finalWaiter = nil }
+        return result
     }
 
     /// Capture is open but the session cannot continue: close it and forget the audio.
     private func rollbackSession() async {
         audio.stop()
         audio.sink = nil
-        lock.withLock { listening = false; previewPending.removeAll() }
+        lock.withLock { listening = false; previewPending.removeAll(); sessionLoad = nil }
         stopVADFeed()
         await buffer.reset()
         abandonSegmentSession()
@@ -628,9 +806,14 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         }
         let emitLevel = Date().timeIntervalSince(lastLevelEmit) > 0.1
         if emitLevel { lastLevelEmit = Date() }
+        appendsInFlight += 1
         lock.unlock()
 
-        Task { await buffer.append(block) }
+        let buffer = self.buffer
+        Task { [weak self] in
+            await buffer.append(block)
+            self?.appendLanded()
+        }
         if emitLevel {
             let rms = sqrt(block.reduce(0) { $0 + $1 * $1 } / Float(max(block.count, 1)))
             let level = min(1, rms * 4)
@@ -650,6 +833,19 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private func appendLanded() { lock.withLock { appendsInFlight -= 1 } }
+
+    /// Waits (bounded) until every block the capture delivered before `audio.stop()` is in
+    /// `buffer`. Each block is appended from its own task, so a block that arrived just before
+    /// key-up could otherwise miss the final pass — the unbounded preview drain used to hide this.
+    private func settleAppends() async {
+        for _ in 0..<500 {
+            if lock.withLock({ appendsInFlight }) <= 0 { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        Log.engine.notice("final pass: captured audio was still being buffered after 500 ms; decoding what arrived")
     }
 
     /// RC5 — the preview recognizer confirmed an end of utterance in the open segment.
@@ -676,15 +872,28 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     }
 
     public func stop() async throws -> [TranscriptSpan] {
-        let recs: (final: FinalRecognizer, preview: PreviewRecognizer?)? = try lock.withLock {
-            guard listening else { throw EngineError.notListening }
+        let (recs, load): (RecognizerPair?, Task<RecognizerPair, Error>?) = try lock.withLock {
+            guard listening else {
+                // The session's model load failed while capturing and closed it (`coldLoadLanded`).
+                if let failure = sessionLoadError { sessionLoadError = nil; throw failure }
+                throw EngineError.notListening
+            }
             listening = false
-            return recognizers
+            let load = sessionLoad
+            sessionLoad = nil
+            stoppingCold = load != nil
+            abandonRequested = false
+            // A cold session uses the pair its own load produced, never a stale one still cached.
+            return (load == nil ? recognizers : nil, load)
         }
+        defer { lock.withLock { stoppingCold = false; abandonRequested = false; finalWaiter = nil } }
+        // Launch fix (RC2) — the microphone closes here, at key-up, whether or not the model has
+        // finished loading; only the final pass below waits for it.
         audio.stop()
         audio.sink = nil
         setState(.finalizing)
-        await buffer.drain()
+        await settleAppends()
+        await buffer.drain(upTo: Self.previewDrainTimeout)
         // V4.21 — the VAD's tail flush runs inside the pipeline's stop; let its edges land before
         // the gate below reads them.
         await settleVADFeed()
@@ -708,7 +917,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         // nil = no VAD feed for this session: nothing is known about speech, so nothing is gated.
         let speech = speechSeconds(in: window)
         stopVADFeed()
-        guard let final = recs?.final else {
+        if load == nil, recs?.final == nil {
             segments.endSession()
             setState(.error(EngineError.modelUnavailable("final").readable))
             throw EngineError.modelUnavailable("final")
@@ -727,6 +936,30 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
         if seconds < minimumUtteranceSeconds {
             Log.engine.notice("final pass skipped: \(String(format: "%.2f", seconds)) s captured, minimum is \(String(format: "%.2f", self.minimumUtteranceSeconds)) s")
             return endSessionWithoutText(closure?.closed, reason: .tooShort)
+        }
+        var finalRecognizer = recs?.final
+        if let load {
+            // Cold session: capture is already closed; wait for the model the press started (or
+            // joined), unless the turn this serves is abandoned meanwhile.
+            let t0 = Date()
+            switch await waitForModel(load) {
+            case .loaded(let recognizer):
+                let waited = Date().timeIntervalSince(t0) * 1000
+                if waited >= 50 { Log.engine.notice("final pass waited \(String(format: "%.0f", waited)) ms for the speech model (microphone closed at key-up)") }
+                finalRecognizer = recognizer
+            case .abandoned:
+                Log.engine.notice("final pass abandoned while the speech model was still loading — the turn had ended")
+                return endSessionWithoutText(closure?.closed, reason: nil)
+            case .failed(let error):
+                segments.endSession()
+                setState(.error(EngineMessage.describe(error)))
+                throw error
+            }
+        }
+        guard let final = finalRecognizer else {
+            segments.endSession()
+            setState(.error(EngineError.modelUnavailable("final").readable))
+            throw EngineError.modelUnavailable("final")
         }
         do {
             let t0 = Date()
@@ -762,7 +995,7 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
 
     /// Ends a session whose last segment produces no text: an empty commit (so the ordered queue
     /// moves), an empty `.final`, and the reason for whoever asks `lastStopReason`.
-    private func endSessionWithoutText(_ id: SegmentID?, reason: EngineStopReason) -> [TranscriptSpan] {
+    private func endSessionWithoutText(_ id: SegmentID?, reason: EngineStopReason?) -> [TranscriptSpan] {
         lock.withLock { stopReason = reason }
         release(id, spans: [], stability: .final, reason: .keyRelease)
         broadcaster.send(.final([]))
@@ -947,7 +1180,14 @@ public final class RealEngine: EngineProtocol, @unchecked Sendable {
     }
 
     public func cancel() async {
-        let was = lock.withLock { let w = listening; listening = false; return w }
+        // The model load (if any) keeps going: the next press needs it. Only this session lets go.
+        let was = lock.withLock { () -> Bool in
+            let w = listening
+            listening = false
+            sessionLoad = nil
+            sessionLoadError = nil
+            return w
+        }
         if was { audio.stop(); audio.sink = nil }
         stopVADFeed()
         await drainClosedSegments()

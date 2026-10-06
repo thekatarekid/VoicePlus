@@ -65,6 +65,9 @@ struct ASRRealEngineTests {
         await #expect(throws: EngineError.alreadyListening) { try await engine.start(prewarm: false) }
         // Wait for the fixture source to deliver everything.
         for _ in 0..<100 where await engine.bufferedSampleCount() < samples.count { try await Task.sleep(nanoseconds: 10_000_000) }
+        // Launch fix (RC2): `start()` no longer waits for the model; the warm-up audio's preview is
+        // flushed when it lands. Let it land (and preview) before the key-up, as a real hold would.
+        for _ in 0..<500 where engine.state.caseName != "previewing" { try await Task.sleep(nanoseconds: 2_000_000) }
         let result = try await engine.stop()
         try await Task.sleep(nanoseconds: 20_000_000)
         collector.cancel()
@@ -74,7 +77,8 @@ struct ASRRealEngineTests {
         #expect(final.received.count == samples.count)
         #expect(!partials.isEmpty)
         #expect(partials.allSatisfy { $0.allSatisfy { $0.provenance == [.asr] } })
-        #expect(states.first == "prewarming")
+        // Launch fix (RC2): capture is open from the first state on, model or not — "listening".
+        #expect(states.first == "listening")
         #expect(states.contains("previewing") && states.contains("finalizing") && states.contains("landed"))
         #expect(states.last == "idle")
         await #expect(throws: EngineError.notListening) { _ = try await engine.stop() }
