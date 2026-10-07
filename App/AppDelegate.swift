@@ -4,6 +4,7 @@ import Combine
 import Engine
 import Lab
 import Pipeline
+import Providers
 import Shared
 
 /// Composition root. No dock icon, no windows by default: a status item and the pill.
@@ -1040,6 +1041,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.app.notice("permissions: \(matrix.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: " "))")
             Task { @MainActor in self.capabilityWatcher?.refresh() }
         }
+    }
+
+    /// Context Writer: the local writer keeps its model resident while dictating. llama.cpp's Metal
+    /// teardown asserts at exit when a model is still loaded, so free them first (bounded: the quit
+    /// proceeds after 2 s whatever happens).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let once = FirstPast()
+        Task.detached {
+            await LlamaCppEngine.unloadAllShared()
+            if once.take() { await MainActor.run { NSApp.reply(toApplicationShouldTerminate: true) } }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if once.take() { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

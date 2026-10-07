@@ -460,6 +460,7 @@ public enum ReplayCLI {
             do { try (jsonLines.joined(separator: "\n") + "\n").write(to: out, atomically: true, encoding: .utf8) }
             catch { print("replay: could not write \(out.path): \(error)") }
         }
+        await LlamaCppEngine.unloadAllShared()   // llama.cpp's Metal teardown asserts at exit otherwise
         return 0
     }
 

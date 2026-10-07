@@ -313,6 +313,15 @@ public final class LlamaCppEngine: LocalLLMEngine, @unchecked Sendable {
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var registry: [String: LlamaCppEngine] = [:]
 
+    /// Frees every shared engine's model and context. Call before the process exits: llama.cpp's
+    /// Metal device teardown (a static destructor) asserts when a model's residency set is still
+    /// alive (`ggml_metal_device_free`: `[rsets->data count] == 0`), which turns a quit with the
+    /// writer's model resident into a crash report.
+    public static func unloadAllShared() async {
+        let engines = registryLock.withLock { Array(registry.values) }
+        for engine in engines { await engine.unload() }
+    }
+
     /// One engine per GGUF: every provider for the same file shares its loaded weights.
     public static func shared(for modelPath: URL) -> LlamaCppEngine {
         registryLock.withLock {
