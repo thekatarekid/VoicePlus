@@ -121,8 +121,12 @@ public enum ProviderDiscovery {
     public static func discover(secrets: SecretStore, session: URLSession = .shared, flags: FeatureFlagService? = nil) async -> [any Provider] {
         var out: [any Provider] = [LocalRulesProvider()]
         for s in await LocalServerDetector(session: session).detect() { out.append(LocalServerProvider(info: s, session: session)) }
-        for (ep, model) in [(APIEndpoint.openRouter, "openai/gpt-4o-mini"), (.openAI, "gpt-4o-mini"), (.anthropic, "claude-3-5-haiku-latest"),
-                            (.groq, "llama-3.1-8b-instant"), (.cerebras, "llama3.1-8b")] {
+        // Default model per key, verified against each provider's public catalogue on 2026-10-07:
+        // OpenRouter `/api/v1/models`, OpenAI models page (`gpt-6-luna` is the efficient tier),
+        // Anthropic models overview (`claude-haiku-4-5` alias), Groq production models, Cerebras
+        // models overview (`qwen-3.8-27b` is its smallest; `llama3.1-8b` is no longer listed).
+        for (ep, model) in [(APIEndpoint.openRouter, CloudWriterConfig.defaultModel), (.openAI, "gpt-6-luna"), (.anthropic, "claude-haiku-4-5"),
+                            (.groq, "llama-3.1-8b-instant"), (.cerebras, "qwen-3.8-27b")] {
             let c = OpenAICompatibleClient(endpoint: ep, model: model, secrets: secrets, session: session)
             if await c.isAvailable() { out.append(c) }
         }
