@@ -4,8 +4,17 @@ import Shared
 // Context Writer (plan §3, "Prompt assembly") — the plain system / user strings for one call.
 //
 //   system = core rules + mode rules + destination profile block + cross-cutting rules + persona
-//   user   = MODE line, DESTINATION record, THREAD (or DOCUMENT) blocks, BEFORE / AFTER the caret,
-//            TERMS, VOCAB, RECENT dictations, HEARD (uncertain words in ⟦ ⟧), BOOSTED, ALT lines
+//   user   = stable prefix: MODE line, DESTINATION record, THREAD (or DOCUMENT) blocks, BEFORE / AFTER
+//            the caret, TERMS, RECENT dictations
+//          + tail:          VOCAB (matched against what was heard), EARLIER (speculation only), HEARD
+//                           (uncertain words in ⟦ ⟧), BOOSTED, ALT lines
+//
+// **Cacheable prefix (plan §4.1).** Everything in `system` and the stable prefix is known at key-down
+// and byte-stable for the turn: none of it reads `heard` or `vocabulary`. `renderParts` returns the
+// three pieces so a local backend can decode `system + stablePrefix` while the user is still speaking
+// (`LlamaCppProvider.prewarm`) and a cloud backend's prompt cache sees one long identical prefix.
+// `render` is exactly `system` and `stablePrefix + tail`. The stable prefix ends with a newline and
+// the tail always starts with a section label, so the join never splits a word.
 //
 // Wire format (ChatML, llama, an HTTP body) is `Providers`' job; this returns text. Every
 // screen-derived string goes through `WriterPromptSanitizer`, and every section has its own budget
@@ -34,6 +43,8 @@ public enum WriterPrompt {
         public var recent = 300
         public var alternates = 300
         public var persona = 400
+        /// The already-written start of this dictation (sentence speculation, the tail call only).
+        public var earlier = 600
         public init() {}
         public static let `default` = Budget()
     }
@@ -69,10 +80,34 @@ public enum WriterPrompt {
     }
 
     public static func render(packet: ContextPacket, profile: DestinationProfile, core: String?, budget: Budget) -> (system: String, user: String) {
+        let parts = renderParts(packet: packet, profile: profile, core: core, budget: budget)
+        return (parts.system, parts.stablePrefix + parts.tail)
+    }
+
+    /// The same call split for prefix caching (plan §4.1): `system` and `stablePrefix` depend only on
+    /// what the packet builder knew at key-down; `tail` holds everything derived from what was heard.
+    /// `system + stablePrefix + tail` is `render`'s output, byte for byte.
+    public static func renderParts(packet: ContextPacket, profile: DestinationProfile)
+        -> (system: String, stablePrefix: String, tail: String) {
+        renderParts(packet: packet, profile: profile, core: nil, budget: .default)
+    }
+
+    /// `earlier` is the already-written start of this dictation (sentence speculation, plan §4.2): it
+    /// goes into the tail, just before HEARD, and the stable prefix is unchanged by it.
+    public static func renderParts(packet: ContextPacket, profile: DestinationProfile, core: String?, budget: Budget,
+                                   earlier: String? = nil) -> (system: String, stablePrefix: String, tail: String) {
         let mode = packet.mode
         let system = systemText(packet: packet, profile: profile, mode: mode, core: core ?? Self.core, budget: budget)
-        let user = userText(packet: packet, profile: profile, mode: mode, budget: budget)
-        return (system, user)
+        let stable = stableSections(packet: packet, profile: profile, mode: mode, budget: budget)
+        let tail = tailSections(packet: packet, profile: profile, budget: budget, earlier: earlier)
+        return (system, stable.joined(separator: "\n") + "\n", tail.joined(separator: "\n"))
+    }
+
+    /// One call for the uncached tail of a dictation whose start is already written (sentence
+    /// speculation): `packet.heard` holds only the tail's words.
+    public static func render(packet: ContextPacket, profile: DestinationProfile, earlier: String) -> (system: String, user: String) {
+        let parts = renderParts(packet: packet, profile: profile, core: nil, budget: .default, earlier: earlier)
+        return (parts.system, parts.stablePrefix + parts.tail)
     }
 
     // MARK: System
@@ -103,31 +138,55 @@ public enum WriterPrompt {
 
     // MARK: User
 
-    static func userText(packet: ContextPacket, profile: DestinationProfile, mode: WriterMode, budget: Budget) -> String {
+    static func isSecure(_ packet: ContextPacket, _ profile: DestinationProfile) -> Bool {
+        packet.isSecure || profile.isSecure
+    }
+
+    /// The sections known at key-down, in prompt order. Nothing here may read `heard` or
+    /// `vocabulary` (the tests pin that: the prefix is byte-identical whatever was heard).
+    static func stableSections(packet: ContextPacket, profile: DestinationProfile, mode: WriterMode, budget: Budget) -> [String] {
         var sections: [String] = ["MODE: \(mode.rawValue)"]
-        let secure = packet.isSecure || profile.isSecure
-        if secure {
+        guard !isSecure(packet, profile) else {
             sections.append("DESTINATION: \(profile.id)")
-        } else {
-            sections.append(destinationRecord(packet.destination, profile: profile, budget: budget.field))
-            if let thread = threadSection(packet.thread, label: threadLabel(for: profile), budget: budget.thread) { sections.append(thread) }
-            if let before = WriterPromptSanitizer.proseLine(bounded(packet.textBefore, budget.textBefore, fromEnd: true)) {
-                sections.append("BEFORE: " + WriterPromptSanitizer.tail(before, budget.textBefore))
-            }
-            if let after = WriterPromptSanitizer.proseLine(bounded(packet.textAfter, budget.textAfter)) {
-                sections.append("AFTER: " + WriterPromptSanitizer.clip(after, budget.textAfter))
-            }
-            if let terms = listSection("TERMS: ", packet.screenTerms, budget: budget.terms) { sections.append(terms) }
-            if let vocab = vocabSection(packet.vocabulary, budget: budget.vocab) { sections.append(vocab) }
-            if let recent = recentSection(packet.recentDictations, budget: budget.recent) { sections.append(recent) }
+            return sections
         }
+        sections.append(destinationRecord(packet.destination, profile: profile, budget: budget.field))
+        if let thread = threadSection(packet.thread, label: threadLabel(for: profile), budget: budget.thread) { sections.append(thread) }
+        if let before = WriterPromptSanitizer.proseLine(bounded(packet.textBefore, budget.textBefore, fromEnd: true)) {
+            sections.append("BEFORE: " + WriterPromptSanitizer.tail(before, budget.textBefore))
+        }
+        if let after = WriterPromptSanitizer.proseLine(bounded(packet.textAfter, budget.textAfter)) {
+            sections.append("AFTER: " + WriterPromptSanitizer.clip(after, budget.textAfter))
+        }
+        if let terms = listSection("TERMS: ", packet.screenTerms, budget: budget.terms) { sections.append(terms) }
+        if let recent = recentSection(packet.recentDictations, budget: budget.recent) { sections.append(recent) }
+        return sections
+    }
+
+    /// The per-utterance sections: VOCAB (matched against the heard words), EARLIER, HEARD, BOOSTED,
+    /// ALT. Never empty (HEARD is always there).
+    static func tailSections(packet: ContextPacket, profile: DestinationProfile, budget: Budget, earlier: String?) -> [String] {
+        let secure = isSecure(packet, profile)
+        var sections: [String] = []
+        if !secure, let vocab = vocabSection(packet.vocabulary, budget: budget.vocab) { sections.append(vocab) }
+        if let earlier = earlierSection(earlier, budget: budget.earlier) { sections.append(earlier) }
         sections.append("HEARD: " + WriterPromptSanitizer.heard(packet.heard.marked))
         if !secure, let boosted = packet.heard.boosted, boosted != packet.heard.raw,
            let line = WriterPromptSanitizer.proseLine(bounded(boosted, budget.alternates)) {
             sections.append("BOOSTED (evidence only, never the base text): " + WriterPromptSanitizer.clip(line, budget.alternates))
         }
         if let alt = alternatesSection(packet, includeVocabulary: !secure, budget: budget.alternates) { sections.append(alt) }
-        return sections.joined(separator: "\n")
+        return sections
+    }
+
+    /// The start of this dictation, already written by an earlier (speculative) call: the user's own
+    /// words, so only normalised like HEARD; the newest words win the budget.
+    static func earlierSection(_ earlier: String?, budget: Int) -> String? {
+        guard let earlier, let text = WriterPromptSanitizer.line(CleanupPromptSanitizer.transcript(bounded(earlier, budget, fromEnd: true))) else {
+            return nil
+        }
+        return "EARLIER (the start of this dictation, already written; write only what follows it, do not repeat it): "
+            + WriterPromptSanitizer.tail(text, budget)
     }
 
     /// `DESTINATION: <id>; app: …; surface: …; key: value; …` within the field budget. Values are

@@ -18,7 +18,7 @@ enum WriterPromptSanitizer {
     /// The section labels `WriterPrompt` writes at a line start; a data line starting with one is
     /// rewritten with a modifier-letter colon (U+A789) so it reads the same but is not a label.
     static let labels: [String] = ["MODE", "DESTINATION", "THREAD", "DOCUMENT", "BEFORE", "AFTER", "TERMS",
-                                   "VOCAB", "RECENT", "HEARD", "BOOSTED", "ALT", "PERSONA", "UNCHANGED"]
+                                   "VOCAB", "RECENT", "HEARD", "BOOSTED", "ALT", "PERSONA", "UNCHANGED", "EARLIER"]
 
     /// Normalised (invisible scalars, template markers), delimiters escaped, labels neutralised.
     /// Words are kept. Newlines are kept; `\r` becomes `\n`.
