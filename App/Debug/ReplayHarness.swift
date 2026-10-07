@@ -451,6 +451,10 @@ public enum ReplayCLI {
                            settings: SettingsStore = UserDefaultsSettingsStore(),
                            secrets: SecretStore = KeychainSecretStore(),
                            vocabulary: Bool = true) -> Result<ReplayWriter, WriterChoiceError> {
+        // The app's guard hears with Double Metaphone (installed when `WriterWiring` is built); the
+        // replay builds its writer without it, so install the same ear or every sound-alike fix is
+        // reverted as unexplained.
+        WriterWiring.installGuardPhonetics
         var packet: ContextPacket?
         if let path = o.packet {
             let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)

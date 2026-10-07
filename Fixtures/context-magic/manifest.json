@@ -682,7 +682,6 @@
       "id": "finish-dictation",
       "kind": "fix",
       "source": "real 2026-10-03 Claude",
-      "recording": "2026-10-04-002438-245",
       "heard": "Is Finnish dictation the only way to land the text",
       "packet": {
         "mode": "transcribe",
@@ -868,7 +867,6 @@
       "id": "subagents-2",
       "kind": "fix",
       "source": "real 2026-10-03 Claude",
-      "recording": "2026-10-04-003509-851",
       "heard": "fan out sub variance.",
       "packet": {
         "mode": "transcribe",

@@ -98,8 +98,15 @@ public struct WriterGuard: Sendable {
     public var runawayOverlap: Double
     private let encoderOverride: PhoneticEncoder?
 
-    public init(phonetic: PhoneticEncoder? = nil, runawayRatio: Double = 2, runawayOverlap: Double = 0.5) {
+    /// Ordinary English words for the confident-entity rule; nil = no confident entity change.
+    public let common: WordVocabulary?
+    /// The system / SCOWL word list, read once per process.
+    public static var installedCommon: WordVocabulary? { WriterGuardEvidence.installedCommon }
+
+    public init(phonetic: PhoneticEncoder? = nil, common: WordVocabulary? = WriterGuard.installedCommon,
+                runawayRatio: Double = 2, runawayOverlap: Double = 0.5) {
         self.encoderOverride = phonetic
+        self.common = common
         self.runawayRatio = runawayRatio
         self.runawayOverlap = runawayOverlap
     }
@@ -142,7 +149,7 @@ public struct WriterGuard: Sendable {
             return .rejected(.runaway)
         }
 
-        let evidence = WriterGuardEvidence(phonetic: phonetic, vocabulary: vocabulary, screenTerms: screenTerms)
+        let evidence = WriterGuardEvidence(phonetic: phonetic, vocabulary: vocabulary, screenTerms: screenTerms, common: common)
         let ops = Self.align(heard.map(\.key), outTokens.map(Self.key))
         var perToken = heard.map(\.text)
         var regions: [Region] = []

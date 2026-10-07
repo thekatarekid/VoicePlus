@@ -53,8 +53,8 @@ RECORDINGS = {
     "a16z-thread": "2026-10-06-233509-411",      # same audio as a16z-codex, synthetic thread
     "phase2-till": "2026-10-06-230656-611",      # "till face two"
     "phase2-faze": "2026-10-06-230643-188",      # "El says two" / "L FaZe Two"
-    "finish-dictation": "2026-10-04-002438-245",
-    "subagents-2": "2026-10-04-003509-851",
+    # finish-dictation / subagents-2: the stamps first guessed by time were another utterance and a
+    # silent tail (checked by replay 2026-10-07); hands-free pieces kept no full recording. Text only.
     "adv-add": "2026-10-06-101721-327",
     "invest-dial": "2026-10-03-225834-252",
     "ctrl-question": "2026-10-06-160605-216",

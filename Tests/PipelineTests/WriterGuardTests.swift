@@ -89,12 +89,16 @@ import Testing
 
     // MARK: Substitutions
 
-    @Test func soundAlikeSwapNeedsAnUncertainWord() {
+    @Test func soundAlikeSwapOnAConfidentWordNeedsAnEntityOrContext() {
         let uncertain = Self.heard([("Queen", 0.3), ("four", 0.9), ("B", 0.9)])
         #expect(Self.g.check(heard: uncertain, output: "Qwen 4B").accepted?.text == "Qwen 4B")
-        // The same swap on a confident word is content: reverted, and as the only change, rejected.
-        let v = Self.g.check(heard: Self.confident("Queen four B"), output: "Qwen 4B")
-        #expect(v.rejection == .everyChangeReverted)
+        // Confident: "Qwen" is a named entity (capitalised, not an ordinary word) that sounds the same.
+        let common = WordVocabulary(words: ["queen", "four", "send", "the", "desk", "deck", "open", "ticket"])
+        let named = WriterGuard(phonetic: Self.stub, common: common)
+        #expect(named.check(heard: Self.confident("Queen four B"), output: "Qwen 4B").accepted?.text == "Qwen 4B")
+        // Without a word list nothing counts as a named entity: the confident swap reverts.
+        let noLexicon = WriterGuard(phonetic: Self.stub, common: nil)
+        #expect(noLexicon.check(heard: Self.confident("Queen four B"), output: "Qwen 4B").rejection == .everyChangeReverted)
     }
 
     @Test func alternatesAreEvidence() {
@@ -112,10 +116,13 @@ import Testing
         let v = Self.g.check(heard: h, output: "a16z backed it.", vocabulary: vocab)
         #expect(v.accepted?.text == "a16z backed it.", "\(v)")
         #expect(v.accepted?.perToken == ["a16z", "", "", "backed", "it."])
-        // Without the vocabulary the three words have no evidence for "a16z"; the full stop still lands.
+        // Without the vocabulary the token is read part by part: "a" + the uncertain "sixtien" as 16 + "z".
         let bare = Self.g.check(heard: h, output: "a16z backed it.")
-        #expect(bare.accepted?.text == "A sixtien z backed it.")
-        #expect(bare.accepted?.revertedCount == 1)
+        #expect(bare.accepted?.text == "a16z backed it.")
+        #expect(bare.accepted?.revertedCount == 0)
+        // A part that is not in the audio is not invented.
+        let clipped = Self.heard([("A", 0.9), ("sixtien", 0.3), ("backed", 0.9), ("it", 0.9)])
+        #expect(Self.g.check(heard: clipped, output: "a16z backed it.").accepted?.text != "a16z backed it.")
     }
 
     @Test func vocabularyExactHeardWordsIsFormattingOnAnyConfidence() {
@@ -124,14 +131,18 @@ import Testing
         #expect(v.accepted?.text == "use hold-to-talk here")
     }
 
-    @Test func screenTermNeedsSoundAndUncertainty() {
+    @Test func screenTermNeedsSound() {
         let uncertain = Self.heard([("open", 0.9), ("the", 0.9), ("gira", 0.3), ("ticket", 0.9)])
         let v = Self.g.check(heard: uncertain, output: "Open the Jira ticket.", screenTerms: ["Jira", "Backlog"])
         #expect(v.accepted?.text == "Open the Jira ticket.")
+        // A confident word may take an on-screen term that sounds the same ("gira" JR = "Jira" JR)…
         let confident = Self.confident("open the gira ticket")
         let v2 = Self.g.check(heard: confident, output: "Open the Jira ticket.", screenTerms: ["Jira"])
-        #expect(v2.accepted?.text == "Open the gira ticket.")
-        #expect(v2.accepted?.regions.map(\.reverted) == [.confidentChanged])
+        #expect(v2.accepted?.text == "Open the Jira ticket.")
+        // …but not one that sounds different.
+        let v2b = Self.g.check(heard: confident, output: "Open the Linear ticket.", screenTerms: ["Linear"])
+        #expect(v2b.accepted?.text == "Open the gira ticket.")
+        #expect(v2b.accepted?.regions.map(\.reverted) == [.confidentChanged])
         // A screen term is never a licence to insert what was not said: the region reverts whole.
         let v3 = Self.g.check(heard: uncertain, output: "Open the Jira Backlog ticket.", screenTerms: ["Jira", "Backlog"])
         #expect(v3.accepted?.text == "Open the gira ticket.")
