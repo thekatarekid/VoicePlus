@@ -21,13 +21,18 @@
 
 - **Precision rules.** A heard ordinary English word alone matches only a trusted form it sounds
   exactly like ("queen" typed or learned for Qwen), never on phonetics alone ("cab" ≠ Cab). A
-  window must be tight: dropping its first or last word must make the match worse ("a cab" never
-  stands in for "cab"). A heard → written pair the user undid (C1 negative alias) is never offered,
-  whichever source holds the term. Word counts may differ ("paper clip" → Paperclip, "kuber netes"
-  → Kubernetes): codes are compared without word boundaries; spelling similarity keeps them.
-- **Cost** (`VocabularyMatcherTests`, debug build): see the perf tests' printed line — index build
-  for 5k terms, worst case (30 words all uncertain, adversarial 16-syllable vocabulary) and typical
-  (3 uncertain). Recency is measured at query time, so the index never goes stale between rebuilds.
+  window of ordinary words must also spell an untrusted form (spelling ≥ 0.6: "super base" →
+  Supabase, never "on a" → ANE). A window must be tight: dropping its first or last word must make
+  the match worse ("a cab" never stands in for "cab"). A heard → written pair the user undid (C1
+  negative alias) is never offered, whichever source holds the term. Word counts may differ
+  ("paper clip" → Paperclip, "kuber netes" → Kubernetes): codes are compared without word
+  boundaries; spelling similarity keeps them.
+- **Cost** (5k-term adversarial vocabulary, 16 syllables; CPU time). Debug build, as the tests
+  run: index build ~410 ms, worst case (30 words all uncertain) ~4–5 ms, typical (3 uncertain)
+  ~2 ms. Release (scratch harness over the same sources): build ~100 ms (≈ 2 ms of it the table;
+  the rest is verbalizing + Double Metaphone per form), worst ~0.45 ms, typical ~0.25 ms. The hot
+  loops use raw pointers because debug builds do not inline array subscripts. Recency is measured
+  at query time, so the index never goes stale between rebuilds.
 - Evidence only: the matches are `VOCAB` lines in the writer's packet; nothing here rewrites text,
   and nothing is logged.
 

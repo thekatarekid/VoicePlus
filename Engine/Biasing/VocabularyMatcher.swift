@@ -15,10 +15,11 @@ import Shared
 // lines. The writer decides whether a candidate fits the sentence; nothing here rewrites text.
 //
 // Precision rules: an ordinary English word alone matches only a trusted spoken form it sounds
-// exactly like ("queen" → Qwen, typed or learned); a window must be tight (dropping its first or
-// last word must make the match worse — "a cab" never stands in for "cab"); a heard → written pair
-// the user undid (C1 negative alias) is never offered. Privacy: nothing is logged; Contacts enter
-// only as full names.
+// exactly like ("queen" → Qwen, typed or learned); a window of ordinary words must also spell an
+// untrusted form ("super base" → Supabase, never "on a" → ANE); a window must be tight (dropping
+// its first or last word must make the match worse — "a cab" never stands in for "cab"); a heard →
+// written pair the user undid (C1 negative alias) is never offered. Privacy: nothing is logged;
+// Contacts enter only as full names.
 
 /// The `VocabularyMatching` implementation the packet builder calls per dictation.
 public struct VocabularyMatcher: VocabularyMatching, Sendable {
@@ -29,6 +30,11 @@ public struct VocabularyMatcher: VocabularyMatching, Sendable {
         public var minMatch = 0.55
         /// Final score below which a match is dropped.
         public var minScore = 0.25
+        /// A window made only of ordinary words ("super base", "on a") matches an untrusted form
+        /// only when it also spells it this closely: short common words share codes with everything,
+        /// so their sound alone is no evidence ("on a" ≠ ANE), while a split spells the term
+        /// ("super base" → Supabase, "paper clip" → Paperclip).
+        public var minCommonWordsSpelling = 0.6
         /// Recency decays to a floor of 0.6 with this half-life.
         public var recencyHalfLife: TimeInterval = 30 * 24 * 3600
         public init() {}
@@ -109,6 +115,8 @@ struct VocabularyQuery {
         var lastLength: [Int]
         var letters: [UInt8]
         var isSingleCommonWord: Bool
+        /// Every token is an ordinary English word.
+        var isAllCommonWords: Bool
     }
 
     struct Candidate {
@@ -168,7 +176,7 @@ struct VocabularyQuery {
         var seen = Set<String>()
         for start in tokens.indices {
             var primary: [UInt8] = [], secondary: [UInt8] = [], letters: [UInt8] = []
-            var hasSecondary = false, hasUncertain = false
+            var hasSecondary = false, hasUncertain = false, allCommon = true
             var text = ""
             for n in 1...max(1, maxWords) {
                 let i = start + n - 1
@@ -182,6 +190,7 @@ struct VocabularyQuery {
                 letters += t.letters
                 hasSecondary = hasSecondary || t.hasSecondary
                 hasUncertain = hasUncertain || t.uncertain
+                allCommon = allCommon && t.isCommon
                 text = n == 1 ? t.text : text + " " + t.text
                 guard primary.count <= longest, secondary.count <= longest else { break }
                 guard hasUncertain, seen.insert(text).inserted else { continue }
@@ -189,7 +198,8 @@ struct VocabularyQuery {
                 out.append(Window(count: n, text: text, codes: hasSecondary ? [primary, secondary] : [primary],
                                   firstLength: [first.primary.count, first.secondary.count],
                                   lastLength: [t.primary.count, t.secondary.count],
-                                  letters: letters, isSingleCommonWord: n == 1 && t.isCommon))
+                                  letters: letters, isSingleCommonWord: n == 1 && t.isCommon,
+                                  isAllCommonWords: allCommon))
             }
         }
         return out
@@ -314,7 +324,9 @@ struct VocabularyQuery {
             let window = windows[Int(c.window)]
             guard isTight(window, form: form, distance: Int(c.distance), scratch.row) else { continue }
             if !blocked.isEmpty, blocked.contains(heard: window.text, written: index.terms[term].term) { continue }
-            let match = c.closeness * (0.5 + 0.5 * spellingSimilarity(window.letters, form: form, scratch.row))
+            let spelling = spellingSimilarity(window.letters, form: form, scratch.row)
+            if window.isAllCommonWords && s.formTrusted[form] == 0 && spelling < config.minCommonWordsSpelling { continue }
+            let match = c.closeness * (0.5 + 0.5 * spelling)
             guard match >= config.minMatch else { continue }
             let score = match * s.termBase[term] * scratch.recency(term, index: index, now: now, halfLife: config.recencyHalfLife)
             guard score >= config.minScore, score > best[group] else { continue }

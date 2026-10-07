@@ -192,6 +192,16 @@ struct VocabularyMatcherTests {
         #expect(typed.matches(heard: heard("take a cab there", uncertain: ["a"]), limit: 5).isEmpty)
     }
 
+    /// Short ordinary words share codes with everything: a window of them must also spell the term.
+    @Test func ordinaryWordWindowsMustSpellTheTerm() {
+        let matcher = VocabularyMatcher(terms: VocabularyTerm.dictionary([entry("ANE"), entry("Supabase"), entry("Paperclip")]))
+        #expect(matcher.matches(heard: heard("check the logs on a box", uncertain: ["on", "a"]), limit: 5).isEmpty,
+                "\"on a\" sounds like \"a n e\" but spells nothing like it")
+        #expect(matcher.matches(heard: heard("the core runs on the a n e", uncertain: ["n", "e"]), limit: 5).first?.term == "ANE")
+        #expect(matcher.matches(heard: heard("use super base for auth", uncertain: ["super", "base"]), limit: 5).first?.term == "Supabase")
+        #expect(matcher.matches(heard: heard("the paper clip repo", uncertain: ["paper", "clip"]), limit: 5).first?.term == "Paperclip")
+    }
+
     @Test func factoryCombinesEverySourceAndIsDeterministic() {
         var lexicon = PersonalLexicon()
         lexicon.terms["spool"] = PersonalLexicon.Term(text: "Spool", weight: 0.8, corrections: 3, lastSeen: Date())
