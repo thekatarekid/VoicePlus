@@ -31,7 +31,7 @@ public struct PersonalLexicon: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey { case terms, variants, negatives, trainedAt, pairCount }
 
     /// `negatives` is newer than the persisted `lexicon.json` of earlier builds: absent = none.
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: Swift.Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         terms = try c.decode([String: Term].self, forKey: .terms)
         variants = try c.decode([String: Variant].self, forKey: .variants)
