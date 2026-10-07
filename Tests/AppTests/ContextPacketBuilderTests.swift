@@ -440,7 +440,8 @@ struct ContextPacketBuilderTests {
         let heard = PacketHeardWords.heard([span])
         #expect(heard.words.count == 3)
         #expect(heard.words[0].alternates == ["hold-to-talk"] && heard.words[1].alternates.isEmpty)
-        #expect(heard.words.allSatisfy(\.isUncertain))
+        let allUncertain = heard.words.allSatisfy { $0.isUncertain }
+        #expect(allUncertain)
     }
 
     // MARK: Sources

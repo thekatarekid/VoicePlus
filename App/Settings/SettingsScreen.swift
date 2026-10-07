@@ -24,6 +24,7 @@ struct SettingsScreen: SectionScreen {
     @StateObject private var updates: UpdatesPageModel
     @StateObject private var computerUse: ComputerUseSettingsModel   // V5 CU1
     @StateObject private var languages: LanguagesSettingsModel       // V5 LANG1
+    @StateObject private var correction: ContextCorrectionSettingsModel   // Context Writer §5
 
     init(context: SectionContext) {
         self.init(context: context, credentials: ProviderCredentialsModel(), inventory: LiveModelInventory())
@@ -46,6 +47,8 @@ struct SettingsScreen: SectionScreen {
         _computerUse = StateObject(wrappedValue: ComputerUseSettingsModel(store: window.deps.settingsStore,
                                                                           general: window.general, models: window.models))
         _languages = StateObject(wrappedValue: LanguagesSettingsModel(store: window.deps.settingsStore))
+        _correction = StateObject(wrappedValue: ContextCorrectionSettingsModel(store: window.deps.settingsStore,
+                                                                               database: window.deps.database))
     }
 
     var body: some View {
@@ -65,7 +68,7 @@ struct SettingsScreen: SectionScreen {
         case .appearance:
             AppearanceSettingsPage(general: general, hotkey: hotkey)
         case .models:
-            ModelsSettingsPage(page: models, models: window.models,
+            ModelsSettingsPage(page: models, models: window.models, correction: correction,
                                refinement: RefinementReadiness.resolve(flags: window.deps.flags), hotkey: hotkey)
         case .providers:
             ProvidersSettingsPage(credentials: credentials, connectors: window.connectors, models: window.models,

@@ -27,7 +27,7 @@ public enum HeardWords {
                 var alternates: [String] = []
                 for alternate in ranked where alternates.count < topK {
                     guard let candidate = candidate(alternate.text, position: position, of: words.count),
-                          seen.insert(key(candidate)).inserted else { continue }
+                          !key(candidate).isEmpty, seen.insert(key(candidate)).inserted else { continue }
                     alternates.append(candidate)
                 }
                 out.append(ContextPacket.HeardWord(text: word, confidence: span.confidence, alternates: alternates))
@@ -44,9 +44,10 @@ public enum HeardWords {
         return parts.count == count ? parts[position] : nil
     }
 
-    /// The identity two alternates are compared by: lower-cased letters and digits only, so "T."
-    /// and "t" are one alternate and "." is none.
+    /// The identity two alternates are compared by: lower-cased letters, digits and inner spaces,
+    /// so "T." and "t" are one alternate, "." is none, and "six teen" stays apart from "sixteen".
     static func key(_ word: String) -> String {
-        String(word.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        String(word.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == " " })
+            .split(separator: " ").joined(separator: " ")
     }
 }

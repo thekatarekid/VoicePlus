@@ -347,6 +347,7 @@ struct AppearanceSettingsPage: View {
 struct ModelsSettingsPage: View {
     @ObservedObject var page: ModelsPageModel
     @ObservedObject var models: ModelsSettingsViewModel
+    @ObservedObject var correction: ContextCorrectionSettingsModel   // Context Writer §5
     var refinement: RefinementReadiness
     var hotkey: String
 
@@ -381,6 +382,7 @@ struct ModelsSettingsPage: View {
                 }
                 MemoryTierGroup()   // V5 HW2
                 AICleanupGroup()    // V5 D2
+                CorrectionSettingsPage(model: correction)   // Context Writer §5
                 GroupBox(ModelsPageCopy.refinementTitle, layout: .rows) {
                     RowView(SettingsCopy.refinementRowTitle, detail: refinement.modelsRowDetail) {
                         StatusTag(refinement.statusTag,
