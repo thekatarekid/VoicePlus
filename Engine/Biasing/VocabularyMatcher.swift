@@ -14,12 +14,15 @@ import Shared
 // then deduplicated by written term and cut to the top N `ContextPacket.VocabularyMatch` evidence
 // lines. The writer decides whether a candidate fits the sentence; nothing here rewrites text.
 //
-// Precision rules: an ordinary English word alone matches only a trusted spoken form it sounds
-// exactly like ("queen" → Qwen, typed or learned); a window of ordinary words must also spell an
-// untrusted form ("super base" → Supabase, never "on a" → ANE); a window must be tight (dropping
-// its first or last word must make the match worse — "a cab" never stands in for "cab"); a heard →
-// written pair the user undid (C1 negative alias) is never offered. Privacy: nothing is logged;
-// Contacts enter only as full names.
+// Precision rules: an ordinary word alone matches only a trusted spoken form it sounds exactly like
+// ("queen" → Qwen, typed or learned) — "ordinary" by how the token is said: a dictionary word, a
+// contraction or possessive of one ("can't", "it's", "we're"), or a plain number ("1", "10",
+// "3.5", "1st", "90s"), so "can't" never offers Kant nor "10" Tenn; a window of ordinary words must
+// also spell an untrusted form ("super base" → Supabase, never "on a" → ANE); a window must be
+// tight — dropping any one of its words, first, last or interior, must make the match worse ("a
+// cab" never stands in for "cab", "akash to kotari" never for "Akash Kothari"); a heard → written
+// pair the user undid (C1 negative alias) is never offered. Privacy: nothing is logged; Contacts
+// enter only as full names of people the user interacts with (`ContactEvidence`).
 
 /// The `VocabularyMatching` implementation the packet builder calls per dictation.
 public struct VocabularyMatcher: VocabularyMatching, Sendable {
@@ -58,16 +61,22 @@ public struct VocabularyMatcher: VocabularyMatching, Sendable {
     /// The integrator's factory: the matcher over everything the user taught us.
     /// - Parameters:
     ///   - entries: Dictionary rows with origin and typed spoken forms (`DictionaryOrigins.entries`).
-    ///     Contacts rows count only as full names.
+    ///     Contacts rows count only as full names of people the user interacts with
+    ///     (`ContactEvidence`: the name appears in `corrections`, `learned` or `people`).
     ///   - corrections: confirmed corrections (`DatabaseCorrectionStore.correctedTerms()`).
     ///   - learned: the learned lexicon (`AdaptationLoop.lexicon`): its terms, the C1 re-dictation
     ///     aliases as trusted spoken forms, and its negative aliases as blocked pairs.
+    ///   - people: names the user deals with (recent thread participants, Contacts rows with
+    ///     recorded use). Only admits Contacts rows; never indexed on its own. Default none.
     /// Build cost grows with the vocabulary (`index.buildMilliseconds`); rebuild off the dictation
     /// path when any of the three changes. Recency is measured at query time, so the matcher does
     /// not go stale between rebuilds.
     public static func build(entries: [DictionaryEntry], corrections: [(term: String, at: Date)] = [],
-                             learned: PersonalLexicon? = nil, config: Config = Config()) -> VocabularyMatcher {
-        var terms = VocabularyTerm.dictionary(entries) + VocabularyTerm.corrections(corrections)
+                             learned: PersonalLexicon? = nil, people: [String] = [],
+                             config: Config = Config()) -> VocabularyMatcher {
+        let evidence: ContactEvidence = entries.contains { $0.origin == .contacts }
+            ? ContactEvidence(corrections: corrections.map(\.term), learned: learned, people: people) : .none
+        var terms = VocabularyTerm.dictionary(entries, contacts: evidence) + VocabularyTerm.corrections(corrections)
         if let learned { terms += VocabularyTerm.learned(learned) }
         return VocabularyMatcher(terms: terms, config: config, blocked: learned.map(BlockedVocabularyPairs.init) ?? .init())
     }
@@ -110,9 +119,8 @@ struct VocabularyQuery {
         var text: String
         /// Joined codes; `codes[1]` is the secondary variant when any word has one.
         var codes: [[UInt8]]
-        /// Code symbols the first / last token contribute to each variant (tightness rule).
-        var firstLength: [Int]
-        var lastLength: [Int]
+        /// Per variant, where each word's code ends in `codes[variant]` (tightness rule).
+        var wordEnds: [[Int]]
         var letters: [UInt8]
         var isSingleCommonWord: Bool
         /// Every token is an ordinary English word.
@@ -161,11 +169,44 @@ struct VocabularyQuery {
             let c = encoder.codes(of: spoken, cache: &wordCodes)
             let t = Token(text: text, uncertain: w.isUncertain, primary: c.primary, secondary: c.secondary ?? c.primary,
                           hasSecondary: c.secondary != nil, letters: PhoneticEncoder.letters(spoken.joined(separator: " ")),
-                          isCommon: CollisionLexicon.isCommonWord(text))
+                          isCommon: Self.isOrdinary(text))
             cache[text] = t
             return t
         }
     }
+
+    /// Whether a heard token (cleaned, lower-cased) is an ordinary word by how it is said: a word of
+    /// the collision lexicon; a contraction ("can't", "don't", "we're", "I'll", "you'd", "I'm") or
+    /// possessive ("it's", "dog's", "dogs'") of an ordinary word; or a plain number, ordinal or
+    /// decade ("1", "10", "3.5", "1,000", "1st", "90s"), whose reading is number words. A name's
+    /// possessive ("kothari's") and a token mixing letters into digits ("4o", "a16z") are not.
+    static func isOrdinary(_ text: String) -> Bool {
+        if CollisionLexicon.isCommonWord(text) { return true }
+        let t = text.replacingOccurrences(of: "\u{2019}", with: "'")
+        if t.contains("'") {
+            if ordinaryWithApostrophe.contains(t) { return true }
+            guard let a = t.lastIndex(of: "'") else { return false }
+            let stem = String(t[..<a]), suffix = String(t[t.index(after: a)...])
+            guard !stem.isEmpty, !stem.contains("'") else { return false }
+            switch suffix {
+            case "t": return stem.count >= 2 && stem.hasSuffix("n")             // n't
+            case "", "s", "re", "ve", "ll", "d", "m": return CollisionLexicon.isCommonWord(stem)
+            default: return false
+            }
+        }
+        guard t.contains(where: \.isNumber) else { return false }
+        var number = Substring(t)
+        for suffix in ["st", "nd", "rd", "th", "s"] where number.hasSuffix(suffix) {
+            let head = number.dropLast(suffix.count)
+            if head.last?.isNumber == true { number = head; break }
+        }
+        guard number.allSatisfy({ $0.isNumber || $0 == "." || $0 == "," }),
+              let reading = SpokenFormVerbalizer.reading(of: String(number)) else { return false }
+        return reading.split(separator: " ").allSatisfy { CollisionLexicon.isCommonWord(String($0)) }
+    }
+
+    /// Ordinary words spelled with an apostrophe that no contraction rule covers.
+    static let ordinaryWithApostrophe: Set<String> = ["o'clock", "y'all", "ma'am", "ain't", "'em", "'cause"]
 
     // MARK: 2. windows of 1…maxWords tokens holding an uncertain one (identical windows once)
 
@@ -176,6 +217,7 @@ struct VocabularyQuery {
         var seen = Set<String>()
         for start in tokens.indices {
             var primary: [UInt8] = [], secondary: [UInt8] = [], letters: [UInt8] = []
+            var primaryEnds: [Int] = [], secondaryEnds: [Int] = []
             var hasSecondary = false, hasUncertain = false, allCommon = true
             var text = ""
             for n in 1...max(1, maxWords) {
@@ -186,6 +228,8 @@ struct VocabularyQuery {
                 guard !t.text.isEmpty, !t.primary.isEmpty else { break }
                 primary += t.primary
                 secondary += t.secondary
+                primaryEnds.append(primary.count)
+                secondaryEnds.append(secondary.count)
                 if !letters.isEmpty && !t.letters.isEmpty { letters.append(32) }
                 letters += t.letters
                 hasSecondary = hasSecondary || t.hasSecondary
@@ -194,10 +238,8 @@ struct VocabularyQuery {
                 text = n == 1 ? t.text : text + " " + t.text
                 guard primary.count <= longest, secondary.count <= longest else { break }
                 guard hasUncertain, seen.insert(text).inserted else { continue }
-                let first = tokens[start]
                 out.append(Window(count: n, text: text, codes: hasSecondary ? [primary, secondary] : [primary],
-                                  firstLength: [first.primary.count, first.secondary.count],
-                                  lastLength: [t.primary.count, t.secondary.count],
+                                  wordEnds: hasSecondary ? [primaryEnds, secondaryEnds] : [primaryEnds],
                                   letters: letters, isSingleCommonWord: n == 1 && t.isCommon,
                                   isAllCommonWords: allCommon))
             }
@@ -322,7 +364,7 @@ struct VocabularyQuery {
             let group = Int(s.termGroup[term])
             guard c.upperBound > best[group] else { continue }
             let window = windows[Int(c.window)]
-            guard isTight(window, form: form, distance: Int(c.distance), scratch.row) else { continue }
+            guard isTight(window, form: form, distance: Int(c.distance), scratch) else { continue }
             if !blocked.isEmpty, blocked.contains(heard: window.text, written: index.terms[term].term) { continue }
             let spelling = spellingSimilarity(window.letters, form: form, scratch.row)
             if window.isAllCommonWords && s.formTrusted[form] == 0 && spelling < config.minCommonWordsSpelling { continue }
@@ -360,31 +402,48 @@ struct VocabularyQuery {
 
     // MARK: scoring helpers
 
-    /// A multi-word window is tight when dropping its first or its last word makes the match worse:
-    /// every heard word in it is explained by the form, so "a cab" never stands in for "cab".
-    func isTight(_ window: Window, form: Int, distance: Int, _ row: UnsafeMutablePointer<Int>) -> Bool {
+    /// A multi-word window is tight when dropping any one of its words — first, last or interior —
+    /// makes the match worse: every heard word in it is explained by the form, so "a cab" never
+    /// stands in for "cab" and "akash to kotari" never for "Akash Kothari" (the "to" would be
+    /// deleted). A word that contributes no sound is unexplained by definition.
+    func isTight(_ window: Window, form: Int, distance: Int, _ scratch: QueryScratch) -> Bool {
         guard window.count > 1 else { return true }
         let s = index.storage
         let codeBytes = s.codeBytes, codeStarts = s.codeStarts
         let primary = Int(s.formPrimary[form]), secondary = Int(s.formSecondary[form])
+        let row = scratch.row, gap = scratch.gap
         var v = 0
         while v < window.codes.count {
-            let head = window.firstLength[v], tail = window.lastLength[v]
-            // An edge word that contributes no sound is unexplained by definition.
-            if head == 0 || tail == 0 { return false }
+            let ends = window.wordEnds[v]
             let explained = window.codes[v].withUnsafeBufferPointer { qb -> Bool in
-                guard let q = qb.baseAddress else { return false }
+                guard let q = qb.baseAddress else { return true }
                 let n = qb.count
-                var c = primary
-                while c >= 0 {
-                    let start = Int(codeStarts[c]), length = Int(codeStarts[c + 1]) - start
-                    if n > head, PhoneticEncoder.distance(q + head, n - head, codeBytes + start, length, bound: distance, row: row) <= distance {
-                        return true
+                var w = 0
+                while w < window.count {
+                    let lo = w == 0 ? 0 : ends[w - 1], hi = ends[w]
+                    w += 1
+                    if hi == lo { return true }
+                    let m = n - (hi - lo)
+                    if m == 0 { continue }
+                    // The window's code without this word's symbols.
+                    let rest: UnsafePointer<UInt8>
+                    if lo == 0 {
+                        rest = q + hi
+                    } else if hi == n {
+                        rest = q
+                    } else {
+                        gap.update(from: q, count: lo)
+                        (gap + lo).update(from: q + hi, count: n - hi)
+                        rest = UnsafePointer(gap)
                     }
-                    if n > tail, PhoneticEncoder.distance(q, n - tail, codeBytes + start, length, bound: distance, row: row) <= distance {
-                        return true
+                    var c = primary
+                    while c >= 0 {
+                        let start = Int(codeStarts[c]), length = Int(codeStarts[c + 1]) - start
+                        if PhoneticEncoder.distance(rest, m, codeBytes + start, length, bound: distance, row: row) <= distance {
+                            return true
+                        }
+                        c = c == primary ? secondary : -1
                     }
-                    c = c == primary ? secondary : -1
                 }
                 return false
             }
@@ -418,6 +477,8 @@ final class QueryScratch {
     let keys: UnsafeMutablePointer<UInt64>
     let prefix: UnsafeMutablePointer<UInt64>
     let row: UnsafeMutablePointer<Int>
+    /// A window's code with one word cut out (tightness rule).
+    let gap: UnsafeMutablePointer<UInt8>
     /// Recency factor per term; 0 = not computed yet (a factor is never below 0.6).
     let recencies: UnsafeMutablePointer<Double>
 
@@ -432,13 +493,15 @@ final class QueryScratch {
         keys = .allocate(capacity: DeletionKeys.maxKeys)
         prefix = .allocate(capacity: DeletionKeys.maxLength + 1)
         row = .allocate(capacity: max(s.maxCodeLength, s.maxLetterLength, DeletionKeys.maxKeyedLength) + 2)
+        gap = .allocate(capacity: DeletionKeys.maxKeyedLength + 2)
         recencies = .allocate(capacity: max(1, s.termCount))
         memset(recencies, 0, max(1, s.termCount) * MemoryLayout<Double>.stride)
     }
 
     deinit {
         codeSeen.deallocate(); formSeen.deallocate(); formCloseness.deallocate(); formDistance.deallocate()
-        touched.deallocate(); keys.deallocate(); prefix.deallocate(); row.deallocate(); recencies.deallocate()
+        touched.deallocate(); keys.deallocate(); prefix.deallocate(); row.deallocate(); gap.deallocate()
+        recencies.deallocate()
     }
 
     /// 0.6 + 0.4 · ½^(age / half-life), once per term per query; 1 for a term with no date.

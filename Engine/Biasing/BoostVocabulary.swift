@@ -38,25 +38,32 @@ public enum BoostVocabulary {
                              cap: Int = BoostVocabulary.cap) -> [String] {
         var seen = Set<String>()
         var out: [String] = []
-        let typed = typedForms(entries)
-        let dictionary = entries.filter { $0.origin != .contacts && SpokenFormVerbalizer.hasSpokenForm($0.term, typed: $0.spokenForms) }
-            .map(\.term)
-        // Corrections are whole corrected phrases ("send it to Kothari tomorrow"): only the
-        // entity-like words in them are worth boosting — "tomorrow" would only spend the cap.
-        let correctionTerms = corrections.flatMap { EntityExtractor.extract(from: $0) }
-        // The ranked context's authored tier: Dictionary entries with a spoken form; correction-
-        // derived words only when entity-like (the harvester splits corrections into every word).
-        let authored = context.terms(in: .authored).filter { t in
-            (t.sources.contains(.corrections) && EntityExtractor.isEntityLike(t.text))
-                || (t.sources.contains(.dictionary) && SpokenFormVerbalizer.hasSpokenForm(t.text, typed: typed[t.text.lowercased()] ?? []))
-        }.map(\.text)
-        for raw in dictionary + correctionTerms + authored {
-            guard out.count < cap else { break }
+        /// Appends `raw` when the length rules allow; false once the list is full. Every source is
+        /// walked lazily through this, so the spoken-form test stops at the cap (hotkey-down).
+        func take(_ raw: String) -> Bool {
+            guard out.count < cap else { return false }
             let term = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             let letters = term.filter { $0.isLetter || $0.isNumber }.count
-            guard letters >= minCharacters, term.count <= maxCharacters else { continue }
-            guard seen.insert(term.lowercased()).inserted else { continue }
-            out.append(term)
+            if letters >= minCharacters, term.count <= maxCharacters, seen.insert(term.lowercased()).inserted {
+                out.append(term)
+            }
+            return out.count < cap
+        }
+        for e in entries where e.origin != .contacts && SpokenFormVerbalizer.hasSpokenForm(e.term, typed: e.spokenForms) {
+            guard take(e.term) else { return out }
+        }
+        // Corrections are whole corrected phrases ("send it to Kothari tomorrow"): only the
+        // entity-like words in them are worth boosting — "tomorrow" would only spend the cap.
+        for correction in corrections {
+            for term in EntityExtractor.extract(from: correction) { guard take(term) else { return out } }
+        }
+        // The ranked context's authored tier: Dictionary entries with a spoken form; correction-
+        // derived words only when entity-like (the harvester splits corrections into every word).
+        let typed = typedForms(entries)
+        for t in context.terms(in: .authored) {
+            let admitted = (t.sources.contains(.corrections) && EntityExtractor.isEntityLike(t.text))
+                || (t.sources.contains(.dictionary) && SpokenFormVerbalizer.hasSpokenForm(t.text, typed: typed[t.text.lowercased()] ?? []))
+            if admitted { guard take(t.text) else { return out } }
         }
         return out
     }

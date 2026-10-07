@@ -3,7 +3,9 @@ import Shared
 
 // Context Writer §2.4 — what the vocabulary matcher indexes: the user's own terms, each with the
 // spoken forms that say it. Sources: the Dictionary (non-Contacts rows), confirmed corrections, the
-// learned lexicon (C1 re-dictation aliases included), and Contacts only as full names.
+// learned lexicon (C1 re-dictation aliases included), and Contacts only as the full names of people
+// the user interacts with (`ContactEvidence`): an address book is not vocabulary, and a name in a
+// VOCAB line may travel to a cloud writer.
 
 /// Where a vocabulary term came from (the packet's `VocabularyMatch.source`).
 public enum VocabularySource: String, CaseIterable, Sendable, Codable {
@@ -43,12 +45,13 @@ public struct VocabularyTerm: Hashable, Sendable {
     }
 
     /// Dictionary rows: non-Contacts rows as `.dictionary` with their typed spoken forms; Contacts
-    /// rows only when they are a full name (two or more capitalised words), as `.contact`, and
-    /// without typed forms. "Code", "Cab", "Bucket" never enter.
-    public static func dictionary(_ entries: [DictionaryEntry]) -> [VocabularyTerm] {
+    /// rows only when they are a full name (two or more capitalised words) **and** `contacts` holds
+    /// evidence the user interacts with that person, as `.contact`, without typed forms. "Code",
+    /// "Cab", "Bucket" never enter; with no evidence (the default) no Contact enters at all.
+    public static func dictionary(_ entries: [DictionaryEntry], contacts: ContactEvidence = .none) -> [VocabularyTerm] {
         entries.compactMap { e in
             if e.origin == .contacts {
-                guard isFullName(e.term) else { return nil }
+                guard isFullName(e.term), contacts.admits(fullName: e.term) else { return nil }
                 return VocabularyTerm(term: e.term, source: .contact, weight: e.weight)
             }
             return VocabularyTerm(term: e.term, spokenForms: e.spokenForms, source: .dictionary, weight: e.weight)
@@ -90,6 +93,69 @@ public struct VocabularyTerm: Hashable, Sendable {
     static func isFullName(_ s: String) -> Bool {
         let words = s.split(whereSeparator: \.isWhitespace)
         return words.count >= 2 && words.allSatisfy { $0.first?.isUppercase == true && $0.dropFirst().allSatisfy(\.isLetter) }
+    }
+}
+
+/// Evidence that the user interacts with a person, which a Contacts full name needs before it is
+/// indexed (plan §2.4: "full names only, and only people you actually interact with"). A name
+/// counts when it appears whole, as consecutive words (case and punctuation ignored, a possessive
+/// "'s" dropped), in
+/// * a confirmed correction's text ("send it to Akash Kothari" — the user wrote the name),
+/// * the learned lexicon (a term or the written side of a learned alias), or
+/// * `people`: names the App knows the user deals with. Nothing feeds it yet; the intended inputs
+///   are recent thread participants (To/Cc, chat titles — `FieldContext.participants`) and
+///   Contacts-origin Dictionary rows with recorded use (the complement of the rubric's
+///   `neverUsed`). Pass them through `VocabularyMatcher.build(...people:)`.
+/// A first or last name alone is not evidence: "Kothari" says nothing about which Kothari.
+public struct ContactEvidence: Sendable, Equatable {
+    public static let none = ContactEvidence()
+
+    struct Position: Hashable, Sendable {
+        var text: Int32
+        var word: Int32
+    }
+
+    /// Every evidence text as normalised words, and where each word occurs: a name is looked up from
+    /// its first word, so building costs one entry per evidence word and a query a few comparisons.
+    private var texts: [[String]] = []
+    private var occurrences: [String: [Position]] = [:]
+
+    public init(corrections: [String] = [], learned: PersonalLexicon? = nil, people: [String] = []) {
+        var all = corrections + people
+        if let learned {
+            all += learned.terms.values.map(\.text).sorted()
+            all += learned.variants.values.map(\.corrected).sorted()
+        }
+        for text in all {
+            let words = Self.words(text)
+            guard words.count >= 2 else { continue }
+            let t = Int32(texts.count)
+            texts.append(words)
+            for (i, w) in words.enumerated() { occurrences[w, default: []].append(Position(text: t, word: Int32(i))) }
+        }
+    }
+
+    public var isEmpty: Bool { texts.isEmpty }
+
+    /// True when `fullName` appears whole, as consecutive words, in the evidence.
+    public func admits(fullName: String) -> Bool {
+        let name = Self.words(fullName)
+        guard name.count >= 2, let first = occurrences[name[0]] else { return false }
+        for p in first {
+            let words = texts[Int(p.text)], at = Int(p.word)
+            guard at + name.count <= words.count else { continue }
+            if words[at..<(at + name.count)].elementsEqual(name) { return true }
+        }
+        return false
+    }
+
+    /// Lower-cased words without surrounding punctuation or a possessive "'s".
+    static func words(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isWhitespace).compactMap { raw in
+            var w = VocabularyMatcher.clean(String(raw)).replacingOccurrences(of: "\u{2019}", with: "'")
+            if w.hasSuffix("'s") { w.removeLast(2) }
+            return w.isEmpty ? nil : w
+        }
     }
 }
 

@@ -59,6 +59,36 @@ struct SpokenFormVerbalizerTests {
         #expect(SpokenFormVerbalizer.forms(for: "O'Brien") == ["o brien"])
     }
 
+    /// A symbol that is said aloud but that the verbalizer does not read gives no form at all
+    /// (never "c" for C++); only a typed form voices such a term.
+    @Test func unsayableSymbolsGiveNoForm() {
+        for term in ["C++", "C#", "F#", "AT&T", "R&D", "me@home", "100%", "Notepad++"] {
+            #expect(SpokenFormVerbalizer.forms(for: term).isEmpty, "\(term)")
+            #expect(!SpokenFormVerbalizer.hasSpokenForm(term), "\(term)")
+        }
+        #expect(SpokenFormVerbalizer.hasSpokenForm("C++", typed: ["c plus plus"]))
+    }
+
+    /// A dotted abbreviation is spelled, not read with "dot".
+    @Test func dottedAbbreviationsAreSpelled() {
+        #expect(SpokenFormVerbalizer.forms(for: "U.S.") == ["u s"])
+        #expect(SpokenFormVerbalizer.forms(for: "U.S.A") == ["u s a"])
+        #expect(SpokenFormVerbalizer.forms(for: "Ph.D.") == ["p h d"])
+        #expect(SpokenFormVerbalizer.forms(for: "e.g.") == ["e g"])
+        #expect(SpokenFormVerbalizer.forms(for: "U.S.-based") == ["u s based"])
+        #expect(SpokenFormVerbalizer.spelledAbbreviation("u.s") == ["u", "s"])
+        #expect(SpokenFormVerbalizer.spelledAbbreviation("node.js") == nil)
+        #expect(SpokenFormVerbalizer.spelledAbbreviation("ok") == nil)
+        #expect(PhoneticEncoder.spokenWords("the U.S. team") == ["the", "u", "s", "team"])
+    }
+
+    /// A typed form that holds no letter or digit says nothing.
+    @Test func punctuationOnlyTypedFormsDoNotCount() {
+        #expect(!SpokenFormVerbalizer.hasSpokenForm("Kothari", typed: ["-"]))
+        #expect(!SpokenFormVerbalizer.hasSpokenForm("Kothari", typed: [" . ", "--"]))
+        #expect(SpokenFormVerbalizer.hasSpokenForm("Kothari", typed: ["-", "ko thari"]))
+    }
+
     @Test func longInitialismsAreReadAsWords() {
         // A short initialism is spelled and also read as a word; the word reading is kept even
         // though it spells the term itself, because it says *how* the term is pronounced.

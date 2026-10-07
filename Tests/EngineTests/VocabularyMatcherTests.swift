@@ -24,7 +24,9 @@ struct VocabularyMatcherTests {
         entry("Cab"), entry("Code", origin: .contacts), entry("Cab", origin: .contacts),
         entry("Akash Kothari", origin: .contacts), entry("Bucket", origin: .contacts),
     ]
-    static let matcher = VocabularyMatcher(terms: VocabularyTerm.dictionary(entries))
+    /// The user interacts with Akash Kothari (a thread participant): his full name may be indexed.
+    static let people = ContactEvidence(people: ["Akash Kothari"])
+    static let matcher = VocabularyMatcher(terms: VocabularyTerm.dictionary(entries, contacts: people))
 
     @Test func misheardAlphanumericMatchesThroughItsVerbalizedForm() {
         let m = Self.matcher.matches(heard: heard("we raised from a sixtien z last year", uncertain: ["sixtien", "z"]), limit: 10)
@@ -54,7 +56,7 @@ struct VocabularyMatcherTests {
     }
 
     @Test func singleWordContactsNeverEnterTheIndex() {
-        let terms = VocabularyTerm.dictionary(Self.entries)
+        let terms = VocabularyTerm.dictionary(Self.entries, contacts: ContactEvidence(people: ["Akash Kothari", "Code", "Bucket"]))
         #expect(!terms.contains { $0.source == .contact && $0.term == "Code" })
         #expect(!terms.contains { $0.source == .contact && $0.term == "Bucket" })
         #expect(terms.contains { $0.source == .contact && $0.term == "Akash Kothari" })
@@ -123,6 +125,122 @@ struct VocabularyMatcherTests {
         #expect(VocabularyMatcher(terms: []).matches(heard: heard("x", uncertain: ["x"]), limit: 10).isEmpty, "empty index")
         let p: any VocabularyMatching = Self.matcher
         #expect(p.matches(heard: heard("hello", uncertain: ["hello"]), limit: 0).isEmpty)
+    }
+
+    // MARK: Contacts: only people the user interacts with
+
+    /// Plan §2.4: "full names only, and only people you actually interact with". An imported
+    /// address book is not vocabulary: without evidence no Contact is indexed at all.
+    @Test func contactsNeedEvidenceOfInteraction() {
+        let book = [entry("Akash Kothari", origin: .contacts), entry("Ravi Shah", origin: .contacts),
+                    entry("Mira Kothari", origin: .contacts), entry("Kothari")]
+        #expect(!VocabularyTerm.dictionary(book).contains { $0.source == .contact }, "no evidence, no Contacts")
+        let none = VocabularyMatcher.build(entries: book)
+        #expect(!none.matches(heard: heard("ping akash kotari about it", uncertain: ["kotari"]), limit: 10)
+            .contains { $0.source == "contact" })
+        // A confirmed correction that wrote the full name (possessive and punctuation ignored).
+        let corrected = ContactEvidence(corrections: ["send the deck to Akash Kothari's team."])
+        #expect(Set(VocabularyTerm.dictionary(book, contacts: corrected).filter { $0.source == .contact }.map(\.term)) == ["Akash Kothari"])
+        // The learned lexicon and the App's people list count too.
+        var lexicon = PersonalLexicon()
+        lexicon.variants["ravi sha"] = PersonalLexicon.Variant(heard: "ravi sha", corrected: "Ravi Shah", count: 1)
+        #expect(ContactEvidence(learned: lexicon).admits(fullName: "Ravi Shah"))
+        #expect(ContactEvidence(people: ["mira  KOTHARI"]).admits(fullName: "Mira Kothari"))
+        // A surname alone says nothing about which Kothari.
+        let surname = ContactEvidence(corrections: ["ask Kothari", "Kothari said yes"])
+        #expect(!VocabularyTerm.dictionary(book, contacts: surname).contains { $0.source == .contact })
+        // Through the factory: the correction admits Akash, never Ravi or Mira.
+        let built = VocabularyMatcher.build(entries: book, corrections: [(term: "lunch with Akash Kothari", at: Date())])
+        #expect(built.index.terms.filter { $0.source == .contact }.map(\.term) == ["Akash Kothari"])
+        // The evidence is rebuilt with the vocabulary: 500 long corrections stay cheap.
+        let long = (0..<500).map { i in (0..<60).map { "word\($0 + i)" }.joined(separator: " ") + " Akash Kothari" }
+        var evidence = ContactEvidence.none
+        let ms = Self.milliseconds(runs: 1) { evidence = ContactEvidence(corrections: long) }
+        print("VocabularyMatcher perf: contact evidence over 500 × 62-word corrections \(String(format: "%.0f", ms)) ms CPU")
+        #expect(evidence.admits(fullName: "Akash Kothari") && !evidence.admits(fullName: "Ravi Shah"))
+        #expect(ms < 1_000)
+    }
+
+    // MARK: ordinary words by how they are said
+
+    /// "can't", "it's", "we're" and plain numbers are ordinary words: alone they may only match a
+    /// trusted form they sound exactly like, never a term on phonetics alone.
+    @Test func contractionsPossessivesAndNumbersAreOrdinaryWords() {
+        let matcher = VocabularyMatcher(terms: VocabularyTerm.dictionary(
+            [entry("Kant"), entry("Etsy"), entry("Weir"), entry("ANE"), entry("Tenn"), entry("Kothari")]))
+        #expect(matcher.matches(heard: heard("I can't go", uncertain: ["can't"]), limit: 5).isEmpty)
+        #expect(matcher.matches(heard: heard("I can\u{2019}t go", uncertain: ["can\u{2019}t"]), limit: 5).isEmpty, "curly apostrophe")
+        #expect(matcher.matches(heard: heard("it's fine", uncertain: ["it's"]), limit: 5).isEmpty)
+        #expect(matcher.matches(heard: heard("we're here", uncertain: ["we're"]), limit: 5).isEmpty)
+        #expect(matcher.matches(heard: heard("we have 1 left", uncertain: ["1"]), limit: 5).isEmpty)
+        #expect(matcher.matches(heard: heard("about 10 people", uncertain: ["10"]), limit: 5).isEmpty)
+        // A name's possessive is not ordinary: it still finds the name.
+        #expect(matcher.matches(heard: heard("ask kotari's team", uncertain: ["kotari's"]), limit: 5).first?.term == "Kothari")
+        for word in ["can't", "don't", "won't", "it's", "we're", "i'll", "you'd", "i'm", "they've", "dog's", "dogs'",
+                     "o'clock", "1", "10", "3.5", "1,000", "1st", "22nd", "90s"] {
+            #expect(VocabularyQuery.isOrdinary(word), "\(word)")
+        }
+        for word in ["kothari's", "4o", "a16z", "k8s", "i18n", "o'brien", "kotari"] {
+            #expect(!VocabularyQuery.isOrdinary(word), "\(word)")
+        }
+    }
+
+    // MARK: windows: every word explained
+
+    /// The tightness rule covers interior words: "akash to kotari" would delete the "to".
+    @Test func interiorWordsMustBeExplainedByTheForm() {
+        let matcher = VocabularyMatcher(terms: VocabularyTerm.dictionary(
+            [entry("Akash Kothari", origin: .contacts), entry("Paperclip")], contacts: ContactEvidence(people: ["Akash Kothari"])))
+        let to = matcher.matches(heard: heard("introduce akash to kotari today", uncertain: ["kotari"]), limit: 5)
+        #expect(!to.contains { $0.term == "Akash Kothari" }, "\(to)")
+        let a = matcher.matches(heard: heard("tell akash a kotari joke", uncertain: ["kotari"]), limit: 5)
+        #expect(!a.contains { $0.term == "Akash Kothari" }, "\(a)")
+        let clip = matcher.matches(heard: heard("the paper a clip", uncertain: ["a"]), limit: 5)
+        #expect(!clip.contains { $0.heard == "paper a clip" }, "\(clip)")
+        // A word the form needs is explained: these still match.
+        #expect(matcher.matches(heard: heard("ping akash kotari now", uncertain: ["kotari"]), limit: 5).first?.term == "Akash Kothari")
+        #expect(matcher.matches(heard: heard("the paper clip repo", uncertain: ["clip"]), limit: 5).first?.term == "Paperclip")
+        let a16z = VocabularyMatcher(terms: VocabularyTerm.dictionary([entry("a16z")]))
+        #expect(a16z.matches(heard: heard("from a sixtien z", uncertain: ["sixtien"]), limit: 5).first?.heard == "a sixtien z")
+    }
+
+    // MARK: spelled letters keep their sound
+
+    /// Letters are coded by their names on both sides: "h" and "w" are not silent, so a spelled
+    /// initialism is matched whole, and "wwdc" does not sound like "dec".
+    @Test func spelledLettersAreCodedByTheirNames() {
+        let matcher = VocabularyMatcher(terms: VocabularyTerm.dictionary([entry("AWS"), entry("HTML"), entry("WWDC")]))
+        let aws = matcher.matches(heard: heard("host it on a w s today", uncertain: ["w"]), limit: 5)
+        #expect(aws.first?.term == "AWS" && aws.first?.heard == "a w s", "\(aws)")
+        let html = matcher.matches(heard: heard("write h t m l here", uncertain: ["t", "m"]), limit: 5)
+        #expect(html.first?.term == "HTML" && html.first?.heard == "h t m l", "\(html)")
+        #expect(!html.contains { $0.heard == "t m l" })
+        #expect(matcher.matches(heard: heard("write html here", uncertain: ["html"]), limit: 5).first?.term == "HTML")
+        #expect(matcher.matches(heard: heard("the dec keynote", uncertain: ["dec"]), limit: 5).isEmpty)
+        let wwdc = matcher.matches(heard: heard("watch w w d c live", uncertain: ["d"]), limit: 5)
+        #expect(wwdc.first?.term == "WWDC" && wwdc.first?.heard == "w w d c", "\(wwdc)")
+        // The fixed table: "c" sounds like "see", "w" like "double you", "h" is not silent.
+        let e = PhoneticEncoder(metaphoneLength: 6)
+        var cache: [String: DoubleMetaphone.Codes] = [:]
+        #expect(e.codes(of: ["c"], cache: &cache).primary == e.codes(of: ["see"], cache: &cache).primary)
+        #expect(e.codes(of: ["w"], cache: &cache).primary == e.codes(of: ["double", "you"], cache: &cache).primary)
+        #expect(!e.codes(of: ["h"], cache: &cache).primary.isEmpty)
+        #expect(e.codes(of: ["wwdc"], cache: &cache).primary == e.codes(of: ["w", "w", "d", "c"], cache: &cache).primary)
+    }
+
+    // MARK: symbols and abbreviations
+
+    /// A term with a symbol the verbalizer does not say has no form but a typed one; a dotted
+    /// abbreviation is spelled.
+    @Test func unsayableSymbolsNeedATypedForm() {
+        let bare = PhoneticVocabularyIndex(terms: VocabularyTerm.dictionary([entry("C++"), entry("C#"), entry("AT&T")]))
+        #expect(bare.isEmpty, "no junk form (\"c\") for C++ / C#")
+        let typed = VocabularyMatcher(terms: VocabularyTerm.dictionary([entry("C++", ["c plus plus"]), entry("U.S.")]))
+        #expect(typed.matches(heard: heard("i write c daily", uncertain: ["c"]), limit: 5).isEmpty)
+        #expect(typed.matches(heard: heard("i write c plus plus daily", uncertain: ["plus"]), limit: 5).first?.term == "C++")
+        let us = typed.matches(heard: heard("the u.s. team", uncertain: ["u.s"]), limit: 5)
+        #expect(us.first?.term == "U.S." && us.first?.heard == "u.s" && (us.first?.score ?? 0) > 0.99, "\(us)")
+        #expect(SpokenFormVerbalizer.forms(for: "U.S.") == ["u s"], "spelled, never \"u dot s\"")
     }
 
     // MARK: learned lexicon (C1): aliases are trusted forms, negative aliases block the pair
@@ -206,7 +324,8 @@ struct VocabularyMatcherTests {
         var lexicon = PersonalLexicon()
         lexicon.terms["spool"] = PersonalLexicon.Term(text: "Spool", weight: 0.8, corrections: 3, lastSeen: Date())
         let matcher = VocabularyMatcher.build(
-            entries: Self.entries, corrections: [(term: "send it to Sundar tomorrow", at: Date())], learned: lexicon)
+            entries: Self.entries, corrections: [(term: "send it to Sundar tomorrow", at: Date())], learned: lexicon,
+            people: ["Akash Kothari"])
         let h = heard("tell sundhar the spull for akash kotari is in a sixtien z", uncertain: ["sundhar", "spull", "kotari", "sixtien"])
         let now = Date()
         let m = matcher.matches(heard: h, limit: 10, now: now)

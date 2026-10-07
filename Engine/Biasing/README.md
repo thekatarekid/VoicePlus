@@ -2,16 +2,20 @@
 
 ## Context Writer §2.4 — spoken forms and the vocabulary matcher (no model, milliseconds)
 
-    VocabularyMatcher.build(entries:corrections:learned:)          (the integrator's one call)
-      Dictionary rows (non-Contacts; Contacts only as full names) + typed spoken forms
+    VocabularyMatcher.build(entries:corrections:learned:people:)   (the integrator's one call)
+      Dictionary rows (non-Contacts; Contacts only as full names of people the user interacts
+      with — ContactEvidence) + typed spoken forms
       (DictionaryEntry.spokenForms, split from DictionaryRecord) + confirmed corrections + the
       learned lexicon (terms; C1 re-dictation aliases as trusted forms; negative aliases blocked)
         → VocabularyTerm (VocabularyTerm.swift) → SpokenFormVerbalizer.forms
           ("a16z" → "a sixteen z" / "a one six z", "GPT-4o" → "g p t four o" / "gpt four o",
            "k8s" → "k eight s", "3.5" → "three point five", "NASA" → "n a s a" / "nasa",
-           + HeardAliases' digit-free separator / camelCase splits)
+           "U.S." → "u s", "Ph.D." → "p h d", + HeardAliases' digit-free separator / camelCase
+           splits; "C++", "C#", "AT&T", "x@y", "100%" → nothing: only a typed form says them)
         → PhoneticVocabularyIndex (built off the hot path when the vocabulary changes):
-          Double Metaphone per word, joined; distinct codes stored once; a deletion-neighbourhood
+          Double Metaphone per word, joined (a single letter, or a vowelless run of ≤ 5 letters
+          like "wwdc" / "html", coded by its letters' names: "h" → aitch, "w" → double you, "c" →
+          see — on forms and heard tokens alike); distinct codes stored once; a deletion-neighbourhood
           table (each code + every ≤ 2-symbol deletion, by length) → codes → forms
         → VocabularyMatcher.matches(heard:limit:)   (Shared `VocabularyMatching`, at key-up)
           uncertain words and 1–4-word windows holding one (heard digits read as words) → look up
@@ -19,17 +23,28 @@
           ≥ 0.55 → score = match × weight × source × recency → best per term → top N, with
           bound-ordered early exit → `ContextPacket.VocabularyMatch`
 
-- **Precision rules.** A heard ordinary English word alone matches only a trusted form it sounds
-  exactly like ("queen" typed or learned for Qwen), never on phonetics alone ("cab" ≠ Cab). A
-  window of ordinary words must also spell an untrusted form (spelling ≥ 0.6: "super base" →
-  Supabase, never "on a" → ANE). A window must be tight: dropping its first or last word must make
-  the match worse ("a cab" never stands in for "cab"). A heard → written pair the user undid (C1
-  negative alias) is never offered, whichever source holds the term. Word counts may differ
-  ("paper clip" → Paperclip, "kuber netes" → Kubernetes): codes are compared without word
-  boundaries; spelling similarity keeps them.
+- **Precision rules.** A heard ordinary word alone matches only a trusted form it sounds exactly
+  like ("queen" typed or learned for Qwen), never on phonetics alone ("cab" ≠ Cab). "Ordinary" is
+  decided by how the token is said: a dictionary word, a contraction or possessive of one ("can't",
+  "it's", "we're", "dog's"), or a plain number / ordinal / decade ("1", "10", "3.5", "1st",
+  "90s") — so "can't" never offers Kant, "10" never Tenn; "kotari's" and "a16z" are not ordinary.
+  A window of ordinary words must also spell an untrusted form (spelling ≥ 0.6: "super base" →
+  Supabase, never "on a" → ANE). A window must be tight: dropping any one of its words — first,
+  last or interior — must make the match worse ("a cab" never stands in for "cab", "akash to
+  kotari" never for Akash Kothari, "paper a clip" never for Paperclip). Spelled letters keep their
+  sound ("a w s" → AWS; "write h t m l here" → HTML for "h t m l", not "t m l"; "dec" ≠ WWDC). A
+  heard → written pair the user undid (C1 negative alias) is never offered, whichever source holds
+  the term. Word counts may differ ("paper clip" → Paperclip, "kuber netes" → Kubernetes): codes
+  are compared without word boundaries; spelling similarity keeps them.
+- **Contacts.** An address book is not vocabulary (and a VOCAB line may reach a cloud writer): a
+  Contacts row is indexed only as a full name that appears whole in a confirmed correction, in the
+  learned lexicon, or in `people` (`ContactEvidence`). No evidence → no Contact indexed at all. A
+  surname alone is not evidence. `people` is the App's hook — not fed yet; intended inputs are
+  recent thread participants (To/Cc, chat titles) and Contacts rows with recorded use.
 - **Cost** (5k-term adversarial vocabulary, 16 syllables; CPU time). Debug build, as the tests
-  run: index build ~410 ms, worst case (30 words all uncertain) ~4–5 ms, typical (3 uncertain)
-  ~2 ms. Release (scratch harness over the same sources): build ~100 ms (≈ 2 ms of it the table;
+  run: index build ~380–510 ms, worst case (30 words all uncertain) ~3.7–4.7 ms, typical (3
+  uncertain) ~2–2.8 ms (unchanged by the precision fixes of 7 Oct 2026, measured next to parallel
+  builds). Release (scratch harness over the same sources): build ~100 ms (≈ 2 ms of it the table;
   the rest is verbalizing + Double Metaphone per form), worst ~0.45 ms, typical ~0.25 ms. The hot
   loops use raw pointers because debug builds do not inline array subscripts. Recency is measured
   at query time, so the index never goes stale between rebuilds.
@@ -38,7 +53,9 @@
 
 ## V5 B1 — final-pass CTC vocabulary boosting, scoped down (Context Writer §1)
 
-    Dictionary terms with a spoken form (typed or verbalized) + confirmed corrections   (never
+    Dictionary terms with a spoken form (typed — with a letter or digit — or verbalized; the test is
+    memoised per term and stops once the list is full: 2,000 plain rows ~65 ms debug the first
+    utterance, ~1 ms after) + confirmed corrections   (never
     Contacts, never screen / surface-lexicon / participant terms, whatever the rubric admitted)
         → BoostVocabulary.build (dedupe, ≥3 letters, cap 100, rebuilt per utterance)
         → BoostingController.makeBoosterForUtterance()  (AppContainer.prepareForUtterance, hotkey-down)

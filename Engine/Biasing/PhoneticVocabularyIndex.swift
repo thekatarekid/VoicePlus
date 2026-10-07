@@ -81,9 +81,12 @@ public struct PhoneticVocabularyIndex: Sendable {
             b.termBase.append((0.5 + 0.5 * t.weight) * t.source.weight)
 
             // Trusted forms first, so a typed form spelled like the term keeps its trust. The written
-            // form is a spoken form only without digits: "a16z" is said through its verbalized forms.
+            // form is a spoken form only without digits ("a16z" is said through its verbalized forms)
+            // and without a symbol nobody reads silently ("C++" is not "c"; only a typed form says it).
             var candidates = t.spokenForms.map { (PhoneticEncoder.collapse($0), true) }
-            if !t.term.contains(where: \.isNumber) { candidates.append((PhoneticEncoder.collapse(t.term), false)) }
+            if !t.term.contains(where: \.isNumber), !SpokenFormVerbalizer.hasUnsayableSymbol(t.term) {
+                candidates.append((PhoneticEncoder.collapse(t.term), false))
+            }
             candidates += SpokenFormVerbalizer.forms(for: t.term).map { ($0, false) }
             var seen = Set<String>()
             for (text, trusted) in candidates where !text.isEmpty && seen.insert(text.lowercased()).inserted {
@@ -341,18 +344,50 @@ struct PhoneticEncoder: Sendable {
         var hasSecondary = false
         for w in words {
             let c: DoubleMetaphone.Codes
-            if let hit = cache[w] { c = hit } else { c = metaphone.encode(w); cache[w] = c }
+            if let hit = cache[w] { c = hit } else { c = encode(word: w); cache[w] = c }
             primary += Array(c.primary.utf8)
             if let s = c.secondary { hasSecondary = true; secondary += Array(s.utf8) } else { secondary += Array(c.primary.utf8) }
         }
         return (primary, hasSecondary ? secondary : nil)
     }
 
+    /// One word's codes. A word that is said letter by letter is coded by its letters' names
+    /// (`SpokenFormVerbalizer.letterNames`: "h" → "aitch", "w" → "double you", "c" → "see"): a
+    /// single letter, and a run of two to `maxSpelledLetters` letters with no vowel ("wwdc", "html",
+    /// "gpt"), which nobody can read as a word. Both sides are coded this way — the verbalizer's
+    /// spelled forms ("h t m l") and heard tokens — so a spelled initialism keeps every letter's
+    /// sound, a window never breaks on a letter Double Metaphone leaves silent, and "wwdc" is not
+    /// "TK" (the code of "dec").
+    func encode(word w: String) -> DoubleMetaphone.Codes {
+        let lower = w.lowercased()
+        guard Self.isSaidLetterByLetter(lower) else { return metaphone.encode(w) }
+        var primary = "", secondary = ""
+        var hasSecondary = false
+        for letter in lower {
+            for part in SpokenFormVerbalizer.letterNames[letter] ?? [] {
+                let c = metaphone.encode(part)
+                primary += c.primary
+                if let s = c.secondary { hasSecondary = true; secondary += s } else { secondary += c.primary }
+            }
+        }
+        return DoubleMetaphone.Codes(primary: primary, secondary: hasSecondary ? secondary : nil)
+    }
+
+    /// A lower-cased word that is spelled when said: one ASCII letter, or 2…`maxSpelledLetters`
+    /// ASCII letters without a vowel (a, e, i, o, u, y).
+    static func isSaidLetterByLetter(_ w: String) -> Bool {
+        guard (1...SpokenFormVerbalizer.maxSpelledLetters).contains(w.count),
+              w.allSatisfy({ $0.isASCII && $0.isLetter }) else { return false }
+        return w.count == 1 || !w.contains { "aeiouy".contains($0) }
+    }
+
     /// The words a form or a heard token is said as: a word with digits is read through the
-    /// verbalizer ("4o" → "four", "o"); any other word is itself.
+    /// verbalizer ("4o" → "four", "o"); a dotted abbreviation is spelled ("U.S." → "u", "s"); any
+    /// other word is itself.
     static func spokenWords(_ text: String) -> [String] {
         text.split(whereSeparator: \.isWhitespace).flatMap { w -> [String] in
             if let reading = SpokenFormVerbalizer.reading(of: String(w)) { return reading.split(separator: " ").map(String.init) }
+            if let letters = SpokenFormVerbalizer.spelledAbbreviation(String(w)) { return letters }
             return [String(w)]
         }
     }

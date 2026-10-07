@@ -94,6 +94,44 @@ struct BoostScopeTests {
         #expect(list.first == "Term0")
     }
 
+    /// Symbols and punctuation-only typed forms: no junk form admits a term to the booster.
+    @Test func symbolTermsAndPunctuationFormsAreNotVoiceable() {
+        let entries = [DictionaryEntry(term: "Notepad++"), DictionaryEntry(term: "AT&T"), DictionaryEntry(term: "Kothari", spokenForms: ["-"])]
+        #expect(BoostVocabulary.build(entries: entries, corrections: []) == [])
+        let typed = DictionaryEntry(term: "Notepad++", spokenForms: ["notepad plus plus"])
+        #expect(BoostVocabulary.build(entries: entries + [typed], corrections: []) == ["Notepad++"])
+    }
+
+    /// Hotkey-down cost: the boost list stops testing for spoken forms once it is full, and a term
+    /// already tested is not verbalized again.
+    @Test func spokenFormTestStopsAtTheCapAndIsMemoised() {
+        let voiceable = (0..<1_000).map { DictionaryEntry(term: "Lazyscope\($0)") }   // every one has a form
+        #expect(BoostVocabulary.build(entries: voiceable, corrections: []).count == BoostVocabulary.cap)
+        let memo = SpokenFormVerbalizer.derivedFormMemo
+        #expect(memo.isKnown("Lazyscope0") && memo.isKnown("Lazyscope99"))
+        #expect(!memo.isKnown("Lazyscope999"), "rows past the cap are never verbalized")
+
+        // 2,000 plain names (no spoken form): the second utterance only looks them up.
+        let syllables = ["ka", "to", "ri", "mi", "sha", "lo", "ven", "dra", "pa", "ne", "su", "bo", "kel", "vi", "ro", "tan"]
+        var plain: [DictionaryEntry] = []
+        for i in 0..<2_000 {
+            let a: String = syllables[i % 16], b: String = syllables[(i / 16) % 16], c: String = syllables[(i / 256) % 16]
+            let name: String = "memo" + a + b + c
+            plain.append(DictionaryEntry(term: name.capitalized))
+        }
+        #expect(Set(plain.map { $0.term }).count == 2_000)
+        func cpu(_ body: () -> Void) -> Double {
+            let t0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+            body()
+            return Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - t0) / 1e6
+        }
+        let cold = cpu { #expect(BoostVocabulary.build(entries: plain, corrections: []).isEmpty) }
+        let warm = cpu { _ = BoostVocabulary.build(entries: plain, corrections: []) }
+        print("BoostVocabulary perf: 2,000 plain rows, first build \(String(format: "%.1f", cold)) ms CPU, next \(String(format: "%.1f", warm)) ms")
+        #expect(plain.allSatisfy { memo.isKnown($0.term) })
+        #expect(warm < cold / 3, "warm \(warm) ms vs cold \(cold) ms")
+    }
+
     @Test func controllerPrefersEntriesAndPassesTypedFormsToTheRubric() {
         let entries = [DictionaryEntry(term: "Qwen", spokenForms: ["queen"]), DictionaryEntry(term: "Kothari"),
                        DictionaryEntry(term: "Code", origin: .contacts)]
