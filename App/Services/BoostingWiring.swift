@@ -25,6 +25,16 @@ enum BoostingWiring {
                            learning: ContextLearningTap? = nil) -> BoostingController? {
         guard let modelManager else { return nil }   // mock / unavailable engine: nothing to boost
         let source = ManagedCTCBoostingSource(manager: modelManager)
+        return controller(database: database, adaptation: adaptation, surface: surface, weights: weights, learning: learning,
+                          makeBooster: { terms in CTCVocabularyBooster(terms: terms, source: source) })
+    }
+
+    /// The same over any booster (tests pass a scripted one; the app the CTC model above).
+    static func controller(database: AppDatabase?, adaptation: AdaptationService?,
+                           surface: (@Sendable () -> SurfaceResolution?)?,
+                           weights: (@Sendable () -> RubricWeights)?,
+                           learning: ContextLearningTap?,
+                           makeBooster: @escaping @Sendable ([String]) -> VocabularyBooster) -> BoostingController {
         // Authored-only harvester: corrections + Dictionary (as harvested) + learned lexicon. No AX,
         // no contacts, no recent words — building the list must never walk the screen.
         let authored = ContextHarvester()
@@ -39,17 +49,24 @@ enum BoostingWiring {
                                                  contacts: false) }
         return BoostingController(
             context: { now in ranker.rank(harvesting: authored, now: now) },
-            // N1: Dictionary rows keep their origin; Contacts imports never enter the boost list.
-            dictionary: {
-                guard let database, let entries = try? DictionaryOrigins.entries(database) else { return [] }
-                return ContactsChannelPolicy.terms(entries, channel: .boost)
-            },
             corrections: {
                 guard let database else { return [] }
                 return (try? DatabaseCorrectionStore(database: database, limit: 500).correctedTerms().map(\.term)) ?? []
             },
+            // N1 + Context Writer §2.4: the Dictionary rows with their origin and typed spoken forms
+            // (Contacts imports dropped here and again by `BoostVocabulary`), so a term the
+            // verbalizer cannot voice still reaches the boost list through the form the user typed —
+            // on both the legacy and the rubric build.
+            entries: { Self.boostEntries(database: database) },
             rubric: rubric,
-            makeBooster: { terms in CTCVocabularyBooster(terms: terms, source: source) })
+            makeBooster: makeBooster)
+    }
+
+    /// The Dictionary rows the booster may use: every row with its origin and typed spoken forms,
+    /// Contacts rows dropped (N1). Read fresh per utterance (the user may have just added a word).
+    static func boostEntries(database: AppDatabase?) -> [DictionaryEntry] {
+        guard let database, let entries = try? DictionaryOrigins.entries(database) else { return [] }
+        return entries.filter { ContactsChannelPolicy.admits($0.origin, channel: .boost) }
     }
 
     /// N28 — learned per-surface source weights (JSON under the support dir). Pass as `weights:`;
