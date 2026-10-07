@@ -46,11 +46,12 @@ public enum LabWiring {
                                             secrets: SecretStore = KeychainSecretStore()) {
         let recognizer = modelManager.map { LabFinalRecognizer(manager: $0) }
         let recognize: (@Sendable (URL) async throws -> [TranscriptSpan])? = recognizer.map { r in { try await r.recognize(url: $0) } }
-        let config = ContextCorrectionSettings.cloudConfig(settings)
         registry.contextMagicWriters["cloud"] = {
             guard WriterWiring.cloudKeyStored(secrets) else {
                 throw LabError.badArguments("cloud writer: no OpenRouter key (Settings › Providers)")
             }
+            // Read when the run starts: the model / fallbacks / pinned providers Settings holds now.
+            let config = ContextCorrectionSettings.cloudConfig(settings)
             let backend = CloudWriterBackend(generator: WriterWiring.cloudGenerator(config: config, secrets: secrets, database: database))
             return WriterContextMagicRunner(backend: backend, recognize: recognize)
         }

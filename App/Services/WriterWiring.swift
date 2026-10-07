@@ -93,8 +93,11 @@ public final class WriterWiring: @unchecked Sendable {
     private let makeCloud: @Sendable (CloudWriterConfig) -> any WriterBackend
     private let makeLocal: @Sendable (LocalLLMModel) -> any WriterBackend
     private let now: @Sendable () -> Date
-    /// Where key-down work (availability, prewarm) and C1 learning run; nil = inline (tests).
+    /// Where key-down work (availability, prewarm) runs; nil = inline (tests), C1 included.
     private let queue: DispatchQueue?
+    /// C1 (observe / undo, which may retrain the lexicon): its own utility queue, so a retrain never
+    /// delays the next key-down's prewarm. nil when `queue` is nil.
+    private let learningQueue: DispatchQueue?
     private let lock = NSLock()
     private var cachedAvailability: (value: ContextCorrectionSettings.Availability, at: Date)?
     private var cloud: (config: CloudWriterConfig, backend: any WriterBackend)?
@@ -142,6 +145,7 @@ public final class WriterWiring: @unchecked Sendable {
         self.makeLocal = makeLocal
         self.now = now
         self.queue = queue
+        self.learningQueue = queue == nil ? nil : DispatchQueue(label: "voiceplus.writer.learning", qos: .utility)
         self.speculator = WriterSpeculator()
         packetBuilder.vocabulary = vocabulary
         Self.installGuardPhonetics
@@ -196,7 +200,7 @@ public final class WriterWiring: @unchecked Sendable {
         let w = written.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let learner, !h.isEmpty, !w.isEmpty, h.lowercased() != w.lowercased() else { return false }
         let at = now(), vocabulary = self.vocabulary
-        run {
+        learn {
             if learner.undoCorrection(heard: h, written: w, app: app, at: at) { vocabulary.invalidate() }
         }
         return true
@@ -384,13 +388,17 @@ public final class WriterWiring: @unchecked Sendable {
         if let focus = pending.focus, OwnProcess.owns(focus) { return }
         if pending.axRole == FocusedElementInfo.secureRole { return }
         let text = result.text, app = pending.bundleID ?? pending.focus?.bundleID, at = now(), vocabulary = self.vocabulary
-        run {
+        learn {
             if !learner.observe(landing: text, app: app, at: at).isEmpty { vocabulary.invalidate() }
         }
     }
 
     fileprivate func run(_ work: @escaping @Sendable () -> Void) {
         if let queue { queue.async(execute: work) } else { work() }
+    }
+
+    private func learn(_ work: @escaping @Sendable () -> Void) {
+        if let learningQueue { learningQueue.async(execute: work) } else { work() }
     }
 
     // MARK: Changed words
