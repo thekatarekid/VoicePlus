@@ -117,6 +117,8 @@ public struct PillAnnouncer: Equatable, Sendable {
             if latched { return nil }
             latchAnnounced = false
             if case .finishing(true) = state {
+                // Context Writer — "Writing" was already said when that face appeared.
+                if content.status == WriterCopy.writingStatus { return nil }
                 return once("stop:slow", .init(.notice, content.status))
             }
             guard wasCapturing else { return nil }
@@ -150,6 +152,14 @@ public struct PillAnnouncer: Equatable, Sendable {
 
     /// "Final text ready" (design §11: final result availability, then the uncertainty count).
     public static let finalReady = "Final text ready"
+
+    /// Context Writer (plan §4) — the writer's state changed for the turn on the pill. "Writing" is
+    /// said once when the slow writer's face appears; "Polished N words" and "Not polished" are said
+    /// with the landed row (its helper line), so nothing here repeats them.
+    public mutating func writer(_ phase: PillWriterNote.Phase?) -> PillAnnouncement? {
+        guard phase == .writing else { return nil }
+        return once("writer:writing", .init(.notice, WriterCopy.writingAnnouncement))
+    }
 
     // MARK: Pieces
 
@@ -225,6 +235,18 @@ public final class PillAnnouncementCenter {
             self.observe(state, content: PillContent.make(state, context: model.context()),
                          captureOpen: model.turn.captureOpen, latched: model.latched)
         }
+        // Context Writer — "Writing" when the slow writer's face appears (the state stays finishing).
+        writerSubscription = model.$turn.map { $0.writer?.phase }.removeDuplicates().sink { [weak self] phase in
+            self?.observeWriter(phase)
+        }
+    }
+
+    private var writerSubscription: AnyCancellable?
+
+    public func observeWriter(_ phase: PillWriterNote.Phase?) {
+        guard let line = announcer.writer(phase) else { return }
+        posted.append(line)
+        post(line)
     }
 
     /// The live pill's center, created on first use.

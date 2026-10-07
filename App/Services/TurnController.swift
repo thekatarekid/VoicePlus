@@ -180,6 +180,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var renderAckTimeout: TimeInterval = 1
     /// design §5 step 1: key down → capture open target.
     public static let captureOpenTarget: TimeInterval = 0.080
+    /// Context Writer (plan §4) — a writer that finishes within this long never shows "Writing…".
+    public var writerFaceDelay: TimeInterval = WriterLandingTiming.faceDelay
+    /// Context Writer — how long Undo on a polished landing stays possible.
+    public var correctionUndoWindow: TimeInterval = WriterLandingTiming.undoWindow
 
     // Collaborators.
     public let lander: UtteranceLander
@@ -253,6 +257,20 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var onLanded: ((LandingResult) -> Void)?
     /// Any turn ended, with its final stage (deixis clears the turn's boxes on it).
     public var onTurnEnded: ((TurnID, TurnStage) -> Void)?
+    /// Context Writer (plan §4) — the writer's state for the turn on the pill: `.writing` once its
+    /// writer has run past `writerFaceDelay` (the "Writing…" face), then the note its landed row
+    /// carries (`.polished` with the changed words, `.unpolished`), or nil (nothing to say; clears
+    /// "Writing…"). Runs on `ui`, before the turn's next state; never for a turn under a newer capture.
+    public var onWriter: ((PillWriterNote?) -> Void)?
+    /// Context Writer — Undo on a polished landing put the heard words back in the field: one call
+    /// per restored word (heard, written, the destination's bundle id), on `hookQueue`. The
+    /// integrator connects `WriterWiring.undoCorrection(heard:written:app:)` here.
+    public var onUndoCorrection: ((_ heard: String, _ written: String, _ app: String?) -> Void)?
+    /// Context Writer — Polish on an unpolished landing. TODO(wave 3): re-run the writer for the turn
+    /// and land the result through the range-safe replace; today the request is logged only.
+    public var onPolishRequest: ((TurnID) -> Void)?
+    /// Where `onUndoCorrection` runs (it may write the learner's store). Live: a utility queue.
+    public var hookQueue: (@escaping () -> Void) -> Void = { DispatchQueue.global(qos: .utility).async(execute: $0) }
     /// T-schema verify — the turn's key-down surface resolution (N9 resolver, via the app's
     /// `TurnSurfaceContext`). Read off the key-up thread (it may wait for an in-flight resolve) and
     /// recorded into `turn_records.surface_kind` / `surface_signals_json`. `nil` = not wired.
@@ -265,6 +283,15 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     private var gateOwner: TurnID?
     private var gateWaiters: [(TurnID, CheckedContinuation<Void, Never>)] = []
     private var undo: UndoOffer?
+    /// Context Writer — Undo for the last polished landing (the heard words, back by range).
+    private var correctionUndo: CorrectionUndoOffer?
+    /// Context Writer — the last landing the writer could not polish (Polish names it).
+    private var unpolishedTurn: TurnID?
+    private var writerChannel: WriterLandingEvents?
+    private var writerToken: UUID?
+    /// Context Writer — the latest event of landings no turn claimed (hands-free pieces, or a turn's
+    /// own events while another landing's run held it), newest last; bounded.
+    private var unboundWriterEvents: [(landing: UUID, event: WriterLandingEvent)] = []
     /// A transient row (Cancelled, Undo) is on the pill: engine states must not take it down.
     private var holdingPresentation = false
     /// Async work under way (formatting, writing). Parked turns (dwelling, queued) do not count.
@@ -284,6 +311,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             previous?(item, how)
             self?.heldResolved(item, how)
         }
+    }
+
+    deinit {
+        if let writerToken { writerChannel?.unsubscribe(writerToken) }
     }
 
     /// Undo edits through `ReplaceRangeEditor` over `system` (range-safe: it only replaces a range
@@ -395,6 +426,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             if let busy = busyTurnLocked(), !latched { return .busy(busy) }
             undo?.timer.cancel()
             undo = nil
+            // Context Writer — a new dictation replaces the landed row that offered Undo / Polish.
+            correctionUndo?.timer.cancel()
+            correctionUndo = nil
+            unpolishedTurn = nil
             let turn = Turn(id: TurnID(), origin: .hold, startedAt: now)
             turn.latched = latched
             turn.overSurface = overSurface
@@ -856,6 +891,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         } ?? focusGuard.snapshot()
         fx.run(self)
         let payload = await lander.land(spans, startedAt: turn.record.startedAt, focus: focus, inject: false)
+        // Context Writer — the landing's id is known now: its own writer events win over a run that
+        // was bound to this turn by timing alone.
+        reconcileWriter(id, landing: payload.utteranceID)
         // N7 — the context step is bounded by the turn snapshot; its time goes in stage_ms.
         store.setExtras(id, save: false) {
             $0.setStage(TurnRecordExtras.Stage.context, ms: Int(payload.contextMs.rounded()))
@@ -1063,6 +1101,13 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         var fx = Effects()
         lock.withLock {
             guard let turn = turns[id] else { return }
+            // Context Writer — the payload is final: a writer that never said it finished is over,
+            // and its "Writing…" face goes (the final words are what the pill shows now).
+            if let writer = turn.writer, !writer.finished {
+                writer.finish()
+                Log.app.notice("turn \(id.description): writer never reported finished — payload published without it")
+                if writer.faceShown { fx.writer(nil) }
+            }
             // S5 — the marks the pill draws, mapped through formatting by the lander: their count is
             // "N words to review" (T05 "Review this phrase"), their ranges the record's. A removed
             // filler has no mark and is not counted; confidence never changes the V3 delay.
@@ -1547,16 +1592,33 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         case .some(.failed), .none: stage = .failed
         }
         MainThreadWatchdog.note(turn: id.description, stage: stage.rawValue, destination: target.focus)
-        let escaped = lock.withLock { turns[id]?.escapeDuringWrite ?? false }
+        let (escaped, writerNote) = lock.withLock { (turns[id]?.escapeDuringWrite ?? false, turns[id]?.writer?.note) }
         end(id, stage: stage) { $0.outcome = delivery }
+        let reached = delivery?.writeReachedDestination ?? false
+        let polished = writerNote?.phase == .polished && delivery?.isPartial == false
+        // One AX read of where the write left the caret, for whichever Undo needs it.
+        let after = reached && (escaped || polished) ? focusGuard.targetRevision() : nil
         // Escape arrived after the write began: the outcome is resolved (above); now a safe Undo.
         // The inserted text ends at the caret the write left; `ReplaceRange` re-checks that the
         // range still holds exactly that text before removing anything.
-        if escaped, let delivery, delivery.writeReachedDestination {
-            let now = focusGuard.targetRevision()
+        if escaped, reached, let now = after {
             let length = result.text.utf16.count
             if let caret = now.selection, caret.isEmpty, caret.lowerBound >= length {
                 offerUndo(id, range: (caret.lowerBound - length)..<caret.lowerBound, text: result.text, focus: now.focus)
+            }
+        }
+        // Context Writer — a polished landing offers Undo of the writer's changes (heard words back,
+        // range-checked); an unpolished one offers Polish.
+        if reached, let note = writerNote {
+            switch note.phase {
+            case .polished:
+                if polished, let now = after {
+                    offerCorrectionUndo(id, note: note, text: result.text, after: now, app: target.focus?.bundleID)
+                }
+            case .unpolished:
+                lock.withLock { unpolishedTurn = id }
+            case .writing:
+                break
             }
         }
         return result
@@ -1769,6 +1831,220 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         return true
     }
 
+    // MARK: Context Writer — one landing, the wait is the animation (plan §4)
+
+    /// Listens to the writer's landing events (`WriterLandingEvents.shared` in the app). One channel
+    /// at a time; tests pass their own.
+    public func observeWriterEvents(_ channel: WriterLandingEvents = .shared) {
+        if let writerToken { writerChannel?.unsubscribe(writerToken) }
+        writerChannel = channel
+        writerToken = channel.subscribe { [weak self] event in self?.noteWriter(event) }
+    }
+
+    /// The hold turn whose final pass is being formatted right now (its landing runs the writer):
+    /// what a writer event without this turn's id belongs to. The integrator may post
+    /// `landingID: TurnID.rawValue` of this turn to bind the events exactly.
+    public var landingTurn: TurnID? {
+        lock.withLock { landingCandidatesLocked().first?.id }
+    }
+
+    private func landingCandidatesLocked() -> [Turn] {
+        turns.values.filter { $0.origin == .hold && $0.stage == .finishing && $0.payloadStarted }
+    }
+
+    /// The turn a writer event names: the turn with that id, else the one already bound to that
+    /// landing, else the one hold turn being formatted that has no writer run yet. An event that
+    /// names none of them (a hands-free piece, formatted before it reaches the gate) is ignored.
+    private func writerTurnLocked(for landingID: UUID) -> Turn? {
+        if let exact = turns.values.first(where: { $0.id.rawValue == landingID }) { return exact }
+        if let bound = turns.values.first(where: { $0.writer?.landingID == landingID }) { return bound }
+        let free = landingCandidatesLocked().filter { $0.writer == nil }
+        return free.count == 1 ? free.first : nil
+    }
+
+    /// One writer event (any thread). `started`: "Writing…" is due after `writerFaceDelay` unless
+    /// the writer finishes first (a fast writer never shows it). `finished`: the face goes, and the
+    /// note for the landed row is handed over ("Polished N words" / "Not polished" / nothing).
+    public func noteWriter(_ event: WriterLandingEvent) {
+        let now = clock.now
+        var fx = Effects()
+        let bound = lock.withLock { () -> TurnID? in
+            guard let turn = writerTurnLocked(for: event.landingID) else { return nil }
+            switch event {
+            case .started:
+                guard turn.stage == .finishing, turn.writer == nil else { return turn.id }
+                let run = WriterRun(landingID: event.landingID, startedAt: now)
+                let id = turn.id, landing = event.landingID
+                run.faceTimer = clock.schedule(after: writerFaceDelay) { [weak self] in self?.writerFaceDue(id, landing: landing) }
+                turn.writer = run
+            case .finished:
+                let run = turn.writer ?? WriterRun(landingID: event.landingID, startedAt: nil)
+                guard !run.finished else { return turn.id }
+                run.finish()
+                run.note = PillWriterNote.outcome(of: event)
+                turn.writer = run
+                if (run.faceShown || run.note != nil), !newerCaptureOpenLocked(than: turn.id) { fx.writer(run.note) }
+            }
+            return turn.id
+        }
+        guard let bound else {
+            lock.withLock {
+                // Keep the landing's latest word on it: a `finished` replaces its `started`.
+                if let index = unboundWriterEvents.firstIndex(where: { $0.landing == event.landingID }) {
+                    if case .finished = event { unboundWriterEvents[index].event = event }
+                } else {
+                    unboundWriterEvents.append((event.landingID, event))
+                    if unboundWriterEvents.count > Self.unboundWriterLimit { unboundWriterEvents.removeFirst() }
+                }
+            }
+            Log.app.info("writer: \(Self.writerLogLine(event)) for no turn on the pill — ignored")
+            return
+        }
+        fx.run(self)
+        Log.app.info("turn \(bound.description): writer \(Self.writerLogLine(event))")
+    }
+
+    static let unboundWriterLimit = 16
+
+    /// The landing that formatted turn `id` was `landing`. When the run bound to the turn by timing
+    /// belongs to another landing (a hands-free piece formatting alongside) and this landing's own
+    /// events arrived unclaimed, those are the turn's: the bound run is dropped and the note is
+    /// rebuilt from them. Without such events the binding stands (nothing says it was wrong).
+    func reconcileWriter(_ id: TurnID, landing: UUID) {
+        var fx = Effects()
+        lock.withLock {
+            guard let turn = turns[id], turn.writer?.landingID != landing,
+                  let index = unboundWriterEvents.lastIndex(where: { $0.landing == landing }) else { return }
+            let own = unboundWriterEvents.remove(at: index).event
+            let shown = turn.writer?.faceShown ?? false
+            let previous = turn.writer?.note
+            turn.writer?.finish()
+            let run = WriterRun(landingID: landing, startedAt: nil)
+            run.finish()
+            run.note = PillWriterNote.outcome(of: own)
+            turn.writer = run
+            if (shown || previous != nil || run.note != nil), !newerCaptureOpenLocked(than: id) { fx.writer(run.note) }
+            Log.app.notice("turn \(id.description): writer run rebound to its own landing")
+        }
+        fx.run(self)
+    }
+
+    /// Counts and reason codes only: never a word of the text.
+    static func writerLogLine(_ event: WriterLandingEvent) -> String {
+        switch event {
+        case .started(_, let backend): return "started (\(backend))"
+        case .finished(_, let outcome, let changed, let ms):
+            return "finished — \(outcome), \(changed.count) changed, \(Int(ms.rounded())) ms"
+        }
+    }
+
+    private func writerFaceDue(_ id: TurnID, landing: UUID) {
+        var fx = Effects()
+        lock.withLock {
+            guard let turn = turns[id], let run = turn.writer, run.landingID == landing, !run.finished,
+                  turn.stage == .finishing, !newerCaptureOpenLocked(than: id) else { return }
+            run.faceTimer = nil
+            run.faceShown = true
+            fx.writer(.writing)
+        }
+        fx.run(self)
+    }
+
+    /// After a polished landing: where the text starts in the field (the caret the write left, less
+    /// the text) and every changed word found in it. No Undo unless every change is found.
+    private func offerCorrectionUndo(_ id: TurnID, note: PillWriterNote, text: String, after: TargetRevision, app: String?) {
+        let changes = WriterChangeLocator.locate(note.changes, in: text)
+        let length = text.utf16.count
+        guard !changes.isEmpty, changes.count == note.changes.count,
+              let caret = after.selection, caret.isEmpty, caret.lowerBound >= length else {
+            Log.app.info("turn \(id.description): writer changed \(note.changes.count) word(s); no Undo (range not found)")
+            return
+        }
+        let timer = clock.schedule(after: correctionUndoWindow) { [weak self] in self?.correctionUndoExpired(id) }
+        var fx = Effects()
+        lock.withLock {
+            correctionUndo?.timer.cancel()
+            correctionUndo = CorrectionUndoOffer(turnID: id, start: caret.lowerBound - length, text: text,
+                                                 changes: changes, focus: after.focus, app: app, timer: timer)
+            if !newerCaptureOpenLocked(than: id) {
+                fx.writer(PillWriterNote(phase: .polished, changes: note.changes, undoable: true))
+            }
+        }
+        fx.run(self)
+    }
+
+    private func correctionUndoExpired(_ id: TurnID) {
+        lock.withLock {
+            guard correctionUndo?.turnID == id else { return }
+            correctionUndo = nil
+        }
+    }
+
+    /// Undo on a polished landing is possible now.
+    public var isCorrectionUndoAvailable: Bool { lock.withLock { correctionUndo != nil } }
+
+    /// Undo on a polished landing: put back what was heard for every word the writer changed, only
+    /// in the field the text went into and only while it still holds exactly the landed words
+    /// (`ReplaceRange`, AX-verified like R2's Undo). Then each pair goes to `onUndoCorrection`
+    /// (the learner: never that written form for that heard form again). A stale range changes
+    /// nothing and says so (D10).
+    @discardableResult
+    public func undoCorrection() -> Bool {
+        guard let offer = lock.withLock({ () -> CorrectionUndoOffer? in
+            defer { correctionUndo = nil }
+            return correctionUndo
+        }) else { return false }
+        offer.timer.cancel()
+        guard focusGuard.matches(offer.focus), restoreHeard(offer) else {
+            Log.app.notice("turn \(offer.turnID.description): correction Undo refused — the text changed")
+            notice(.D10)
+            return false
+        }
+        Log.app.info("turn \(offer.turnID.description): correction undone — \(offer.changes.count) word(s) restored")
+        let hook = onUndoCorrection
+        let pairs = offer.changes.map { ($0.heard, $0.written) }
+        let app = offer.app
+        hookQueue { pairs.forEach { hook?($0.0, $0.1, app) } }
+        return true
+    }
+
+    /// One range-checked replacement from the first changed word to the last (all or nothing). A
+    /// surface that cannot take a multi-line AX write (web content, terminals) gets one replacement
+    /// per word instead, last first, each still checked against what landed.
+    private func restoreHeard(_ offer: CorrectionUndoOffer) -> Bool {
+        guard let replace = replaceRange, let first = offer.changes.first, let last = offer.changes.last,
+              let expected = MarkWords.slice(offer.text, first.range.lowerBound..<last.range.upperBound) else { return false }
+        let shifted = offer.changes.map {
+            LocatedWriterChange(range: ($0.range.lowerBound - first.range.lowerBound)..<($0.range.upperBound - first.range.lowerBound),
+                                heard: $0.heard, written: $0.written)
+        }
+        let whole = ReplaceRangeRequest(range: (offer.start + first.range.lowerBound)..<(offer.start + last.range.upperBound),
+                                        expected: expected,
+                                        replacement: WriterChangeLocator.restoringHeard(shifted, in: expected))
+        switch replace(whole) {
+        case .replaced:
+            return true
+        case .unavailable(let reason) where reason == ReplaceRangeEditor.newlineUnsafeReason:
+            for change in offer.changes.reversed() {
+                let request = ReplaceRangeRequest(range: (offer.start + change.range.lowerBound)..<(offer.start + change.range.upperBound),
+                                                  expected: change.written, replacement: change.heard)
+                guard case .replaced = replace(request) else { return false }
+            }
+            return true
+        case .unavailable, .mismatch:
+            return false
+        }
+    }
+
+    /// Polish on an unpolished landing. TODO(wave 3): retry the writer for that turn and land its
+    /// result through the range-safe replace (never a silent swap). Today: logged and handed to
+    /// `onPolishRequest`.
+    public func requestPolish() {
+        guard let id = lock.withLock({ unpolishedTurn }) else { return }
+        Log.app.notice("turn \(id.description): Polish requested — retry is not wired yet (wave 3)")
+        onPolishRequest?(id)
+    }
+
     // MARK: Held text resolved later
 
     private func heldResolved(_ item: HeldText, _ how: HeldResolution) {
@@ -1800,6 +2076,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             }
             turn.stage = stage
             turn.cancelTimers()
+            // Context Writer — a turn that ended while "Writing…" was up (Escape, a failure): the face goes.
+            if let writer = turn.writer, !writer.finished {
+                writer.finish()
+                if writer.faceShown { fx.writer(nil) }
+            }
             turns[id] = nil
             if captureID == id { captureID = nil }
             fx.save(turn)
@@ -1960,6 +2241,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             steps.append { $0.present(state) }
         }
 
+        /// Context Writer — the writer's note for the turn on the pill (`onWriter`, on `ui`).
+        mutating func writer(_ note: PillWriterNote?) {
+            steps.append { c in c.ui { [weak c] in c?.onWriter?(note) } }
+        }
+
         /// H3 — whatever the notch shows gives way to the new turn (in `ui` order, before `.starting`).
         mutating func yieldToHold() {
             steps.append { c in c.ui { [weak c] in c?.onHoldYield?() } }
@@ -2020,6 +2306,8 @@ final class Turn {
     var offerTimer: TurnTimer?
     var dwellTimer: TurnTimer?
     var renderTimer: TurnTimer?
+    /// Context Writer — the writer run of this turn's landing.
+    var writer: WriterRun?
 
     init(id: TurnID, origin: Origin, startedAt: Date) {
         self.id = id
@@ -2034,9 +2322,48 @@ final class Turn {
     }
 
     func cancelTimers() {
-        [quietTimer, slowTimer, offerTimer, dwellTimer, renderTimer].forEach { $0?.cancel() }
+        [quietTimer, slowTimer, offerTimer, dwellTimer, renderTimer, writer?.faceTimer].forEach { $0?.cancel() }
         quietTimer = nil; slowTimer = nil; offerTimer = nil; dwellTimer = nil; renderTimer = nil
+        writer?.faceTimer = nil
     }
+}
+
+/// Context Writer — one writer run inside a turn's landing (plan §4), keyed by the channel's
+/// landing id. Lives under the controller's lock.
+final class WriterRun {
+    let landingID: UUID
+    let startedAt: Date?
+    var faceTimer: TurnTimer?
+    /// "Writing…" went up (the writer ran past `writerFaceDelay`).
+    var faceShown = false
+    var finished = false
+    /// What the finished writer left for the landed row (nil: nothing to say).
+    var note: PillWriterNote?
+
+    init(landingID: UUID, startedAt: Date?) {
+        self.landingID = landingID
+        self.startedAt = startedAt
+    }
+
+    func finish() {
+        finished = true
+        faceTimer?.cancel()
+        faceTimer = nil
+    }
+}
+
+/// Context Writer — Undo of a polished landing: where the landed text starts in the field, the
+/// changed words found in it, and the field they went into.
+struct CorrectionUndoOffer {
+    let turnID: TurnID
+    /// UTF-16 offset of the landed text in the field.
+    let start: Int
+    let text: String
+    let changes: [LocatedWriterChange]
+    let focus: FocusSnapshot?
+    /// The destination's bundle id (the learner's `app`).
+    let app: String?
+    let timer: TurnTimer
 }
 
 struct UndoOffer {
@@ -2259,6 +2586,10 @@ public final class TurnWiring {
             }
         }
         controller.onFinalSpans = { [weak pill] spans, text in pill?.setFinalSpans(spans, text: text) }
+        // Context Writer (plan §4) — "Writing…", the landed row's note and the changed-word shimmer.
+        // `onUndoCorrection` (the learner) and `onPolishRequest` (wave 3) are the integrator's.
+        controller.onWriter = { [weak pill] note in pill?.setWriter(note) }
+        controller.observeWriterEvents(.shared)
         // N2 — the finishing row's buttons come from the turn's own offer, never the pill's clock.
         controller.onOffer = { [weak pill] _, offer in pill?.setFinishingOffer(offer) }
         // H2 — a tap over a visible non-capture notch takes it down.
@@ -2412,6 +2743,12 @@ public final class TurnWiring {
             controller.pauseDwell(.review)
         case (.undo, .undoAvailable) where controller.isUndoAvailable:
             controller.performUndo()
+        // Context Writer — Undo on a polished landing restores the heard words; Polish asks for a
+        // retry of an unpolished one (wave 3).
+        case (.undo, .landed) where controller.isCorrectionUndoAvailable:
+            controller.undoCorrection()
+        case (.polish, .landed):
+            controller.requestPolish()
         case (.finish, _):
             // Fix notch (RC7) — Finish dictation is on the hands-free row and on a piece drawn over
             // it (preview, write, outcome); it finishes the session whatever piece is showing.

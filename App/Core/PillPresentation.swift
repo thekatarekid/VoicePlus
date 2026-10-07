@@ -64,7 +64,11 @@ public enum PillDwell {
         // Q4 — verified and unreadable rows clear after the landed dwell; only unconfirmed is sticky.
         // N22 — every Done row clears on its own; an unconfirmed or partial one (⚠) stays a little
         // longer so it can be read. The text is in history either way.
-        case .landed(let info): return info.clearsOnItsOwn ? .minimum(inserted) : .minimum(transientNotice)
+        case .landed(let info):
+            // Context Writer — a landing with the writer's note stays long enough to act on its Undo,
+            // see the changed words shimmer, or read "Not polished" (`LandedWriterNote.dwell`).
+            if info.clearsOnItsOwn, let writer = info.writer { return .minimum(writer.dwell) }
+            return info.clearsOnItsOwn ? .minimum(inserted) : .minimum(transientNotice)
         case .landedPartial: return .minimum(transientNotice)
         case .cancelled: return .minimum(cancelled)
         case .undoAvailable: return .minimum(undoWindow)
@@ -205,6 +209,8 @@ public enum PillActionKind: String, CaseIterable, Equatable, Sendable {
     /// design §5: after 10 s of finishing, keep the valid partial text instead of waiting.
     case useAvailable
     case editDraft, doneEditing, cancelEditing
+    /// Context Writer — "Polish" on a landing the writer could not polish (wave 3 retries it).
+    case polish
 
     /// The held-queue action a held row's button maps onto.
     public var heldAction: HeldAction? {
@@ -268,6 +274,9 @@ public struct PillTurnContext: Equatable, Sendable {
     /// V5 Q12 — the Cancelled row's helper when the cancel had a named cause ("Nothing was typed."
     /// for an empty draft left in the editor). `nil` → the standard cancelled helper.
     public var cancelledNote: String? = nil
+    /// Context Writer (plan §4) — the writer's state for this turn: "Writing…" on the finishing face,
+    /// the changed words the text lane shimmers. Set by the turn (`TurnController.onWriter`).
+    public var writer: PillWriterNote? = nil
     public init(keyLabel: String = HotkeyBinding.default.label, destination: String? = nil, startedAt: Date? = nil,
                 now: Date = Date(), liveText: String = "", captureOpen: Bool = false, latchElapsed: TimeInterval? = nil,
                 uncertainWords: Set<String> = [], uncertainCount: Int = 0, finishingSince: Date? = nil,
@@ -348,6 +357,8 @@ public struct PillContent: Equatable, Sendable {
     public var notice: Bool
     /// The Spool pose key (`SpoolStateKey` raw value) — the character, not a write trigger.
     public var spoolKey: String
+    /// Context Writer — the status line shimmers ("Writing…"); a still line under Reduce Motion.
+    public var statusShimmers = false
 
     public init(designKey: String, status: String, tone: PillTone = .normal, trailing: Trailing = .none,
                 words: Words = .none, helper: String = "", escapeHint: Bool = false, buttons: [PillButton] = [],
@@ -419,8 +430,11 @@ public struct PillContent: Equatable, Sendable {
                                trailing: .timer(c.elapsed), words: .live(liveOrListening(c)),
                                helper: PillDeck.warningHelper, buttons: PillDeck.warningButtons)
         case .landing, .finishing:
+            let words: Words = c.liveText.isEmpty ? .none : .live(c.liveText)
+            // Context Writer — a writer slower than 150 ms: the calm "Writing…" face (plan §4).
+            if c.writer?.phase == .writing { return writing(words: words, c) }
             // N22 — finishing, slow finishing and landing are one face: "Inserting in <App>…".
-            return inserting(words: c.liveText.isEmpty ? .none : .live(c.liveText), c)
+            return inserting(words: words, c)
         case .finalPreview(let info):
             var named = c
             if let d = info.destination { named.destination = d }
@@ -446,18 +460,17 @@ public struct PillContent: Equatable, Sendable {
             return inserting(words: .final(text), c)
         case .landed(let info):
             if info.verified {
-                return PillContent(designKey: "inserted", status: PillDeck.insertedStatus(destination: c.destinationName),
-                                   trailing: destinationTrailing(c), words: .final(info.text),
-                                   helper: PillDeck.insertedHelper(uncertain: c.uncertainCount,
-                                                                                   phrase: c.needsPhraseReview))
+                return withWriter(info.writer, PillContent(
+                    designKey: "inserted", status: PillDeck.insertedStatus(destination: c.destinationName),
+                    trailing: destinationTrailing(c), words: .final(info.text),
+                    helper: PillDeck.insertedHelper(uncertain: c.uncertainCount, phrase: c.needsPhraseReview)))
             }
             if info.unreadable {
                 // Q4 — readback could not run: neutral "Inserted in <app>", no ✓, no buttons, timed.
-                return PillContent(designKey: "inserted",
-                                   status: PillDeck.insertedUnreadableStatus(destination: c.destinationName),
-                                   trailing: destinationTrailing(c), words: .final(info.text),
-                                   helper: PillDeck.insertedHelper(uncertain: c.uncertainCount,
-                                                                   phrase: c.needsPhraseReview))
+                return withWriter(info.writer, PillContent(
+                    designKey: "inserted", status: PillDeck.insertedUnreadableStatus(destination: c.destinationName),
+                    trailing: destinationTrailing(c), words: .final(info.text),
+                    helper: PillDeck.insertedHelper(uncertain: c.uncertainCount, phrase: c.needsPhraseReview)))
             }
             // N22 — the Done face with its ⚠: it keeps Check destination but clears on its own
             // like the other Done rows (`PillDwell`); the text is in history either way.
@@ -541,6 +554,27 @@ public struct PillContent: Equatable, Sendable {
         return PillContent(designKey: "inserting", status: PillDeck.insertingStatus(destination: c.destinationName),
                            trailing: destinationTrailing(c), words: words, helper: PillDeck.insertingHelper,
                            buttons: buttons)
+    }
+
+    /// Context Writer — the finishing face while a slow writer runs: "Writing…" over the heard words,
+    /// the calm finishing pose, the same single Cancel the controller may raise. Nothing is typed yet.
+    private static func writing(words: Words, _ c: PillTurnContext) -> PillContent {
+        let buttons: [PillButton] = c.offer == nil ? [] : [PillButton(PillDeck.cancelLabel, .cancel, primary: true)]
+        var content = PillContent(designKey: "inserting", status: WriterCopy.writingStatus,
+                                  trailing: destinationTrailing(c), words: words, helper: PillDeck.finishingHelper,
+                                  buttons: buttons, spoolKey: "finishing")
+        content.statusShimmers = true
+        return content
+    }
+
+    /// Context Writer — a landed row that carries the writer's note: the note leads the helper line
+    /// ("Polished 2 words", "Not polished") and its one action (Undo / Polish) joins the row.
+    private static func withWriter(_ note: LandedWriterNote?, _ row: PillContent) -> PillContent {
+        guard let note else { return row }
+        var content = row
+        content.helper = [note.line, row.helper].filter { !$0.isEmpty }.joined(separator: PillCopy.statusSeparator)
+        if let button = note.button { content.buttons = [button] + row.buttons }
+        return content
     }
 
     private static func held(_ info: HeldPillInfo, _ c: PillTurnContext) -> PillContent {

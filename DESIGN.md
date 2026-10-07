@@ -674,6 +674,23 @@ delays or triggers the write.
 - Never draws behind the camera housing, never shows a green success claim for an unverified write,
   never loops a canned ribbon or spinning reels when no audio is arriving.
 
+### 8.10 Context Writer landing (`VoicePlus_ContextWriter_Plan.md` §4)
+
+One landing; the wait is the animation. The writer runs inside the lander before anything is typed,
+so nothing lands early and nothing is swapped after it lands.
+
+| Moment | Pill | Reduce Motion | VoiceOver |
+|---|---|---|---|
+| Writer done within 150 ms | The F0/D0 face as before ("Inserting in <app>…"); "Writing…" never shows | unchanged | nothing extra |
+| Writer still running at 150 ms | Same row and size (`inserting` family), status **Writing…** with a slow highlight sweeping the words, the heard words in the lane, still finishing pose, helper "Microphone closed · nothing inserted yet" | still line, still pose | "Writing", once |
+| Landed, words changed | D1 row; helper **Polished N words**, action **Undo**; the changed words take the `primary` tint and shimmer for 3 s, then plain ink; the row stays 5 s | static tint for 3 s, no shimmer | "Inserted in <app>, Polished N words" |
+| Landed, writer timed out or failed | D1 row; helper **Not polished**, action **Polish** (retry arrives in wave 3); the heard words as typed; the row stays 4 s | unchanged | "Inserted in <app>, Not polished" |
+
+Undo restores each changed word to what was heard, in place, only while the field still holds the
+landed words (AX-verified, range-safe like R2); otherwise it changes nothing and shows D10. A
+corrected mark is never an uncertainty mark: no underline, no click target, no review count. An
+unconfirmed or partial row keeps its own warning and carries no writer note.
+
 ---
 
 ## 9. The one window (amended with design §8)

@@ -104,7 +104,8 @@ public enum PillActionRoute {
         case .permissions: return .open(.privacy)
         case .meeting, .pause, .resume: return .open(.meetings)
         case .stop: return .stopMeeting
-        case .insert, .discard, .dismiss, .editDraft, .doneEditing, .cancelEditing: return .none
+        // Context Writer — Polish on a landed row is the turn's (`TurnWiring.route`), like Undo.
+        case .insert, .discard, .dismiss, .editDraft, .doneEditing, .cancelEditing, .polish: return .none
         }
     }
 }
@@ -359,9 +360,45 @@ public final class PillViewModel: ObservableObject {
         if !text.isEmpty { turn.liveText = text }
         let name = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { turn.destination = name }
-        route(next)
-        scheduleRetractionIfTimed(next)
-        return next
+        let shown = withWriterNote(next)
+        route(shown)
+        scheduleRetractionIfTimed(shown)
+        return shown
+    }
+
+    // MARK: Context Writer (plan §4)
+
+    /// The turn's writer state (`TurnController.onWriter`): "Writing…" on the finishing face, then
+    /// the note the landed row carries and the changed words the text lane shimmers. nil clears it.
+    public func setWriter(_ note: PillWriterNote?) {
+        guard turn.writer != note else { return }
+        let changedWords = note?.changes != turn.writer?.changes
+        turn.writer = note
+        if changedWords { correctedShownAt = nil }
+        noteSpool()   // "Writing…" draws the calm finishing pose
+    }
+
+    /// When the changed words were first drawn in the text lane (the shimmer's clock).
+    public private(set) var correctedShownAt: Date?
+
+    /// A landed row of this turn's text carries the writer's note (rows that clear on their own
+    /// only: an unconfirmed or partial row says its own warning). A text the writer's changed
+    /// words cannot be found in is another landing, and is left alone.
+    func withWriterNote(_ state: PillState) -> PillState {
+        guard case .landed(var info) = state, info.clearsOnItsOwn, info.writer == nil,
+              let writer = turn.writer, let note = writer.landed else { return state }
+        if writer.phase == .polished, WriterChangeLocator.locate(writer.changes, in: info.text).isEmpty { return state }
+        info.writer = note
+        return .landed(info)
+    }
+
+    /// The changed words drawn in `words` (final text only, while the turn's writer polished it),
+    /// and the instant they were first drawn.
+    public func correctedMarks(for words: PillContent.Words) -> CorrectedMarks {
+        guard case .final(let text) = words, let writer = turn.writer, writer.phase == .polished else { return .empty }
+        let located = WriterChangeLocator.locate(writer.changes, in: text)
+        guard !located.isEmpty else { return .empty }
+        return CorrectedMarks(text: text, changes: located, shownAt: correctedShownAt ?? now())
     }
 
     /// N23 — the lane note for an older turn's outcome under a newer capture (nil: say nothing).
@@ -785,6 +822,11 @@ public final class PillViewModel: ObservableObject {
                [.check, .review, .copy, .models, .permissions].contains(action) {
                 dismissNotice()
             }
+            // Context Writer — Undo / Polish on the landed row: the row has done its job. A notice
+            // the action raised instead (D10: the text changed) is left up.
+            if case .landed(let info) = shown, info.writer != nil, [.undo, .polish].contains(action), state == shown {
+                dismissNotice()
+            }
         }
     }
 
@@ -907,6 +949,14 @@ public final class PillViewModel: ObservableObject {
         switch next {
         case .finishing, .landing: break
         default: turn.offer = nil
+        }
+        // Context Writer — the shimmer's clock starts the first time the polished words are drawn.
+        switch next {
+        case .finalPreview, .inserting, .landed:
+            if correctedShownAt == nil, turn.writer?.phase == .polished { correctedShownAt = t }
+        case .hidden, .idle, .starting:
+            correctedShownAt = nil
+        default: break
         }
         switch next {
         case .hidden:
@@ -1176,7 +1226,8 @@ struct PillBody: View {
                 PillTransformLane(model: transform).place(lanes.wordsLane)   // W3H: S12 before / after
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))   // S10
             } else {
-                PillTranscriptView(model: model, words: content.words, marks: model.marks(for: content.words))
+                PillTranscriptView(model: model, words: content.words, marks: model.marks(for: content.words),
+                                   corrected: model.correctedMarks(for: content.words))
                     .place(CGRect(x: lanes.wordsLane.minX, y: lanes.wordsLane.minY,
                                   width: lanes.wordsLane.width + 20, height: lanes.wordsLane.height))
                     .accessibilitySortPriority(PillReadingOrder.priority(.words))
@@ -1234,6 +1285,7 @@ struct PillBody: View {
                 .foregroundStyle(content.tone == .warn ? Color(nsColor: Tokens.Pill.statusAttention) : (content.designKey == "inserted" ? Color(nsColor: Tokens.Pill.statusVerified) : Tokens.Pill.Token.secondaryInk.color))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .modifier(WriterStatusShimmer(active: content.statusShimmers && !motion.reduced))   // "Writing…"
                 .accessibilityIdentifier("pill.status")
             Spacer(minLength: 4)
             if let scriptMenu = model.scriptMenu {

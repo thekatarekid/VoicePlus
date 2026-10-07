@@ -8,10 +8,12 @@ struct PillTranscriptView: NSViewRepresentable {
     @ObservedObject var model: PillViewModel
     let words: PillContent.Words
     let marks: MarkMapping
+    /// Context Writer — the words the writer changed (a brief shimmer, `CorrectedMarkStyle`).
+    var corrected: CorrectedMarks = .empty
 
     func makeNSView(context: Context) -> PillTranscriptViewport { PillTranscriptViewport() }
     func updateNSView(_ view: PillTranscriptViewport, context: Context) {
-        view.configure(model: model, words: words, marks: marks)
+        view.configure(model: model, words: words, marks: marks, corrected: corrected)
     }
 }
 
@@ -29,6 +31,12 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
     private var live = false
     private var lastSource = ""
     private var shownMarks: MarkMapping = .empty
+    /// Context Writer — the corrected words drawn now, and the timer that recolours them.
+    private var shownCorrected: CorrectedMarks = .empty
+    private var shimmerTimer: Timer?
+    /// Reduce Motion (system or Settings › Appearance): a still tint instead of the shimmer.
+    var reducesMotion: () -> Bool = { MotionPreference.shared.reduced }
+    var clock: () -> Date = Date.init
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
@@ -85,9 +93,13 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             object: scroll.contentView, queue: .main) { [weak self] _ in self?.refreshRail() }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    deinit { if let observed { NotificationCenter.default.removeObserver(observed) } }
+    deinit {
+        if let observed { NotificationCenter.default.removeObserver(observed) }
+        shimmerTimer?.invalidate()
+    }
 
-    func configure(model: PillViewModel, words: PillContent.Words, marks: MarkMapping) {
+    func configure(model: PillViewModel, words: PillContent.Words, marks: MarkMapping,
+                   corrected: CorrectedMarks = .empty) {
         self.model = model
         text.onKeyInteraction = { [weak model] in model?.noteKeyboardInteraction() }
         text.onApplyDraft = { [weak self, weak model] in
@@ -113,7 +125,9 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         text.permitsKeyboardFocus = editing || !live
         let source = editing ? model.draftText : words.text ?? ""
         let followsEnd = scroll.contentView.bounds.minY >= maximumOffset - 3
-        let changed = source != lastSource || shownMarks != marks || began || ended || wasLive != live
+        let correctedNow = editing ? CorrectedMarks.empty : corrected
+        let changed = source != lastSource || shownMarks != marks || shownCorrected != correctedNow || began || ended
+            || wasLive != live
         text.isEditable = editing
         if editing, !text.hasMarkedText() {
             text.typingAttributes = [.font: Tokens.Typography.pillTranscript.nsFont(),
@@ -130,10 +144,12 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
         if changed && !text.hasMarkedText() {
             updating = true
             let selection = text.selectedRange()
+            shownCorrected = correctedNow
             text.textStorage?.setAttributedString(attributed(source, words: words, marks: marks))
             text.setSelectedRange(NSRange(location: min(selection.location, text.string.utf16.count), length: 0))
             lastSource = source
             shownMarks = marks
+            recolourCorrected()
             updating = false
             needsLayout = true
             layoutSubtreeIfNeeded()
@@ -165,6 +181,15 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             .paragraphStyle: Tokens.Typography.pillTranscript.paragraphStyle()
         ])
         guard !editing else { return result }
+        // Context Writer — tag the changed words first (on the original ranges): the suggestions
+        // inserted below shift later text, and the shimmer finds the words again by this tag.
+        if shownCorrected.text == source {
+            for (index, change) in shownCorrected.changes.enumerated() {
+                let range = NSRange(location: change.range.lowerBound, length: change.range.count)
+                guard range.location >= 0, NSMaxRange(range) <= source.utf16.count else { continue }
+                result.addAttribute(.transcriptCorrected, value: index, range: range)
+            }
+        }
         // Insert alternatives backwards so every original UTF-16 range stays valid.
         for mark in marks.marks.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
             let range = NSRange(location: mark.range.lowerBound, length: mark.range.count)
@@ -186,6 +211,43 @@ final class PillTranscriptViewport: NSView, NSTextViewDelegate {
             }
         }
         return result
+    }
+
+    /// Context Writer — colours the changed words for now (shimmer, still tint or plain ink) and keeps
+    /// a frame timer only while they shimmer; one wake-up ends a still tint. Only the tagged
+    /// characters are touched, so the user's selection and scroll position are never disturbed.
+    private func recolourCorrected() {
+        shimmerTimer?.invalidate()
+        shimmerTimer = nil
+        guard let storage = text.textStorage, !shownCorrected.isEmpty else { return }
+        let now = clock()
+        let appearance = shownCorrected.appearance(at: now, reduceMotion: reducesMotion())
+        let base = Tokens.Pill.ink
+        let whole = NSRange(location: 0, length: storage.length)
+        let string = storage.string as NSString
+        storage.beginEditing()
+        storage.enumerateAttribute(.transcriptCorrected, in: whole) { value, range, _ in
+            guard value != nil, range.length > 0 else { return }
+            var location = range.location
+            while location < NSMaxRange(range) {
+                let character = string.rangeOfComposedCharacterSequence(at: location)
+                let position = (Double(location - range.location) + Double(character.length) / 2) / Double(range.length)
+                storage.addAttribute(.foregroundColor, value: CorrectedMarkStyle.color(appearance, position: position, base: base),
+                                     range: character)
+                location = NSMaxRange(character)
+            }
+        }
+        storage.endEditing()
+        let next: TimeInterval?
+        switch appearance {
+        case .shimmer: next = CorrectedMarkStyle.frameInterval
+        case .tint: next = shownCorrected.shownAt.map { max(0.05, CorrectedMarkStyle.duration - now.timeIntervalSince($0)) }
+        case .plain: next = nil
+        }
+        guard let next else { return }
+        let timer = Timer(timeInterval: next, repeats: false) { [weak self] _ in self?.recolourCorrected() }
+        RunLoop.main.add(timer, forMode: .common)
+        shimmerTimer = timer
     }
 
     override func draw(_ dirtyRect: NSRect) {

@@ -247,11 +247,16 @@ public struct LandedPillInfo: Equatable, Sendable {
     /// the row is the neutral "Inserted in <app>" (no ✓) and clears after the normal landed dwell.
     /// Only meaningful when `verified` is false.
     public var unreadable: Bool
+    /// Context Writer (plan §4) — what the writer did to this text before it landed: "Polished N
+    /// words" with Undo, or "Not polished" with Polish. Drawn on rows that clear on their own only
+    /// (an unconfirmed or partial row says its own warning); nil for a landing the writer left alone.
+    public var writer: LandedWriterNote?
 
-    public init(text: String, verified: Bool, unreadable: Bool = false) {
+    public init(text: String, verified: Bool, unreadable: Bool = false, writer: LandedWriterNote? = nil) {
         self.text = text
         self.verified = verified
         self.unreadable = !verified && unreadable
+        self.writer = writer
     }
 
     /// Q4 — one row from the injector's landing verdict.
