@@ -13,19 +13,17 @@ import Shared
 /// `TrainingPair.redictationSource` → `AdaptationLoop.retrain()` → `PersonalLexicon.variants`),
 /// where the regression guard, the Biasing ranker and the vocabulary matcher already read.
 ///
+/// Privacy: the log carries counts and reason codes only — never the heard or written words.
+///
 /// `undoCorrection(heard:written:)` is the reverse hook for the wave-2 UX: the user put a corrected
 /// word back, so that written form is never proposed for that heard form again (a negative alias,
 /// `TrainingPair.negativeAliasSource` → `PersonalLexicon.negatives`).
 ///
-/// Not wired yet (wave 2). Call site: `TurnController.onLanded` / `finishWithoutInsert` carry the
-/// `LandingResult` (text, destination) of every landed turn — call
-/// `observe(landing: result.text, app: <frontmost bundle id>, at: now)` there for a *landed*,
-/// non-secure, non-command outcome (`DictationCoordinator.land` is the guided/onboarding path and
-/// needs no learning). The `ZeroEditTracker` sink in `AppContainer` already sees the AX readback
-/// (`outcome.finalText`); pass it as `fieldText`, or give the learner a `fieldReadback` closure over
-/// `AXFieldObserver`. A keyboard-corrected second attempt ("a sixteen z" → typed "a16z") is a landing
-/// too: feed the tracker's `finalText` as the new landing. Screen text is data here, never
-/// instructions, and nothing is read from secure fields: the caller must not observe those turns.
+/// Wired by `WriterWiring`: every landed, non-secure, non-own-process dictation reaches `observe`
+/// (`UtteranceLander.onInjected` → `WriterWiring.observeLanded`, with an AX `fieldReadback`), and the
+/// landed row's Undo of the writer's changes reaches `undoCorrection` (`TurnController.onUndoCorrection`
+/// → `WriterWiring.connectUndo(to:)`), both on the writer's learning queue. Screen text is data here,
+/// never instructions, and nothing is read from secure fields: the caller must not observe those turns.
 public final class RedictationLearner: @unchecked Sendable {
     public struct Landing: Equatable, Sendable {
         public var text: String
@@ -113,7 +111,8 @@ public final class RedictationLearner: @unchecked Sendable {
         }
         guard !learned.isEmpty else { return [] }
         loop.retrain()
-        Log.app.info("redictation: learned \(learned.count) alias(es) in \(app) after \(Int(gap)) s (whole similarity \(String(format: "%.2f", whole)))")
+        // Counts and reason codes only (Q13): never the heard or written words, never the app's text.
+        Log.app.info("redictation: learned \(learned.count) alias(es) after \(Int(gap)) s (whole similarity \(String(format: "%.2f", whole)))")
         return learned
     }
 
@@ -127,7 +126,8 @@ public final class RedictationLearner: @unchecked Sendable {
         guard !h.isEmpty, !w.isEmpty, h.lowercased() != w.lowercased() else { return false }
         guard record(original: h, corrected: w, source: TrainingPair.negativeAliasSource, at: now) else { return false }
         loop.retrain()
-        Log.app.info("redictation: undo — never \u{201C}\(w)\u{201D} for \u{201C}\(h)\u{201D} again\(app.map { " (\($0))" } ?? "")")
+        // Counts only (Q13): the words are the user's dictation and never reach the log.
+        Log.app.info("redictation: undo stored 1 negative alias (heard \(Self.wordCount(h)) word(s), written \(Self.wordCount(w)) word(s))")
         return true
     }
 
@@ -140,11 +140,13 @@ public final class RedictationLearner: @unchecked Sendable {
             try store.add(TrainingPair(utteranceID: "\(source):\(UUID().uuidString)", createdAt: now, original: original,
                                        corrected: corrected, audioRange: 0...0, source: source))
         } catch {
-            Log.app.error("redictation: store failed: \(error)")
+            Log.app.error("redictation: store failed (\(String(describing: type(of: error))))")
             return false
         }
         return store.count > before
     }
+
+    static func wordCount(_ text: String) -> Int { text.split(whereSeparator: \.isWhitespace).count }
 
     /// Whitespace- and case-insensitive containment of a landing in a field readback.
     static func contains(field: String, landing: String) -> Bool {

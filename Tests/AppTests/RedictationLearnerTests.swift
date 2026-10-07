@@ -161,6 +161,25 @@ struct RedictationLearnerTests {
         #expect(lexicon.negatives.isEmpty)
     }
 
+    // MARK: Privacy
+
+    /// Finding: the undo line logged the heard and written words. The log (which feeds the Data
+    /// Panel's buffer) carries counts and reason codes only.
+    @Test func logLinesCarryCountsNeverWords() throws {
+        let service = try Self.service()
+        let learner = RedictationLearner(adaptation: service)
+        learner.observe(landing: "send the file to zorvex today", app: Self.app, at: Self.t0)
+        let learned = learner.observe(landing: "send the file to zorvax today", app: Self.app, at: Self.t0.addingTimeInterval(5))
+        #expect(learned == [.init(heard: "zorvex", written: "zorvax")])
+        #expect(learner.undoCorrection(heard: "quibblex", written: "quibblux", app: Self.app, at: Self.t0))
+        let lines = LogBuffer.shared.snapshot().map(\.message)
+        #expect(lines.contains { $0.hasPrefix("redictation: undo stored 1 negative alias") })
+        #expect(lines.contains { $0.hasPrefix("redictation: learned 1 alias") })
+        for word in ["zorvex", "zorvax", "quibblex", "quibblux", Self.app] {
+            #expect(!lines.contains { $0.localizedCaseInsensitiveContains(word) && $0.hasPrefix("redictation") }, "\(word) in the log")
+        }
+    }
+
     // MARK: Alignment helper
 
     @Test func digitsAreSpelledOutForThePhoneticKey() {
