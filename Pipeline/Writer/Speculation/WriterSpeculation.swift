@@ -20,7 +20,9 @@ import Shared
 //
 // What can differ, honestly: the preview recogniser is a smaller streaming model, so its words are
 // not always the final pass's words; each such sentence (and everything after it) is a miss and
-// costs nothing but the background call. The speculative call also sees no per-word confidences or
+// costs nothing but the background call. Measured on the owner's recordings: 1 % of words reused
+// with the EOU 120M preview, 22 % on long holds with the polling final-model preview (see
+// `App/Services/WriterSpeculator`). The speculative call also sees no per-word confidences or
 // decoder alternates (the preview has none); the final call for a miss does.
 //
 // Nothing here logs text: hit / miss counts and reason codes only.
@@ -403,6 +405,7 @@ public final class WriterSpeculationCache: WriterSpeculating, @unchecked Sendabl
 
     public func noteUse(_ use: WriterSpeculationUse) {
         let c: Counts = lock.withLock { counts.lastUse = use; return counts }
+        guard c.chunks > 0 || use.call != .full else { return }   // nothing was speculated this turn
         log.info("speculation: chunks=\(c.chunks) ready=\(c.ready) failed=\(c.failed) cancelled=\(c.cancelled) "
                  + "used=\(use.chunksUsed) words=\(use.wordsCovered)/\(use.wordsHeard) call=\(use.call.rawValue)")
     }

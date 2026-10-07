@@ -24,10 +24,13 @@ import Shared
 // - Counts and reason codes only in the log, never text (Q13). Screen text inside the packet is data
 //   for the prompt, never instructions (the prompt says so; `WriterPrompt` sanitises it).
 //
-// Expected hit rate, honestly: unmeasured on the owner's recordings. The preview recogniser is the
-// small streaming EOU model and the final text is the TDT pass; a sentence is reused only when the
-// two agree word for word (case and punctuation aside) and the final text ends a sentence where the
-// preview did. Every miss costs one background call and nothing at key-up.
+// Hit rate, measured (2026-10-07, the owner's 93 recordings ≥ 1 s in Application Support, replayed
+// through the real preview and final models by `WriterSpeculationReplayTests`): with the shipping
+// EOU 120M preview, 1 % of heard words were reused (12 sentences closed before key-up, 2 matched the
+// final pass; the stream's word error rate is the cause). With the polling final-model preview
+// (`previewBackend` flag), 15 % overall and 22 % on holds of 6 s or more (8 of 21 long holds). A
+// sentence is reused only when preview and final agree word for word (case and punctuation aside)
+// and the final text ends a sentence there. Every miss costs one background call, nothing at key-up.
 
 public final class WriterSpeculator: @unchecked Sendable {
 
