@@ -53,8 +53,8 @@ public enum TTYForegroundProcess {
 
     /// The live answer for the turn's shell. Call once per turn on a background queue (the
     /// process table is a few milliseconds); nil when the shell has no tty.
-    public static func live(_ shell: ShellContext?, table: () -> [ShellProcessRecord] = LiveProcessTable.all) -> String? {
+    public static func live(_ shell: ShellContext?, table: (() -> [ShellProcessRecord])? = nil) -> String? {
         guard let shell, let tty = shell.tty else { return nil }
-        return resolve(tty: tty, shellPID: shell.pid, table: table())
+        return resolve(tty: tty, shellPID: shell.pid, table: (table ?? LiveProcessTable.all)())
     }
 }
