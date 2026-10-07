@@ -2049,4 +2049,14 @@ Initial checkpoint (superseded by the dated entries below):
 ## 2026-10-07 — Context Writer, step 1 (owner: execute plan §10.1) — IN PROGRESS
 - Plan: `VoicePlus_ContextWriter_Plan.md`. Scope: packet v2 (§2), destination profiles (§3), per-change guard + Context Writer stage (§1), one-landing UX with sentence-wise correction (§4), booster scoped down, A1/A3/A6/C1, cloud backend (OpenRouter, DeepSeek V4.1 Flash default pending the bake-off — no key on this Mac yet), Lab `context-magic` suite, then a DMG.
 - Contract first: `Shared/Writer/ContextPacket.swift` (`ContextPacket`, `WriterMode`, `VocabularyMatching`), built clean.
-- Wave 1 (parallel, scoped per module): A6 offset bug · packet builder (App) · destination profiles (Pipeline/Writer/Destinations) · writer stage + guard (Pipeline/Writer/Stage) · vocabulary matcher + spoken forms + verbalizer + booster scope (Engine/Biasing) · cloud backend + Correction settings (Providers, App/Settings) · C1 re-dictation learning (App/Services) · Lab context-magic suite (Lab, Fixtures). Wave 2: landing UX + AppContainer wiring, full gate, DMG.
+- Wave 1 done (8 agents; 3 hit the session limit mid-task, finished by the orchestrator):
+  - A6: the stored `uncertainSpans` were right (they index `finalText` with its continuation space); the 10-06 doc rendered them on `rawText`. Writer seam hardened (`UncertainSpans` contract, record matched by trimmed words). ef22901, e524f6c.
+  - Packet builder `ContextPacketBuilder` (+ `App/Services/Packet/`): destination record per surface, thread blocks, screen terms, tty foreground process, heard (pre-boost), sources. d3fa6c4, efbad5b.
+  - Destination profiles (24, plan §3) + `WriterPrompt` (sanitised, per-section budgets, `UNCHANGED`). d937f59, cc3195b.
+  - `ContextWriterStage` + per-change `WriterGuard` (phonetic/alternates/vocab evidence, region revert, preamble reject). f5e6af8.
+  - Cloud backend `CloudWriterGenerator` (OpenRouter, DeepSeek V4.1 Flash default, fallbacks, latency routing, reasoning off, 2.5 s, prewarm); discovery defaults updated. 7f62bae.
+  - C1 `RedictationLearner` (re-dictation aliases + undo as negative alias). 256a4e6, fc17f99.
+  - Lab `context-magic` suite (24 cases from the bake-off, scorer parity, gates, `lab run --suites context-magic`). e3718a5, dba172e.
+  - Correction settings (off/local/cloud, per-app) + page; `WriterLandingEvents` channel; HeardWords fixes. 8190499.
+  - Targeted suites: 239 tests, 233 passed; remaining 6 = unfinished vocab matcher (perf 446 ms vs 25 ms budget, verbalizer forms) → wave 2.
+- Wave 2 (parallel): vocab finish · integrator (AppContainer/lander/Lab/replay wiring, booster as evidence, writer replaces cleanup when Correction is on) · landing UX (Writing…, polished/unpolished outcome, changed-word shimmer, undo correction) · latency (cacheable prompt prefix, local KV prefix cache, sentence speculation). Then full gate, DMG.
