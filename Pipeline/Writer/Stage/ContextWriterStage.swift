@@ -41,6 +41,14 @@ public struct ContextWriterStage: PipelineStage {
     /// Profile lookup and prompt rendering; the defaults are the Destinations module.
     public var resolveProfile: @Sendable (String) -> DestinationProfile
     public var renderPrompt: @Sendable (ContextPacket, DestinationProfile) -> (system: String, user: String)
+    /// Plan §4.2 — sentence speculation: sentences corrected while the user was still speaking. When
+    /// the leading sentences of the heard text are cached, only the uncached tail goes to the model
+    /// (with the cached text as EARLIER) and the two are stitched; nil, or no hit, is one full call.
+    public var speculation: (any WriterSpeculating)?
+    /// Plan §4.1 — the prompt split for prefix caching. The speculation key hashes
+    /// `system + stablePrefix`; a tail call renders the uncached words with `earlier`.
+    public var renderParts: @Sendable (ContextPacket, DestinationProfile, _ earlier: String?)
+        -> (system: String, stablePrefix: String, tail: String)
 
     public init(generator: (any WriterGenerating)?,
                 deadline: TimeInterval = ContextWriterStage.defaultDeadline,
@@ -54,6 +62,7 @@ public struct ContextWriterStage: PipelineStage {
         self.trace = trace
         self.resolveProfile = { DestinationProfiles.resolve(profileID: $0) }
         self.renderPrompt = { WriterPrompt.render(packet: $0, profile: $1) }
+        self.renderParts = { WriterPrompt.renderParts(packet: $0, profile: $1, core: nil, budget: .default, earlier: $2) }
     }
 
     static let log = Log(category: "pipeline.writer")
@@ -77,8 +86,10 @@ public struct ContextWriterStage: PipelineStage {
 
         let start = DispatchTime.now().uptimeNanoseconds
         let elapsed = { Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000 }
+        let speculation = self.speculation, renderParts = self.renderParts
         let result = await CleanupStage.race(deadline: deadline) {
-            try await generator.write(system: prompt.system, user: prompt.user, context: context)
+            try await Self.write(prompt: prompt, packet: packet, profile: profile, generator: generator, context: context,
+                                 speculation: speculation, renderParts: renderParts)
         }
         var output: String
         switch result {
@@ -111,6 +122,35 @@ public struct ContextWriterStage: PipelineStage {
             report(.accepted(ms: elapsed()))
         }
         return mapped
+    }
+
+    /// One full call; or, when speculation covers the leading sentences, the cached text plus one
+    /// call for the uncached tail (no call at all when every heard word was cached).
+    static func write(prompt: (system: String, user: String), packet: ContextPacket, profile: DestinationProfile,
+                      generator: any WriterGenerating, context: StageContext, speculation: (any WriterSpeculating)?,
+                      renderParts: @Sendable (ContextPacket, DestinationProfile, String?) -> (system: String, stablePrefix: String, tail: String))
+        async throws -> String {
+        guard let speculation else {
+            return try await generator.write(system: prompt.system, user: prompt.user, context: context)
+        }
+        let parts = renderParts(packet, profile, nil)
+        let key = WriterSpeculation.prefixKey(system: parts.system, stablePrefix: parts.stablePrefix)
+        let words = WriterSpeculation.heardWords(packet.heard)
+        guard let hit = await speculation.leadingHit(prefixKey: key, heard: words), hit.words > 0 else {
+            speculation.noteUse(WriterSpeculationUse(call: .full, chunksUsed: 0, wordsCovered: 0, wordsHeard: words.count))
+            return try await generator.write(system: prompt.system, user: prompt.user, context: context)
+        }
+        if hit.words >= words.count {
+            speculation.noteUse(WriterSpeculationUse(call: .none, chunksUsed: hit.chunks, wordsCovered: hit.words, wordsHeard: words.count))
+            return hit.written
+        }
+        speculation.noteUse(WriterSpeculationUse(call: .tail, chunksUsed: hit.chunks, wordsCovered: hit.words, wordsHeard: words.count))
+        let tail = WriterSpeculation.tailPacket(packet, droppingFirst: hit.words)
+        let tailPrompt = renderParts(tail, profile, hit.written)
+        let reply = try await generator.write(system: tailPrompt.system, user: tailPrompt.stablePrefix + tailPrompt.tail,
+                                              context: context)
+        let tailText = WriterSpeculation.isUnchanged(reply) ? tail.heard.raw : WriterSpeculation.cleanedReply(reply)
+        return WriterSpeculation.stitch(hit.written, tailText)
     }
 
     private func report(_ outcome: WriterOutcome) {

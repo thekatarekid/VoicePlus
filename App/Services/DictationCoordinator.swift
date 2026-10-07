@@ -41,6 +41,8 @@ public final class DictationCoordinator {
     /// Reported when `engine.start()` could not open a session. The app uses it to reset the hotkey
     /// gesture, so a key that is still physically down does not leave the recogniser "capturing".
     public var onStartFailure: ((Error) -> Void)?
+    /// Context Writer (plan §4.2) — sentence speculation during a hold; the integrator sets it.
+    public var speculator: WriterSpeculator?
     private var eventTask: Task<Void, Never>?
     private var startedAt = Date()
 
@@ -321,6 +323,7 @@ public final class DictationCoordinator {
             tapToTalk.begin()
         case .enterLatch:
             tapToTalk.end()
+            speculator?.cancelTurn()
             latched = true
             pill.model.latched = true
             turns?.noteLatched(true)
@@ -414,6 +417,7 @@ public final class DictationCoordinator {
         }
         startedAt = Date()
         onPrepare?()
+        speculator?.beginTurn(segments: engine.segmentSession, latched: latched)
         enqueue { [weak self] in await self?.beginSession(turn: turn) }
     }
 
@@ -522,6 +526,7 @@ public final class DictationCoordinator {
         // Taken here, on the key-release turn, not inside the queued work: the point of the snapshot
         // is what was focused when the user let go.
         tapToTalk.end()
+        speculator?.endTurn()
         let focus = focusSnapshot?()
         let started = startedAt
         // S3 — key up: the turn goes to `finishing` now (microphone closing, nothing written). A
@@ -621,6 +626,7 @@ public final class DictationCoordinator {
     /// record and the pill hints how to dictate; any other cancel ends the turn quietly as before.
     public func cancel(tapped: Bool, silently: Bool = false) {
         tapToTalk.end()
+        speculator?.cancelTurn()
         // S3 — the capture turn ends quietly (a too-short tap is not news; Escape shows its own
         // "Cancelled"). A turn already past key-up is not capture any more: it is left to finish.
         if let turns, let id = sessionLock.withLock({ () -> TurnID? in
