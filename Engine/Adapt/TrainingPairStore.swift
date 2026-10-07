@@ -18,6 +18,15 @@ public struct TrainingPair: Codable, Equatable, Sendable, Identifiable {
 
     public var audioRange: ClosedRange<TimeInterval> { audioStart...max(audioStart, audioEnd) }
 
+    /// A re-dictation learned as a correction (C1): `original` = the earlier landing's differing
+    /// words, `corrected` = what the re-dictation landed instead.
+    public static let redictationSource = "redictation"
+    /// A *negative* alias ("never write `corrected` for `original` again"): the user undid a
+    /// correction. The learner records it in `PersonalLexicon.negatives` and never emits the
+    /// variant; the regression guard and the vocabulary matcher refuse it.
+    public static let negativeAliasSource = "negativeAlias"
+    public var isNegativeAlias: Bool { source == Self.negativeAliasSource }
+
     public init(id: String = UUID().uuidString, utteranceID: String, createdAt: Date = Date(), original: String,
                 corrected: String, audioRange: ClosedRange<TimeInterval>, source: String, clipFile: String? = nil) {
         self.id = id; self.utteranceID = utteranceID; self.createdAt = createdAt

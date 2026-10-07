@@ -113,7 +113,9 @@ public struct RegressionGuard: Sendable {
         guard !k.contains(" ") else { return nil }
         let codes = DoubleMetaphone(maxLength: metaphoneLength).encode(k)
         guard !codes.primary.isEmpty else { return nil }
-        return phonetic.first { $0.codes.matches(codes) }?.corrected
+        // C1 undo: a written form the user has undone for this heard word is never proposed again,
+        // even when another heard variant of it collides phonetically.
+        return phonetic.first { $0.codes.matches(codes) && !lexicon.isBlocked(heard: k, written: $0.corrected) }?.corrected
     }
 
     public func apply(_ spans: [TranscriptSpan]) -> [TranscriptSpan] {

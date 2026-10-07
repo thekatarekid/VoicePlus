@@ -19,12 +19,41 @@ public struct PersonalLexicon: Codable, Equatable, Sendable {
 
     public var terms: [String: Term] = [:]        // keyed by lowercased text
     public var variants: [String: Variant] = [:]  // keyed by lowercased heard form
+    /// Negative aliases: lowercased heard form → lowercased written forms the user has undone
+    /// ("never write X for Y again"). A blocked pair is never a variant, never a phonetic
+    /// rewrite, and never a vocabulary match.
+    public var negatives: [String: [String]] = [:]
     public var trainedAt: Date = .distantPast
     public var pairCount = 0
 
     public init() {}
 
+    private enum CodingKeys: String, CodingKey { case terms, variants, negatives, trainedAt, pairCount }
+
+    /// `negatives` is newer than the persisted `lexicon.json` of earlier builds: absent = none.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        terms = try c.decode([String: Term].self, forKey: .terms)
+        variants = try c.decode([String: Variant].self, forKey: .variants)
+        negatives = try c.decodeIfPresent([String: [String]].self, forKey: .negatives) ?? [:]
+        trainedAt = try c.decode(Date.self, forKey: .trainedAt)
+        pairCount = try c.decode(Int.self, forKey: .pairCount)
+    }
+
     public func weight(of term: String) -> Double { terms[term.lowercased()]?.weight ?? 0 }
+
+    /// True when the user has undone `written` for `heard` (case-insensitive, trimmed).
+    public func isBlocked(heard: String, written: String) -> Bool {
+        let h = heard.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let w = written.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return negatives[h]?.contains(w) ?? false
+    }
+
+    /// The learned alias for a heard form (one or more words, case-insensitive), or nil.
+    /// This is the query the vocabulary matcher and the re-dictation learner read.
+    public func alias(forHeard heard: String) -> String? {
+        variants[heard.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)]?.corrected
+    }
 
     /// Entries for the Biasing `Ranker` (source `.corrections`, timeless, salience = weight).
     public func contextEntries() -> [ContextEntry] {
@@ -67,10 +96,18 @@ public struct BiasListLearner: AdapterTrainer {
     public func train(pairs: [TrainingPair], previous: PersonalLexicon? = nil) -> AdapterTrainingResult {
         let t0 = Date()
         var lex = PersonalLexicon()
-        for p in pairs.sorted(by: { $0.createdAt < $1.createdAt }) {
+        // Negative aliases first: an undone correction wins over every positive pair, whenever
+        // either was recorded, until the user forgets the word.
+        for p in pairs where p.isNegativeAlias {
+            let h = p.original.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let w = p.corrected.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !h.isEmpty, !w.isEmpty, !(lex.negatives[h]?.contains(w) ?? false) else { continue }
+            lex.negatives[h, default: []].append(w)
+        }
+        for p in pairs.sorted(by: { $0.createdAt < $1.createdAt }) where !p.isNegativeAlias {
             let corrected = p.corrected.trimmingCharacters(in: .whitespacesAndNewlines)
             let heard = p.original.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !corrected.isEmpty else { continue }
+            guard !corrected.isEmpty, !lex.isBlocked(heard: heard, written: corrected) else { continue }
             var candidates = [corrected]
             let words = corrected.split(separator: " ").map(String.init)
             if words.count > 1 { candidates += words.filter { EntityExtractor.isEntityLike($0) || $0.count >= 4 } }
