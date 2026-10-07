@@ -159,11 +159,13 @@ private func eventually(_ condition: () -> Bool) async {
     @Test func boundedCallGivesUpAndCancels() async {
         let t0 = Date()
         let value = await WriterSpeculator.bounded(0.05) {
-            try await Task.sleep(nanoseconds: 2_000_000_000)
+            try await Task.sleep(nanoseconds: 20_000_000_000)
             return "late"
         }
         #expect(value == nil)
-        #expect(Date().timeIntervalSince(t0) < 1)
+        // Far below the 20 s operation (gave up, did not wait for it); loose enough for a loaded
+        // full-suite run, where the cooperative pool can take seconds to schedule the timeout.
+        #expect(Date().timeIntervalSince(t0) < 8)
     }
 }
 
