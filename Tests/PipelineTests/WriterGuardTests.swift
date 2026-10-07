@@ -182,12 +182,14 @@ import Testing
 
     @Test func withoutAnEncoderOnlyNearSpellingsPass() {
         let plain = WriterGuard(phonetic: { _ in [] })
-        let bare = WriterGuard(phonetic: nil)   // falls back to whatever the app installed (none here)
+        // Falls back to the process-wide encoder: none in PipelineTests alone, Double Metaphone once an
+        // AppTests suite installed it in a full run, so only assert what holds either way.
+        let bare = WriterGuard(phonetic: nil)
         let h = Self.heard([("sixtien", 0.3), ("times", 0.9)])
         #expect(plain.check(heard: h, output: "sixteen times").accepted?.text == "sixteen times")
         #expect(bare.check(heard: h, output: "sixteen times").accepted?.text == "sixteen times")
         let far = Self.heard([("Queen", 0.3), ("four", 0.9)])
-        #expect(bare.check(heard: far, output: "Qwen four").rejection == .everyChangeReverted)
+        #expect(plain.check(heard: far, output: "Qwen four").rejection == .everyChangeReverted)
     }
 }
 
