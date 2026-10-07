@@ -234,13 +234,24 @@ public final class WordMarksCoordinator {
 
     /// Review and Today keep only the unresolved marks (corrected or kept words clear for this turn).
     /// Ranges are the payload's (`TurnRecord.finalText` is never revised), from the turn's full mapping.
+    /// A6 — mapped onto the stored text itself, so they index `finalText` as it is on disk
+    /// (continuation whitespace included) whatever text the delivery row carried (`UncertainSpans`).
     private func updateRecord(for session: DestinationMarkSession) {
-        guard let store, let text = sessionPayload,
-              let entry = store.recent(limit: 20).first(where: { $0.record.finalText == text }) else { return }
+        guard let store, let text = sessionPayload, let entry = Self.recordEntry(for: text, in: store) else { return }
         let remaining = Set(session.marks.map(\.id))
-        let ranges = UncertaintyMarkMapper.map(source: pill.finalSpans, finalText: text).marks
+        let ranges = UncertaintyMarkMapper.map(source: pill.finalSpans, finalText: entry.record.finalText).marks
             .filter { remaining.contains($0.id) }.map(\.range)
         store.update(entry.id) { $0.uncertainSpans = ranges }
+    }
+
+    /// The turn whose payload `text` is: by the exact text, else by the words once continuation
+    /// whitespace is set aside (a delivery row may carry the payload trimmed; the record never is).
+    static func recordEntry(for text: String, in store: TurnStore) -> TurnEntry? {
+        let recent = store.recent(limit: 20)
+        if let exact = recent.first(where: { $0.record.finalText == text }) { return exact }
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return nil }
+        return recent.first { $0.record.finalText.trimmingCharacters(in: .whitespacesAndNewlines) == words }
     }
 }
 

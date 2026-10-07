@@ -582,7 +582,10 @@ struct WordMarksCoordinatorTests {
         let box: Box
         let coordinator: WordMarksCoordinator
 
-        init(bundle: String = "com.apple.Notes", fieldPrefix: String = "Dear team ") {
+        /// `recordText`: the payload as the turn record stores it (A6: it may carry the continuation
+        /// space the delivery row does not).
+        init(bundle: String = "com.apple.Notes", fieldPrefix: String = "Dear team ",
+             recordText: String = WordMarksCoordinatorTests.text) {
             let value = fieldPrefix + WordMarksCoordinatorTests.text
             let pill = PillViewModel(), dwell = FakeDwell()
             let destination = FakeDestination(bundle: bundle, value: value), editor = MemoryEditor(value)
@@ -609,8 +612,7 @@ struct WordMarksCoordinatorTests {
                 return true
             }
             pill.onLearnDraft = { before, after in spelling.remember(heard: before, spelling: after, audioRange: 0...0) }
-            store.save(TurnRecord(finalText: WordMarksCoordinatorTests.text,
-                                  uncertainSpans: [utf16(WordMarksCoordinatorTests.text, of: "Mira")]), stage: .landed)
+            store.save(TurnRecord(finalText: recordText, uncertainSpans: [utf16(recordText, of: "Mira")]), stage: .landed)
             self.pill = pill; self.dwell = dwell
             self.destination = destination; self.editor = editor; self.clipboard = clipboard; self.spelling = spelling
             self.recorder = recorder; self.store = store; self.box = box; self.coordinator = coordinator
@@ -728,4 +730,123 @@ struct WordMarksCoordinatorTests {
         #expect(h.box.notices == [.D09] && h.recorder.records == ["com.apple.Notes": false])
     }
 
+}
+
+// MARK: - A6 — the ranges index the stored text
+
+/// A6 (investigation 2026-10-06, "Uncertainty offsets are misaligned"): `TurnRecord.uncertainSpans`
+/// are UTF-16 ranges of `TurnRecord.finalText` exactly as stored, continuation whitespace included.
+/// The owner's rows (`" Place two"` → `[1..<6]`, `" it's all right."` → `[6..<9, 10..<15]`) read as
+/// `P⟦lace ⟧two.` only when the ranges are applied to `rawText`; against the stored text they are
+/// the words. The coordinator keeps that true when the delivery row carries the payload trimmed.
+@Suite("A6 — uncertain spans index the stored text")
+struct UncertainSpanOffsetsA6Tests {
+    /// The owner's turn as recorded: the engine's spans, the stored payload and raw text.
+    static let placeTwoSpans = [
+        span("Place", 0.339, at: 0, alternates: [Alternate(text: "Rlace", score: 0.077, source: .beam),
+                                                 Alternate(text: "Prace", score: 0.063, source: .beam)]),
+        span("two.", 0.627, at: 0.3),
+    ]
+    static let placeTwoStored = " Place two"
+    static let placeTwoRaw = "Place two."
+
+    static let allRightSpans = spans([("It's", 0.9), ("all", 0.3), ("right.", 0.4)])
+    static let allRightStored = " it's all right."
+    static let allRightRaw = "It's all right."
+
+    @Test("“ Place two”: the mark is 1..<6 of the stored text — “Place”, after the continuation space")
+    func placeTwo() throws {
+        let mapping = UncertaintyMarkMapper.map(source: Self.placeTwoSpans, finalText: Self.placeTwoStored)
+        #expect(mapping.uncertainRanges == [1..<6])
+        #expect(MarkWords.slice(Self.placeTwoStored, 1..<6) == "Place")
+        #expect(UncertainSpans.index(mapping.uncertainRanges, in: Self.placeTwoStored))
+        #expect(UncertainSpans.marked(Self.placeTwoStored, spans: mapping.uncertainRanges) == " ⟦Place⟧ two")
+        // The investigation's rendering: the same ranges applied to the raw text, which they never index.
+        #expect(UncertainSpans.marked(Self.placeTwoRaw, spans: mapping.uncertainRanges) == "P⟦lace ⟧two.")
+        #expect(!UncertainSpans.index(mapping.uncertainRanges, in: Self.placeTwoRaw), "a drifted range touches a space")
+        #expect(UncertainSpans.rebased(mapping.uncertainRanges, from: Self.placeTwoStored, to: "Place two") == [0..<5])
+        #expect(try #require(mapping.marks.first).alternatives == ["Rlace", "Prace"])
+    }
+
+    @Test("“ it's all right.”: two marks, both on the stored text; the trailing period stays outside")
+    func allRight() {
+        let mapping = UncertaintyMarkMapper.map(source: Self.allRightSpans, finalText: Self.allRightStored)
+        #expect(mapping.uncertainRanges == [6..<9, 10..<15])
+        #expect(mapping.marks.map(\.text) == ["all", "right"])
+        #expect(UncertainSpans.index(mapping.uncertainRanges, in: Self.allRightStored))
+        #expect(UncertainSpans.marked(Self.allRightStored, spans: mapping.uncertainRanges) == " it's ⟦all⟧ ⟦right⟧.")
+        #expect(UncertainSpans.marked(Self.allRightRaw, spans: mapping.uncertainRanges) == "It's a⟦ll ⟧r⟦ight.⟧")
+        #expect(UncertainSpans.rebased(mapping.uncertainRanges, from: Self.allRightStored, to: "it's all right.") == [5..<8, 9..<14])
+        #expect(UncertainSpans.rebased(mapping.uncertainRanges, from: Self.allRightStored, to: "something else") == nil)
+    }
+
+    @Test("“A sixtien z. ”: a trailing continuation space moves nothing; every flagged word is its own mark")
+    func trailingSpace() {
+        let stored = "A sixtien z. "
+        let mapping = UncertaintyMarkMapper.map(source: spans([("A", 0.054), ("sixtien", 0.427), ("z.", 0.365)]), finalText: stored)
+        #expect(mapping.uncertainRanges == [0..<1, 2..<9, 10..<11])
+        #expect(UncertainSpans.index(mapping.uncertainRanges, in: stored))
+        #expect(UncertainSpans.rebased(mapping.uncertainRanges, from: stored, to: "A sixtien z.") == [0..<1, 2..<9, 10..<11])
+    }
+
+    @Test("a phrase mark (T05) after a continuation space covers the phrase, not the space")
+    func multiWordMark() throws {
+        let stored = " a fast auburn fox"
+        let mapping = UncertaintyMarkMapper.map(source: spans([("the", 0.9), ("quick", 0.9), ("brown", 0.3), ("fox", 0.9)]),
+                                                finalText: stored)
+        let mark = try #require(mapping.marks.first)
+        #expect(mapping.marks.count == 1 && mark.kind == .phrase)
+        #expect(MarkWords.slice(stored, mark.range) == "a fast auburn")
+        #expect(mark.range == 1..<14)
+        #expect(UncertainSpans.index([mark.range], in: stored))
+        #expect(UncertainSpans.rebased([mark.range], from: stored, to: "a fast auburn fox") == [0..<13])
+        #expect(UncertainSpans.rebased([mark.range], from: stored, to: "fox") == [], "a slice without the phrase keeps no span")
+    }
+
+    @Test("the unit is UTF-16: an emoji before the word counts two, and a slice is rebased by two")
+    func utf16Units() throws {
+        let stored = " 🎉 mira"
+        let mapping = UncertaintyMarkMapper.map(source: spans([("party", 0.9), ("mira", 0.3)]), finalText: stored)
+        let range = try #require(mapping.uncertainRanges.first)
+        #expect(range == 4..<8 && MarkWords.slice(stored, range) == "mira")
+        #expect(UncertainSpans.rebased([range], from: stored, to: "mira") == [0..<4])
+        #expect(UncertainSpans.rebased([range], from: stored, to: "🎉 mira") == [3..<7])
+    }
+
+    @Test("a delivery row carrying the trimmed payload still clears the stored record's mark")
+    func trimmedDeliveryRow() throws {
+        let stored = " " + WordMarksCoordinatorTests.text
+        let h = WordMarksCoordinatorTests.Harness(recordText: stored)
+        h.preview()
+        h.land()   // the row's text has no continuation space; the record's does
+        #expect(h.store.recent(limit: 1).first?.record.uncertainSpans == [utf16(stored, of: "Mira")])
+        h.pill.now = { Date().addingTimeInterval(5) }   // the inserted row's dwell has passed
+        h.pill.hide()
+        h.coordinator.openDestination(0, box: .zero)
+        h.pill.draftText = "Meera"
+        #expect(h.pill.applyDraftEdits())
+        #expect(h.store.recent(limit: 1).first?.record.uncertainSpans == [])
+    }
+
+    @Test("the remaining mark is written in the stored text's offsets, not the row's")
+    func remainingMarkOffsets() throws {
+        let text = WordMarksCoordinatorTests.text
+        let stored = " " + text
+        let h = WordMarksCoordinatorTests.Harness(recordText: stored)
+        let twoMarks = spans([("can", 0.9), ("we", 0.9), ("meet", 0.3), ("with", 0.9), ("mira", 0.3), ("on", 0.9), ("friday", 0.9)])
+        h.pill.setFinalSpans(twoMarks)
+        h.pill.present(.finalPreview(FinalPreviewInfo(text: text, uncertainCount: 2, dwellRemaining: 1.8)))
+        h.land()
+        let session = try #require(h.box.trackers.first?.session)
+        #expect(session.marks.map(\.text) == ["meet", "Mira"])
+        h.pill.now = { Date().addingTimeInterval(5) }   // the inserted row's dwell has passed
+        h.pill.hide()
+        h.coordinator.openDestination(1, box: .zero)
+        h.pill.draftText = "Meera"
+        #expect(h.pill.applyDraftEdits())
+        let ranges = try #require(h.store.recent(limit: 1).first?.record.uncertainSpans)
+        #expect(ranges == [utf16(stored, of: "meet")] && ranges == [8..<12])
+        #expect(UncertainSpans.index(ranges, in: stored))
+        #expect(UncertainSpans.marked(stored, spans: ranges) == " Can we ⟦meet⟧ with Mira on Friday?")
+    }
 }

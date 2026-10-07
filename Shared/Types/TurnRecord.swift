@@ -92,6 +92,8 @@ public struct TurnRecord: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// The immutable final payload that is previewed and inserted once; never revised.
     public var finalText: String
     /// Low-confidence ranges of `finalText`, in UTF-16 units (the unit AX and TextKit ranges use).
+    /// They index `finalText` exactly as stored (continuation whitespace included): never `rawText`,
+    /// never a trimmed copy (A6; `UncertainSpans` in the app rebases them onto a slice).
     public var uncertainSpans: [Range<Int>]
     public var capture: CaptureTimestamps
     /// A write was dispatched to the destination. Recorded separately from verification: an
