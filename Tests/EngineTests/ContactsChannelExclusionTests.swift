@@ -25,8 +25,8 @@ struct ContactsChannelExclusionTests {
                 let r = DictionaryRecord(term: w); try r.save(d)
                 try d.execute(sql: "INSERT INTO dictionary_term_meta VALUES (?, 'any', 'contacts')", arguments: [r.id])
             }
-            try DictionaryRecord(term: "Muesli").save(d)   // no meta row: saved earlier
-            let imported = DictionaryRecord(term: "Paperclip"); try imported.save(d)
+            try DictionaryRecord(term: "Muesli", spokenForms: "mews lee").save(d)   // no meta row: saved earlier
+            let imported = DictionaryRecord(term: "Paperclip", spokenForms: "paper clip"); try imported.save(d)
             try d.execute(sql: "INSERT INTO dictionary_term_meta VALUES (?, 'any', 'imported')", arguments: [imported.id])
         }
         return db
@@ -74,11 +74,14 @@ struct ContactsChannelExclusionTests {
         let controller = BoostingController(
             context: { now in ranker.rank(harvesting: authored, now: now) },
             dictionary: { ContactsChannelPolicy.terms((try? DictionaryOrigins.entries(db)) ?? [], channel: .boost) },
+            entries: { (try? DictionaryOrigins.entries(db)) ?? [] },   // rows with origin + typed spoken forms
             makeBooster: { _ in PassthroughBooster() })
         _ = controller.makeBoosterForUtterance()
         let terms = controller.lastTerms
         #expect(!Self.hasContactWord(terms))
-        #expect(terms.contains("Kothari"))
+        // Context Writer scope-down: a Dictionary term boosts only with a spoken form; "Kothari"
+        // has none (it reaches the writer through VocabularyMatcher instead), "gpt-4o" is verbalized.
+        #expect(terms.contains("gpt-4o") && !terms.contains("Kothari"))
         #expect(terms.contains("Paperclip"))
         #expect(terms.contains("Muesli"))
     }
@@ -86,9 +89,9 @@ struct ContactsChannelExclusionTests {
     @Test func boostAuthoredTierIgnoresContactsOnlyTerms() {
         let ctx = RankedContext(terms: [
             RankedContextTerm(text: "Bucket", tier: .authored, score: 1, sources: [.contacts]),
-            RankedContextTerm(text: "Kothari", tier: .authored, score: 1, sources: [.dictionary]),
+            RankedContextTerm(text: "gpt-4o", tier: .authored, score: 1, sources: [.dictionary]),
         ], cap: 400, considered: 2)
-        #expect(BoostVocabulary.build(dictionary: [], corrections: [], context: ctx) == ["Kothari"])
+        #expect(BoostVocabulary.build(dictionary: [], corrections: [], context: ctx) == ["gpt-4o"])
     }
 
     // MARK: Channel 3 — cleanup context (ranked list → prompt)

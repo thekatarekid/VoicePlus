@@ -1,9 +1,41 @@
 # Engine/Biasing — vocabulary boosting (V5 B1) and the ranked context list
 
-## V5 B1 — final-pass CTC vocabulary boosting (replaces decode-time shallow fusion)
+## Context Writer §2.4 — spoken forms and the vocabulary matcher (no model, milliseconds)
 
-    Dictionary + confirmed corrections + RankedContext(.authored)   (never screen text)
-        → BoostVocabulary.build (dedupe, ≥3 letters, cap 400, rebuilt per utterance)
+    VocabularyMatcher.build(entries:corrections:learned:)          (the integrator's one call)
+      Dictionary rows (non-Contacts; Contacts only as full names) + typed spoken forms
+      (DictionaryEntry.spokenForms, split from DictionaryRecord) + confirmed corrections + the
+      learned lexicon (terms; C1 re-dictation aliases as trusted forms; negative aliases blocked)
+        → VocabularyTerm (VocabularyTerm.swift) → SpokenFormVerbalizer.forms
+          ("a16z" → "a sixteen z" / "a one six z", "GPT-4o" → "g p t four o" / "gpt four o",
+           "k8s" → "k eight s", "3.5" → "three point five", "NASA" → "n a s a" / "nasa",
+           + HeardAliases' digit-free separator / camelCase splits)
+        → PhoneticVocabularyIndex (built off the hot path when the vocabulary changes):
+          Double Metaphone per word, joined; distinct codes stored once; a deletion-neighbourhood
+          table (each code + every ≤ 2-symbol deletion, by length) → codes → forms
+        → VocabularyMatcher.matches(heard:limit:)   (Shared `VocabularyMatching`, at key-up)
+          uncertain words and 1–4-word windows holding one (heard digits read as words) → look up
+          the window's deletion keys → verify code distance → match = closeness × (½ + ½ spelling)
+          ≥ 0.55 → score = match × weight × source × recency → best per term → top N, with
+          bound-ordered early exit → `ContextPacket.VocabularyMatch`
+
+- **Precision rules.** A heard ordinary English word alone matches only a trusted form it sounds
+  exactly like ("queen" typed or learned for Qwen), never on phonetics alone ("cab" ≠ Cab). A
+  window must be tight: dropping its first or last word must make the match worse ("a cab" never
+  stands in for "cab"). A heard → written pair the user undid (C1 negative alias) is never offered,
+  whichever source holds the term. Word counts may differ ("paper clip" → Paperclip, "kuber netes"
+  → Kubernetes): codes are compared without word boundaries; spelling similarity keeps them.
+- **Cost** (`VocabularyMatcherTests`, debug build): see the perf tests' printed line — index build
+  for 5k terms, worst case (30 words all uncertain, adversarial 16-syllable vocabulary) and typical
+  (3 uncertain). Recency is measured at query time, so the index never goes stale between rebuilds.
+- Evidence only: the matches are `VOCAB` lines in the writer's packet; nothing here rewrites text,
+  and nothing is logged.
+
+## V5 B1 — final-pass CTC vocabulary boosting, scoped down (Context Writer §1)
+
+    Dictionary terms with a spoken form (typed or verbalized) + confirmed corrections   (never
+    Contacts, never screen / surface-lexicon / participant terms, whatever the rubric admitted)
+        → BoostVocabulary.build (dedupe, ≥3 letters, cap 100, rebuilt per utterance)
         → BoostingController.makeBoosterForUtterance()  (AppContainer.prepareForUtterance, hotkey-down)
         → BiasingRecognizerProvider.install(booster) → FluidAudioTDTDecoder.booster
         → final pass: TDT greedy → CTCVocabularyBooster (parakeet-ctc-110m keyword spotting +

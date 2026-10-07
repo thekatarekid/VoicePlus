@@ -44,9 +44,10 @@ struct ShippingDecoderConfigTests {
     func dictionaryReachesTheDecoder() async throws {
         let decoder = SpyDecoder()
         let p = try await Self.provider(decoder)
-        let booster = try #require(Self.controller(dictionary: ["Kothari", "TeamViewer"]).makeBoosterForUtterance())
+        // Context Writer scope-down: only Dictionary terms with a spoken form (typed or verbalized) boost.
+        let booster = try #require(Self.controller(dictionary: ["gpt-4o", "TeamViewer"]).makeBoosterForUtterance())
         p.install(booster)
-        #expect(decoder.booster?.terms == ["Kothari", "TeamViewer"])
+        #expect(decoder.booster?.terms == ["gpt-4o", "TeamViewer"])
         #expect(p.boostingInstalled)
 
         p.install(nil)
@@ -62,27 +63,27 @@ struct ShippingDecoderConfigTests {
         }
         let p = BiasingRecognizerProvider(inner: StaticRecognizerProvider(final: Plain()))
         _ = try await p.resolve()
-        p.install(Self.controller(dictionary: ["Kothari"]).makeBoosterForUtterance())
+        p.install(Self.controller(dictionary: ["gpt-4o"]).makeBoosterForUtterance())
         #expect(p.boostingInstalled == false)
     }
 
     /// The list is rebuilt per utterance, so a word added to the Dictionary is boosted next time.
     @Test
     func eachUtteranceRebuildsTheList() throws {
-        final class Box: @unchecked Sendable { var words = ["Kothari"] }
+        final class Box: @unchecked Sendable { var words = ["gpt-4o"] }
         let box = Box()
         let c = BoostingController(dictionary: { box.words }, makeBooster: { ScriptedVocabularyBooster(terms: $0, rewrites: [:]) })
-        #expect(c.makeBoosterForUtterance()?.terms == ["Kothari"])
-        box.words.append("Priya")
-        #expect(c.makeBoosterForUtterance()?.terms == ["Kothari", "Priya"])
+        #expect(c.makeBoosterForUtterance()?.terms == ["gpt-4o"])
+        box.words.append("a16z")
+        #expect(c.makeBoosterForUtterance()?.terms == ["gpt-4o", "a16z"])
     }
 
     /// The app wiring reads only authored sources: a screen-only term is never boosted.
     @Test
     func screenTextIsNeverBoosted() {
         let screenOnly = ContextRanker().rank([ContextEntry(text: "Zephyr", source: .axTree, observedAt: Date(), salience: 1)])
-        let c = BoostingController(context: { _ in screenOnly }, dictionary: { ["Kothari"] },
+        let c = BoostingController(context: { _ in screenOnly }, dictionary: { ["gpt-4o"] },
                                    makeBooster: { ScriptedVocabularyBooster(terms: $0, rewrites: [:]) })
-        #expect(c.makeBoosterForUtterance()?.terms == ["Kothari"])
+        #expect(c.makeBoosterForUtterance()?.terms == ["gpt-4o"])
     }
 }

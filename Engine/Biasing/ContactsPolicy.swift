@@ -33,10 +33,26 @@ public struct DictionaryEntry: Hashable, Sendable {
     public var term: String
     public var weight: Double
     public var origin: DictionaryEntryOrigin
-    public init(term: String, weight: Double = 1.0, origin: DictionaryEntryOrigin = .personal) {
+    /// Context Writer §2.4 — the spoken forms the user typed for this row ("queen" for "Qwen"),
+    /// split from `DictionaryRecord.spokenForms`. Empty when none were typed; the verbalizer adds
+    /// the principled ones (`SpokenFormVerbalizer`) at use time.
+    public var spokenForms: [String]
+    public init(term: String, weight: Double = 1.0, origin: DictionaryEntryOrigin = .personal,
+                spokenForms: [String] = []) {
         self.term = term
         self.weight = weight
         self.origin = origin
+        self.spokenForms = spokenForms
+    }
+
+    /// The App's `DictionaryRules.spokenForms` split, reimplemented here (Engine cannot import App):
+    /// comma-, semicolon- or newline-separated variants, whitespace collapsed, empty ones dropped,
+    /// each kept once (case, accents and spacing ignored when comparing).
+    public static func splitSpokenForms(_ raw: String) -> [String] {
+        var seen = Set<String>()
+        return raw.split(whereSeparator: { $0 == "," || $0 == ";" || $0 == "\n" })
+            .map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+            .filter { !$0.isEmpty && seen.insert($0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)).inserted }
     }
 }
 
@@ -84,7 +100,10 @@ public enum DictionaryOrigins {
     public static func entries(_ database: AppDatabase) throws -> [DictionaryEntry] {
         let records = try database.dictionaryTerms()
         let origins = (try? originsByID(database)) ?? [:]
-        return records.map { DictionaryEntry(term: $0.term, weight: $0.weight, origin: origins[$0.id] ?? .earlier) }
+        return records.map {
+            DictionaryEntry(term: $0.term, weight: $0.weight, origin: origins[$0.id] ?? .earlier,
+                            spokenForms: DictionaryEntry.splitSpokenForms($0.spokenForms))
+        }
     }
 
     static func originsByID(_ database: AppDatabase) throws -> [String: DictionaryEntryOrigin] {

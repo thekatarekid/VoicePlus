@@ -208,8 +208,8 @@ struct ContextRubricN11Tests {
                                         rubric: { _ in ContextRubric.rank(candidates: cands, surface: surface(.secure)) },
                                         makeBooster: { ScriptedVocabularyBooster(terms: $0, rewrites: [:]) })
         #expect(secure.makeBoosterForUtterance() == nil, "secure field: nothing boosted, legacy list not used")
-        let legacy = BoostingController(dictionary: { ["Kothari"] }, rubric: { _ in nil },
+        let legacy = BoostingController(dictionary: { ["gpt-4o"] }, rubric: { _ in nil },
                                         makeBooster: { ScriptedVocabularyBooster(terms: $0, rewrites: [:]) })
-        #expect(legacy.makeBoosterForUtterance()?.terms == ["Kothari"])
+        #expect(legacy.makeBoosterForUtterance()?.terms == ["gpt-4o"], "Context Writer scope-down: spoken form required")
     }
 }

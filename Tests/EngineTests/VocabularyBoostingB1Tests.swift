@@ -90,21 +90,23 @@ struct VocabularyBoostingB1Tests {
         let ranked = ContextRanker().rank([
             ContextEntry(text: "Zephyr", source: .axTree),          // screen — never boosted
             ContextEntry(text: "Grafana", source: .recentWords),    // recent — never boosted
-            ContextEntry(text: "Bandra", source: .dictionary),      // authored
+            ContextEntry(text: "a16z", source: .dictionary),        // authored, has a spoken form
             ContextEntry(text: "tomorrow", source: .corrections),   // authored but plain word — dropped
             ContextEntry(text: "Priya", source: .corrections),      // authored entity
         ])
-        let list = BoostVocabulary.build(dictionary: ["Kothari", "kothari", "TeamViewer AG", "ok"],
+        // Context Writer scope-down: a Dictionary term boosts only with a spoken form (typed or
+        // verbalized), so "gpt-4o" / "TeamViewer AG" stay and a plain name would not (BoostScopeTests).
+        let list = BoostVocabulary.build(dictionary: ["gpt-4o", "GPT-4o", "TeamViewer AG", "ok"],
                                          corrections: ["send it to Sundar tomorrow"], context: ranked)
-        #expect(Array(list.prefix(3)) == ["Kothari", "TeamViewer AG", "Sundar"])
-        #expect(Set(list.dropFirst(3)) == ["Bandra", "Priya"])
+        #expect(Array(list.prefix(3)) == ["gpt-4o", "TeamViewer AG", "Sundar"])
+        #expect(Set(list.dropFirst(3)) == ["a16z", "Priya"])
         #expect(!list.contains("Zephyr") && !list.contains("Grafana") && !list.contains("tomorrow"))
     }
 
-    @Test func listIsCappedAt400() {
+    @Test func listIsCappedAt100() {
         let many = (0..<1_000).map { "Term\($0)" }
         let list = BoostVocabulary.build(dictionary: many, corrections: [])
-        #expect(list.count == 400 && BoostVocabulary.cap == 400)
+        #expect(list.count == 100 && BoostVocabulary.cap == 100, "Context Writer scope-down: cap 100")
         #expect(list.first == "Term0")
     }
 
