@@ -372,6 +372,69 @@ struct WriterWiringTests {
         #expect(offCloud.prewarmCount == 0)
     }
 
+    // MARK: Replay
+
+    static func token(_ id: Int, _ text: String, _ start: Double) -> DecodedToken {
+        DecodedToken(tokenId: id, text: text, logProb: -0.05, startTime: start, endTime: start + 0.2)
+    }
+
+    @Test func replayRunsTheWriterOnTheRawHeardAndReportsIt() async throws {
+        let script = [Self.token(1, "▁there", 0.1), Self.token(2, "▁is", 0.4), Self.token(3, "▁no", 0.7), Self.token(4, "▁budget", 1.0)]
+        let cloud = ScriptedBackend { _ in "There is no budget." }
+        let writer = ReplayWriter(backend: "cloud", generator: cloud)
+        let stage = try #require(writer.stage)
+        let runner = ReplayRunner(recognizer: DecoderFinalRecognizer(decoder: MockDecoder(script: script)), makeBooster: { nil },
+                                  pipeline: PipelineRunner(stages: CleanupWiring.insertingWriter(stage, into: [])), writer: writer)
+        let report = await runner.run(samples: [Float](repeating: 0, count: 32_000), source: "t.wav",
+                                      surface: try #require(ReplaySurface.named("notes")))
+        #expect(report.error == nil && report.finalText == "There is no budget.")
+        let w = try #require(report.writer)
+        #expect(w.backend == "cloud" && w.outcome == "accepted" && w.packet == "offline")
+        #expect(w.changed.first == .init(from: "there", to: "There"))
+        #expect(cloud.lastUser.contains("there is no budget"))
+        #expect(report.rendered.contains("writer:  cloud · accepted"))
+        // Off: no call, the report says so.
+        let off = ReplayWriter(backend: "off", generator: nil)
+        let offReport = await ReplayRunner(recognizer: DecoderFinalRecognizer(decoder: MockDecoder(script: script)), makeBooster: { nil },
+                                           pipeline: PipelineRunner(stages: []), writer: off)
+            .run(samples: [Float](repeating: 0, count: 32_000), source: "t.wav", surface: try #require(ReplaySurface.named("notes")))
+        #expect(offReport.writer?.outcome == "off" && offReport.writer?.changed.isEmpty == true)
+    }
+
+    @Test func replayParsesWriterAndPacketAndChoosesTheBackend() throws {
+        let o = try #require(ReplayCLI.parse(["app", "--replay", "a.wav", "--writer", "Cloud", "--packet", "/tmp/p.json"]))
+        #expect(o.writer == "cloud" && o.packet == "/tmp/p.json")
+        #expect(ReplayCLI.parse(["app", "--replay", "a.wav"])?.writer == nil)
+        let surface = try #require(ReplaySurface.named("chat"))
+        let keyed = InMemorySecretStore([SecretKey.apiKey(APIEndpoint.openRouter.providerID): "sk-or-test"])
+        func choose(_ writer: String?, packet: String? = nil, secrets: SecretStore = keyed,
+                    settings: SettingsStore = InMemorySettingsStore()) -> Result<ReplayWriter, ReplayCLI.WriterChoiceError> {
+            var opts = ReplayCLI.Options(target: "a.wav")
+            opts.writer = writer
+            opts.packet = packet
+            return ReplayCLI.liveWriter(opts, surface: surface, database: nil, settings: settings, secrets: secrets, vocabulary: false)
+        }
+        #expect((try? choose("off").get())?.stage == nil)
+        #expect((try? choose("cloud").get())?.backend == "cloud")
+        #expect(throws: ReplayCLI.WriterChoiceError.self) { try choose("cloud", secrets: InMemorySecretStore()).get() }
+        #expect(throws: ReplayCLI.WriterChoiceError.self) { try choose("bogus").get() }
+        #expect(throws: ReplayCLI.WriterChoiceError.self) { try choose("off", packet: "/nonexistent/packet.json").get() }
+        // Default: the app's resolved tier (an explicit Off here).
+        let offStore = InMemorySettingsStore()
+        S.setMode(.off, store: offStore)
+        #expect((try? choose(nil, settings: offStore).get())?.backend == "off")
+        // A packet file is used, its heard replaced by the recording's.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("packet-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let given = ContextPacket(destination: .init(profileID: "chat.message", appBundleID: "com.tinyspeck.slackmacgap"),
+                                  screenTerms: ["Kothari"], heard: .init(raw: "stale"))
+        try given.encoded().write(to: url, atomically: true, encoding: .utf8)
+        let w = try choose("cloud", packet: url.path).get()
+        #expect(w.packetSource == url.lastPathComponent)
+        let packet = w.packet(raw: Self.words("ping cotari"), boosted: Self.words("ping Kothari"), surface: surface)
+        #expect(packet.screenTerms == ["Kothari"] && packet.heard.raw == "ping cotari" && packet.heard.boosted == "ping Kothari")
+    }
+
     @Test func boosterGetsNoScreenOrNearCaretTerms() {
         #expect(BoostingWiring.rubricConfig.screenTermsInBoost == false && BoostingWiring.rubricConfig.nearCaretInBoost == false)
         let now = Date()
