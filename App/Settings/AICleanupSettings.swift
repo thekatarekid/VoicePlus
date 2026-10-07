@@ -21,13 +21,19 @@ public final class AICleanupSettingsModel: ObservableObject {
     @Published public private(set) var modes: LLMModes
     @Published public private(set) var install: LocalLLMInstallState
     @Published public private(set) var resident = false
+    /// Context Writer — the tier Correction runs on this Mac (Off: AI cleanup applies as before).
+    /// While it is on, Correction supersedes AI cleanup on every dictation it handles.
+    @Published public private(set) var correctionMode: ContextCorrectionSettings.Mode = .off
+    private let correctionAvailability: () -> ContextCorrectionSettings.Availability
 
     public init(settings: SettingsStore = UserDefaultsSettingsStore(), model: LocalLLMModel = CleanupWiring.model,
-                downloader: LocalLLMDownloader = LocalLLMDownloader(), residency: ModelResidency = .shared) {
+                downloader: LocalLLMDownloader = LocalLLMDownloader(), residency: ModelResidency = .shared,
+                correctionAvailability: @escaping () -> ContextCorrectionSettings.Availability = { WriterWiring.liveAvailability() }) {
         self.settings = settings
         self.model = model
         self.downloader = downloader
         self.residency = residency
+        self.correctionAvailability = correctionAvailability
         self.mode = CleanupWiring.mode(settings: settings)
         self.modes = CleanupWiring.llmModes(settings: settings)
         self.install = downloader.isInstalled(model) ? .downloaded : .notDownloaded
@@ -96,6 +102,17 @@ public final class AICleanupSettingsModel: ObservableObject {
     public func refresh() async {
         if case .downloading = install {} else { install = downloader.isInstalled(model) ? .downloaded : .notDownloaded }
         resident = await residency.isResident(ResidencyKey.cleanup)
+        refreshCorrection()
+    }
+
+    /// Re-reads Correction's tier (Settings change, appear).
+    public func refreshCorrection() {
+        correctionMode = ContextCorrectionSettings.resolvedMode(for: nil, store: settings, availability: correctionAvailability())
+    }
+
+    /// The line over the switches while Correction is on (nil when it is off).
+    public var supersededLine: String? {
+        correctionMode == .off ? nil : ContextCorrectionCopy.supersedesCleanup(correctionMode)
     }
 
     public func download() {
@@ -120,6 +137,16 @@ struct AICleanupGroup: View {
     var body: some View {
         VStack(spacing: 12) {
         GroupBox("AI cleanup", layout: .rows) {
+            // Context Writer — while Correction is on it replaces this stage; say so, link to it.
+            if let line = model.supersededLine {
+                RowView(ContextCorrectionCopy.supersedesCleanupTitle, detail: line) {
+                    Button(ContextCorrectionCopy.openCorrection) {
+                        MainWindowController.show(route: WindowRoute.settings(.models))
+                    }
+                    .accessibilityIdentifier("settings.models.llm.openCorrection")
+                }
+                .accessibilityIdentifier("settings.models.llm.supersededByCorrection")
+            }
             // X4 — four independent switches (fast path is on exactly when the other three are off).
             SettingsToggleRow(title: AICleanupSettingsModel.fastPathTitle, detail: AICleanupSettingsModel.fastPathDetail,
                               isOn: Binding(get: { model.modes.fastPathOnly }, set: { model.setFastPathOnly($0) }),
@@ -148,6 +175,9 @@ struct AICleanupGroup: View {
             .accessibilityIdentifier("settings.models.cleanupModel")
         }
         .task { await model.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: ContextCorrectionSettings.didChangeNotification)) { _ in
+            model.refreshCorrection()
+        }
         EditModelsGroup()   // X5 — Qwen3.5-2B / 4B for rewrite commands
         }
     }

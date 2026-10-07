@@ -119,4 +119,14 @@ public enum CleanupWiring {
         out.insert(cleanup, at: out.firstIndex { $0.id == .style } ?? out.endIndex)
         return out
     }
+
+    /// Context Writer — `stages` with the writer at cleanup's position: right before the cleanup
+    /// stage, else where cleanup would go (before style). On a run the writer handles
+    /// (`writer.active`) the cleanup stage skips with `writer`; otherwise the writer passes through.
+    public static func insertingWriter(_ writer: any PipelineStage, into stages: [any PipelineStage]) -> [any PipelineStage] {
+        guard let at = stages.firstIndex(where: { $0.id == .cleanup }) else { return inserting(writer, into: stages) }
+        var out = stages
+        out.insert(writer, at: at)
+        return out
+    }
 }

@@ -48,6 +48,9 @@ public final class AppContainer {
     /// P3 — timeline recorder + deixis/referent resolution + AX window text feed.
     public let deixis: DeixisService
     public let axWindowText: AXReaderWindowText
+    /// Context Writer (plan §1, §2, §5) — the writer stage's backends, the turn's packet, the landing
+    /// events and C1 learning (`WriterWiring`).
+    public let writer: WriterWiring
     /// N7 — the one bounded context snapshot per turn (started at key-down).
     public let turnContext: TurnContextSnapshot
     /// INT-wiring — the turn's resolved surface (N9), shell (N13) and rubric candidates (N11).
@@ -184,22 +187,37 @@ public final class AppContainer {
         let wakeVerbPre = WakeVerbPreRoute()
         self.wakeVerb = wakeVerbPre
         let guardStage = RegressionGuardStage(lexicon: { [weak adaptationService] in adaptationService?.loop.lexicon ?? PersonalLexicon() })
+        // Context Writer — Correction's tier per run (Automatic / Off / On this Mac / Cloud, per-app
+        // overrides): the writer stage at cleanup's position, the packet in the context step below.
+        // C1 reads the field after a landing through AX (never a secure field).
+        let writer = WriterWiring.live(settings: settings, database: database, adaptation: adaptationService,
+                                       personas: nil,   // the persona source is set once `personas` exists (below)
+                                       fieldReadback: { [system] in
+                                           guard let info = try? system.focusedElement(),
+                                                 info.role != FocusedElementInfo.secureRole,
+                                                 info.subrole != FocusedElementInfo.secureRole else { return nil }
+                                           return info.value
+                                       })
+        self.writer = writer
+        WriterWiring.install(writer)
         // R4.2 — `FieldRolePipeline` puts `FieldRoleFormatterStage` *in place of* the five
         // register-routed formatters (it runs one of them itself, chosen by the field role, so
         // keeping both would format the same spans twice). Everything else keeps its position.
         let builtIn = StageRegistry.allStages().filter { $0.id != .gatekeeper }.map { stage in
             stage.id == .style ? DictionaryWiring.styleStage(store: styleStore) : stage   // V5 P5 entity guard
         }
-        let stages: [any PipelineStage] = TurnTraceWiring.traced(   // V5 I3 per-stage diff, in memory (last 20 turns)
+        let stages: [any PipelineStage] = TurnTraceWiring.traced(TurnTraceWiring.tracingWriter(   // V5 I3 per-stage diff, in memory (last 20 turns)
             [WakeVerbStage(preRoute: wakeVerbPre), SnippetStage(store: snippetStore), guardStage]
-            + FieldRolePipeline.replacingFormatters(in: CleanupWiring.inserting(   // V5 D2 cleanup LLM, before style
-                CleanupWiring.stage(routing: routing, settings: settings), into: builtIn)))
+            + FieldRolePipeline.replacingFormatters(in: CleanupWiring.insertingWriter(writer.stage(),   // Context Writer, at cleanup's position
+                into: CleanupWiring.inserting(   // V5 D2 cleanup LLM, before style (skips while the writer handles the run)
+                    CleanupWiring.stage(routing: routing, settings: settings), into: builtIn)))))
         let gatekeeper = GatekeeperStage(local: PreRoutingClassifier(hooks: [actHook, latchController, wakeVerbPre, SnippetPreRoute(store: snippetStore)]))
         pipeline = PipelineRunner(gatekeeper: gatekeeper, stages: stages, providers: providerRouting)
 
         // P2.5 personas: the same rows Settings edits, auto-drafted from style learnings.
         let personaManager = PersonaManager(store: database.map { DatabasePersonaStore(database: $0) } ?? InMemoryPersonaStore(), styles: styleStore)
         personas = personaManager
+        writer.packetBuilder.persona = PacketSources.persona(personaManager)   // Context Writer — the packet's persona
         // N9 — once per store: drop the auto persona the old "code" substring drafted for Codex.
         FormattingSettings.runSurfacePersonaResetIfNeeded(store: settings, personas: personaManager)
         // V5 F1 — every closed landing teaches the app's style; auto-drafted personas follow it.
@@ -258,13 +276,28 @@ public final class AppContainer {
         let shellContext = ShellContextProvider(settings: settings)
         self.shellContext = shellContext
         let turnSurface = TurnSurfaceContext(
-            field: { [fieldContextReader] app in fieldContextReader.fieldContext(bundleID: app.bundleID) },
+            field: { [fieldContextReader, writer] app in
+                let field = fieldContextReader.fieldContext(bundleID: app.bundleID)
+                writer.noteKeyDownField(field, app: app)   // Context Writer — the packet's key-down field read
+                return field
+            },
             shell: { [shellContext] pid in shellContext.context(terminalPID: pid) },
             snapshot: turnContext)
         self.turnSurface = turnSurface
+        // Context Writer — the packet reads the turn's resolution, snapshot, candidates and the final
+        // pass's pre-boost text (the spans entering the chain stay the boosted ones).
+        writer.sources.resolved = { [turnSurface] in turnSurface.current() }
+        writer.sources.contents = { [turnContext] in
+            if case .contents(let contents) = turnContext.lookup(frontmost: nil) { return contents }
+            return nil
+        }
+        writer.sources.candidates = { [turnSurface] in turnSurface.candidates() }
+        writer.sources.preBoostText = { [swappable] spans in
+            PreBoostSpans.preBoostText(FinalPassTimingRecorder.timing(of: swappable), for: spans)
+        }
+        // Context Writer scope-down: the booster gets no Contacts and no screen terms (plan §1).
         boosting = BoostingWiring.controller(database: database, adaptation: adaptationService, modelManager: built.modelManager,
                                              surface: { [turnSurface] in turnSurface.surface() },
-                                             turnCandidates: { [turnSurface] in turnSurface.candidates() },
                                              weights: BoostingWiring.learnedWeights, learning: .shared)
         // V5 B2 (X2) — the ranked list now has a caller: one session over the same harvester.
         contextPrompt = ContextPromptSession(harvester: harvester, idleDiscardAfter: 120)
@@ -304,6 +337,11 @@ public final class AppContainer {
         lander = UtteranceLander(pipeline: pipeline, injector: injector, system: system, repair: repair, flags: flags,
                                  database: database, zeroEdit: zeroEditTracker, recentWords: recentWords)
         lander.personaManager = personas
+        // Context Writer — `.finished` (outcome, changed words in the final text) and C1 on every landing.
+        lander.writerFinished = { [writer] id, context, spans, text in
+            writer.finishLanding(id: id, context: context, finalSpans: spans, text: text)
+        }
+        lander.onInjected = { [writer] result in writer.observeLanded(result) }
         lander.transform = transform
         lander.correction = correction
         // S7d — the app's Dictionary & Apps rule applies last: Verbatim switches the style pass and
@@ -315,13 +353,16 @@ public final class AppContainer {
         // INT-wiring — after the app rule: the turn's shell (N13), the user's preset defaults under
         // any per-app preset (N25), and the mid-sentence cleanup switch (N26, reads the field only
         // when it is off).
-        lander.contextAugmenter = { [turnSurface, settings, fieldContextReader] spans, context in
+        lander.contextAugmenter = { [turnSurface, settings, fieldContextReader, writer] spans, context in
             var ctx = ruledAugmenter(spans, context)
             ctx = turnSurface.augment(ctx, bundleID: ctx.appBundleID)
             ctx = SurfacePresetSettings.apply(to: ctx, store: settings)
             ctx = MidDocumentCleanupSettings.apply(to: ctx, store: settings) {
                 fieldContextReader.fieldContext(bundleID: ctx.appBundleID)
             }
+            // Context Writer — when Correction resolves to a tier for this app: the packet (pre-boost
+            // heard), `writer.active` (the cleanup stage steps aside). Off: unchanged.
+            ctx = writer.augment(spans, ctx)
             return ctx
         }
         // R4.2 — the AX hints the field-role formatter classifies on, read once per utterance.
@@ -398,7 +439,8 @@ public final class AppContainer {
         let decisionLog = database.flatMap { try? TurnDiagnostics(database: $0) }
         decisionHub.diagnostics = { [decisionLog] event, turn in decisionLog?.record(event, turn: turn) }
 
-        labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, boosting: boosting)
+        labRegistry = LabWiring.registry(modelManager: built.modelManager, repair: repair, boosting: boosting,
+                                         settings: settings, database: database)
 
         zeroEditTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak zeroEditTracker] _ in
             zeroEditTracker?.poll()
@@ -559,9 +601,16 @@ public final class AppContainer {
         turnContextLease.begin()
         let app = system.frontmostApp()
         turnContext.start(app: app)
+        // Context Writer — a fresh turn; the cloud connection (or the local model) warms off this
+        // thread when Correction resolves to it for the frontmost app.
+        writer.beginTurn(app: app)
         // INT-wiring — the surface resolves in the background; the boost list is built once it is
         // known (≤ ~0.35 s, well before the final pass), never on the key-down thread.
-        turnSurface.begin(app: app) { [weak self] in self?.installBooster() }
+        turnSurface.begin(app: app) { [weak self] in
+            self?.installBooster()
+            // Context Writer — the tty's foreground process, once per turn, on the surface queue.
+            if let self { self.writer.noteSurfaceResolved(shell: self.turnSurface.current()?.shell) }
+        }
     }
 
     /// The turn ended (landed, dropped or cancelled): the surface and the snapshot are spent.

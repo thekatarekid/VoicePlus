@@ -46,6 +46,7 @@ public struct StageDiff: Sendable, Equatable, Identifiable {
         switch stage.rawValue {
         case "itn": return "Numbers, dates and units"
         case "cleanup": return "AI cleanup"
+        case "writer.context": return "Context Writer"
         case "style": return "Style"
         case "formatter.fieldRole": return "Field formatting"
         case "formatter.fieldValue": return "Field value"

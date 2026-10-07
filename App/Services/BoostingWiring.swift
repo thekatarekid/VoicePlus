@@ -6,17 +6,21 @@ import Shared
 /// V5 B1 — builds the app's `BoostingController`: the user's Dictionary, their confirmed
 /// corrections and the learned lexicon (the `.authored` tier — never screen text) become a
 /// per-utterance CTC boost list, applied to the final pass by `CTCVocabularyBooster`.
+///
+/// Context Writer (plan §1 "what the booster becomes") — the booster is scoped down: **no Contacts
+/// and no screen terms** reach it from the App side either (the Engine's `BoostVocabulary` enforces
+/// the same). The boost rubric gets the authored candidates without Contacts rows and none of the
+/// turn's screen / near-caret / shell candidates, and `rubricConfig` admits no screen term to a
+/// boost layer. Screen text reaches the writer's packet (and the legacy cleanup prompt) as data.
 enum BoostingWiring {
     /// - Parameters:
     ///   - surface: N11 — the turn's resolved surface. When it returns a resolution, the boost list
-    ///     is the rubric's stable + per-turn layers (Contacts only on chat/email/name fields, common
-    ///     words only with strong evidence); nil keeps the legacy authored-only list.
-    ///   - turnCandidates: per-turn candidates the app gathered (screen, shell, lexicon, participants).
+    ///     is the rubric's stable + per-turn layers over the authored candidates only (no Contacts,
+    ///     no screen); nil keeps the legacy authored-only list.
     ///   - weights: learned per-surface source weights (N28); starting weights when nil.
     static func controller(database: AppDatabase?, adaptation: AdaptationService?,
                            modelManager: ModelManager?,
                            surface: (@Sendable () -> SurfaceResolution?)? = nil,
-                           turnCandidates: (@Sendable () -> [ContextCandidate])? = nil,
                            weights: (@Sendable () -> RubricWeights)? = nil,
                            learning: ContextLearningTap? = nil) -> BoostingController? {
         guard let modelManager else { return nil }   // mock / unavailable engine: nothing to boost
@@ -28,8 +32,11 @@ enum BoostingWiring {
         let learned = adaptation.map { LearnedLexiconSource(loop: $0.loop) }
         if let learned { authored.add(learned) }
         let ranker = ContextRanker()
+        // Context Writer scope-down: no turn candidates (screen, near-caret, shell, participants)
+        // and no Contacts rows in the boost rubric.
         let rubric = surface.map { rubricRanking(database: database, learned: learned, surface: $0,
-                                                 turnCandidates: turnCandidates, weights: weights, learning: learning) }
+                                                 turnCandidates: nil, weights: weights, learning: learning,
+                                                 contacts: false) }
         return BoostingController(
             context: { now in ranker.rank(harvesting: authored, now: now) },
             // N1: Dictionary rows keep their origin; Contacts imports never enter the boost list.
@@ -61,14 +68,17 @@ enum BoostingWiring {
                       surface: surface, turnCandidates: turnCandidates, weights: weights, learning: learning)
     }
 
+    /// - Parameter contacts: false drops the Dictionary's Contacts rows (the boost rubric).
     static func rubricRanking(database: AppDatabase?, learned: LearnedLexiconSource?,
                               surface: @escaping @Sendable () -> SurfaceResolution?,
                               turnCandidates: (@Sendable () -> [ContextCandidate])?,
                               weights: (@Sendable () -> RubricWeights)?,
-                              learning: ContextLearningTap? = nil) -> @Sendable (Date) -> RankedContext? {
+                              learning: ContextLearningTap? = nil,
+                              contacts: Bool = true) -> @Sendable (Date) -> RankedContext? {
         { now in
             guard let resolved = surface() else { return nil }
             var candidates = authoredCandidates(database: database)
+            if !contacts { candidates.removeAll { $0.source == .contact } }
             candidates += ContextCandidates.entries(learned?.harvest(now: now) ?? [])
             candidates += turnCandidates?() ?? []
             let ranked = ContextRubric(config: rubricConfig, weights: weights?() ?? RubricWeights())
@@ -78,11 +88,13 @@ enum BoostingWiring {
         }
     }
 
-    /// N11-lab (F27) — screen terms join the per-turn boost layer only when a measured Lab report
-    /// (`screen-terms-lab.json` in the support folder) passes; off by default. Read once per launch.
+    /// Context Writer scope-down: no screen term — far window or near the caret — is admitted to a
+    /// boost layer, whatever the N11-lab report (`ScreenTermsDefault`) says. The ranking itself
+    /// (prompt terms, spell list) is unchanged.
     static let rubricConfig: ContextRubric.Config = {
         var c = ContextRubric.Config()
-        c.screenTermsInBoost = ScreenTermsDefault.enabled()
+        c.screenTermsInBoost = false
+        c.nearCaretInBoost = false
         return c
     }()
 

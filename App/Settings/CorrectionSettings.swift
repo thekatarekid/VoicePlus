@@ -2,11 +2,18 @@ import Foundation
 import Providers
 import Shared
 
-// Context Writer (VoicePlus_ContextWriter_Plan.md §5) — Settings › Models "Correction": Off · On this
-// Mac · Cloud, the cloud model and its fallbacks, pinned providers, the (stored-only) send-audio
-// switch and per-app overrides. Everything lives under `correction.*`; `cloudConfig` hands the
-// stored values to `CloudWriterGenerator`. Distinct from `CorrectionSettings` (silent corrections,
+// Context Writer (VoicePlus_ContextWriter_Plan.md §5) — Settings › Models "Correction": Automatic ·
+// Off · On this Mac · Cloud, the cloud model and its fallbacks, pinned providers, the (stored-only)
+// send-audio switch and per-app overrides. Everything lives under `correction.*`; `cloudConfig` hands
+// the stored values to `CloudWriterGenerator`. Distinct from `CorrectionSettings` (silent corrections,
 // Settings › General), which predates the writer.
+//
+// **Automatic** (the default: the user never picked a tier, `correction.mode` absent) resolves per
+// dictation from what this Mac has: **Cloud** when an OpenRouter key is stored (and egress to it is
+// allowed), else **On this Mac** when a local instruct model is on disk (the shared Qwen the user
+// downloaded, `llm.edit.preferredModel` first), else **Off**. An explicit tier is honoured as chosen:
+// "Cloud" without a key, or "On this Mac" without a model, writes nothing (it never falls back to the
+// other tier). A per-app override wins over both. `resolvedMode` is what `WriterWiring` runs.
 
 public enum ContextCorrectionSettings {
     public enum Mode: String, CaseIterable, Identifiable, Codable, Sendable {
@@ -29,12 +36,63 @@ public enum ContextCorrectionSettings {
     public static let perAppKey = "correction.perApp"
     public static let didChangeNotification = Notification.Name("VoicePlus.ContextCorrectionSettings.didChange")
 
-    /// Off until the user picks a tier: nothing leaves the Mac, nothing loads, by default.
+    /// What `mode(_:)` reads when the user never picked a tier. What actually *runs* then is
+    /// `automaticMode(_:)` (see the header): `resolvedMode(for:store:availability:)`.
     public static let defaultMode: Mode = .off
+
+    /// The picker's four values: Automatic (nothing stored) or an explicit tier.
+    public enum Choice: String, CaseIterable, Identifiable, Sendable {
+        case automatic, off, local, cloud
+        public var id: String { rawValue }
+        /// The explicit tier (nil for Automatic).
+        public var mode: Mode? {
+            switch self {
+            case .automatic: return nil
+            case .off: return .off
+            case .local: return .local
+            case .cloud: return .cloud
+            }
+        }
+        public init(_ mode: Mode?) {
+            switch mode {
+            case nil: self = .automatic
+            case .off?: self = .off
+            case .local?: self = .local
+            case .cloud?: self = .cloud
+            }
+        }
+        /// "Automatic: Cloud" for Automatic (with what it resolves to), else the tier's title.
+        public func title(resolved: Mode) -> String {
+            mode?.title ?? "\(ContextCorrectionCopy.automaticTitle): \(resolved.title)"
+        }
+    }
+
+    /// What this Mac can run right now: the inputs of Automatic and of an explicit tier.
+    public struct Availability: Equatable, Sendable {
+        /// An OpenRouter key is stored and egress to OpenRouter is allowed.
+        public var hasCloudKey: Bool
+        /// A local instruct model (the shared Qwen) is on disk and the llama.cpp runtime is linked.
+        public var hasLocalModel: Bool
+        public init(hasCloudKey: Bool, hasLocalModel: Bool) {
+            self.hasCloudKey = hasCloudKey
+            self.hasLocalModel = hasLocalModel
+        }
+        public static let none = Availability(hasCloudKey: false, hasLocalModel: false)
+
+        /// Whether `mode` can run on this Mac now.
+        public func supports(_ mode: Mode) -> Bool {
+            switch mode {
+            case .off: return true
+            case .local: return hasLocalModel
+            case .cloud: return hasCloudKey
+            }
+        }
+    }
 
     /// Every stored value at once — what the page shows, what a test round-trips, what sync could carry.
     public struct Snapshot: Codable, Equatable, Sendable {
-        public var mode: Mode
+        /// The explicit tier; nil = Automatic (never chosen).
+        public var mode: Mode?
         public var cloudModel: String
         public var cloudFallbacks: [String]
         public var providerOrder: [String]
@@ -42,7 +100,7 @@ public enum ContextCorrectionSettings {
         public var sendAudio: Bool
         public var perApp: [String: Mode]
 
-        public init(mode: Mode = ContextCorrectionSettings.defaultMode,
+        public init(mode: Mode? = nil,
                     cloudModel: String = CloudWriterConfig.defaultModel,
                     cloudFallbacks: [String] = CloudWriterConfig.defaultFallbacks,
                     providerOrder: [String] = [],
@@ -73,18 +131,49 @@ public enum ContextCorrectionSettings {
     // MARK: Reads (defaults included)
 
     public static func snapshot(_ store: SettingsStore?) -> Snapshot {
-        Snapshot(mode: mode(store), cloudModel: cloudModel(store), cloudFallbacks: cloudFallbacks(store),
+        Snapshot(mode: chosenMode(store), cloudModel: cloudModel(store), cloudFallbacks: cloudFallbacks(store),
                  providerOrder: providerOrder(store), sendAudio: sendsAudio(store), perApp: overrides(store))
     }
 
-    public static func mode(_ store: SettingsStore?) -> Mode {
-        store?.string(modeKey).flatMap(Mode.init(rawValue:)) ?? defaultMode
+    /// The tier the user picked, or nil when they never did (Automatic).
+    public static func chosenMode(_ store: SettingsStore?) -> Mode? {
+        store?.string(modeKey).flatMap(Mode.init(rawValue:))
     }
 
-    /// The mode in effect for an app: its override when one is set, else the global mode.
+    /// The picker's value: Automatic or the explicit tier.
+    public static func choice(_ store: SettingsStore?) -> Choice { Choice(chosenMode(store)) }
+
+    /// The stored tier; Automatic reads as `defaultMode` (Off) here. What runs: `resolvedMode`.
+    public static func mode(_ store: SettingsStore?) -> Mode {
+        chosenMode(store) ?? defaultMode
+    }
+
+    /// The stored tier for an app: its override when one is set, else the global tier (Automatic
+    /// reads as Off). What runs: `resolvedMode(for:store:availability:)`.
     public static func mode(for bundleID: String?, store: SettingsStore?) -> Mode {
         if let bundleID, let override = overrides(store)[bundleID] { return override }
         return mode(store)
+    }
+
+    /// Automatic: Cloud with a key, else On this Mac with a model, else Off.
+    public static func automaticMode(_ availability: Availability) -> Mode {
+        if availability.hasCloudKey { return .cloud }
+        if availability.hasLocalModel { return .local }
+        return .off
+    }
+
+    /// The tier selected for an app before availability: override, else the explicit tier, else
+    /// what Automatic resolves to.
+    public static func selectedMode(for bundleID: String?, store: SettingsStore?, availability: Availability) -> Mode {
+        if let bundleID, let override = overrides(store)[bundleID] { return override }
+        return chosenMode(store) ?? automaticMode(availability)
+    }
+
+    /// What runs for one dictation in `bundleID`: the selected tier when this Mac can run it, else
+    /// Off (an explicit Cloud without a key, or On this Mac without a model, writes nothing).
+    public static func resolvedMode(for bundleID: String?, store: SettingsStore?, availability: Availability) -> Mode {
+        let selected = selectedMode(for: bundleID, store: store, availability: availability)
+        return availability.supports(selected) ? selected : .off
     }
 
     public static func cloudModel(_ store: SettingsStore?) -> String {
@@ -125,10 +214,13 @@ public enum ContextCorrectionSettings {
         setOverrides(s.perApp, store: store)
     }
 
-    public static func setMode(_ m: Mode, store: SettingsStore?) {
-        store?.set(m == defaultMode ? nil : m.rawValue, for: modeKey)
+    /// nil = Automatic (the key is cleared); any tier, Off included, is stored as chosen.
+    public static func setMode(_ m: Mode?, store: SettingsStore?) {
+        store?.set(m?.rawValue, for: modeKey)
         changed()
     }
+
+    public static func setChoice(_ c: Choice, store: SettingsStore?) { setMode(c.mode, store: store) }
 
     public static func setCloudModel(_ id: String, store: SettingsStore?) {
         let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -209,7 +301,17 @@ public enum ContextCorrectionCopy {
     public static let title = "Correction"
     public static let modeTitle = "Correction"
     public static let modeDetail = "Fix names, spellings and formatting from what is on screen. Off sends and loads nothing."
-    public static let localDetail = "A model on this Mac. Not installed yet: this tier arrives with the local fine-tune."
+    public static let automaticTitle = "Automatic"
+    public static let automaticDetail = "Cloud when an OpenRouter key is on file, else the model on this Mac when one is downloaded, else off."
+    public static let localDetail = "The rewrite model on this Mac (Settings › Models › Rewrite models). Nothing leaves the Mac."
+    public static let localMissing = "No rewrite model on this Mac yet: download one under Rewrite models."
+    public static let cloudMissing = "No OpenRouter key yet: add one under Providers. Nothing is sent until then."
+    /// AI cleanup's line while Correction is on (`AICleanupGroup`).
+    public static let supersedesCleanupTitle = "Correction is on"
+    public static func supersedesCleanup(_ mode: ContextCorrectionSettings.Mode) -> String {
+        "Correction (\(mode.title)) replaces AI cleanup on every dictation it handles. These switches apply when Correction is off."
+    }
+    public static let openCorrection = "Correction settings"
     public static let cloudModelTitle = "Cloud model"
     public static let cloudModelDetail = "OpenRouter id. The bake-off picked the default."
     public static let fallbacksTitle = "Fallback models"

@@ -40,10 +40,13 @@ struct CorrectionSettingsTests {
         #expect(store.bool("correction.sendAudio") == true)
         #expect(S.cloudConfig(store) == CloudWriterConfig(model: "mistralai/mistral-small-2603", fallbackModels: ["a/b", "c/d"],
                                                           providerOrder: ["together"]))
-        // Back to defaults clears the keys rather than pinning the default id.
+        // Back to defaults clears the keys rather than pinning the default id. An explicit Off is a
+        // choice (stored); Automatic (nil) clears the key.
         S.setCloudModel("", store: store)
         S.setCloudFallbacks(CloudWriterConfig.defaultFallbacks, store: store)
         S.setMode(.off, store: store)
+        #expect(store.string("correction.mode") == "off")
+        S.setMode(nil, store: store)
         #expect(store.string("correction.cloudModel") == nil && store.string("correction.cloudFallbacks") == nil
                 && store.string("correction.mode") == nil)
     }

@@ -19,12 +19,12 @@ import Shared
 /// thread, terms, titles or labels — the record keeps the profile and the process-tree facts);
 /// packet contents are never logged, only counts. Screen text is data, never instructions.
 ///
-/// Call site (wave 2, not wired here): `UtteranceLander.land`'s `contextAugmenter` step, after
-/// `AppRules.applying` — build an `Input` from `turnSurface.current()`, the key-down field read,
-/// `turnContext.lookup(frontmost:)`'s contents and `turnSurface.candidates()`, then
-/// `builder.write(input, into: &ctx)`; `Pipeline`'s `ContextWriterStage` reads it back with
-/// `ContextPacket.read(from:)`. Build it off the main thread (the rubric and the splitter are
-/// milliseconds, the database read is one indexed query).
+/// Call site: `WriterWiring.augment` in `UtteranceLander.land`'s `contextAugmenter` step, after
+/// `AppRules.applying` — an `Input` from `turnSurface.current()`, the key-down field read,
+/// `turnContext.lookup(frontmost:)`'s contents, `turnSurface.candidates()` and the pre-boost spans
+/// (`PreBoostSpans`), then `builder.write(input, into: &ctx)`; `Pipeline`'s `ContextWriterStage`
+/// reads it back with `ContextPacket.read(from:)`. Only built when Correction resolves to a tier
+/// for the run (the rubric and `HeardWords` are milliseconds, the database read one indexed query).
 public final class ContextPacketBuilder: @unchecked Sendable {
     public struct Input {
         public var mode: WriterMode = .transcribe
@@ -43,7 +43,8 @@ public final class ContextPacketBuilder: @unchecked Sendable {
         public var participantObservation: ThreadParticipants.Observation?
         /// `TTYForegroundProcess.live(resolved.shell)`, resolved once per turn off the key-down thread.
         public var foregroundProcess: String?
-        /// The pre-boost 1-best spans.
+        /// The pre-boost 1-best spans (`PreBoostSpans.reconstruct`; the engine's spans when nothing
+        /// was boosted). `heard.words` is `HeardWords.make(from:)` over them.
         public var spans: [TranscriptSpan] = []
         /// What the booster / repair pre-pass would have written (evidence only).
         public var boostedText: String?
@@ -104,7 +105,7 @@ public final class ContextPacketBuilder: @unchecked Sendable {
         let appName = firstNonEmpty(input.app?.appName, input.resolved?.nearCaret?.appName)
         let surface = input.resolved?.surface ?? input.field?.surface
             ?? SurfaceResolution(kind: .prose, confidence: 0, isWebArea: false, signals: [], isFallback: true)
-        let heard = PacketHeardWords.heard(input.spans, boosted: input.boostedText)
+        let heard = Self.heard(input.spans, boosted: input.boostedText)
 
         // §2.1 secure: nothing is read, nothing is carried — not even the app.
         if Self.isSecure(input, surface: surface) {
@@ -174,6 +175,15 @@ public final class ContextPacketBuilder: @unchecked Sendable {
     }
 
     // MARK: Parts
+
+    /// §2.5 — the raw 1-best (`renderedText` of the pre-boost spans), its words with confidence and
+    /// alternates (`HeardWords`), and the booster's text as evidence when it differs.
+    static func heard(_ spans: [TranscriptSpan], boosted: String?) -> ContextPacket.Heard {
+        let raw = spans.renderedText
+        let boostedText = boosted?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let differs = boostedText.map { !$0.isEmpty && $0 != raw.trimmingCharacters(in: .whitespacesAndNewlines) } ?? false
+        return ContextPacket.Heard(raw: raw, words: HeardWords.make(from: spans), boosted: differs ? boostedText : nil)
+    }
 
     static func isSecure(_ input: Input, surface: SurfaceResolution) -> Bool {
         if surface.kind == .secure { return true }

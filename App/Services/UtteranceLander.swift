@@ -196,6 +196,14 @@ public final class UtteranceLander: @unchecked Sendable {
     /// S3 — the commit guard for an injector that has none of its own (anything but
     /// `TextInjector`, e.g. a test spy): one insert per `TurnCommitKey` whatever the injector.
     public let commitGuard = TurnCommitGuard()
+    /// Context Writer — told once per landing, as soon as its final text exists (before any preview
+    /// dwell or insert), with the run's context and final spans; `text` is nil when the landing ended
+    /// without one (a command, a refusal, an empty or failed run). `WriterWiring.finishLanding` posts
+    /// `WriterLandingEvent.finished` from it. When set, the run's context carries the landing id
+    /// (`WriterWiring.landingIDKey`) so the writer's `.started` names the same landing.
+    public var writerFinished: ((_ id: UUID, _ context: StageContext, _ finalSpans: [TranscriptSpan], _ text: String?) -> Void)?
+    /// C1 — every confirmed write of a landing (`WriterWiring.observeLanded` → `RedictationLearner`).
+    public var onInjected: ((LandingResult) -> Void)?
 
     public init(pipeline: PipelineRunner, injector: any Injector, system: SystemAccess, repair: RepairSession?,
                 flags: FeatureFlagService, database: AppDatabase?, zeroEdit: ZeroEditTracker? = nil,
@@ -234,6 +242,7 @@ public final class UtteranceLander: @unchecked Sendable {
         let id = UUID()
         let bundleID = focus?.bundleID ?? system.frontmostApp()?.bundleID
         var ctx = context(bundleID: bundleID)
+        if writerFinished != nil { ctx.extra[WriterWiring.landingIDKey] = id.uuidString }
         // N7 — the augmenters read the turn's bounded snapshot (`AXWindowText.snapshot`), never a
         // live walk; the time is measured so the turn record shows it.
         let contextStarted = clock()
@@ -266,6 +275,15 @@ public final class UtteranceLander: @unchecked Sendable {
         }
         result.route = decision.route
         result.register = decision.register
+        // Context Writer — `.finished` once: with the final text below, else (a command, a refusal,
+        // Notes) when this landing returns without one.
+        var writerReported = false
+        func reportWriter(_ text: String?, _ spans: [TranscriptSpan]) {
+            guard !writerReported else { return }
+            writerReported = true
+            writerFinished?(id, ctx, spans, text)
+        }
+        defer { reportWriter(nil, outSpans) }
 
         // P4.2 — the act pre-route hook claimed the utterance (adapter returns route .none):
         // the text is a command, never typed; the act session already received it. The claim
@@ -405,6 +423,7 @@ public final class UtteranceLander: @unchecked Sendable {
             return result
         }
         result.text = text
+        reportWriter(text, finalSpans)
         logTransform(raw: spans, landed: text, finalSpans: finalSpans)
         // S5 — the marks the pill will draw, mapped through formatting: their ranges are the record's
         // `uncertainSpans` and their count the "N words to review" (T05 "Review this phrase").
@@ -489,6 +508,7 @@ public final class UtteranceLander: @unchecked Sendable {
         recordHistory(utterance, text: text, bundleID: bundleID)
         result.totalMs = ms(since: pending.landStarted)
         Log.app.info("landed \(pending.spans.count) spans (\(text.count) chars) route=\(result.route.rawValue) register=\(result.register.rawValue) via \(String(describing: outcome)) in \(String(format: "%.0f", result.totalMs)) ms")
+        if outcome.succeeded { onInjected?(result) }
         return result
     }
 

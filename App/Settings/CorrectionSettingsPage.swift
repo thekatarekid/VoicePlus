@@ -3,8 +3,8 @@ import Providers
 import Shared
 import SwiftUI
 
-// Context Writer (plan §5) — the Settings › Models "Correction" group: one control (Off / On this
-// Mac / Cloud), the cloud model id, the provider line, the data sent in the last hour (from the
+// Context Writer (plan §5) — the Settings › Models "Correction" group: one control (Automatic:
+// <resolved> / Off / On this Mac / Cloud), the cloud model id, the provider line, the data sent in the last hour (from the
 // network log, bytes only), per-app overrides, and "Test with last dictation", which runs the cloud
 // writer on the most recent history row and shows the result here. Nothing is injected.
 
@@ -29,8 +29,19 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     private let secrets: SecretStore
     private let writer: Writer?
     private let now: () -> Date
+    /// A local instruct model is on disk (the shared Qwen); injected so a test does not read this
+    /// Mac's Application Support.
+    private let localModelOnDisk: () -> Bool
 
-    @Published public var mode: ContextCorrectionSettings.Mode { didSet { ContextCorrectionSettings.setMode(mode, store: store) } }
+    /// The picker: Automatic (nothing stored) or an explicit tier.
+    @Published public var choice: ContextCorrectionSettings.Choice {
+        didSet { ContextCorrectionSettings.setChoice(choice, store: store) }
+    }
+    /// The explicit tier (Automatic reads as Off); setting it picks that tier.
+    public var mode: ContextCorrectionSettings.Mode {
+        get { choice.mode ?? ContextCorrectionSettings.defaultMode }
+        set { choice = ContextCorrectionSettings.Choice(newValue) }
+    }
     @Published public var cloudModel: String {
         didSet { ContextCorrectionSettings.setCloudModel(cloudModel, store: store) }
     }
@@ -45,18 +56,22 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     @Published public var newOverrideBundleID = ""
     @Published public private(set) var bytesLastHour = 0
     @Published public private(set) var hasKey = false
+    @Published public private(set) var hasLocalModel = false
     @Published public private(set) var testState: TestState = .idle
 
-    /// `writer` replaces the live cloud generator (tests); `now` fixes the "last hour" window.
+    /// `writer` replaces the live cloud generator (tests); `now` fixes the "last hour" window;
+    /// `localModelOnDisk` replaces the on-disk check for the local tier.
     public init(store: SettingsStore, database: AppDatabase?, secrets: SecretStore = KeychainSecretStore(),
-                writer: Writer? = nil, now: @escaping () -> Date = Date.init) {
+                writer: Writer? = nil, now: @escaping () -> Date = Date.init,
+                localModelOnDisk: @escaping () -> Bool = { WriterWiring.installedLocalModel() != nil }) {
         self.store = store
         self.database = database
         self.secrets = secrets
         self.writer = writer
         self.now = now
+        self.localModelOnDisk = localModelOnDisk
         let s = ContextCorrectionSettings.snapshot(store)
-        mode = s.mode
+        choice = ContextCorrectionSettings.Choice(s.mode)
         cloudModel = s.cloudModel
         fallbacksText = s.cloudFallbacks.joined(separator: ", ")
         providerOrderText = s.providerOrder.joined(separator: ", ")
@@ -68,8 +83,22 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     /// Re-reads the key and the hour's bytes (on appear and after a test).
     public func refresh() {
         hasKey = ((try? secrets.get(SecretKey.apiKey(APIEndpoint.openRouter.providerID))) ?? nil)?.isEmpty == false
+        hasLocalModel = localModelOnDisk()
         bytesLastHour = Self.writerBytes(in: database, since: now().addingTimeInterval(-3600))
     }
+
+    public var availability: ContextCorrectionSettings.Availability {
+        .init(hasCloudKey: hasKey, hasLocalModel: hasLocalModel)
+    }
+
+    /// What Automatic resolves to on this Mac now.
+    public var automaticMode: ContextCorrectionSettings.Mode { ContextCorrectionSettings.automaticMode(availability) }
+
+    /// The tier the picker selects (Automatic resolved), before availability.
+    public var selectedMode: ContextCorrectionSettings.Mode { choice.mode ?? automaticMode }
+
+    /// "Automatic: Cloud" / "Off" / … — the picker's labels.
+    public func title(for c: ContextCorrectionSettings.Choice) -> String { c.title(resolved: automaticMode) }
 
     /// Bytes out of every writer call (prewarm included) since `since`, from the network log.
     public static func writerBytes(in database: AppDatabase?, since: Date) -> Int {
@@ -80,10 +109,11 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     // MARK: Lines
 
     public var modeDetail: String {
-        switch mode {
+        if choice == .automatic { return ContextCorrectionCopy.automaticDetail }
+        switch selectedMode {
         case .off: return ContextCorrectionCopy.modeDetail
-        case .local: return ContextCorrectionCopy.localDetail
-        case .cloud: return ContextCorrectionCopy.modeDetail
+        case .local: return hasLocalModel ? ContextCorrectionCopy.localDetail : ContextCorrectionCopy.localMissing
+        case .cloud: return hasKey ? ContextCorrectionCopy.modeDetail : ContextCorrectionCopy.cloudMissing
         }
     }
 
@@ -99,7 +129,7 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     public func addOverride() {
         let id = newOverrideBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return }
-        setOverride(mode, for: id)
+        setOverride(selectedMode, for: id)
         newOverrideBundleID = ""
     }
 
@@ -163,9 +193,9 @@ struct CorrectionSettingsPage: View {
     var body: some View {
         GroupBox(ContextCorrectionCopy.title, layout: .rows) {
             SettingsPickerRow(title: ContextCorrectionCopy.modeTitle, detail: model.modeDetail,
-                              selection: $model.mode, options: ContextCorrectionSettings.Mode.allCases,
-                              label: { $0.title }, identifier: "settings.correction.mode")
-            if model.mode == .cloud {
+                              selection: $model.choice, options: ContextCorrectionSettings.Choice.allCases,
+                              label: { model.title(for: $0) }, identifier: "settings.correction.mode")
+            if model.selectedMode == .cloud {
                 field(ContextCorrectionCopy.cloudModelTitle, detail: ContextCorrectionCopy.cloudModelDetail,
                       text: $model.cloudModel, identifier: "settings.correction.cloudModel")
                 field(ContextCorrectionCopy.fallbacksTitle, detail: ContextCorrectionCopy.fallbacksDetail,

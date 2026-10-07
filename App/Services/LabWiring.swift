@@ -3,6 +3,7 @@ import Engine
 import Foundation
 import Lab
 import Pipeline
+import Providers
 import Shared
 import SwiftUI
 
@@ -11,9 +12,15 @@ import SwiftUI
 /// fixtures through a `RealEngine` fed by `FileFeedAudioSource` — same decoder as dictation,
 /// no microphone.
 public enum LabWiring {
+    /// - Parameters:
+    ///   - settings / database: Correction's cloud config and the network log for the context-magic
+    ///     writers (`cloud`, `local`); the app's settings domain when nil.
     public static func registry(modelManager: ModelManager?, repair: RepairSession?,
-                                boosting: BoostingController?) -> LabRegistry {
+                                boosting: BoostingController?, settings: SettingsStore? = nil,
+                                database: AppDatabase? = nil) -> LabRegistry {
         var registry = LabRegistry.mocks
+        registerContextMagicWriters(&registry, modelManager: modelManager, settings: settings ?? UserDefaultsSettingsStore(),
+                                    database: database)
         for stage in StageRegistry.allStages() {
             registry.stages[stage.id.rawValue] = { stage }
         }
@@ -29,6 +36,32 @@ public enum LabWiring {
         return registry
     }
 
+    /// Context Writer — `lab run --suites context-magic --writer cloud|local`: the app's writer (gate,
+    /// stage, guard) over the cloud backend (Correction's model / fallbacks / pinned providers, the
+    /// stored OpenRouter key) or the local one (the downloaded shared model). A case with audio is
+    /// recognised first (the final recogniser, no booster: the raw 1-best) and its packet's `heard`
+    /// replaced with those words; `ms` is the writer's own time.
+    static func registerContextMagicWriters(_ registry: inout LabRegistry, modelManager: ModelManager?,
+                                            settings: SettingsStore, database: AppDatabase?,
+                                            secrets: SecretStore = KeychainSecretStore()) {
+        let recognizer = modelManager.map { LabFinalRecognizer(manager: $0) }
+        let recognize: (@Sendable (URL) async throws -> [TranscriptSpan])? = recognizer.map { r in { try await r.recognize(url: $0) } }
+        let config = ContextCorrectionSettings.cloudConfig(settings)
+        registry.contextMagicWriters["cloud"] = {
+            guard WriterWiring.cloudKeyStored(secrets) else {
+                throw LabError.badArguments("cloud writer: no OpenRouter key (Settings › Providers)")
+            }
+            let backend = CloudWriterBackend(generator: WriterWiring.cloudGenerator(config: config, secrets: secrets, database: database))
+            return WriterContextMagicRunner(backend: backend, recognize: recognize)
+        }
+        registry.contextMagicWriters["local"] = {
+            guard let model = WriterWiring.installedLocalModel() else {
+                throw LabError.badArguments("local writer: no rewrite model on this Mac (Settings › Models › Rewrite models)")
+            }
+            return WriterContextMagicRunner(backend: LocalWriterBackend(model: model), recognize: recognize)
+        }
+    }
+
     static func makeEngineTranscriber(manager: ModelManager, boosting: BoostingController?) throws -> any FixtureTranscriber {
         let feed = FileFeedAudioSource()
         let provider = BiasingRecognizerProvider(inner: ModelManagerRecognizerProvider(manager: manager))
@@ -37,6 +70,58 @@ public enum LabWiring {
             provider.install(boosting?.makeBoosterForUtterance())
             try feed.feed(url: url)
         }
+    }
+}
+
+/// Context Writer — one context-magic case through the app's writer. The backend is warmed once
+/// before the first case (a cold model load or TLS handshake is not the writer's per-dictation cost).
+struct WriterContextMagicRunner: ContextMagicRunning {
+    let backend: any WriterBackend
+    let recognize: (@Sendable (URL) async throws -> [TranscriptSpan])?
+    private let warm = WarmOnce()
+
+    init(backend: any WriterBackend, recognize: (@Sendable (URL) async throws -> [TranscriptSpan])?) {
+        self.backend = backend
+        self.recognize = recognize
+    }
+
+    func run(_ input: ContextMagicInput) async throws -> (text: String, ms: Double) {
+        if warm.claim() { await backend.prewarm() }
+        var packet = input.item.packet
+        let spans: [TranscriptSpan]
+        if let url = input.audioURL {
+            guard let recognize else { throw LabError.transcriberUnavailable("no speech model for \(url.lastPathComponent)") }
+            spans = try await recognize(url)
+            packet.heard = ContextPacketBuilder.heard(spans, boosted: nil)
+        } else {
+            spans = WriterWiring.spans(from: packet.heard)
+        }
+        let result = await WriterWiring.runOnce(spans: spans, packet: packet, generator: backend)
+        return (result.text, result.ms)
+    }
+}
+
+final class WarmOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool { lock.withLock { if done { return false }; done = true; return true } }
+}
+
+/// The dictation final pass without a booster (the raw 1-best), created on first use.
+final class LabFinalRecognizer: @unchecked Sendable {
+    let manager: ModelManager
+    private let lock = NSLock()
+    private var recognizer: FinalRecognizer?
+    init(manager: ModelManager) { self.manager = manager }
+
+    func recognize(url: URL) async throws -> [TranscriptSpan] {
+        let existing = lock.withLock { recognizer }
+        let r: FinalRecognizer
+        if let existing { r = existing } else {
+            r = try await RecognizerFactory.makeFinal(manager: manager)
+            lock.withLock { recognizer = r }
+        }
+        return try await r.recognize(try SampleAudioSource.load16k(url: url))
     }
 }
 

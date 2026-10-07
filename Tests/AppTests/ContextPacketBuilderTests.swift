@@ -426,7 +426,9 @@ struct ContextPacketBuilderTests {
         #expect(p.heard.raw == "send it to rahul")
         #expect(p.heard.words.map(\.text) == ["send", "it", "to", "rahul"])
         #expect(p.heard.words.last?.isUncertain == true)
-        #expect(p.heard.words.last?.alternates == ["Rahul", "raul"], "best first, the heard word itself left out")
+        // `HeardWords`: best first, the heard word itself left out — case and outer punctuation set
+        // aside, so "Rahul" (formatting the writer may do anyway) is not an alternate of "rahul".
+        #expect(p.heard.words.last?.alternates == ["raul"], "best first, the heard word itself left out")
         #expect(p.heard.marked == "send it to ⟦rahul⟧")
         #expect(p.heard.boosted == "send it to Rahul")
         let same = Self.builder().build(ContextPacketBuilder.Input(resolved: Self.resolved("com.apple.Notes", kind: .prose),
@@ -434,12 +436,15 @@ struct ContextPacketBuilderTests {
         #expect(same.heard.boosted == nil, "no evidence when the booster changed nothing")
     }
 
-    @Test func multiWordSpanAlternatesAttachToItsFirstWord() {
+    @Test func multiWordSpanAlternatesAttachByPosition() {
+        // `HeardWords` (the packet's splitter since wave 2): an alternate with the span's word count
+        // is attributed word by word; a phrase alternate of another length cannot be pinned to one word.
         let span = TranscriptSpan(text: "hold to talk", confidence: 0.4, audioRange: 0...1,
-                                  alternates: [Alternate(text: "hold-to-talk", score: 0.9, source: .repair)], provenance: [.asr])
-        let heard = PacketHeardWords.heard([span])
+                                  alternates: [Alternate(text: "hold-to-talk", score: 0.9, source: .repair),
+                                               Alternate(text: "old two talk", score: 0.5, source: .beam)], provenance: [.asr])
+        let heard = ContextPacketBuilder.heard([span], boosted: nil)
         #expect(heard.words.count == 3)
-        #expect(heard.words[0].alternates == ["hold-to-talk"] && heard.words[1].alternates.isEmpty)
+        #expect(heard.words[0].alternates == ["old"] && heard.words[1].alternates == ["two"] && heard.words[2].alternates.isEmpty)
         let allUncertain = heard.words.allSatisfy { $0.isUncertain }
         #expect(allUncertain)
     }

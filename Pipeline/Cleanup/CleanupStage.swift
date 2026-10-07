@@ -57,6 +57,9 @@ public struct CleanupStage: PipelineStage {
     /// N26 — `StageContext.extra` key; "true" keeps the first word's case and the terminal
     /// punctuation of the rules output (the field rules decided them: a mid-sentence insertion).
     public static let keepEdgesKey = "cleanup.keepEdges"
+    /// Context Writer — `StageContext.extra` key; "true" when the Context Writer handles this run
+    /// (Correction resolved to a tier this Mac can run), so the legacy cleanup model stays out.
+    public static let writerActiveKey = "writer.active"
 
     public var generator: (any CleanupGenerating)?
     public var mode: @Sendable () -> CleanupMode
@@ -142,6 +145,7 @@ public struct CleanupStage: PipelineStage {
     static func skipReason(_ spans: [TranscriptSpan], context: StageContext, mode: CleanupMode,
                            hasGenerator: Bool) -> String? {
         if mode == .off { return "off" }
+        if context.extra[writerActiveKey] == "true" { return "writer" }
         if !hasGenerator { return "noModel" }
         if spans.renderedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "empty" }
         if context.extra[Self.skipKey] == "true" { return "verbatim" }
