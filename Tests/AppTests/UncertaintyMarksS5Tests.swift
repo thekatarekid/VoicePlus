@@ -765,7 +765,8 @@ struct UncertainSpanOffsetsA6Tests {
         #expect(UncertainSpans.marked(Self.placeTwoRaw, spans: mapping.uncertainRanges) == "P⟦lace ⟧two.")
         #expect(!UncertainSpans.index(mapping.uncertainRanges, in: Self.placeTwoRaw), "a drifted range touches a space")
         #expect(UncertainSpans.rebased(mapping.uncertainRanges, from: Self.placeTwoStored, to: "Place two") == [0..<5])
-        #expect(try #require(mapping.marks.first).alternatives == ["Rlace", "Prace"])
+        let mark = try #require(mapping.marks.first)
+        #expect(mark.alternatives == ["Rlace", "Prace"], "the decoder's alternates ride along, best first")
     }
 
     @Test("“ it's all right.”: two marks, both on the stored text; the trailing period stays outside")

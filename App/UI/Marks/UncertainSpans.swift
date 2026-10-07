@@ -41,7 +41,7 @@ public enum UncertainSpans {
     static func offset(of shown: String, in stored: String) -> Int? {
         if shown == stored { return 0 }
         let leading = stored.prefix { $0.isWhitespace }.utf16.count
-        let trailing = stored.reversed().prefix { $0.isWhitespace }.utf16.count
+        let trailing = stored.reversed().prefix { $0.isWhitespace }.reduce(0) { $0 + $1.utf16.count }
         if stored.utf16.count - leading - trailing == shown.utf16.count,
            MarkWords.slice(stored, leading..<(leading + shown.utf16.count)) == shown {
             return leading
