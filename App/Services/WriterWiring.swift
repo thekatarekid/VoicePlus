@@ -576,16 +576,21 @@ public final class WriterWiring: @unchecked Sendable {
     /// on disk — `LocalModelManager.activeModel`), except that a pick this plan could only load
     /// `.exclusive` (the 4B on a 16 GB Mac) gives way to the plan's own model when that is on disk.
     /// The cleanup fine-tunes (SpeakoFlow, S1) are not candidates: they cannot follow the writer's prompt.
+    /// The writer's residency tier for the shared local model: the plan's local-LLM tier, never
+    /// `.exclusive` (dictation runs it every turn; see `LocalWriterBackend.prewarm`).
+    public static func writerTier(plan: ResidencyPlan) -> ResidencyTier {
+        let tier = plan.tier(for: .localLLM) ?? .onDemand
+        return tier == .exclusive ? .onDemand : tier
+    }
+
     public static func installedLocalModel(manager: LocalModelManager = EditModels.manager,
                                            plan: ResidencyPlan = ResidencyPlanStore.shared.plan,
                                            runtimeAvailable: Bool = LlamaCppEngine.runtimeAvailable) -> LocalLLMModel? {
         guard runtimeAvailable, plan.localLLMKey != nil, !plan.isHidden(.localLLM),
               let active = manager.activeModel else { return nil }
-        if ComputerUseSettings.plannerTier(for: active, plan: plan) == .exclusive,
-           let planned = LocalLLMCatalog.sharedDefault(localLLMKey: plan.localLLMKey), planned.id != active.id,
-           let onDisk = manager.model(planned.id), manager.state(onDisk.id).isReady {
-            return onDisk
-        }
+        // The writer registers whichever shared model the user has as `.onDemand` (`writerTier`), so
+        // the downloaded pick is used as it is (the 4B on a 16 GB Mac fits the 4.5 GiB budget beside
+        // the recogniser stack: 3.2 GB + ~1.4 GB).
         return active
     }
 
@@ -809,7 +814,7 @@ public final class LocalWriterBackend: WriterBackend, @unchecked Sendable {
         let key = ComputerUseSettings.residencyKey(for: model)
         provider = LlamaCppProvider(
             config: LlamaCppConfig(modelPath: model.localURL(), residencyKey: key,
-                                   tier: ComputerUseSettings.plannerTier(for: model, plan: plan),
+                                   tier: WriterWiring.writerTier(plan: plan),
                                    estimatedBytes: model.residentBytes, maxTokens: WriterWiring.localMaxTokens,
                                    deadline: deadline, lighterAlternative: plan.lighterAlternative(for: key),
                                    sampling: .greedy, idleUnloadAfter: nil, refuseUnderCriticalPressure: true),
@@ -836,8 +841,18 @@ public final class LocalWriterBackend: WriterBackend, @unchecked Sendable {
     /// registration, not under memory pressure. An already-resident model is touched.
     public func prewarm() async {
         guard await provider.isAvailable() else { return }
-        await provider.registerWithResidency()
         let key = self.key
+        // The GGUF's key is shared with the edit-command / planner provider (same engine per path).
+        // On a 16 GB plan that provider registers the 4B `.exclusive` (CUA-S1's rule): fine for one
+        // act turn, but dictation runs it every turn, and an exclusive load evicts the on-demand
+        // models dictation itself uses (Smart Turn, entity typing). The writer owns the model as an
+        // `.onDemand` dictation model: a non-resident exclusive registration is replaced (same
+        // engine, so the closures drive the same weights); a resident one is used as it is.
+        if await residency.snapshot().entries.first(where: { $0.key == key })?.tier == .exclusive,
+           await !residency.isResident(key) {
+            await residency.unregister(key)
+        }
+        await provider.registerWithResidency()
         let tier = await residency.snapshot().entries.first(where: { $0.key == key })?.tier ?? provider.config.tier
         guard tier != .exclusive else { return }
         if await residency.isResident(key) {

@@ -76,19 +76,42 @@ struct WriterLocalBackendTests {
         #expect(Date().timeIntervalSince(start) < 1 && engine.generationCount == 0)
     }
 
-    @Test func keyDownPrewarmRespectsThePlansExclusiveTier() async throws {
-        // 16 GB: the 4B is `.exclusive` beside CUA-S1 — never loaded for a guess (as ModelPrewarmer).
+    @Test func theWriterOwnsItsModelAsOnDemandOnEveryPlan() async throws {
+        // 16 GB: CUA-S1's rule makes the planner's 4B `.exclusive`, but dictation runs the writer every
+        // turn — it registers the model `.onDemand` and loads it at key-down.
         let engine = FakeEngine()
-        let exclusive = Self.backend(engine, model: LocalLLMCatalog.qwen35_4B, plan: .for(.standard))
-        #expect(exclusive.provider.config.tier == .exclusive)
-        await exclusive.prewarm()
-        #expect(engine.loadCount == 0)
-        // 24 GB: on-demand, loaded at key-down.
+        let standard = Self.backend(engine, model: LocalLLMCatalog.qwen35_4B, plan: .for(.standard))
+        #expect(standard.provider.config.tier == .onDemand)
+        #expect(WriterWiring.writerTier(plan: .for(.standard)) == .onDemand)
+        await standard.prewarm()
+        #expect(engine.loadCount == 1)
+        #expect(await standard.readyForLanding())
+        // 24 GB: on-demand as well.
         let roomy = FakeEngine()
         let onDemand = Self.backend(roomy, model: LocalLLMCatalog.qwen35_4B, plan: .for(.roomy))
         await onDemand.prewarm()
         #expect(roomy.loadCount == 1)
-        #expect(await onDemand.readyForLanding())
+    }
+
+    @Test func aNonResidentExclusiveRegistrationIsReplacedAndAResidentOneIsUsed() async throws {
+        // The edit-command provider registered the shared key `.exclusive` first (same GGUF, same engine).
+        let residency = ModelResidency(budgetBytes: 64 << 30)
+        let key = ComputerUseSettings.residencyKey(for: LocalLLMCatalog.qwen35_4B)
+        let engine = FakeEngine()
+        await residency.register(key, tier: .exclusive, estimatedBytes: 1, load: { }, unload: { })
+        let backend = Self.backend(engine, model: LocalLLMCatalog.qwen35_4B, plan: .for(.standard), residency: residency)
+        await backend.prewarm()
+        #expect(await residency.snapshot().entries.first { $0.key == key }?.tier == .onDemand)
+        #expect(engine.loadCount == 1)
+        // Resident under an exclusive registration (an edit command just ran): used as it is, no reload.
+        let busy = ModelResidency(budgetBytes: 64 << 30)
+        let other = FakeEngine()
+        await busy.register(key, tier: .exclusive, estimatedBytes: 1, load: { }, unload: { })
+        _ = try await busy.acquire(key)
+        let reuse = Self.backend(other, model: LocalLLMCatalog.qwen35_4B, plan: .for(.standard), residency: busy)
+        await reuse.prewarm()
+        #expect(await busy.isResident(key))
+        #expect(other.loadCount == 0)
     }
 
     @Test func prefixPrewarmNeverLoadsOnItsOwn() async throws {
@@ -126,9 +149,9 @@ struct WriterLocalBackendTests {
         #expect(WriterWiring.installedLocalModel(manager: both, plan: .for(.roomy), runtimeAvailable: false) == nil)
         // 24 GB: the user's pick.
         #expect(WriterWiring.installedLocalModel(manager: both, plan: .for(.roomy), runtimeAvailable: true)?.id == four.id)
-        // 16 GB: a 4B pick is `.exclusive` there; the plan's 2B on disk is preferred.
-        #expect(WriterWiring.installedLocalModel(manager: both, plan: .for(.standard), runtimeAvailable: true)?.id == two.id)
-        // Only the 4B on disk: still offered (its key-down prewarm is skipped, see above).
+        // 16 GB: the user's pick too (the writer registers it `.onDemand`; 3.2 GB fits the 4.5 GiB budget).
+        #expect(WriterWiring.installedLocalModel(manager: both, plan: .for(.standard), runtimeAvailable: true)?.id == four.id)
+        // Only the 4B on disk: offered.
         let onlyFour = try Self.manager(onDisk: [four])
         #expect(WriterWiring.installedLocalModel(manager: onlyFour, plan: .for(.standard), runtimeAvailable: true)?.id == four.id)
         let none = try Self.manager(onDisk: [])
