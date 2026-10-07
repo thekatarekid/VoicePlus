@@ -62,6 +62,19 @@ import Shared
         #expect(Self.g.check(heard: clipped, output: "a16z.").accepted?.text != "a16z.")
     }
 
+    @Test func aFalseStartTheSpeakerRestartsMayGo() {
+        // The local model's real reply on the owner's sentence: the restart "turned on" stays.
+        let h = Self.tokens("I just downloaded the Queen four B model as well as turned out the turned on the polishing mode as well.", uncertain: [4])
+        let v = Self.g.check(heard: h, output: "I just downloaded the Queen four B model as well as turned on the polishing mode as well.")
+        #expect(Self.accepted(v) == "I just downloaded the Queen four B model as well as turned on the polishing mode as well.")
+        // Not a restart (different first word): dropping content words reverts.
+        let drop = Self.g.check(heard: Self.tokens("send the red deck to Priya today"), output: "send the deck to Priya today")
+        #expect(drop.accepted?.text != "send the deck to Priya today")
+        // A repeated function word is not a restart: "cat and" is content.
+        let dog = Self.g.check(heard: Self.tokens("I saw the cat and the dog"), output: "I saw the dog")
+        #expect(dog.accepted?.text != "I saw the dog")
+    }
+
     @Test func anAnswerIsStillRejected() {
         let h = Self.tokens("Can you also find out how Google News works?")
         let v = Self.g.check(heard: h, output: "Google News aggregates articles from many publishers using algorithms.")

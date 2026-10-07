@@ -269,6 +269,19 @@ public struct WriterGuard: Sendable {
         if run.allSatisfy({ isFiller(heard, $0) || isStutter(heard, $0) }) { return true }
         guard retainedAfter else { return false }
         let keys = run.map { heard[$0].key }
+        // A false start: a short run the speaker restarts with the same first word ("turned out
+        // the | turned on" → "turned on"). The restart must follow immediately and be retained.
+        // The diff may keep either copy of the restart word: drop "turned out the" before "turned",
+        // or "out the turned" after it.
+        // The restart word must be a content word: "the cat and the dog" → "the dog" is not a
+        // restart on "the", it drops "cat and".
+        if keys.count <= 4, !keys[0].isEmpty {
+            let next = run.last! + 1, prev = run.first! - 1
+            if next < heard.count, !run.contains(next), heard[next].key == keys[0],
+               !functionWords.contains(keys[0]) { return true }
+            if prev >= 0, !run.contains(prev), keys.count >= 2, heard[prev].key == keys[keys.count - 1],
+               !functionWords.contains(keys[keys.count - 1]) { return true }
+        }
         for cue in correctionCues where keys.count >= cue.count {
             guard let at = lastIndex(of: cue, in: keys) else { continue }
             // Words after the cue inside the run must each be found among the neighbours that
@@ -280,6 +293,13 @@ public struct WriterGuard: Sendable {
         }
         return false
     }
+
+    /// Words a false start never restarts on (they repeat in ordinary sentences).
+    static let functionWords: Set<String> = [
+        "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "at", "for", "with", "by", "from", "as",
+        "is", "are", "was", "were", "be", "it", "this", "that", "i", "you", "we", "they", "he", "she", "my",
+        "your", "our", "their", "his", "her", "its", "so", "then", "if", "not", "do", "did", "have", "has",
+    ]
 
     static let fillers: Set<String> = ["um", "uh", "er", "ah", "erm", "hmm", "mm", "mhm", "uhm", "hm", "umm", "uhh"]
     static let correctionCues: [[String]] = [

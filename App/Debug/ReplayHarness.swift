@@ -169,6 +169,17 @@ final class RecordingBooster: VocabularyBooster, @unchecked Sendable {
 
 /// Context Writer — the writer a replay runs: the backend's gate stage (already in the runner's
 /// pipeline at cleanup's position) and the packet to give it. `stage == nil` is `--writer off`.
+/// `--show-model`: prints the writer's prompt and raw reply (replay is a local debug tool).
+struct ShowingWriterGenerator: WriterGenerating {
+    let inner: any WriterGenerating
+    func write(system: String, user: String, context: StageContext) async throws -> String {
+        let reply = try await inner.write(system: system, user: user, context: context)
+        print("  model user prompt:\n" + user.split(separator: "\n").map { "    | " + $0 }.joined(separator: "\n"))
+        print("  model reply: \(reply)")
+        return reply
+    }
+}
+
 public struct ReplayWriter: @unchecked Sendable {
     public var backend: String
     public var stage: WriterGateStage?
@@ -185,7 +196,17 @@ public struct ReplayWriter: @unchecked Sendable {
         let ledger = WriterRunLedger()
         self.backend = backend
         self.ledger = ledger
-        self.stage = generator.map { WriterGateStage(inner: ContextWriterStage(generator: $0), ledger: ledger) }
+        // Debug CLI only: `--show-model` prints the rendered prompt and the model's raw reply to this
+        // terminal (never the system log), to see what the guard was given.
+        let shown = generator.map { g -> any WriterGenerating in
+            CommandLine.arguments.contains("--show-model") ? ShowingWriterGenerator(inner: g) : g
+        }
+        let showing = CommandLine.arguments.contains("--show-model")
+        self.stage = shown.map { g -> WriterGateStage in
+            var inner = ContextWriterStage(generator: g)
+            if showing { inner.deadline = 60 }   // inspection: include the cold load, see every reply
+            return WriterGateStage(inner: inner, ledger: ledger)
+        }
         self.packet = packet
         self.packetSource = packet == nil ? "offline" : packetSource
         self.builder = builder
@@ -398,7 +419,7 @@ public enum ReplayCLI {
         return o
     }
 
-    static let usage = "usage: VoicePlusApp --replay <wav|dir|stamp|HH:MM:SS|turn-id> [--surface \(ReplaySurface.kinds.joined(separator: "|"))] [--app bundle-id] [--near text] [--writer cloud|local|off] [--packet packet.json] [--json out.jsonl]"
+    static let usage = "usage: VoicePlusApp --replay <wav|dir|stamp|HH:MM:SS|turn-id> [--surface \(ReplaySurface.kinds.joined(separator: "|"))] [--app bundle-id] [--near text] [--writer cloud|local|off] [--packet packet.json] [--show-model] [--json out.jsonl]"
 
     /// Exit code: 0 ok, 2 bad arguments / nothing found, 3 no speech model.
     public static func run(_ o: Options) async -> Int32 {
@@ -484,7 +505,7 @@ public enum ReplayCLI {
                                          packetSource: name, builder: builder))
         case "local":
             guard let local else { return .failure(.init(message: "--writer local needs a rewrite model on this Mac (Settings › Models)")) }
-            return .success(ReplayWriter(backend: "local", generator: LocalWriterBackend(model: local, loadsOnWrite: true), packet: packet,
+            return .success(ReplayWriter(backend: "local", generator: LocalWriterBackend(model: local, deadline: CommandLine.arguments.contains("--show-model") ? 60 : ContextWriterStage.defaultDeadline, loadsOnWrite: true), packet: packet,
                                          packetSource: name, builder: builder))
         default:
             return .failure(.init(message: "--writer cloud|local|off, not '\(choice)'"))
