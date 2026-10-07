@@ -24,6 +24,7 @@ struct WriterWiringTests {
         private let reply: @Sendable (String) -> String
         private(set) var calls = 0
         private(set) var prewarms = 0
+        private(set) var packetPrewarms: [ContextPacket] = []
         private(set) var lastUser = ""
         init(_ reply: @escaping @Sendable (String) -> String) { self.reply = reply }
         func write(system: String, user: String, context: StageContext) async throws -> String {
@@ -31,8 +32,10 @@ struct WriterWiringTests {
             return reply(user)
         }
         func prewarm() async { lock.withLock { prewarms += 1 } }
+        func prewarm(packet: ContextPacket) async { lock.withLock { packetPrewarms.append(packet) } }
         var callCount: Int { lock.withLock { calls } }
         var prewarmCount: Int { lock.withLock { prewarms } }
+        var packetPrewarmCount: Int { lock.withLock { packetPrewarms.count } }
     }
 
     final class EventLog: @unchecked Sendable {
@@ -367,9 +370,31 @@ struct WriterWiringTests {
         let store = InMemorySettingsStore()
         S.setMode(.off, store: store)
         let offCloud = ScriptedBackend { $0 }
-        Self.wiring(store, key: true, cloud: offCloud).beginTurn(app: FocusSnapshot(pid: 1, bundleID: "com.apple.Notes", appName: "Notes"))
+        let offWiring = Self.wiring(store, key: true, cloud: offCloud)
+        offWiring.beginTurn(app: FocusSnapshot(pid: 1, bundleID: "com.apple.Notes", appName: "Notes"))
         try await Task.sleep(nanoseconds: 50_000_000)
-        #expect(offCloud.prewarmCount == 0)
+        #expect(offCloud.prewarmCount == 0 && !offWiring.speculates())
+    }
+
+    @Test func localPrefixPrewarmAndSpeculationUseTheKeyDownPacket() async throws {
+        let local = ScriptedBackend { $0 }
+        let w = Self.wiring(key: false, local: true, localBackend: local)
+        #expect(w.stage().inner.speculation != nil, "the stage reads the speculator's cache")
+        #expect(w.keyDownPacket() == nil, "no turn, no packet")
+        w.beginTurn(app: FocusSnapshot(pid: 7, bundleID: "com.apple.Notes", appName: "Notes"))
+        #expect(w.speculates())
+        let packet = try #require(w.keyDownPacket())
+        #expect(packet.heard.raw.isEmpty && packet.mode == .transcribe)
+        w.noteSurfaceResolved(shell: nil)
+        for _ in 0..<200 where local.packetPrewarmCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(local.packetPrewarmCount == 1)
+        // A cloud turn opens the connection only; no prefix work.
+        let cloud = ScriptedBackend { $0 }
+        let c = Self.wiring(key: true, cloud: cloud)
+        c.beginTurn(app: FocusSnapshot(pid: 7, bundleID: "com.apple.Notes", appName: "Notes"))
+        c.noteSurfaceResolved(shell: nil)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(cloud.packetPrewarmCount == 0)
     }
 
     // MARK: Replay

@@ -27,7 +27,12 @@ import Shared
 //   `.finished` once the landing's final text exists (outcome code, changed words with their UTF-16
 //   ranges in the final text, writer ms);
 // - prewarms the cloud connection (or loads the local model) at key-down when Correction resolves to
-//   that tier for the frontmost app;
+//   that tier for the frontmost app, and — once the surface resolved — the local model's prompt
+//   prefix (system + the packet's stable part, `LlamaCppProvider.prewarm(system:prefix:)`);
+// - owns the sentence speculator (`WriterSpeculator`, plan §4.2): its packet is the key-down packet
+//   (heard empty), its generator the run's backend, and its cache is the stage's `speculation`.
+//   `DictationCoordinator.speculator` must be set to `speculator` by the shell (AppDelegate) for it to
+//   see the hold's segment stream; without that the stage simply makes one full call;
 // - feeds C1: every landed dictation to `RedictationLearner.observe`, and the UX's "undo correction"
 //   (`WriterWiring.undoCorrection(heard:written:app:)`) to `RedictationLearner.undoCorrection`.
 //
@@ -39,6 +44,13 @@ import Shared
 public protocol WriterBackend: WriterGenerating {
     /// Key-down: open the connection (cloud) or make the model resident (local). Never throws.
     func prewarm() async
+    /// Once the turn's surface resolved: the turn's packet (heard still empty). A local backend
+    /// decodes the prompt's system + stable prefix so the call after key-up prefills only its tail.
+    func prewarm(packet: ContextPacket) async
+}
+
+public extension WriterBackend {
+    func prewarm(packet: ContextPacket) async {}
 }
 
 public final class WriterWiring: @unchecked Sendable {
@@ -69,6 +81,8 @@ public final class WriterWiring: @unchecked Sendable {
     public let events: WriterLandingEvents
     public let learner: RedictationLearner?
     public let vocabulary: WriterVocabulary
+    /// Plan §4.2 — sentences written while the user speaks; its cache is the stage's `speculation`.
+    public let speculator: WriterSpeculator
     let ledger = WriterRunLedger()
     let packetBuilder: ContextPacketBuilder
     /// The landing's turn sources (the composition root's `TurnSurfaceContext` / snapshot / engine).
@@ -128,8 +142,13 @@ public final class WriterWiring: @unchecked Sendable {
         self.makeLocal = makeLocal
         self.now = now
         self.queue = queue
+        self.speculator = WriterSpeculator()
         packetBuilder.vocabulary = vocabulary
         Self.installGuardPhonetics
+        speculator.vocabulary = vocabulary
+        speculator.packetProvider = { [weak self] in self?.keyDownPacket() }
+        speculator.generator = SpeculationRouter(wiring: self)
+        speculator.isEnabled = { [weak self] in self?.speculates() ?? false }
     }
 
     /// The app's writer: Keychain key, the downloaded shared model, OpenRouter + llama.cpp backends,
@@ -150,6 +169,7 @@ public final class WriterWiring: @unchecked Sendable {
             makeCloud: { CloudWriterBackend(generator: Self.cloudGenerator(config: $0, secrets: secrets, database: database)) },
             makeLocal: { LocalWriterBackend(model: $0) })
         vocabulary.rebuild()
+        wiring.run { wiring.refreshAvailability() }   // the first key-down finds a cached answer
         return wiring
     }
 
@@ -210,6 +230,27 @@ public final class WriterWiring: @unchecked Sendable {
         Backend(ContextCorrectionSettings.resolvedMode(for: bundleID, store: settings, availability: availability()))
     }
 
+    /// The same from the cached probe only (nil when nothing is cached yet): safe on the key-down thread.
+    func cachedBackend(for bundleID: String?) -> Backend? {
+        guard let cached = lock.withLock({ cachedAvailability?.value }) else { return nil }
+        return Backend(ContextCorrectionSettings.resolvedMode(for: bundleID, store: settings, availability: cached))
+    }
+
+    /// The speculator's gate at key-down: a hold in an app Correction writes for.
+    func speculates() -> Bool {
+        let app = lock.withLock { turn.app }
+        guard let app, !OwnProcess.owns(app) else { return false }
+        return cachedBackend(for: app.bundleID) != nil
+    }
+
+    /// The turn's packet as known at key-down (heard empty): the speculator's, and the local prefix
+    /// prewarm's. nil without a turn app, or for a secure destination.
+    public func keyDownPacket() -> ContextPacket? {
+        guard let app = lock.withLock({ turn.app }) else { return nil }
+        let packet = buildPacket([], context: StageContext(appBundleID: app.bundleID))
+        return packet.isSecure ? nil : packet
+    }
+
     /// The generator for `backend`, built once per cloud config / local model.
     public func generator(for backend: Backend) -> (any WriterBackend)? {
         switch backend {
@@ -235,9 +276,12 @@ public final class WriterWiring: @unchecked Sendable {
     // MARK: The chain's stage
 
     /// The writer at cleanup's position: a pass-through unless the run is `writer.active`.
+    /// The writer reuses sentences the speculator wrote during the hold (`speculator.cache`).
     public func stage(deadline: TimeInterval = ContextWriterStage.defaultDeadline) -> WriterGateStage {
         let router = RoutedWriterGenerator(events: events, resolve: { [weak self] in self?.generator(for: $0) })
-        return WriterGateStage(inner: ContextWriterStage(generator: router, deadline: deadline), ledger: ledger)
+        var inner = ContextWriterStage(generator: router, deadline: deadline)
+        inner.speculation = speculator.cache
+        return WriterGateStage(inner: inner, ledger: ledger)
     }
 
     // MARK: Key-down
@@ -265,10 +309,19 @@ public final class WriterWiring: @unchecked Sendable {
         }
     }
 
-    /// The surface resolved (on `TurnSurfaceContext`'s queue): the tty's foreground process, once.
+    /// The surface resolved (on `TurnSurfaceContext`'s queue): the tty's foreground process, once;
+    /// then, off that queue, the local model's prompt prefix for this turn's packet.
     public func noteSurfaceResolved(shell: ShellContext?, table: (() -> [ShellProcessRecord])? = nil) {
         let process = shell.flatMap { TTYForegroundProcess.live($0, table: table) }
-        lock.withLock { turn.foregroundProcess = process }
+        let app = lock.withLock { () -> FocusSnapshot? in
+            turn.foregroundProcess = process
+            return turn.app
+        }
+        run { [weak self] in
+            guard let self, self.backend(for: app?.bundleID) == .local, let generator = self.generator(for: .local),
+                  let packet = self.keyDownPacket() else { return }
+            Task.detached(priority: .userInitiated) { await generator.prewarm(packet: packet) }
+        }
     }
 
     // MARK: The lander's context step
@@ -336,7 +389,7 @@ public final class WriterWiring: @unchecked Sendable {
         }
     }
 
-    private func run(_ work: @escaping @Sendable () -> Void) {
+    fileprivate func run(_ work: @escaping @Sendable () -> Void) {
         if let queue { queue.async(execute: work) } else { work() }
     }
 
@@ -506,6 +559,22 @@ struct RoutedWriterGenerator: WriterGenerating {
     }
 }
 
+/// The speculator's generator: the backend Correction resolves to for the turn's app, per call
+/// (off the key-down thread). No backend → the chunk fails and the turn stops speculating.
+struct SpeculationRouter: WriterGenerating {
+    weak var wiring: WriterWiring?
+
+    func write(system: String, user: String, context: StageContext) async throws -> String {
+        guard let wiring, let backend = wiring.backend(for: wiring.turnApp?.bundleID),
+              let generator = wiring.generator(for: backend) else { throw ProviderError.unavailable("no writer backend") }
+        return try await generator.write(system: system, user: user, context: context)
+    }
+}
+
+extension WriterWiring {
+    var turnApp: FocusSnapshot? { lock.withLock { turn.app } }
+}
+
 /// One writer run per landing, until the lander posts `.finished` (bounded: the last 32).
 final class WriterRunLedger: @unchecked Sendable {
     struct Change: Equatable, Sendable {
@@ -604,6 +673,16 @@ public final class LocalWriterBackend: WriterBackend, @unchecked Sendable {
         await provider.registerWithResidency()
         guard await !residency.isRunningLighter else { return }
         try? await residency.acquire(provider.config.residencyKey)
+    }
+
+    /// The surface resolved: decode the prompt's system + stable prefix for this destination (the KV
+    /// prefix cache), so the call after key-up prefills only VOCAB / HEARD / ALT. Not for a secure or
+    /// verbatim destination (the stage does not call the model there).
+    public func prewarm(packet: ContextPacket) async {
+        let profile = Pipeline.DestinationProfiles.resolve(profileID: packet.destination.profileID)
+        guard !packet.isSecure, !profile.isSecure, packet.mode == .transcribe else { return }
+        let parts = WriterPrompt.renderParts(packet: packet, profile: profile)
+        await provider.prewarm(system: parts.system, prefix: parts.stablePrefix)
     }
 }
 
