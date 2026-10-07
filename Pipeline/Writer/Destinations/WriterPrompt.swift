@@ -97,7 +97,7 @@ public enum WriterPrompt {
     /// The user's own style preferences (Settings › Personas): their words, so only normalised
     /// and clipped — a persona is allowed to instruct.
     static func personaBlock(_ persona: String?, budget: Int) -> String? {
-        guard let persona, let text = WriterPromptSanitizer.line(persona) else { return nil }
+        guard let persona, let text = WriterPromptSanitizer.line(bounded(persona, budget)) else { return nil }
         return "PERSONA (the user's own preferences, which override the defaults above): " + WriterPromptSanitizer.clip(text, budget)
     }
 
@@ -111,10 +111,10 @@ public enum WriterPrompt {
         } else {
             sections.append(destinationRecord(packet.destination, profile: profile, budget: budget.field))
             if let thread = threadSection(packet.thread, label: threadLabel(for: profile), budget: budget.thread) { sections.append(thread) }
-            if let before = WriterPromptSanitizer.proseLine(packet.textBefore) {
+            if let before = WriterPromptSanitizer.proseLine(bounded(packet.textBefore, budget.textBefore, fromEnd: true)) {
                 sections.append("BEFORE: " + WriterPromptSanitizer.tail(before, budget.textBefore))
             }
-            if let after = WriterPromptSanitizer.proseLine(packet.textAfter) {
+            if let after = WriterPromptSanitizer.proseLine(bounded(packet.textAfter, budget.textAfter)) {
                 sections.append("AFTER: " + WriterPromptSanitizer.clip(after, budget.textAfter))
             }
             if let terms = listSection("TERMS: ", packet.screenTerms, budget: budget.terms) { sections.append(terms) }
@@ -123,7 +123,7 @@ public enum WriterPrompt {
         }
         sections.append("HEARD: " + WriterPromptSanitizer.heard(packet.heard.marked))
         if !secure, let boosted = packet.heard.boosted, boosted != packet.heard.raw,
-           let line = WriterPromptSanitizer.proseLine(boosted) {
+           let line = WriterPromptSanitizer.proseLine(bounded(boosted, budget.alternates)) {
             sections.append("BOOSTED (evidence only, never the base text): " + WriterPromptSanitizer.clip(line, budget.alternates))
         }
         if let alt = alternatesSection(packet, includeVocabulary: !secure, budget: budget.alternates) { sections.append(alt) }
@@ -137,7 +137,7 @@ public enum WriterPrompt {
         if let app = d.appName.flatMap(WriterPromptSanitizer.item) { pieces.append("app: " + app) }
         pieces.append("surface: " + (WriterPromptSanitizer.item(d.surfaceKind) ?? "unknown"))
         for key in d.fields.keys.sorted() {
-            guard let value = d.fields[key], let clean = WriterPromptSanitizer.item(value),
+            guard let value = d.fields[key], let clean = WriterPromptSanitizer.item(bounded(value, budget)),
                   let name = WriterPromptSanitizer.item(key) else { continue }
             pieces.append("\(name): \(clean)")
         }
@@ -159,7 +159,7 @@ public enum WriterPrompt {
     static func threadSection(_ blocks: [ContextPacket.ThreadBlock], label: String, budget: Int) -> String? {
         var lines: [String] = []
         for block in blocks {
-            guard let text = WriterPromptSanitizer.proseLine(block.text) else { continue }
+            guard let text = WriterPromptSanitizer.proseLine(bounded(block.text, budget, fromEnd: true)) else { continue }
             let author = block.author.flatMap(WriterPromptSanitizer.item)
             let who = block.isSelf == true ? (author.map { "\($0) (me)" } ?? "me") : author
             lines.append((who.map { "- \($0): " } ?? "- ") + text)
@@ -186,7 +186,7 @@ public enum WriterPrompt {
         var out: [String] = [], used = header.count
         var seen: Set<String> = []
         for raw in items {
-            guard let item = WriterPromptSanitizer.item(raw), seen.insert(item.lowercased()).inserted else { continue }
+            guard let item = WriterPromptSanitizer.item(bounded(raw, budget)), seen.insert(item.lowercased()).inserted else { continue }
             let cost = item.count + (out.isEmpty ? 0 : 2)
             guard used + cost <= budget else { break }
             out.append(item)
@@ -216,7 +216,7 @@ public enum WriterPrompt {
     static func recentSection(_ recent: [String], budget: Int) -> String? {
         var lines: [String] = [], used = 0
         for raw in recent {
-            guard let text = WriterPromptSanitizer.proseLine(raw) else { continue }
+            guard let text = WriterPromptSanitizer.proseLine(bounded(raw, budget)) else { continue }
             let line = "RECENT: " + text
             guard used + line.count + 1 <= budget else { break }
             lines.append(line)
@@ -253,5 +253,10 @@ public enum WriterPrompt {
             }
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// Raw screen text cut to a few times its budget before sanitising (see `WriterPromptSanitizer.bounded`).
+    static func bounded(_ s: String, _ budget: Int, fromEnd: Bool = false) -> String {
+        WriterPromptSanitizer.bounded(s, cap: budget * 4 + 64, fromEnd: fromEnd)
     }
 }

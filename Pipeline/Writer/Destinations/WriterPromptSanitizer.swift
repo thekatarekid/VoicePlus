@@ -77,6 +77,15 @@ enum WriterPromptSanitizer {
         return String(line[..<colon]) + "꞉" + String(line[line.index(after: colon)...])
     }
 
+    /// The raw text bounded *before* sanitising, so a multi-megabyte screen block costs nothing: only
+    /// what can still fit a budget is kept (`fromEnd` keeps the tail, for text before the caret and
+    /// thread lines where the newest words win). Counted in UTF-8 bytes; a cut marker fragment is
+    /// still neutralised by the sanitiser afterwards.
+    static func bounded(_ s: String, cap: Int, fromEnd: Bool) -> String {
+        guard s.utf8.count > cap else { return s }
+        return fromEnd ? String(s.suffix(cap)) : String(s.prefix(cap))
+    }
+
     /// `s` cut to `budget` characters on a word boundary, with an ellipsis when cut.
     static func clip(_ s: String, _ budget: Int) -> String {
         guard s.count > budget, budget > 1 else { return s }
