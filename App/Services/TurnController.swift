@@ -197,6 +197,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public var pullBack: FocusPullBacking?
     /// Range-safe replace for Undo (`ReplaceRangeEditor` over the live `SystemAccess`).
     public var replaceRange: ((ReplaceRangeRequest) -> ReplaceRangeOutcome)?
+    /// Context Writer — can a range replace work in the focused field now (read once, when a polished
+    /// landing would offer Undo): AX can set its selected text or value, it is not a password field,
+    /// and it is not a terminal (writes there are keystrokes to a shell). False: the landed row says
+    /// "Polished N words" with no Undo. nil: not known (assumed possible).
+    public var fieldTakesRangeReplace: (() -> Bool)?
     /// Where the key-down snapshot's AX read runs. Live: off the key-down path.
     public var snapshotQueue: (@escaping () -> Void) -> Void = { DispatchQueue.global(qos: .userInitiated).async(execute: $0) }
     /// Where `onPresent` / `onNotice` / `onOffer` / `onLanded` run. Live: the main queue, in order.
@@ -260,7 +265,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// Context Writer (plan §4) — the writer's state for the turn on the pill: `.writing` once its
     /// writer has run past `writerFaceDelay` (the "Writing…" face), then the note its landed row
     /// carries (`.polished` with the changed words, `.unpolished`), or nil (nothing to say; clears
-    /// "Writing…"). Runs on `ui`, before the turn's next state; never for a turn under a newer capture.
+    /// "Writing…", and a previous turn's note at key down). Runs on `ui`, before the turn's next
+    /// state, in the order the notes were decided; only ever for the turn that owns the pill (never
+    /// for a turn a newer key-down followed, even one that already stopped capturing).
     public var onWriter: ((PillWriterNote?) -> Void)?
     /// Context Writer — Undo on a polished landing put the heard words back in the field: one call
     /// per restored word (heard, written, the destination's bundle id), on `hookQueue`. The
@@ -292,6 +299,16 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     /// Context Writer — the latest event of landings no turn claimed (hands-free pieces, or a turn's
     /// own events while another landing's run held it), newest last; bounded.
     private var unboundWriterEvents: [(landing: UUID, event: WriterLandingEvent)] = []
+    /// Context Writer — every turn's serial (creation order); `pillSerial` is the newest hold turn's
+    /// (its key down took the pill). A turn older than that never draws on the pill again.
+    private var turnSerial: UInt64 = 0
+    private var pillSerial: UInt64 = 0
+    /// Context Writer — writer notes are numbered when decided (under the lock); the `ui` hop drops a
+    /// note older than one already delivered (a face decided first that hopped second).
+    private var writerNoteSeq: UInt64 = 0
+    private var deliveredWriterNoteSeq: UInt64 = 0
+    /// The last writer note decided for the pill was not nil (the next key down clears it).
+    private var pillHoldsWriterNote = false
     /// A transient row (Cancelled, Undo) is on the pill: engine states must not take it down.
     private var holdingPresentation = false
     /// Async work under way (formatting, writing). Parked turns (dwelling, queued) do not count.
@@ -322,6 +339,18 @@ public final class TurnController: LandingGate, @unchecked Sendable {
     public func useReplaceRange(over system: SystemAccess) {
         let editor = ReplaceRangeEditor(system: system)
         replaceRange = { editor.replace($0) }
+        fieldTakesRangeReplace = { [weak self] in
+            guard let info = try? system.focusedElement() else { return false }
+            return Self.takesRangeReplace(info, surface: self?.surfaceForTurn?())
+        }
+    }
+
+    /// Context Writer — Undo of a polish can work in this field: AX can replace a range (selected
+    /// text or value settable), it is not a password field, and it is not a terminal (the resolver
+    /// says so, or the field names itself one): a terminal's writes are keystrokes to a shell.
+    static func takesRangeReplace(_ info: FocusedElementInfo, surface: SurfaceResolution?) -> Bool {
+        guard !info.isSecure, info.isSelectedTextSettable || info.isValueSettable else { return false }
+        return !SurfaceWriteContext(kind: surface?.kind, hints: info.hints).isTerminal
     }
 
     // MARK: Reading
@@ -433,10 +462,15 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             let turn = Turn(id: TurnID(), origin: .hold, startedAt: now)
             turn.latched = latched
             turn.overSurface = overSurface
+            turnSerial += 1
+            turn.serial = turnSerial
+            pillSerial = turnSerial   // the pill is this turn's now: older turns' notes are dropped
             turns[turn.id] = turn
             captureID = turn.id
             holdingPresentation = false
             fx.save(turn)
+            // Context Writer — the previous turn's note (and its changed-word shimmer) goes.
+            if pillHoldsWriterNote { queueWriterLocked(nil, owner: turn.serial, into: &fx) }
             if holdPresentDelay > 0, !latched {
                 turn.presentDeferred = true
             } else {
@@ -978,6 +1012,8 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         var fx = Effects()
         let id = lock.withLock { () -> TurnID in
             let turn = Turn(id: TurnID(), origin: .admitted, startedAt: payload.pending?.startedAt ?? now)
+            turnSerial += 1
+            turn.serial = turnSerial
             // The segment was aimed where focus was when it closed; the AX revision is read now.
             var revision = read.revision
             if let focus = payload.pending?.focus { revision.focus = focus }
@@ -1106,7 +1142,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             if let writer = turn.writer, !writer.finished {
                 writer.finish()
                 Log.app.notice("turn \(id.description): writer never reported finished — payload published without it")
-                if writer.faceShown { fx.writer(nil) }
+                if writer.faceShown, ownsPillLocked(turn) { queueWriterLocked(nil, owner: turn.serial, into: &fx) }
             }
             // S5 — the marks the pill draws, mapped through formatting by the lander: their count is
             // "N words to review" (T05 "Review this phrase"), their ranges the record's. A removed
@@ -1592,7 +1628,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         case .some(.failed), .none: stage = .failed
         }
         MainThreadWatchdog.note(turn: id.description, stage: stage.rawValue, destination: target.focus)
-        let (escaped, writerNote) = lock.withLock { (turns[id]?.escapeDuringWrite ?? false, turns[id]?.writer?.note) }
+        let (escaped, writerNote, serial) = lock.withLock {
+            (turns[id]?.escapeDuringWrite ?? false, turns[id]?.writer?.note, turns[id]?.serial ?? 0)
+        }
         end(id, stage: stage) { $0.outcome = delivery }
         let reached = delivery?.writeReachedDestination ?? false
         let polished = writerNote?.phase == .polished && delivery?.isPartial == false
@@ -1613,10 +1651,11 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             switch note.phase {
             case .polished:
                 if polished, let now = after {
-                    offerCorrectionUndo(id, note: note, text: result.text, after: now, app: target.focus?.bundleID)
+                    offerCorrectionUndo(id, serial: serial, note: note, text: result.text, after: now, app: target.focus?.bundleID)
                 }
             case .unpolished:
-                lock.withLock { unpolishedTurn = id }
+                // Polish names this turn only while its row is the one on the pill.
+                lock.withLock { if ownsPillLocked(id, serial: serial) { unpolishedTurn = id } }
             case .writing:
                 break
             }
@@ -1883,7 +1922,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
                 run.finish()
                 run.note = PillWriterNote.outcome(of: event)
                 turn.writer = run
-                if (run.faceShown || run.note != nil), !newerCaptureOpenLocked(than: turn.id) { fx.writer(run.note) }
+                if (run.faceShown || run.note != nil), ownsPillLocked(turn) {
+                    queueWriterLocked(run.note, owner: turn.serial, into: &fx)
+                }
             }
             return turn.id
         }
@@ -1923,7 +1964,9 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             run.finish()
             run.note = PillWriterNote.outcome(of: own)
             turn.writer = run
-            if (shown || previous != nil || run.note != nil), !newerCaptureOpenLocked(than: id) { fx.writer(run.note) }
+            if (shown || previous != nil || run.note != nil), ownsPillLocked(turn) {
+                queueWriterLocked(run.note, owner: turn.serial, into: &fx)
+            }
             Log.app.notice("turn \(id.description): writer run rebound to its own landing")
         }
         fx.run(self)
@@ -1942,33 +1985,82 @@ public final class TurnController: LandingGate, @unchecked Sendable {
         var fx = Effects()
         lock.withLock {
             guard let turn = turns[id], let run = turn.writer, run.landingID == landing, !run.finished,
-                  turn.stage == .finishing, !newerCaptureOpenLocked(than: id) else { return }
+                  turn.stage == .finishing, ownsPillLocked(turn) else { return }
             run.faceTimer = nil
             run.faceShown = true
-            fx.writer(.writing)
+            queueWriterLocked(.writing, owner: turn.serial, into: &fx)
         }
         fx.run(self)
     }
 
+    /// The turn owns the pill: no hold turn started after it (even one that already stopped
+    /// capturing) and no newer capture is open (N23, H28). Only its writer notes and its Undo / Polish
+    /// may reach the pill.
+    private func ownsPillLocked(_ id: TurnID, serial: UInt64) -> Bool {
+        serial >= pillSerial && !newerCaptureOpenLocked(than: id)
+    }
+
+    private func ownsPillLocked(_ turn: Turn) -> Bool { ownsPillLocked(turn.id, serial: turn.serial) }
+
+    /// Queues `note` for the pill, numbered in the order it was decided (call under the lock).
+    private func queueWriterLocked(_ note: PillWriterNote?, owner serial: UInt64, into fx: inout Effects) {
+        writerNoteSeq += 1
+        pillHoldsWriterNote = note != nil
+        fx.writer(note, WriterNoteTicket(seq: writerNoteSeq, owner: serial))
+    }
+
+    /// On `ui`: a note reaches the pill only when nothing decided after it was delivered first and
+    /// its turn still owns the pill (a newer key down may have taken it since the note was decided).
+    private func deliverWriter(_ note: PillWriterNote?, _ ticket: WriterNoteTicket) {
+        let current = lock.withLock { () -> Bool in
+            guard ticket.seq > deliveredWriterNoteSeq, ticket.owner >= pillSerial else { return false }
+            deliveredWriterNoteSeq = ticket.seq
+            return true
+        }
+        guard current else {
+            Log.app.info("writer: note \(ticket.seq) dropped (stale: a later note or a newer turn came first)")
+            return
+        }
+        onWriter?(note)
+    }
+
     /// After a polished landing: where the text starts in the field (the caret the write left, less
-    /// the text) and every changed word found in it. No Undo unless every change is found.
-    private func offerCorrectionUndo(_ id: TurnID, note: PillWriterNote, text: String, after: TargetRevision, app: String?) {
-        let changes = WriterChangeLocator.locate(note.changes, in: text)
+    /// the text) and every changed word at its own range. Undo is offered only when it can work: the
+    /// turn still owns the pill, every change has a trusted range (the landed text there is exactly
+    /// its written words), and the field takes a range replace (not a terminal, AX settable).
+    /// Otherwise the landed row keeps "Polished N words" without Undo.
+    private func offerCorrectionUndo(_ id: TurnID, serial: UInt64, note: PillWriterNote, text: String,
+                                     after: TargetRevision, app: String?) {
+        guard lock.withLock({ ownsPillLocked(id, serial: serial) }) else {
+            Log.app.info("turn \(id.description): writer changed \(note.changes.count) word(s); no Undo (a newer turn owns the pill)")
+            return
+        }
         let length = text.utf16.count
-        guard !changes.isEmpty, changes.count == note.changes.count,
-              let caret = after.selection, caret.isEmpty, caret.lowerBound >= length else {
-            Log.app.info("turn \(id.description): writer changed \(note.changes.count) word(s); no Undo (range not found)")
+        guard let changes = WriterChangeLocator.locateTrusted(note.changes, in: text) else {
+            Log.app.info("turn \(id.description): writer changed \(note.changes.count) word(s); no Undo (no trusted range)")
+            return
+        }
+        guard let caret = after.selection, caret.isEmpty, caret.lowerBound >= length else {
+            Log.app.info("turn \(id.description): writer changed \(note.changes.count) word(s); no Undo (caret unknown)")
+            return
+        }
+        guard replaceRange != nil, fieldTakesRangeReplace?() ?? true else {
+            Log.app.info("turn \(id.description): writer changed \(note.changes.count) word(s); no Undo (field takes no range replace)")
             return
         }
         let timer = clock.schedule(after: correctionUndoWindow) { [weak self] in self?.correctionUndoExpired(id) }
         var fx = Effects()
-        lock.withLock {
+        let offered = lock.withLock { () -> Bool in
+            guard ownsPillLocked(id, serial: serial) else { return false }
             correctionUndo?.timer.cancel()
             correctionUndo = CorrectionUndoOffer(turnID: id, start: caret.lowerBound - length, text: text,
                                                  changes: changes, focus: after.focus, app: app, timer: timer)
-            if !newerCaptureOpenLocked(than: id) {
-                fx.writer(PillWriterNote(phase: .polished, changes: note.changes, undoable: true))
-            }
+            queueWriterLocked(PillWriterNote(phase: .polished, changes: note.changes, undoable: true), owner: serial, into: &fx)
+            return true
+        }
+        guard offered else {
+            timer.cancel()
+            return
         }
         fx.run(self)
     }
@@ -1985,9 +2077,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
 
     /// Undo on a polished landing: put back what was heard for every word the writer changed, only
     /// in the field the text went into and only while it still holds exactly the landed words
-    /// (`ReplaceRange`, AX-verified like R2's Undo). Then each pair goes to `onUndoCorrection`
-    /// (the learner: never that written form for that heard form again). A stale range changes
-    /// nothing and says so (D10).
+    /// (`ReplaceRange`, AX-verified like R2's Undo). All or nothing: a word that fails rolls back the
+    /// ones already put back. Then the turn record holds what the field holds, and each restored pair
+    /// goes to `onUndoCorrection` (the learner: never that written form for that heard form again).
+    /// A failure says so in a note (no "Copy correction": there is no correction to copy).
     @discardableResult
     public func undoCorrection() -> Bool {
         guard let offer = lock.withLock({ () -> CorrectionUndoOffer? in
@@ -1995,25 +2088,43 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             return correctionUndo
         }) else { return false }
         offer.timer.cancel()
-        guard focusGuard.matches(offer.focus), restoreHeard(offer) else {
-            Log.app.notice("turn \(offer.turnID.description): correction Undo refused — the text changed")
-            notice(.D10)
+        let outcome: CorrectionRestore = focusGuard.matches(offer.focus) ? restoreHeard(offer) : .refused(.textChanged)
+        let restored: [LocatedWriterChange]
+        switch outcome {
+        case .restored:
+            restored = offer.changes
+            Log.app.info("turn \(offer.turnID.description): correction undone — \(restored.count) word(s) restored")
+        case .refused(let why):
+            Log.app.notice("turn \(offer.turnID.description): correction Undo refused — \(why.rawValue); nothing changed")
+            showNote(why == .textChanged ? WriterCopy.undoTextChanged : WriterCopy.undoUnavailable)
             return false
+        case .partial(let standing):
+            restored = standing
+            Log.app.notice("turn \(offer.turnID.description): correction Undo stopped partway — \(standing.count) of \(offer.changes.count) word(s) could not be rolled back")
+            showNote(WriterCopy.undoPartial)
         }
-        Log.app.info("turn \(offer.turnID.description): correction undone — \(offer.changes.count) word(s) restored")
+        // History shows what is in the field now.
+        store.update(offer.turnID) { record in
+            guard let next = WriterUndoRecord.restored(finalText: record.finalText, spans: record.uncertainSpans,
+                                                       landed: offer.text, changes: restored) else { return }
+            record.finalText = next.text
+            record.uncertainSpans = next.spans
+        }
         let hook = onUndoCorrection
-        let pairs = offer.changes.map { ($0.heard, $0.written) }
+        let pairs = restored.map { ($0.heard, $0.written) }
         let app = offer.app
         hookQueue { pairs.forEach { hook?($0.0, $0.1, app) } }
-        return true
+        return outcome == .restored
     }
 
     /// One range-checked replacement from the first changed word to the last (all or nothing). A
     /// surface that cannot take a multi-line AX write (web content, terminals) gets one replacement
-    /// per word instead, last first, each still checked against what landed.
-    private func restoreHeard(_ offer: CorrectionUndoOffer) -> Bool {
+    /// per word instead (`restoreWordByWord`).
+    private func restoreHeard(_ offer: CorrectionUndoOffer) -> CorrectionRestore {
         guard let replace = replaceRange, let first = offer.changes.first, let last = offer.changes.last,
-              let expected = MarkWords.slice(offer.text, first.range.lowerBound..<last.range.upperBound) else { return false }
+              let expected = MarkWords.slice(offer.text, first.range.lowerBound..<last.range.upperBound) else {
+            return .refused(.unavailable)
+        }
         let shifted = offer.changes.map {
             LocatedWriterChange(range: ($0.range.lowerBound - first.range.lowerBound)..<($0.range.upperBound - first.range.lowerBound),
                                 heard: $0.heard, written: $0.written)
@@ -2023,17 +2134,48 @@ public final class TurnController: LandingGate, @unchecked Sendable {
                                         replacement: WriterChangeLocator.restoringHeard(shifted, in: expected))
         switch replace(whole) {
         case .replaced:
-            return true
+            return .restored
         case .unavailable(let reason) where reason == ReplaceRangeEditor.newlineUnsafeReason:
-            for change in offer.changes.reversed() {
-                let request = ReplaceRangeRequest(range: (offer.start + change.range.lowerBound)..<(offer.start + change.range.upperBound),
-                                                  expected: change.written, replacement: change.heard)
-                guard case .replaced = replace(request) else { return false }
-            }
-            return true
-        case .unavailable, .mismatch:
-            return false
+            return restoreWordByWord(offer, replace)
+        case .unavailable:
+            return .refused(.unavailable)
+        case .mismatch:
+            return .refused(.textChanged)
         }
+    }
+
+    /// Per word, last first (putting a word back never moves an earlier one), each range-checked.
+    /// When one fails, the words already put back are rolled back, earliest first (each range-checked
+    /// again, so a word the user has touched since is left alone); any that cannot be rolled back stay
+    /// as heard and are the only ones reported restored.
+    private func restoreWordByWord(_ offer: CorrectionUndoOffer,
+                                   _ replace: (ReplaceRangeRequest) -> ReplaceRangeOutcome) -> CorrectionRestore {
+        var applied: [LocatedWriterChange] = []   // in the order put back: last word first
+        for change in offer.changes.reversed() {
+            let at = offer.start + change.range.lowerBound
+            let outcome = replace(ReplaceRangeRequest(range: at..<(at + change.range.count),
+                                                      expected: change.written, replacement: change.heard))
+            if case .replaced = outcome {
+                applied.append(change)
+                continue
+            }
+            let failure: CorrectionUndoFailure
+            if case .mismatch = outcome { failure = .textChanged } else { failure = .unavailable }
+            // Earliest first: no word before it is heard any more unless its rollback failed, so its
+            // range is where it was put back, moved only by the failed rollbacks before it.
+            var standing: [LocatedWriterChange] = []
+            var shift = 0
+            for done in applied.reversed() {
+                let at = offer.start + done.range.lowerBound + shift
+                let back = ReplaceRangeRequest(range: at..<(at + done.heard.utf16.count),
+                                               expected: done.heard, replacement: done.written)
+                if case .replaced = replace(back) { continue }
+                standing.append(done)
+                shift += done.heard.utf16.count - done.written.utf16.count
+            }
+            return standing.isEmpty ? .refused(failure) : .partial(standing: standing)
+        }
+        return .restored
     }
 
     /// Polish on an unpolished landing. TODO(wave 3): retry the writer for that turn and land its
@@ -2079,7 +2221,7 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             // Context Writer — a turn that ended while "Writing…" was up (Escape, a failure): the face goes.
             if let writer = turn.writer, !writer.finished {
                 writer.finish()
-                if writer.faceShown { fx.writer(nil) }
+                if writer.faceShown, ownsPillLocked(turn) { queueWriterLocked(nil, owner: turn.serial, into: &fx) }
             }
             turns[id] = nil
             if captureID == id { captureID = nil }
@@ -2241,9 +2383,10 @@ public final class TurnController: LandingGate, @unchecked Sendable {
             steps.append { $0.present(state) }
         }
 
-        /// Context Writer — the writer's note for the turn on the pill (`onWriter`, on `ui`).
-        mutating func writer(_ note: PillWriterNote?) {
-            steps.append { c in c.ui { [weak c] in c?.onWriter?(note) } }
+        /// Context Writer — the writer's note for the turn on the pill (`onWriter`, on `ui`), with the
+        /// ticket it was decided under (`queueWriterLocked`).
+        mutating func writer(_ note: PillWriterNote?, _ ticket: WriterNoteTicket) {
+            steps.append { c in c.ui { [weak c] in c?.deliverWriter(note, ticket) } }
         }
 
         /// H3 — whatever the notch shows gives way to the new turn (in `ui` order, before `.starting`).
@@ -2308,6 +2451,8 @@ final class Turn {
     var renderTimer: TurnTimer?
     /// Context Writer — the writer run of this turn's landing.
     var writer: WriterRun?
+    /// Context Writer — creation order (`TurnController.pillSerial` says which turn owns the pill).
+    var serial: UInt64 = 0
 
     init(id: TurnID, origin: Origin, startedAt: Date) {
         self.id = id
@@ -2364,6 +2509,30 @@ struct CorrectionUndoOffer {
     /// The destination's bundle id (the learner's `app`).
     let app: String?
     let timer: TurnTimer
+}
+
+/// Context Writer — the order a writer note was decided in, and the turn it is for (its serial).
+struct WriterNoteTicket: Equatable {
+    let seq: UInt64
+    let owner: UInt64
+}
+
+/// Context Writer — why Undo of a polish put nothing back.
+enum CorrectionUndoFailure: String, Equatable {
+    /// The landed words are not where they were (edited, moved, another field in focus).
+    case textChanged
+    /// AX could not read or write the field.
+    case unavailable
+}
+
+/// Context Writer — what Undo of a polish did to the field.
+enum CorrectionRestore: Equatable {
+    /// Every changed word is as heard again.
+    case restored
+    /// Nothing changed (anything put back was rolled back).
+    case refused(CorrectionUndoFailure)
+    /// A word failed and these words, already put back, could not be rolled back: they stay as heard.
+    case partial(standing: [LocatedWriterChange])
 }
 
 struct UndoOffer {

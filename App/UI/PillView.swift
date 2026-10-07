@@ -387,7 +387,7 @@ public final class PillViewModel: ObservableObject {
     func withWriterNote(_ state: PillState) -> PillState {
         guard case .landed(var info) = state, info.clearsOnItsOwn, info.writer == nil,
               let writer = turn.writer, let note = writer.landed else { return state }
-        if writer.phase == .polished, WriterChangeLocator.locate(writer.changes, in: info.text).isEmpty { return state }
+        if writer.phase == .polished, !WriterChangeLocator.appears(writer.changes, in: info.text) { return state }
         info.writer = note
         return .landed(info)
     }

@@ -51,6 +51,21 @@ struct WriterLandingUXTests {
         let app: String?
     }
 
+    /// What reached the pill, in order: the turn's states, its writer notes, its landed outcomes.
+    enum Event {
+        case state(PillState)
+        case note(PillWriterNote?)
+        case landed(LandingResult)
+    }
+
+    /// A one-shot closure slot (taken once, from any thread).
+    final class Slot<T>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: T?
+        func set(_ new: T?) { lock.withLock { value = new } }
+        func take() -> T? { lock.withLock { defer { value = nil }; return value } }
+    }
+
     struct Harness {
         let system: MockSystemAccess
         let lander: UtteranceLander
@@ -64,9 +79,15 @@ struct WriterLandingUXTests {
         let notices = Recorder<RecoveryID>()
         let undone = Recorder<Pair>()
         let polish = Recorder<TurnID>()
+        /// Every state, note and landing as the pill received them, in order.
+        let log = Recorder<Event>()
+        /// Notes the controller raised (`onNote`): fixed copy, never dictated words.
+        let lines = Recorder<String>()
+        /// Runs once on the next presented state that matches (`onPresent`), after it is recorded.
+        let onNextState = Slot<(PillState) -> Bool>()
 
-        init(dwell: PreviewDwell = .immediate) {
-            system = MockSystemAccess(frontmost: TurnControllerTests.textEdit)
+        init(dwell: PreviewDwell = .immediate, system custom: MockSystemAccess? = nil) {
+            system = custom ?? MockSystemAccess(frontmost: TurnControllerTests.textEdit)
             system.field = MockSystemAccess.Field(role: "AXTextArea", value: WriterLandingUXTests.original)
             let injector = TextInjector(system: system)
             lander = UtteranceLander(pipeline: PipelineRunner(stages: [probe]), injector: injector, system: system,
@@ -84,10 +105,16 @@ struct WriterLandingUXTests {
             lander.gate = controller
             controller.observeWriterEvents(channel)
             let (notes, states, landed, notices, undone, polish) = (notes, states, landed, notices, undone, polish)
-            controller.onWriter = { notes.append($0) }
-            controller.onPresent = { states.append($0) }
-            controller.onLanded = { landed.append($0) }
+            let (log, lines, onNextState) = (log, lines, onNextState)
+            controller.onWriter = { notes.append($0); log.append(.note($0)) }
+            controller.onPresent = { state in
+                states.append(state)
+                log.append(.state(state))
+                if let hook = onNextState.take(), !hook(state) { onNextState.set(hook) }
+            }
+            controller.onLanded = { landed.append($0); log.append(.landed($0)) }
             controller.onNotice = { notices.append($0.id) }
+            controller.onNote = { lines.append($0) }
             controller.onUndoCorrection = { undone.append(Pair(heard: $0, written: $1, app: $2)) }
             controller.onPolishRequest = { polish.append($0) }
         }
@@ -322,7 +349,8 @@ struct WriterLandingUXTests {
         h.system.field.value = "Dear Mira, we should fan out something else today"
         #expect(!h.controller.undoCorrection())
         #expect(h.field == "Dear Mira, we should fan out something else today", "untouched")
-        #expect(h.notices.all.last == .D10)
+        #expect(h.lines.all == [WriterCopy.undoTextChanged], "a note, with no Copy correction")
+        #expect(h.notices.all.isEmpty, "never D10: its Copy correction would copy an unrelated word")
         #expect(h.undone.all.isEmpty)
 
         // The offer also ends with the next dictation.
@@ -333,26 +361,6 @@ struct WriterLandingUXTests {
         h2.probe.script = nil
         _ = h2.controller.keyDown()
         #expect(!h2.controller.isCorrectionUndoAvailable)
-    }
-
-    @Test("several changed words are restored in one range-checked replacement")
-    func severalWordsRestoredTogether() throws {
-        let system = MockSystemAccess(frontmost: TurnControllerTests.textEdit)
-        let landed = "ship the Q3 deck to Priya"
-        system.field = MockSystemAccess.Field(role: "AXTextArea", value: "Hi. " + landed)
-        let changes = [WriterChangedWord(heard: "queue three", written: "Q3", range: 9..<11),
-                       WriterChangedWord(heard: "pria", written: "Priya", range: 20..<25)]
-        let located = WriterChangeLocator.locate(changes, in: landed)
-        #expect(located.map(\.range) == [9..<11, 20..<25])
-        #expect(WriterChangeLocator.restoringHeard(located, in: landed) == "ship the queue three deck to pria")
-        // The replacement `TurnController.restoreHeard` builds: first change to last, heard words in.
-        let editor = ReplaceRangeEditor(system: system)
-        let expected = try #require(MarkWords.slice(landed, 9..<25))
-        let shifted = located.map { LocatedWriterChange(range: ($0.range.lowerBound - 9)..<($0.range.upperBound - 9), heard: $0.heard, written: $0.written) }
-        let outcome = editor.replace(ReplaceRangeRequest(range: (4 + 9)..<(4 + 25), expected: expected,
-                                                         replacement: WriterChangeLocator.restoringHeard(shifted, in: expected)))
-        #expect(outcome == .replaced(verified: true))
-        #expect(system.field.value == "Hi. ship the queue three deck to pria")
     }
 
     @Test("changed words are found by their written words, never trusted by range alone")

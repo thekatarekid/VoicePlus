@@ -38,6 +38,12 @@ public enum WriterCopy {
     public static let notPolished = "Not polished"
     public static let undoLabel = "Undo"
     public static let polishLabel = "Polish"
+    /// Undo found the landed words changed (or the field no longer in focus): nothing was put back.
+    public static let undoTextChanged = "Couldn’t undo — the text changed"
+    /// Undo could not write in this field (AX refused the replace): nothing was put back.
+    public static let undoUnavailable = "Couldn’t undo in this field"
+    /// Undo failed partway and some words could not be rolled back: they stay as heard.
+    public static let undoPartial = "Undo stopped partway — check the text"
 }
 
 /// What the pill knows about the writer for the turn on screen (`PillTurnContext.writer`).
@@ -131,9 +137,10 @@ public struct LocatedWriterChange: Equatable, Sendable {
 }
 
 /// Finds the writer's changed words in a text. A change's own range is trusted only when the text
-/// there is exactly its written words; otherwise the nearest occurrence of the written words on word
-/// boundaries that no other change claimed is used; a change that cannot be found is dropped. The
-/// result is sorted and never overlaps, so ranges can be drawn and replaced safely.
+/// there is exactly its written words; otherwise (for drawing only) the nearest occurrence of the
+/// written words on word boundaries that no other change claimed is used, and a change with no range
+/// at all only when its words occur exactly once; a change that cannot be found is dropped. The
+/// result is sorted and never overlaps. Undo never uses a searched occurrence (`locateTrusted`).
 public enum WriterChangeLocator {
     public static func locate(_ changes: [WriterChangedWord], in text: String) -> [LocatedWriterChange] {
         let units = Array(text.utf16)
@@ -148,16 +155,46 @@ public enum WriterChangeLocator {
                r.count == written.count, Array(units[r]) == written, free(r) {
                 hit = r
             } else {
-                let anchor = change.range?.lowerBound ?? 0
-                hit = occurrences(of: written, in: units)
-                    .filter { free($0) && onWordBoundary($0, units) }
-                    .min { abs($0.lowerBound - anchor) < abs($1.lowerBound - anchor) }
+                let candidates = occurrences(of: written, in: units).filter { free($0) && onWordBoundary($0, units) }
+                if let anchor = change.range?.lowerBound {
+                    hit = candidates.min { abs($0.lowerBound - anchor) < abs($1.lowerBound - anchor) }
+                } else {
+                    // No range to be near: only an unambiguous occurrence (an earlier, unchanged copy
+                    // of the same word must never be marked as the writer's).
+                    hit = candidates.count == 1 ? candidates.first : nil
+                }
             }
             guard let hit else { continue }
             claimed.append(hit)
             found.append(LocatedWriterChange(range: hit, heard: change.heard, written: change.written))
         }
         return found.sorted { $0.range.lowerBound < $1.range.lowerBound }
+    }
+
+    /// Some changed word's written words stand on word boundaries in `text`: the note is about this
+    /// landing (the pill puts it on the landed row), even when a change cannot be pinned to one place.
+    public static func appears(_ changes: [WriterChangedWord], in text: String) -> Bool {
+        let units = Array(text.utf16)
+        return changes.contains { change in
+            occurrences(of: Array(change.written.utf16), in: units).contains { onWordBoundary($0, units) }
+        }
+    }
+
+    /// Undo's view of the changes: every change carries its own range and the text there is exactly
+    /// its written words (never a searched occurrence, which could be another, unchanged copy of the
+    /// same word), and no two overlap. nil otherwise: Undo is then not offered.
+    public static func locateTrusted(_ changes: [WriterChangedWord], in text: String) -> [LocatedWriterChange]? {
+        let units = Array(text.utf16)
+        var found: [LocatedWriterChange] = []
+        for change in changes {
+            let written = Array(change.written.utf16)
+            guard !written.isEmpty, let r = change.range, r.lowerBound >= 0, r.upperBound <= units.count,
+                  r.count == written.count, Array(units[r]) == written else { return nil }
+            found.append(LocatedWriterChange(range: r, heard: change.heard, written: change.written))
+        }
+        found.sort { $0.range.lowerBound < $1.range.lowerBound }
+        for (a, b) in zip(found, found.dropFirst()) where a.range.overlaps(b.range) { return nil }
+        return found.isEmpty ? nil : found
     }
 
     /// `text` with every located change put back to what was heard.
@@ -191,5 +228,45 @@ public enum WriterChangeLocator {
         let before = r.lowerBound == 0 || !isWordUnit(units[r.lowerBound - 1])
         let after = r.upperBound == units.count || !isWordUnit(units[r.upperBound])
         return before && after
+    }
+}
+
+/// After Undo put heard words back in the field: the turn record as the field now holds it, so
+/// history shows what is there. `landed` is the text that went into the field (the record may hold it
+/// with continuation whitespace around it); `restored` are the changes now heard again, with ranges in
+/// `landed`. Uncertain spans move with the text (a span over a changed word covers the heard words).
+/// nil when the record does not hold `landed` with every written word in place (it is left alone).
+public enum WriterUndoRecord {
+    public static func restored(finalText: String, spans: [Range<Int>], landed: String,
+                                changes restored: [LocatedWriterChange]) -> (text: String, spans: [Range<Int>])? {
+        guard !restored.isEmpty, let offset = UncertainSpans.offset(of: landed, in: finalText) else { return nil }
+        var units = Array(finalText.utf16)
+        let moved = restored
+            .map { LocatedWriterChange(range: ($0.range.lowerBound + offset)..<($0.range.upperBound + offset),
+                                       heard: $0.heard, written: $0.written) }
+            .sorted { $0.range.lowerBound < $1.range.lowerBound }
+        for (a, b) in zip(moved, moved.dropFirst()) where a.range.overlaps(b.range) { return nil }
+        for change in moved {
+            guard change.range.lowerBound >= 0, change.range.upperBound <= units.count,
+                  Array(units[change.range]) == Array(change.written.utf16) else { return nil }
+        }
+        for change in moved.reversed() { units.replaceSubrange(change.range, with: Array(change.heard.utf16)) }
+        func map(_ p: Int, upper: Bool) -> Int {
+            var delta = 0
+            for change in moved {
+                let r = change.range, n = change.heard.utf16.count
+                if p >= r.upperBound { delta += n - r.count; continue }
+                if p <= r.lowerBound { break }
+                return upper ? r.lowerBound + delta + n : r.lowerBound + delta   // inside a changed word
+            }
+            return p + delta
+        }
+        var out: [Range<Int>] = []
+        for span in spans {
+            let lower = map(span.lowerBound, upper: false), upper = map(span.upperBound, upper: true)
+            guard lower < upper, upper <= units.count, !out.contains(lower..<upper) else { continue }
+            out.append(lower..<upper)
+        }
+        return (String(decoding: units, as: UTF16.self), out)
     }
 }
