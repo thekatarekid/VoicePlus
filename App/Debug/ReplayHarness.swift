@@ -480,7 +480,7 @@ public enum ReplayCLI {
                                          packetSource: name, builder: builder))
         case "local":
             guard let local else { return .failure(.init(message: "--writer local needs a rewrite model on this Mac (Settings › Models)")) }
-            return .success(ReplayWriter(backend: "local", generator: LocalWriterBackend(model: local), packet: packet,
+            return .success(ReplayWriter(backend: "local", generator: LocalWriterBackend(model: local, loadsOnWrite: true), packet: packet,
                                          packetSource: name, builder: builder))
         default:
             return .failure(.init(message: "--writer cloud|local|off, not '\(choice)'"))

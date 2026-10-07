@@ -105,14 +105,18 @@ public final class AICleanupSettingsModel: ObservableObject {
         refreshCorrection()
     }
 
-    /// Re-reads Correction's tier (Settings change, appear).
+    /// Re-reads Correction's tier (Settings change, appear) with the runtime's availability rule
+    /// (`WriterWiring.liveAvailability`: key **and** egress allowed; the plan-gated local model).
+    /// Automatic resolves to On this Mac or Off, never Cloud.
     public func refreshCorrection() {
         correctionMode = ContextCorrectionSettings.resolvedMode(for: nil, store: settings, availability: correctionAvailability())
     }
 
-    /// The line over the switches while Correction is on (nil when it is off).
+    /// The line over the switches while Correction is on (nil when it is off), in the Correction
+    /// picker's words: "Correction (Automatic: On this Mac) replaces …" / "Correction (Cloud) …".
     public var supersededLine: String? {
-        correctionMode == .off ? nil : ContextCorrectionCopy.supersedesCleanup(correctionMode)
+        guard correctionMode != .off else { return nil }
+        return ContextCorrectionCopy.supersedesCleanup(ContextCorrectionSettings.choice(settings), resolved: correctionMode)
     }
 
     public func download() {

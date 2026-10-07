@@ -365,6 +365,14 @@ public final class AppContainer {
             ctx = writer.augment(spans, ctx)
             return ctx
         }
+        // Context Writer — the speculator's gate (unwired in this release; hidden flag) runs the same
+        // per-app rules as the context step above, so a Verbatim / "Exact" app is never speculated.
+        let writerRules = AppRules.applying(after: { _, ctx in ctx })
+        writer.turnRules = { [turnSurface, settings] context in
+            var ctx = writerRules([], context)
+            ctx = turnSurface.augment(ctx, bundleID: ctx.appBundleID)
+            return SurfacePresetSettings.apply(to: ctx, store: settings)
+        }
         // R4.2 — the AX hints the field-role formatter classifies on, read once per utterance.
         lander.fieldContextProvider = { [fieldContextReader] bundleID in fieldContextReader.fieldContext(bundleID: bundleID) }
         // P6.3 — script-aware final text + pill indicator; P6.4 — sync service.

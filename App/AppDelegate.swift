@@ -162,8 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let coordinator = DictationCoordinator(engine: container.engine, database: container.database, pill: pill)
         coordinator.lander = container.lander
         coordinator.onPrepare = { [weak container] in
-            ModelPrewarmer.shared.hotkeyDown()   // V5 D5: start loading the cleanup LLM while the user speaks
             container?.beginTurnContext()          // N7: one bounded context read, tied to this app
+            // V5 D5: start loading the cleanup LLM while the user speaks — unless Correction's writer
+            // handles this turn (its cleanup stage then steps aside; cached probe, no I/O here).
+            if container?.writer.handlesTurn != true { ModelPrewarmer.shared.hotkeyDown() }
             container?.prepareForUtterance()
         }
         coordinator.focusSnapshot = { [weak container] in container?.injector.focusGuard.snapshot() }
@@ -280,6 +282,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // K02 (design §13 scenario 9): a key-up the listener never delivered is synthesized from the
         // modifier state by `HotkeyService`; the turn controller then posts "Dictation stopped".
         TurnWiring.wireLostKeyUp(hotkey)
+        // Context Writer (plan §4.6) — Undo on a polished landing teaches C1 a negative alias.
+        container.writer.connectUndo(to: turnWiring.controller)
         // ── end S3 ──────────────────────────────────────────────────────────────────────────────
 
         // H2 (V4.49) — every hold-to-talk utterance with ≥ 1.5 s of speech teaches the voice until

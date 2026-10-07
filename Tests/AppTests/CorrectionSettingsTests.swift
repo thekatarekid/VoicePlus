@@ -96,9 +96,55 @@ struct CorrectionSettingsTests {
 
     static func model(_ store: InMemorySettingsStore = InMemorySettingsStore(), db: AppDatabase? = nil,
                       key: String? = "sk-or-test", writer: ContextCorrectionSettingsModel.Writer? = nil,
-                      now: Date = Date()) -> ContextCorrectionSettingsModel {
+                      now: Date = Date(), local: Bool = false, egress: Bool = true) -> ContextCorrectionSettingsModel {
         let secrets = InMemorySecretStore(key.map { [SecretKey.apiKey(APIEndpoint.openRouter.providerID): $0] } ?? [:])
-        return ContextCorrectionSettingsModel(store: store, database: db, secrets: secrets, writer: writer, now: { now })
+        return ContextCorrectionSettingsModel(store: store, database: db, secrets: secrets, writer: writer, now: { now },
+                                              localModelOnDisk: { local }, cloudEgressAllowed: { egress })
+    }
+
+    /// Finding: the page used the Keychain alone while the writer also needs egress to OpenRouter
+    /// allowed. Now both read the runtime rule, so the page never promises Cloud the writer cannot run.
+    @Test func pageAvailabilityUsesTheRuntimeRuleKeyAndEgress() {
+        let store = InMemorySettingsStore()
+        S.setMode(.cloud, store: store)
+        let open = Self.model(store, egress: true)
+        #expect(open.availability.hasCloudKey && open.providerLine == ContextCorrectionCopy.keyPresent)
+        #expect(open.modeDetail == ContextCorrectionCopy.modeDetail)
+        let blocked = Self.model(store, egress: false)
+        #expect(!blocked.availability.hasCloudKey, "a key behind the kill switch cannot run")
+        #expect(blocked.providerLine == ContextCorrectionCopy.keyBlocked && blocked.modeDetail == ContextCorrectionCopy.cloudBlocked)
+        #expect(S.resolvedMode(for: nil, store: store, availability: blocked.availability) == .off)
+        #expect(blocked.availability == WriterWiring.availability(key: true, egress: false, local: false))
+        // Automatic never shows Cloud, key or not.
+        let automatic = Self.model(InMemorySettingsStore(), egress: true)
+        #expect(automatic.title(for: .automatic) == "Automatic: Off" && automatic.selectedMode == .off)
+        #expect(Self.model(InMemorySettingsStore(), local: true).title(for: .automatic) == "Automatic: On this Mac")
+    }
+
+    @Test func testWithLastDictationNeedsEgressToo() throws {
+        let db = try AppDatabase.inMemory()
+        try db.insert(DictationRecord(startedAt: Date(), endedAt: Date(), register: "chat", route: "local", appBundleID: nil,
+                                      rawText: "x", finalText: "x", spansJSON: "[]"))
+        let blocked = Self.model(db: db, egress: false)
+        blocked.testWithLastDictation()
+        #expect(blocked.testState == .noKey)
+    }
+
+    /// The AI cleanup page's line says what Correction runs, in the picker's words, and is absent
+    /// when Automatic resolves to Off (a key alone never turns Correction on).
+    @Test func aiCleanupLineFollowsAutomatic() {
+        let store = InMemorySettingsStore()
+        let local = AICleanupSettingsModel(settings: store, correctionAvailability: { .init(hasCloudKey: true, hasLocalModel: true) })
+        local.refreshCorrection()
+        #expect(local.correctionMode == .local)
+        #expect(local.supersededLine == ContextCorrectionCopy.supersedesCleanup(.automatic, resolved: .local))
+        #expect(local.supersededLine?.contains("Automatic: On this Mac") == true)
+        let keyOnly = AICleanupSettingsModel(settings: store, correctionAvailability: { .init(hasCloudKey: true, hasLocalModel: false) })
+        keyOnly.refreshCorrection()
+        #expect(keyOnly.correctionMode == .off && keyOnly.supersededLine == nil)
+        S.setMode(.cloud, store: store)
+        keyOnly.refreshCorrection()
+        #expect(keyOnly.supersededLine?.contains("(Cloud)") == true)
     }
 
     @Test func modelMirrorsTheStoreAndItsOverrides() {

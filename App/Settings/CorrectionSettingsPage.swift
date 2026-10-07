@@ -1,4 +1,5 @@
 import Foundation
+import Lab
 import Providers
 import Shared
 import SwiftUI
@@ -29,9 +30,12 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     private let secrets: SecretStore
     private let writer: Writer?
     private let now: () -> Date
-    /// A local instruct model is on disk (the shared Qwen); injected so a test does not read this
-    /// Mac's Application Support.
+    /// A local instruct model is on disk (the shared Qwen) and this Mac's plan allows it; injected so
+    /// a test does not read this Mac's Application Support.
     private let localModelOnDisk: () -> Bool
+    /// Egress to OpenRouter is allowed (the kill switch): the runtime's rule, so the page never says
+    /// Cloud while the writer could not send anything.
+    private let cloudEgressAllowed: () -> Bool
 
     /// The picker: Automatic (nothing stored) or an explicit tier.
     @Published public var choice: ContextCorrectionSettings.Choice {
@@ -55,21 +59,27 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     @Published public private(set) var overrides: [Override] = []
     @Published public var newOverrideBundleID = ""
     @Published public private(set) var bytesLastHour = 0
+    /// An OpenRouter key is in the Keychain (the provider line).
     @Published public private(set) var hasKey = false
+    /// Egress to OpenRouter is allowed now.
+    @Published public private(set) var egressAllowed = true
     @Published public private(set) var hasLocalModel = false
     @Published public private(set) var testState: TestState = .idle
 
     /// `writer` replaces the live cloud generator (tests); `now` fixes the "last hour" window;
-    /// `localModelOnDisk` replaces the on-disk check for the local tier.
+    /// `localModelOnDisk` replaces the on-disk check for the local tier; `cloudEgressAllowed` the
+    /// kill switch.
     public init(store: SettingsStore, database: AppDatabase?, secrets: SecretStore = KeychainSecretStore(),
                 writer: Writer? = nil, now: @escaping () -> Date = Date.init,
-                localModelOnDisk: @escaping () -> Bool = { WriterWiring.installedLocalModel() != nil }) {
+                localModelOnDisk: @escaping () -> Bool = { WriterWiring.installedLocalModel() != nil },
+                cloudEgressAllowed: @escaping () -> Bool = { EgressGate.shared.isAllowed(host: WriterWiring.cloudHost) }) {
         self.store = store
         self.database = database
         self.secrets = secrets
         self.writer = writer
         self.now = now
         self.localModelOnDisk = localModelOnDisk
+        self.cloudEgressAllowed = cloudEgressAllowed
         let s = ContextCorrectionSettings.snapshot(store)
         choice = ContextCorrectionSettings.Choice(s.mode)
         cloudModel = s.cloudModel
@@ -80,24 +90,33 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
         refresh()
     }
 
-    /// Re-reads the key and the hour's bytes (on appear and after a test).
+    /// Re-reads the key, the egress switch, the model and the hour's bytes (on appear and after a test).
     public func refresh() {
-        hasKey = ((try? secrets.get(SecretKey.apiKey(APIEndpoint.openRouter.providerID))) ?? nil)?.isEmpty == false
+        hasKey = WriterWiring.cloudKeyStored(secrets)
         hasLocalModel = localModelOnDisk()
+        refreshEgress()
         bytesLastHour = Self.writerBytes(in: database, since: now().addingTimeInterval(-3600))
     }
 
-    public var availability: ContextCorrectionSettings.Availability {
-        .init(hasCloudKey: hasKey, hasLocalModel: hasLocalModel)
+    /// Re-reads only the egress switch (a defaults change: cheap, no Keychain).
+    public func refreshEgress() {
+        let allowed = cloudEgressAllowed()
+        if allowed != egressAllowed { egressAllowed = allowed }
     }
 
-    /// What Automatic resolves to on this Mac now.
+    /// What the writer would see: the runtime's rule (`WriterWiring.liveAvailability`) — a key on
+    /// file **and** egress to OpenRouter allowed — and the plan-gated local model.
+    public var availability: ContextCorrectionSettings.Availability {
+        WriterWiring.availability(key: hasKey, egress: egressAllowed, local: hasLocalModel)
+    }
+
+    /// What Automatic resolves to on this Mac now (On this Mac or Off; never Cloud).
     public var automaticMode: ContextCorrectionSettings.Mode { ContextCorrectionSettings.automaticMode(availability) }
 
     /// The tier the picker selects (Automatic resolved), before availability.
     public var selectedMode: ContextCorrectionSettings.Mode { choice.mode ?? automaticMode }
 
-    /// "Automatic: Cloud" / "Off" / … — the picker's labels.
+    /// "Automatic: On this Mac" / "Automatic: Off" / "Off" / … — the picker's labels.
     public func title(for c: ContextCorrectionSettings.Choice) -> String { c.title(resolved: automaticMode) }
 
     /// Bytes out of every writer call (prewarm included) since `since`, from the network log.
@@ -113,11 +132,16 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
         switch selectedMode {
         case .off: return ContextCorrectionCopy.modeDetail
         case .local: return hasLocalModel ? ContextCorrectionCopy.localDetail : ContextCorrectionCopy.localMissing
-        case .cloud: return hasKey ? ContextCorrectionCopy.modeDetail : ContextCorrectionCopy.cloudMissing
+        case .cloud:
+            if !hasKey { return ContextCorrectionCopy.cloudMissing }
+            return egressAllowed ? ContextCorrectionCopy.modeDetail : ContextCorrectionCopy.cloudBlocked
         }
     }
 
-    public var providerLine: String { hasKey ? ContextCorrectionCopy.keyPresent : ContextCorrectionCopy.noKey }
+    public var providerLine: String {
+        guard hasKey else { return ContextCorrectionCopy.noKey }
+        return egressAllowed ? ContextCorrectionCopy.keyPresent : ContextCorrectionCopy.keyBlocked
+    }
 
     public var dataSentLine: String {
         bytesLastHour == 0 ? ContextCorrectionCopy.nothingSent
@@ -161,7 +185,7 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
         guard let database, let last = (try? database.recentDictations(limit: 1))?.first else { testState = .noDictation; return }
         let input = last.rawText.isEmpty ? last.finalText : last.rawText
         guard !input.isEmpty else { testState = .noDictation; return }
-        guard writer != nil || hasKey else { testState = .noKey; return }
+        guard writer != nil || availability.hasCloudKey else { testState = .noKey; return }
         let write = writer ?? liveWriter()
         testState = .running
         Task { [weak self] in
@@ -180,8 +204,9 @@ public final class ContextCorrectionSettingsModel: ObservableObject {
     }
 
     private func liveWriter() -> Writer {
-        let generator = CloudWriterGenerator(config: ContextCorrectionSettings.cloudConfig(store), secrets: secrets,
-                                             logger: database.map { DatabaseNetworkLogger(db: $0) })
+        // The runtime's generator: the network log and the egress kill switch included.
+        let generator = WriterWiring.cloudGenerator(config: ContextCorrectionSettings.cloudConfig(store), secrets: secrets,
+                                                    database: database)
         return { system, user in try await generator.write(system: system, user: user) }
     }
 }
@@ -213,6 +238,10 @@ struct CorrectionSettingsPage: View {
             test
         }
         .onAppear { model.refresh() }
+        // The egress kill switch lives in UserDefaults (Privacy): follow it while the page is open.
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            model.refreshEgress()
+        }
     }
 
     private func field(_ title: String, detail: String, text: Binding<String>, identifier: String) -> some View {

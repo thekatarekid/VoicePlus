@@ -28,13 +28,23 @@ import Shared
 //   ranges in the final text, writer ms);
 // - prewarms the cloud connection (or loads the local model) at key-down when Correction resolves to
 //   that tier for the frontmost app, and — once the surface resolved — the local model's prompt
-//   prefix (system + the packet's stable part, `LlamaCppProvider.prewarm(system:prefix:)`);
-// - owns the sentence speculator (`WriterSpeculator`, plan §4.2): its packet is the key-down packet
-//   (heard empty), its generator the run's backend, and its cache is the stage's `speculation`.
-//   `DictationCoordinator.speculator` must be set to `speculator` by the shell (AppDelegate) for it to
-//   see the hold's segment stream; without that the stage simply makes one full call;
+//   prefix (system + the packet's stable part, `LlamaCppProvider.prewarm(system:prefix:)`). The local
+//   load respects the device's `ResidencyPlan` (an `.exclusive` tier is never loaded for a guess, as
+//   `ModelPrewarmer`), and the key-up path never starts a load (`LocalWriterBackend`);
+// - resolves the tier from a **cached** availability probe (Keychain key + egress switch + model on
+//   disk), refreshed off the hot path at key-down; the landing path never probes inline (a stale
+//   cache schedules a refresh on `queue`, nothing cached is Off for that landing);
+// - keeps the sentence speculator (`WriterSpeculator`, plan §4.2) **unwired in this release**: the
+//   stage gets no `speculation` and `speculates()` is false unless the hidden settings flag
+//   `writer.speculation` is on (default off), and nothing sets `DictationCoordinator.speculator`.
+//   Why: measured on the owner's recordings, the shipped EOU preview let 1 % of heard words be reused
+//   (`WriterSpeculator` header), so each hold would send the screen packet to the backend several
+//   times for almost no latency won, and the privacy review of in-hold egress is still open. The code
+//   stays (with the per-app Verbatim / "Exact" gate `augment` applies) for the polling-preview arm;
+//   wiring it is a decision, not a default;
 // - feeds C1: every landed dictation to `RedictationLearner.observe`, and the UX's "undo correction"
-//   (`WriterWiring.undoCorrection(heard:written:app:)`) to `RedictationLearner.undoCorrection`.
+//   (`TurnController.onUndoCorrection`, connected by `connectUndo(to:)`) to
+//   `RedictationLearner.undoCorrection`.
 //
 // Privacy: AX only, secure fields never read (the packet builder returns an empty secure packet and
 // the writer does not run), screen text is data never instructions, and nothing here logs text —
@@ -47,10 +57,25 @@ public protocol WriterBackend: WriterGenerating {
     /// Once the turn's surface resolved: the turn's packet (heard still empty). A local backend
     /// decodes the prompt's system + stable prefix so the call after key-up prefills only its tail.
     func prewarm(packet: ContextPacket) async
+    /// Key-up, before the call: whether it can run without starting a model load. Default true
+    /// (cloud). Local: the model is resident, or the key-down load finished within its wait budget.
+    func readyForLanding() async -> Bool
 }
 
 public extension WriterBackend {
     func prewarm(packet: ContextPacket) async {}
+    func readyForLanding() async -> Bool { true }
+}
+
+/// Why a backend declined a landing without trying. The gate reports it as `skipped:<code>` (not
+/// `failed`), so the landed row carries no "Not polished" note: nothing went wrong, the model was
+/// simply not in memory and a key-up load would have cost the whole deadline.
+public enum WriterBackendSkip: Error, Equatable, CaseIterable {
+    case notResident
+
+    /// The stage's error code for this skip (`CleanupStage.errorCode`).
+    public var code: String { String(describing: self) }
+    static let codes = Set(allCases.map(\.code))
 }
 
 public final class WriterWiring: @unchecked Sendable {
@@ -73,20 +98,29 @@ public final class WriterWiring: @unchecked Sendable {
     public static let landingIDKey = "writer.landingID"
     /// Local generation cap (plan: a dictation, never an essay).
     public static let localMaxTokens = 400
-    /// The availability probe (keychain + disk) is refreshed at every key-down, off its thread;
-    /// a landing with no fresh value reads it again after this long.
+    /// The availability probe (keychain + egress + disk) is refreshed at every key-down, off its
+    /// thread; a cached value older than this schedules a background refresh when read (the reader
+    /// still uses it — never an inline probe).
     public static let availabilityTTL: TimeInterval = 30
+    /// Hidden settings flag (no UI): "true" lets the sentence speculator run (see the header). Off by
+    /// default; even on, nothing attaches the speculator to `DictationCoordinator` in this release.
+    public static let speculationFlagKey = "writer.speculation"
 
     public let settings: SettingsStore
     public let events: WriterLandingEvents
     public let learner: RedictationLearner?
     public let vocabulary: WriterVocabulary
-    /// Plan §4.2 — sentences written while the user speaks; its cache is the stage's `speculation`.
+    /// Plan §4.2 — sentences written while the user speaks. Unwired in this release (see the header):
+    /// its cache reaches the stage only with `speculationFlagKey` on.
     public let speculator: WriterSpeculator
     let ledger = WriterRunLedger()
     let packetBuilder: ContextPacketBuilder
     /// The landing's turn sources (the composition root's `TurnSurfaceContext` / snapshot / engine).
     public var sources = TurnSources()
+    /// The per-app rules the lander's context step runs before `augment` (AppRules, the turn's
+    /// surface, preset defaults), so the speculator's gate makes the same Verbatim / "Exact" skip
+    /// decision `augment` does. Identity until the composition root sets it.
+    public var turnRules: @Sendable (StageContext) -> StageContext = { $0 }
 
     private let hasCloudKey: @Sendable () -> Bool
     private let localModel: @Sendable () -> LocalLLMModel?
@@ -99,7 +133,9 @@ public final class WriterWiring: @unchecked Sendable {
     /// delays the next key-down's prewarm. nil when `queue` is nil.
     private let learningQueue: DispatchQueue?
     private let lock = NSLock()
-    private var cachedAvailability: (value: ContextCorrectionSettings.Availability, at: Date)?
+    /// The last probe: what this Mac can run, the local model it found, and when.
+    private var cachedAvailability: (value: ContextCorrectionSettings.Availability, model: LocalLLMModel?, at: Date)?
+    private var refreshPending = false
     private var cloud: (config: CloudWriterConfig, backend: any WriterBackend)?
     private var local: (id: String, backend: any WriterBackend)?
     private var turn = TurnState()
@@ -123,7 +159,7 @@ public final class WriterWiring: @unchecked Sendable {
 
     /// - Parameters:
     ///   - hasCloudKey: an OpenRouter key is stored and egress to it is allowed.
-    ///   - localModel: the local instruct model on disk (nil: none).
+    ///   - localModel: the local instruct model on disk that this Mac's plan allows (nil: none).
     ///   - makeCloud / makeLocal: the backends (live: OpenRouter / llama.cpp; tests: scripted).
     public init(settings: SettingsStore, events: WriterLandingEvents = .shared, learner: RedictationLearner? = nil,
                 packetBuilder: ContextPacketBuilder = ContextPacketBuilder(),
@@ -155,7 +191,7 @@ public final class WriterWiring: @unchecked Sendable {
         speculator.isEnabled = { [weak self] in self?.speculates() ?? false }
     }
 
-    /// The app's writer: Keychain key, the downloaded shared model, OpenRouter + llama.cpp backends,
+    /// The app's writer: Keychain key, the downloaded shared model (plan-gated), OpenRouter + llama.cpp backends,
     /// the network log, the egress kill switch, the packet's history / persona / language sources
     /// and the personal vocabulary over the Dictionary, corrections and the learned lexicon.
     public static func live(settings: SettingsStore, database: AppDatabase?, adaptation: AdaptationService?,
@@ -171,7 +207,7 @@ public final class WriterWiring: @unchecked Sendable {
             hasCloudKey: { Self.cloudKeyStored(secrets) && EgressGate.shared.isAllowed(host: Self.cloudHost) },
             localModel: { Self.installedLocalModel() },
             makeCloud: { CloudWriterBackend(generator: Self.cloudGenerator(config: $0, secrets: secrets, database: database)) },
-            makeLocal: { LocalWriterBackend(model: $0) })
+            makeLocal: { LocalWriterBackend(model: $0) })   // never loads on the key-up path
         vocabulary.rebuild()
         wiring.run { wiring.refreshAvailability() }   // the first key-down finds a cached answer
         return wiring
@@ -184,6 +220,15 @@ public final class WriterWiring: @unchecked Sendable {
     /// Makes `wiring` the one `undoCorrection(heard:written:app:)` reaches (the composition root's).
     public static func install(_ wiring: WriterWiring) { currentBox.set(wiring) }
     public static var current: WriterWiring? { currentBox.get() }
+
+    /// The shell's hook (AppDelegate, after `TurnWiring.attach`): the landed row's Undo of the
+    /// writer's changes reaches C1 — each restored word becomes a negative alias. The controller
+    /// calls it on its `hookQueue`; the learner then runs on this wiring's learning queue.
+    public func connectUndo(to controller: TurnController) {
+        controller.onUndoCorrection = { [weak self] heard, written, app in
+            _ = self?.undoCorrection(heard: heard, written: written, app: app)
+        }
+    }
 
     /// The UX's "undo correction" (plan §4.6): the user put back what was heard where the writer had
     /// written `written`. Stored as a negative alias through C1 (`RedictationLearner.undoCorrection`)
@@ -213,38 +258,78 @@ public final class WriterWiring: @unchecked Sendable {
 
     // MARK: Mode, per run
 
-    /// What this Mac can run: the cached probe (refreshed at key-down), read again when stale.
+    /// What this Mac can run: the cached probe only — never a Keychain, egress or disk read on the
+    /// caller's thread (the landing path calls this). A value older than `availabilityTTL` schedules
+    /// a refresh on `queue` and is still returned; nothing cached yet is `.none` (Off for this run)
+    /// and schedules one.
     public func availability() -> ContextCorrectionSettings.Availability {
-        if let cached = lock.withLock({ cachedAvailability }), now().timeIntervalSince(cached.at) < Self.availabilityTTL {
-            return cached.value
-        }
-        return refreshAvailability()
+        let cached = lock.withLock { cachedAvailability }
+        if cached.map({ now().timeIntervalSince($0.at) >= Self.availabilityTTL }) ?? true { scheduleRefresh() }
+        return cached?.value ?? .none
     }
 
+    /// The probe itself (Keychain, egress switch, model on disk): key-down's background work only.
     @discardableResult
     func refreshAvailability() -> ContextCorrectionSettings.Availability {
-        let value = ContextCorrectionSettings.Availability(hasCloudKey: hasCloudKey(), hasLocalModel: localModel() != nil)
-        lock.withLock { cachedAvailability = (value, now()) }
+        let model = localModel()
+        let value = ContextCorrectionSettings.Availability(hasCloudKey: hasCloudKey(), hasLocalModel: model != nil)
+        lock.withLock { cachedAvailability = (value, model, now()) }
         return value
     }
 
-    /// The tier that runs for one dictation in `bundleID` (nil: Correction off for it, or the
-    /// selected tier cannot run on this Mac). Read per run: a Settings change applies next time.
+    /// One background refresh at a time (coalesced); inline without a queue (tests).
+    private func scheduleRefresh() {
+        let start = lock.withLock { () -> Bool in
+            if refreshPending { return false }
+            refreshPending = true
+            return true
+        }
+        guard start else { return }
+        run { [weak self] in
+            guard let self else { return }
+            self.lock.withLock { self.refreshPending = false }
+            self.refreshAvailability()
+        }
+    }
+
+    /// The tier that runs for one dictation in `bundleID` (nil: Correction off for it, the selected
+    /// tier cannot run on this Mac, or nothing is cached yet). Read per run from the cached probe:
+    /// a Settings change applies next time. Never Cloud unless the user picked Cloud.
     public func backend(for bundleID: String?) -> Backend? {
         Backend(ContextCorrectionSettings.resolvedMode(for: bundleID, store: settings, availability: availability()))
     }
 
-    /// The same from the cached probe only (nil when nothing is cached yet): safe on the key-down thread.
+    /// The same without scheduling a refresh (nil when nothing is cached yet).
     func cachedBackend(for bundleID: String?) -> Backend? {
         guard let cached = lock.withLock({ cachedAvailability?.value }) else { return nil }
         return Backend(ContextCorrectionSettings.resolvedMode(for: bundleID, store: settings, availability: cached))
     }
 
-    /// The speculator's gate at key-down: a hold in an app Correction writes for.
-    func speculates() -> Bool {
+    /// Key-down, right after `beginTurn` (cached probe only, safe on the key-down thread): the writer
+    /// will handle this turn, so its cleanup stage steps aside and the legacy cleanup LLM is not
+    /// worth loading (the shell skips `ModelPrewarmer.hotkeyDown()`; plan §1, V5 D5).
+    public var handlesTurn: Bool {
         let app = lock.withLock { turn.app }
-        guard let app, !OwnProcess.owns(app) else { return false }
-        return cachedBackend(for: app.bundleID) != nil
+        return cachedBackend(for: app?.bundleID) != nil
+    }
+
+    /// The hidden speculation flag (`speculationFlagKey`, default off).
+    public var speculationEnabled: Bool { settings.bool(Self.speculationFlagKey) ?? false }
+
+    /// The speculator's gate at key-down: off unless the hidden flag is on; then a hold in an app
+    /// Correction writes for, and not one the app's rules make the writer skip (Verbatim, "Exact",
+    /// a preset without cleanup) — the same decision `augment` makes, so no in-hold egress for a turn
+    /// whose landing would never call the model.
+    func speculates() -> Bool {
+        guard speculationEnabled else { return false }
+        let app = lock.withLock { turn.app }
+        guard let app, !OwnProcess.owns(app), cachedBackend(for: app.bundleID) != nil else { return false }
+        return !Self.asksWriterToSkip(turnRules(StageContext(appBundleID: app.bundleID)))
+    }
+
+    /// The app's rules ask the writer not to call the model for this run.
+    static func asksWriterToSkip(_ ctx: StageContext) -> Bool {
+        ctx.extra[CleanupStage.skipKey] == "true" || SurfacePresets.active(in: ctx)?.allowsCleanup == false
     }
 
     /// The turn's packet as known at key-down (heard empty): the speculator's, and the local prefix
@@ -255,7 +340,8 @@ public final class WriterWiring: @unchecked Sendable {
         return packet.isSecure ? nil : packet
     }
 
-    /// The generator for `backend`, built once per cloud config / local model.
+    /// The generator for `backend`, built once per cloud config / local model. The local model is the
+    /// cached probe's (no disk read here: the stage calls this on the landing path).
     public func generator(for backend: Backend) -> (any WriterBackend)? {
         switch backend {
         case .cloud:
@@ -267,8 +353,8 @@ public final class WriterWiring: @unchecked Sendable {
                 return made
             }
         case .local:
-            guard let model = localModel() else { return nil }
             return lock.withLock {
+                guard let model = cachedAvailability?.model else { return nil }
                 if let local, local.id == model.id { return local.backend }
                 let made = makeLocal(model)
                 local = (model.id, made)
@@ -280,11 +366,12 @@ public final class WriterWiring: @unchecked Sendable {
     // MARK: The chain's stage
 
     /// The writer at cleanup's position: a pass-through unless the run is `writer.active`.
-    /// The writer reuses sentences the speculator wrote during the hold (`speculator.cache`).
+    /// No `speculation` in this release (see the header): the speculator's cache is installed only
+    /// with the hidden `speculationFlagKey` on when the chain is built.
     public func stage(deadline: TimeInterval = ContextWriterStage.defaultDeadline) -> WriterGateStage {
         let router = RoutedWriterGenerator(events: events, resolve: { [weak self] in self?.generator(for: $0) })
         var inner = ContextWriterStage(generator: router, deadline: deadline)
-        inner.speculation = speculator.cache
+        inner.speculation = speculationEnabled ? speculator.cache : nil
         return WriterGateStage(inner: inner, ledger: ledger)
     }
 
@@ -333,6 +420,8 @@ public final class WriterWiring: @unchecked Sendable {
     /// After AppRules (and the surface, preset and mid-sentence steps): when Correction resolves to a
     /// tier for this run, the packet goes into the context with `writer.active` and the backend, and
     /// Verbatim / "Exact" / mid-sentence-off turns ask the writer to skip. Off → `context` unchanged.
+    /// The tier comes from the cached probe only (`backend(for:)`): no Keychain / egress / disk read
+    /// on the landing path; nothing cached yet → Off for this landing.
     public func augment(_ spans: [TranscriptSpan], _ context: StageContext) -> StageContext {
         guard let backend = backend(for: context.appBundleID) else { return context }
         let packet = buildPacket(spans, context: context)
@@ -341,7 +430,7 @@ public final class WriterWiring: @unchecked Sendable {
         packet.write(into: &ctx)
         ctx.extra[Self.activeKey] = "true"
         ctx.extra[Self.backendKey] = backend.rawValue
-        if ctx.extra[CleanupStage.skipKey] == "true" || SurfacePresets.active(in: ctx)?.allowsCleanup == false {
+        if Self.asksWriterToSkip(ctx) {
             ctx.extra[ContextWriterStage.skipKey] = "true"
         }
         return ctx
@@ -468,18 +557,36 @@ public final class WriterWiring: @unchecked Sendable {
         ((try? secrets.get(SecretKey.apiKey(APIEndpoint.openRouter.providerID))) ?? nil)?.isEmpty == false
     }
 
-    /// What this Mac can run, read live (Settings lines; the writer itself caches it per turn).
-    public static func liveAvailability(secrets: SecretStore = KeychainSecretStore()) -> ContextCorrectionSettings.Availability {
-        .init(hasCloudKey: cloudKeyStored(secrets) && EgressGate.shared.isAllowed(host: cloudHost),
-              hasLocalModel: installedLocalModel() != nil)
+    /// The runtime's availability rule, in one place (the writer, the Correction page and the AI
+    /// cleanup line all use it): Cloud needs a key on file **and** egress to OpenRouter allowed; the
+    /// local tier a plan-allowed model on disk.
+    public static func availability(key: Bool, egress: Bool, local: Bool) -> ContextCorrectionSettings.Availability {
+        .init(hasCloudKey: key && egress, hasLocalModel: local)
     }
 
-    /// The shared instruct model the user downloaded: `llm.edit.preferredModel` when on disk, else
-    /// any shared model on disk (`LocalModelManager.activeModel`); nil without the llama.cpp runtime.
+    /// What this Mac can run, read live (Settings lines; the writer itself caches it per turn).
+    public static func liveAvailability(secrets: SecretStore = KeychainSecretStore()) -> ContextCorrectionSettings.Availability {
+        availability(key: cloudKeyStored(secrets), egress: EgressGate.shared.isAllowed(host: cloudHost),
+                     local: installedLocalModel() != nil)
+    }
+
+    /// The shared instruct model the writer runs on this Mac: nil without the llama.cpp runtime or
+    /// when the device's `ResidencyPlan` offers no on-device LLM (an 8 GB Mac hides `.localLLM`);
+    /// else the user's downloaded pick (`llm.edit.preferredModel` when on disk, else any shared model
+    /// on disk — `LocalModelManager.activeModel`), except that a pick this plan could only load
+    /// `.exclusive` (the 4B on a 16 GB Mac) gives way to the plan's own model when that is on disk.
     /// The cleanup fine-tunes (SpeakoFlow, S1) are not candidates: they cannot follow the writer's prompt.
-    public static func installedLocalModel(manager: LocalModelManager = EditModels.manager) -> LocalLLMModel? {
-        guard LlamaCppEngine.runtimeAvailable else { return nil }
-        return manager.activeModel
+    public static func installedLocalModel(manager: LocalModelManager = EditModels.manager,
+                                           plan: ResidencyPlan = ResidencyPlanStore.shared.plan,
+                                           runtimeAvailable: Bool = LlamaCppEngine.runtimeAvailable) -> LocalLLMModel? {
+        guard runtimeAvailable, plan.localLLMKey != nil, !plan.isHidden(.localLLM),
+              let active = manager.activeModel else { return nil }
+        if ComputerUseSettings.plannerTier(for: active, plan: plan) == .exclusive,
+           let planned = LocalLLMCatalog.sharedDefault(localLLMKey: plan.localLLMKey), planned.id != active.id,
+           let onDisk = manager.model(planned.id), manager.state(onDisk.id).isReady {
+            return onDisk
+        }
+        return active
     }
 
     static func cloudGenerator(config: CloudWriterConfig, secrets: SecretStore, database: AppDatabase?) -> CloudWriterGenerator {
@@ -524,8 +631,15 @@ public struct WriterGateStage: PipelineStage {
         let box = OutcomeBox()
         var stage = inner
         let previous = stage.observer
-        stage.observer = { outcome in
+        // A backend that declined without trying (`WriterBackendSkip`) is a skip, not a failure: no
+        // "Not polished" note. The trace note is written here, with the translated code.
+        let trace = stage.trace
+        let id = self.id
+        stage.trace = nil
+        stage.observer = { raw in
+            let outcome = Self.translated(raw)
             box.set(outcome)
+            trace?.note(stage: id, code: outcome.code)
             previous?(outcome)
         }
         let start = DispatchTime.now().uptimeNanoseconds
@@ -549,10 +663,18 @@ public struct WriterGateStage: PipelineStage {
         }
         return out
     }
+
+    /// `failed:<WriterBackendSkip>` → `skipped:<code>`; every other outcome unchanged.
+    static func translated(_ outcome: WriterOutcome) -> WriterOutcome {
+        if case .failed(let code, _) = outcome, WriterBackendSkip.codes.contains(code) { return .skipped(code) }
+        return outcome
+    }
 }
 
 /// The stage's generator: the run's backend (`writer.backend`), with `.started` posted as the model
 /// call begins. No backend for the run → `ProviderError.unavailable` (the stage reports `failed`).
+/// A backend not ready without a load (`readyForLanding`) declines before `.started` with
+/// `WriterBackendSkip.notResident` (the gate reports `skipped:notResident`).
 struct RoutedWriterGenerator: WriterGenerating {
     let events: WriterLandingEvents
     let resolve: @Sendable (WriterWiring.Backend) -> (any WriterBackend)?
@@ -560,6 +682,7 @@ struct RoutedWriterGenerator: WriterGenerating {
     func write(system: String, user: String, context: StageContext) async throws -> String {
         guard let backend = context.extra[WriterWiring.backendKey].flatMap(WriterWiring.Backend.init(rawValue:)),
               let generator = resolve(backend) else { throw ProviderError.unavailable("no writer backend for this run") }
+        guard await generator.readyForLanding() else { throw WriterBackendSkip.notResident }
         if let id = context.extra[WriterWiring.landingIDKey].flatMap(UUID.init(uuidString:)) {
             events.post(.started(landingID: id, backend: backend.rawValue))
         }
@@ -568,7 +691,8 @@ struct RoutedWriterGenerator: WriterGenerating {
 }
 
 /// The speculator's generator: the backend Correction resolves to for the turn's app, per call
-/// (off the key-down thread). No backend → the chunk fails and the turn stops speculating.
+/// (off the key-down thread; cached probe). No backend → the chunk fails and the turn stops
+/// speculating. Unwired in this release (see the header).
 struct SpeculationRouter: WriterGenerating {
     weak var wiring: WriterWiring?
 
@@ -652,15 +776,36 @@ public struct CloudWriterBackend: WriterBackend {
 /// key (the same weights the edit / planner provider loads), greedy, ≤ 400 tokens, the stage's
 /// deadline; refuses to *load* under critical memory pressure. The residency's own idle sweep
 /// unloads it (no per-provider idle timer: dictation is the hot path).
+///
+/// **Never a model load on the key-up path.** `prewarm()` (key-down) starts the load, respecting the
+/// device's plan: an `.exclusive` registration is never loaded for a guess (it would evict every
+/// on-demand model, or fail beside CUA-S1 — `ModelPrewarmer` refuses the same), nor under critical
+/// pressure. `write` (key-up) runs only when the model is resident, or once the key-down load
+/// finishes within `loadWait`; otherwise it throws `WriterBackendSkip.notResident` at once and the
+/// landing reports `skipped:notResident`. (A model evicted between that check and the call would
+/// still be reloaded by the provider; the window is one actor hop.) Offline tools that have no
+/// key-down (Lab, replay) pass `loadsOnWrite: true`.
 public final class LocalWriterBackend: WriterBackend, @unchecked Sendable {
     public let model: LocalLLMModel
     public let provider: LlamaCppProvider
+    /// How long a landing may wait for the key-down load (well inside the stage's deadline).
+    public let loadWait: TimeInterval
+    /// Tools only: let `write` load the model itself.
+    public let loadsOnWrite: Bool
     private let residency: ModelResidency
+    private let lock = NSLock()
+    /// The key-down load in flight (true = loaded), and its ticket.
+    private var keyDownLoad: (ticket: Int, task: Task<Bool, Never>)?
+    private var tickets = 0
 
     public init(model: LocalLLMModel, residency: ModelResidency = .shared, plan: ResidencyPlan = ResidencyPlanStore.shared.plan,
-                deadline: TimeInterval = ContextWriterStage.defaultDeadline, engine: (any LocalLLMEngine)? = nil) {
+                deadline: TimeInterval = ContextWriterStage.defaultDeadline, engine: (any LocalLLMEngine)? = nil,
+                loadWait: TimeInterval? = nil, loadsOnWrite: Bool = false,
+                fileExists: @escaping @Sendable (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) {
         self.model = model
         self.residency = residency
+        self.loadWait = loadWait ?? deadline * 0.5
+        self.loadsOnWrite = loadsOnWrite
         let key = ComputerUseSettings.residencyKey(for: model)
         provider = LlamaCppProvider(
             config: LlamaCppConfig(modelPath: model.localURL(), residencyKey: key,
@@ -668,29 +813,89 @@ public final class LocalWriterBackend: WriterBackend, @unchecked Sendable {
                                    estimatedBytes: model.residentBytes, maxTokens: WriterWiring.localMaxTokens,
                                    deadline: deadline, lighterAlternative: plan.lighterAlternative(for: key),
                                    sampling: .greedy, idleUnloadAfter: nil, refuseUnderCriticalPressure: true),
-            displayName: "\(model.displayName) on this Mac", residency: residency, engine: engine)
+            displayName: "\(model.displayName) on this Mac", residency: residency, engine: engine, fileExists: fileExists)
     }
+
+    private var key: String { provider.config.residencyKey }
 
     public func write(system: String, user: String, context: StageContext) async throws -> String {
-        try await provider.generate(prompt: user, system: system, stage: ContextWriterStage.stageID).text
+        if !loadsOnWrite { guard await readyForLanding() else { throw WriterBackendSkip.notResident } }
+        return try await provider.generate(prompt: user, system: system, stage: ContextWriterStage.stageID).text
     }
 
-    /// Key-down: register and load the weights while the user speaks (not under memory pressure).
+    /// Resident now, or the key-down load finished (successfully) within `loadWait`. Never loads.
+    public func readyForLanding() async -> Bool {
+        if loadsOnWrite { return true }
+        if await residency.isResident(key) { return true }
+        guard let load = lock.withLock({ keyDownLoad?.task }) else { return false }
+        guard await Self.value(of: load, within: loadWait) == true else { return false }
+        return await residency.isResident(key)
+    }
+
+    /// Key-down: register and load the weights while the user speaks — not an `.exclusive`
+    /// registration, not under memory pressure. An already-resident model is touched.
     public func prewarm() async {
         guard await provider.isAvailable() else { return }
         await provider.registerWithResidency()
+        let key = self.key
+        let tier = await residency.snapshot().entries.first(where: { $0.key == key })?.tier ?? provider.config.tier
+        guard tier != .exclusive else { return }
+        if await residency.isResident(key) {
+            await residency.touch(key)
+            return
+        }
         guard await !residency.isRunningLighter else { return }
-        try? await residency.acquire(provider.config.residencyKey)
+        let (ticket, task) = lock.withLock { () -> (Int, Task<Bool, Never>) in
+            if let running = keyDownLoad { return (running.ticket, running.task) }
+            tickets += 1
+            let residency = self.residency
+            let task = Task<Bool, Never> { (try? await residency.acquire(key)) != nil }
+            keyDownLoad = (tickets, task)
+            return (tickets, task)
+        }
+        _ = await task.value
+        lock.withLock { if keyDownLoad?.ticket == ticket { keyDownLoad = nil } }
     }
 
     /// The surface resolved: decode the prompt's system + stable prefix for this destination (the KV
     /// prefix cache), so the call after key-up prefills only VOCAB / HEARD / ALT. Not for a secure or
-    /// verbatim destination (the stage does not call the model there).
+    /// verbatim destination (the stage does not call the model there), and never a load of its own:
+    /// only once the model is resident (after the key-down load, when one is running).
     public func prewarm(packet: ContextPacket) async {
         let profile = Pipeline.DestinationProfiles.resolve(profileID: packet.destination.profileID)
         guard !packet.isSecure, !profile.isSecure, packet.mode == .transcribe else { return }
+        if let load = lock.withLock({ keyDownLoad?.task }) { _ = await load.value }
+        guard await residency.isResident(key) else { return }
         let parts = WriterPrompt.renderParts(packet: packet, profile: profile)
         await provider.prewarm(system: parts.system, prefix: parts.stablePrefix)
+    }
+
+    /// `task`'s value, or nil when it has not finished within `seconds` (the task keeps running).
+    static func value(of task: Task<Bool, Never>, within seconds: TimeInterval) async -> Bool? {
+        final class Once: @unchecked Sendable {
+            private let lock = NSLock()
+            private var continuation: CheckedContinuation<Bool?, Never>?
+            init(_ c: CheckedContinuation<Bool?, Never>) { continuation = c }
+            func resume(_ value: Bool?) {
+                let c = lock.withLock { () -> CheckedContinuation<Bool?, Never>? in
+                    defer { continuation = nil }
+                    return continuation
+                }
+                c?.resume(returning: value)
+            }
+        }
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool?, Never>) in
+            let once = Once(c)
+            let timer = Task {
+                try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+                if !Task.isCancelled { once.resume(nil) }
+            }
+            Task {
+                let value = await task.value
+                once.resume(value)
+                timer.cancel()
+            }
+        }
     }
 }
 

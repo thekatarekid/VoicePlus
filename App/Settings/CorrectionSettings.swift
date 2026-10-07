@@ -9,10 +9,15 @@ import Shared
 // Settings › General), which predates the writer.
 //
 // **Automatic** (the default: the user never picked a tier, `correction.mode` absent) resolves per
-// dictation from what this Mac has: **Cloud** when an OpenRouter key is stored (and egress to it is
-// allowed), else **On this Mac** when a local instruct model is on disk (the shared Qwen the user
-// downloaded, `llm.edit.preferredModel` first), else **Off**. An explicit tier is honoured as chosen:
-// "Cloud" without a key, or "On this Mac" without a model, writes nothing (it never falls back to the
+// dictation from what this Mac has: **On this Mac** when a shared local instruct model is on disk and
+// the device's `ResidencyPlan` allows the on-device LLM (`WriterWiring.installedLocalModel`), else
+// **Off**. Automatic **never** resolves to Cloud: an OpenRouter key is a general provider credential
+// (Settings › Providers) and storing it for another stage is not consent to send every dictation and
+// the screen around the caret to OpenRouter (PRODUCT-SPEC T3, "speech never leaves the device unless
+// enabled"). Cloud runs only when `correction.mode == cloud` or a per-app override says cloud. That
+// also covers anyone whose explicit Off an older build stored as "nothing" (Automatic): no stored key
+// can lead to egress. An explicit tier is honoured as chosen: "Cloud" without a key (or with egress
+// to OpenRouter blocked), or "On this Mac" without a model, writes nothing (it never falls back to the
 // other tier). A per-app override wins over both. `resolvedMode` is what `WriterWiring` runs.
 
 public enum ContextCorrectionSettings {
@@ -61,7 +66,8 @@ public enum ContextCorrectionSettings {
             case .cloud?: self = .cloud
             }
         }
-        /// "Automatic: Cloud" for Automatic (with what it resolves to), else the tier's title.
+        /// "Automatic: On this Mac" / "Automatic: Off" for Automatic (with what it resolves to), else
+        /// the tier's title.
         public func title(resolved: Mode) -> String {
             mode?.title ?? "\(ContextCorrectionCopy.automaticTitle): \(resolved.title)"
         }
@@ -69,9 +75,11 @@ public enum ContextCorrectionSettings {
 
     /// What this Mac can run right now: the inputs of Automatic and of an explicit tier.
     public struct Availability: Equatable, Sendable {
-        /// An OpenRouter key is stored and egress to OpenRouter is allowed.
+        /// An OpenRouter key is stored and egress to OpenRouter is allowed (the runtime rule:
+        /// `WriterWiring.liveAvailability`). Read only by an explicit Cloud tier, never by Automatic.
         public var hasCloudKey: Bool
-        /// A local instruct model (the shared Qwen) is on disk and the llama.cpp runtime is linked.
+        /// A local instruct model (the shared Qwen) is on disk, the llama.cpp runtime is linked and the
+        /// device's `ResidencyPlan` offers the on-device LLM.
         public var hasLocalModel: Bool
         public init(hasCloudKey: Bool, hasLocalModel: Bool) {
             self.hasCloudKey = hasCloudKey
@@ -155,11 +163,10 @@ public enum ContextCorrectionSettings {
         return mode(store)
     }
 
-    /// Automatic: Cloud with a key, else On this Mac with a model, else Off.
+    /// Automatic: On this Mac with a model this Mac's plan allows, else Off. Never Cloud (see the
+    /// header): a stored key alone is not an opt-in to egress.
     public static func automaticMode(_ availability: Availability) -> Mode {
-        if availability.hasCloudKey { return .cloud }
-        if availability.hasLocalModel { return .local }
-        return .off
+        availability.hasLocalModel ? .local : .off
     }
 
     /// The tier selected for an app before availability: override, else the explicit tier, else
@@ -302,14 +309,23 @@ public enum ContextCorrectionCopy {
     public static let modeTitle = "Correction"
     public static let modeDetail = "Fix names, spellings and formatting from what is on screen. Off sends and loads nothing."
     public static let automaticTitle = "Automatic"
-    public static let automaticDetail = "Cloud when an OpenRouter key is on file, else the model on this Mac when one is downloaded, else off."
+    public static let automaticDetail = "The rewrite model on this Mac when one is downloaded and this Mac can run it, else off. Nothing leaves the Mac: Cloud runs only when you pick it."
     public static let localDetail = "The rewrite model on this Mac (Settings › Models › Rewrite models). Nothing leaves the Mac."
     public static let localMissing = "No rewrite model on this Mac yet: download one under Rewrite models."
     public static let cloudMissing = "No OpenRouter key yet: add one under Providers. Nothing is sent until then."
+    public static let cloudBlocked = "Network egress to OpenRouter is blocked (Privacy). Nothing is sent until it is allowed again."
+    public static let keyBlocked = "OpenRouter · key on file · egress blocked"
     /// AI cleanup's line while Correction is on (`AICleanupGroup`).
     public static let supersedesCleanupTitle = "Correction is on"
     public static func supersedesCleanup(_ mode: ContextCorrectionSettings.Mode) -> String {
-        "Correction (\(mode.title)) replaces AI cleanup on every dictation it handles. These switches apply when Correction is off."
+        supersedesCleanup(title: mode.title)
+    }
+    /// With the picker's own words: "Correction (Automatic: On this Mac) replaces …".
+    public static func supersedesCleanup(_ choice: ContextCorrectionSettings.Choice, resolved: ContextCorrectionSettings.Mode) -> String {
+        supersedesCleanup(title: choice.title(resolved: resolved))
+    }
+    static func supersedesCleanup(title: String) -> String {
+        "Correction (\(title)) replaces AI cleanup on every dictation it handles. These switches apply when Correction is off."
     }
     public static let openCorrection = "Correction settings"
     public static let cloudModelTitle = "Cloud model"

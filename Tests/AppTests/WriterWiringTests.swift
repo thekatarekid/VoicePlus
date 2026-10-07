@@ -59,12 +59,23 @@ struct WriterWiringTests {
 
     static let qwen = LocalLLMCatalog.qwen35_4B
 
+    /// A wiring over scripted backends, its availability probed once (as the app's launch and every
+    /// key-down do), so the landing path finds a cached answer.
     static func wiring(_ store: SettingsStore = InMemorySettingsStore(), key: Bool = true, local: Bool = false,
                        cloud: ScriptedBackend = ScriptedBackend { $0 }, localBackend: ScriptedBackend = ScriptedBackend { $0 },
                        events: WriterLandingEvents = WriterLandingEvents(), learner: RedictationLearner? = nil) -> WriterWiring {
-        WriterWiring(settings: store, events: events, learner: learner,
-                     hasCloudKey: { key }, localModel: { local ? qwen : nil },
-                     makeCloud: { _ in cloud }, makeLocal: { _ in localBackend }, queue: nil)
+        let w = WriterWiring(settings: store, events: events, learner: learner,
+                             hasCloudKey: { key }, localModel: { local ? qwen : nil },
+                             makeCloud: { _ in cloud }, makeLocal: { _ in localBackend }, queue: nil)
+        w.refreshAvailability()
+        return w
+    }
+
+    /// A store whose Correction tier is `mode` (nil = Automatic).
+    static func store(_ mode: S.Mode?) -> InMemorySettingsStore {
+        let store = InMemorySettingsStore()
+        S.setMode(mode, store: store)
+        return store
     }
 
     static func words(_ text: String, uncertain: [String: [String]] = [:]) -> [TranscriptSpan] {
@@ -94,21 +105,50 @@ struct WriterWiringTests {
 
     // MARK: Mode resolution
 
-    @Test func automaticResolvesCloudThenLocalThenOff() {
+    /// Owner decision: Automatic is On this Mac (a plan-allowed model on disk) or Off — never Cloud,
+    /// whatever key is stored. Cloud runs only when picked (globally or per app).
+    @Test func automaticIsOnThisMacOrOffNeverCloud() {
         let store = InMemorySettingsStore()
         #expect(S.choice(store) == .automatic && S.chosenMode(store) == nil)
         func resolved(key: Bool, local: Bool, app: String? = nil) -> S.Mode {
             S.resolvedMode(for: app, store: store, availability: .init(hasCloudKey: key, hasLocalModel: local))
         }
-        #expect(resolved(key: true, local: true) == .cloud)
-        #expect(resolved(key: true, local: false) == .cloud)
+        #expect(resolved(key: true, local: true) == .local)
+        #expect(resolved(key: true, local: false) == .off, "a stored key alone is not an opt-in to egress")
         #expect(resolved(key: false, local: true) == .local)
         #expect(resolved(key: false, local: false) == .off)
         #expect(S.automaticMode(.none) == .off)
+        #expect(S.automaticMode(.init(hasCloudKey: true, hasLocalModel: false)) == .off)
         // The wiring reads the same per run.
-        #expect(Self.wiring(store, key: true).backend(for: "com.a") == .cloud)
+        #expect(Self.wiring(store, key: true).backend(for: "com.a") == nil)
+        #expect(Self.wiring(store, key: true, local: true).backend(for: "com.a") == .local)
         #expect(Self.wiring(store, key: false, local: true).backend(for: "com.a") == .local)
         #expect(Self.wiring(store, key: false, local: false).backend(for: "com.a") == nil)
+        // Cloud only when chosen: globally, or by a per-app override under Automatic.
+        #expect(Self.wiring(Self.store(.cloud), key: true).backend(for: "com.a") == .cloud)
+        S.setOverride(.cloud, for: "com.a", store: store)
+        #expect(Self.wiring(store, key: true).backend(for: "com.a") == .cloud)
+        #expect(Self.wiring(store, key: true).backend(for: "com.b") == nil)
+    }
+
+    /// Finding (privacy): Automatic with only an OpenRouter key on file (saved for another stage)
+    /// sends nothing — no packet, no call, no events.
+    @Test func automaticWithOnlyAKeyOnFileSendsNothing() async throws {
+        let events = EventLog()
+        let channel = WriterLandingEvents()
+        channel.subscribe { events.add($0) }
+        let cloud = ScriptedBackend { _ in "send it to Kothari" }
+        let w = Self.wiring(InMemorySettingsStore(), key: true, local: false, cloud: cloud, events: channel)
+        let probe = ContextProbe()
+        let spans = Self.words("send it to cotari", uncertain: ["cotari": ["Kothari"]])
+        let result = await Self.lander(w, stages: [w.stage(), probe]).land(spans, startedAt: Date(), focus: Self.mock().frontmost)
+        #expect(result.text == "send it to cotari")
+        let ctx = try #require(probe.context)
+        #expect(ContextPacket.read(from: ctx) == nil && ctx.extra[WriterWiring.activeKey] == nil)
+        #expect(cloud.callCount == 0 && cloud.prewarmCount == 0 && events.all.isEmpty)
+        w.beginTurn(app: FocusSnapshot(pid: 1, bundleID: "com.apple.Notes", appName: "Notes"))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(cloud.prewarmCount == 0, "no connection opened either")
     }
 
     @Test func explicitTierIsHonouredAndNeverFallsBack() {
@@ -130,7 +170,7 @@ struct WriterWiringTests {
         let w = Self.wiring(store, key: true, local: true)
         S.setOverride(.local, for: "com.apple.Terminal", store: store)
         S.setOverride(.off, for: "com.apple.mail", store: store)
-        #expect(w.backend(for: "com.apple.Notes") == .cloud)        // Automatic with a key
+        #expect(w.backend(for: "com.apple.Notes") == .local)        // Automatic: the model, never the key
         #expect(w.backend(for: "com.apple.Terminal") == .local)
         #expect(w.backend(for: "com.apple.mail") == nil)
         S.setMode(.off, store: store)                                 // read per run
@@ -141,10 +181,14 @@ struct WriterWiringTests {
     @Test @MainActor func settingsPageShowsAutomaticWithWhatItResolvesTo() {
         let store = InMemorySettingsStore()
         let secrets = InMemorySecretStore([SecretKey.apiKey(APIEndpoint.openRouter.providerID): "sk-or-test"])
-        let m = ContextCorrectionSettingsModel(store: store, database: nil, secrets: secrets, localModelOnDisk: { true })
+        let m = ContextCorrectionSettingsModel(store: store, database: nil, secrets: secrets, localModelOnDisk: { true },
+                                               cloudEgressAllowed: { true })
         #expect(m.choice == .automatic)
-        #expect(m.title(for: .automatic) == "Automatic: Cloud")
-        #expect(m.selectedMode == .cloud && m.modeDetail == ContextCorrectionCopy.automaticDetail)
+        #expect(m.title(for: .automatic) == "Automatic: On this Mac", "a key never makes Automatic Cloud")
+        #expect(m.selectedMode == .local && m.modeDetail == ContextCorrectionCopy.automaticDetail)
+        let keyOnly = ContextCorrectionSettingsModel(store: store, database: nil, secrets: secrets, localModelOnDisk: { false },
+                                                     cloudEgressAllowed: { true })
+        #expect(keyOnly.title(for: .automatic) == "Automatic: Off" && keyOnly.selectedMode == .off)
         let noKey = ContextCorrectionSettingsModel(store: store, database: nil, secrets: InMemorySecretStore(), localModelOnDisk: { true })
         #expect(noKey.title(for: .automatic) == "Automatic: On this Mac")
         let nothing = ContextCorrectionSettingsModel(store: store, database: nil, secrets: InMemorySecretStore(), localModelOnDisk: { false })
@@ -223,7 +267,7 @@ struct WriterWiringTests {
         let channel = WriterLandingEvents()
         channel.subscribe { events.add($0) }
         let cloud = ScriptedBackend { _ in "send it to Kothari" }
-        let w = Self.wiring(key: true, cloud: cloud, events: channel)
+        let w = Self.wiring(Self.store(.cloud), key: true, cloud: cloud, events: channel)
         let spans = Self.words("send it to cotari", uncertain: ["cotari": ["Kothari"]])
         let result = await Self.lander(w, stages: [w.stage()]).land(spans, startedAt: Date(), focus: Self.mock().frontmost)
         #expect(result.text == "send it to Kothari")
@@ -243,7 +287,7 @@ struct WriterWiringTests {
         let events = EventLog()
         let channel = WriterLandingEvents()
         channel.subscribe { events.add($0) }
-        let w = Self.wiring(key: true, cloud: ScriptedBackend { _ in WriterPrompt.unchangedToken }, events: channel)
+        let w = Self.wiring(Self.store(.cloud), key: true, cloud: ScriptedBackend { _ in WriterPrompt.unchangedToken }, events: channel)
         let result = await Self.lander(w, stages: [w.stage()]).land(Self.words("hello there"), startedAt: Date(), focus: Self.mock().frontmost)
         #expect(result.text == "hello there")
         guard case .finished(_, let outcome, let changed, _)? = events.all.last else { Issue.record("no finished event"); return }
@@ -282,7 +326,7 @@ struct WriterWiringTests {
     // MARK: Packet
 
     @Test func landerWritesThePacketWithThePreBoostHeard() async throws {
-        let w = Self.wiring(key: true, cloud: ScriptedBackend { _ in WriterPrompt.unchangedToken })
+        let w = Self.wiring(Self.store(.cloud), key: true, cloud: ScriptedBackend { _ in WriterPrompt.unchangedToken })
         // The final pass boosted "cotari" → "Kothari"; the engine kept the pre-boost text.
         w.sources.preBoostText = { spans in spans.map(\.text).joined(separator: " ") == "send it to Kothari" ? "send it to cotari" : nil }
         let probe = ContextProbe()
@@ -302,7 +346,7 @@ struct WriterWiringTests {
     }
 
     @Test func verbatimAndExactRunsAskTheWriterToSkip() {
-        let w = Self.wiring(key: true)
+        let w = Self.wiring(Self.store(.cloud), key: true)
         var ctx = StageContext(appBundleID: "com.apple.Notes")
         ctx.extra[CleanupStage.skipKey] = "true"
         let out = w.augment(Self.words("rm dash rf"), ctx)
@@ -363,10 +407,15 @@ struct WriterWiringTests {
     @Test func keyDownPrewarmsTheResolvedBackendOnly() async throws {
         let cloud = ScriptedBackend { $0 }
         let local = ScriptedBackend { $0 }
-        let w = Self.wiring(key: true, local: true, cloud: cloud, localBackend: local)
+        let w = Self.wiring(key: true, local: true, cloud: cloud, localBackend: local)   // Automatic → On this Mac
         w.beginTurn(app: FocusSnapshot(pid: 1, bundleID: "com.apple.Notes", appName: "Notes"))
-        for _ in 0..<200 where cloud.prewarmCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
-        #expect(cloud.prewarmCount == 1 && local.prewarmCount == 0)
+        for _ in 0..<200 where local.prewarmCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(local.prewarmCount == 1 && cloud.prewarmCount == 0)
+        let chosenCloud = ScriptedBackend { $0 }
+        let c = Self.wiring(Self.store(.cloud), key: true, local: true, cloud: chosenCloud, localBackend: ScriptedBackend { $0 })
+        c.beginTurn(app: FocusSnapshot(pid: 1, bundleID: "com.apple.Notes", appName: "Notes"))
+        for _ in 0..<200 where chosenCloud.prewarmCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(chosenCloud.prewarmCount == 1)
         let store = InMemorySettingsStore()
         S.setMode(.off, store: store)
         let offCloud = ScriptedBackend { $0 }
@@ -378,8 +427,10 @@ struct WriterWiringTests {
 
     @Test func localPrefixPrewarmAndSpeculationUseTheKeyDownPacket() async throws {
         let local = ScriptedBackend { $0 }
-        let w = Self.wiring(key: false, local: true, localBackend: local)
-        #expect(w.stage().inner.speculation != nil, "the stage reads the speculator's cache")
+        let store = InMemorySettingsStore()
+        store.set(true, for: WriterWiring.speculationFlagKey)          // the hidden flag (off by default)
+        let w = Self.wiring(store, key: false, local: true, localBackend: local)
+        #expect(w.stage().inner.speculation != nil, "with the flag, the stage reads the speculator's cache")
         #expect(w.keyDownPacket() == nil, "no turn, no packet")
         w.beginTurn(app: FocusSnapshot(pid: 7, bundleID: "com.apple.Notes", appName: "Notes"))
         #expect(w.speculates())
@@ -390,11 +441,149 @@ struct WriterWiringTests {
         #expect(local.packetPrewarmCount == 1)
         // A cloud turn opens the connection only; no prefix work.
         let cloud = ScriptedBackend { $0 }
-        let c = Self.wiring(key: true, cloud: cloud)
+        let c = Self.wiring(Self.store(.cloud), key: true, cloud: cloud)
         c.beginTurn(app: FocusSnapshot(pid: 7, bundleID: "com.apple.Notes", appName: "Notes"))
         c.noteSurfaceResolved(shell: nil)
         try await Task.sleep(nanoseconds: 50_000_000)
         #expect(cloud.packetPrewarmCount == 0)
+    }
+
+    // MARK: Speculation (unwired in this release)
+
+    @Test func speculationIsUnwiredByDefault() async throws {
+        let w = Self.wiring(Self.store(.cloud), key: true)
+        #expect(w.stage().inner.speculation == nil, "no speculator cache in the stage")
+        w.beginTurn(app: FocusSnapshot(pid: 7, bundleID: "com.apple.Notes", appName: "Notes"))
+        #expect(w.cachedBackend(for: "com.apple.Notes") == .cloud && !w.speculates(), "off without the hidden flag")
+        // With the flag on, an app whose rule is Verbatim is still never speculated (same skip as augment).
+        let store = Self.store(.cloud)
+        store.set(true, for: WriterWiring.speculationFlagKey)
+        let flagged = Self.wiring(store, key: true)
+        flagged.beginTurn(app: FocusSnapshot(pid: 7, bundleID: "com.apple.Terminal", appName: "Terminal"))
+        #expect(flagged.speculates())
+        flagged.turnRules = { ctx in
+            var out = ctx
+            if ctx.appBundleID == "com.apple.Terminal" { out.extra[CleanupStage.skipKey] = "true" }
+            return out
+        }
+        #expect(!flagged.speculates(), "Verbatim app: no in-hold egress")
+    }
+
+    // MARK: Landing path: cached availability only
+
+    final class Probe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        var key = true
+        func hit() -> Bool { lock.withLock { n += 1; return key } }
+        var count: Int { lock.withLock { n } }
+    }
+
+    final class Clock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var t = Date(timeIntervalSince1970: 1_800_000_000)
+        func now() -> Date { lock.withLock { t } }
+        func advance(_ s: TimeInterval) { lock.withLock { t = t.addingTimeInterval(s) } }
+    }
+
+    @Test func landingNeverProbesInlineAndRefreshesInTheBackground() async throws {
+        let probe = Probe(), clock = Clock()
+        let queue = DispatchQueue(label: "test.writer")
+        let w = WriterWiring(settings: Self.store(.cloud), events: WriterLandingEvents(),
+                             hasCloudKey: { probe.hit() }, localModel: { nil },
+                             makeCloud: { _ in ScriptedBackend { $0 } }, makeLocal: { _ in ScriptedBackend { $0 } },
+                             now: { clock.now() }, queue: queue)
+        let ctx = StageContext(appBundleID: "com.apple.Notes")
+        // Nothing cached: Off for this landing, the probe scheduled (not run on this thread).
+        queue.suspend()
+        let first = w.augment(Self.words("hello there"), ctx)
+        #expect(first.extra[WriterWiring.activeKey] == nil && probe.count == 0)
+        queue.resume()
+        for _ in 0..<200 where probe.count == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+        queue.sync {}
+        #expect(probe.count == 1)
+        #expect(w.augment(Self.words("hello there"), ctx).extra[WriterWiring.backendKey] == "cloud")
+        // Stale: still the cached answer, and one background refresh (the key was removed meanwhile).
+        clock.advance(WriterWiring.availabilityTTL + 1)
+        probe.key = false
+        queue.suspend()
+        let stale = w.augment(Self.words("hello there"), ctx)
+        _ = w.augment(Self.words("hello there"), ctx)
+        #expect(stale.extra[WriterWiring.backendKey] == "cloud" && probe.count == 1, "no inline Keychain read")
+        queue.resume()
+        queue.sync {}
+        #expect(probe.count == 2, "one coalesced refresh")
+        #expect(w.augment(Self.words("hello there"), ctx).extra[WriterWiring.activeKey] == nil)
+    }
+
+    // MARK: Cleanup prewarm, undo hook
+
+    @Test func handlesTurnSaysWhenTheLegacyCleanupPrewarmIsNotNeeded() {
+        let app = FocusSnapshot(pid: 3, bundleID: "com.apple.Notes", appName: "Notes")
+        let cloud = Self.wiring(Self.store(.cloud), key: true)
+        cloud.beginTurn(app: app)
+        #expect(cloud.handlesTurn)
+        let off = Self.wiring(Self.store(.off), key: true, local: true)
+        off.beginTurn(app: app)
+        #expect(!off.handlesTurn)
+        let automaticKeyOnly = Self.wiring(InMemorySettingsStore(), key: true)
+        automaticKeyOnly.beginTurn(app: app)
+        #expect(!automaticKeyOnly.handlesTurn)
+        // Nothing probed yet: the writer will not run, so the cleanup model is still worth loading.
+        let cold = WriterWiring(settings: Self.store(.cloud), hasCloudKey: { true }, localModel: { nil },
+                                makeCloud: { _ in ScriptedBackend { $0 } }, makeLocal: { _ in ScriptedBackend { $0 } },
+                                queue: DispatchQueue(label: "test.cold"))
+        #expect(!cold.handlesTurn)
+    }
+
+    @Test func undoOnAPolishedLandingReachesTheLearnerThroughTheShellHook() throws {
+        let service = try Self.adaptation()
+        let w = Self.wiring(learner: RedictationLearner(adaptation: service))
+        let system = Self.mock()
+        let injector = TextInjector(system: system)
+        let lander = UtteranceLander(pipeline: PipelineRunner(stages: []), injector: injector, system: system,
+                                     repair: nil, flags: .inMemory(), database: nil)
+        let controller = TurnController(lander: lander, focusGuard: injector.focusGuard, store: TurnStore(database: nil))
+        #expect(controller.onUndoCorrection == nil)
+        w.connectUndo(to: controller)
+        let hook = try #require(controller.onUndoCorrection)
+        hook("face", "phase", "com.apple.Notes")
+        #expect(service.loop.lexicon.isBlocked(heard: "face", written: "phase"))
+    }
+
+    // MARK: Local backend not resident
+
+    final class NotResidentBackend: WriterBackend, @unchecked Sendable {
+        private let lock = NSLock()
+        private var calls = 0
+        func write(system: String, user: String, context: StageContext) async throws -> String {
+            lock.withLock { calls += 1 }
+            return user
+        }
+        func prewarm() async {}
+        func readyForLanding() async -> Bool { false }
+        var callCount: Int { lock.withLock { calls } }
+    }
+
+    @Test func aColdLocalModelIsSkippedNotFailed() async throws {
+        let events = EventLog()
+        let channel = WriterLandingEvents()
+        channel.subscribe { events.add($0) }
+        let cold = NotResidentBackend()
+        let w = WriterWiring(settings: InMemorySettingsStore(), events: channel, hasCloudKey: { false }, localModel: { Self.qwen },
+                             makeCloud: { _ in ScriptedBackend { $0 } }, makeLocal: { _ in cold }, queue: nil)
+        w.refreshAvailability()
+        let trace = TurnTraceRecorder()
+        let stage = TurnTraceWiring.tracingWriter([w.stage()], recorder: trace)
+        let spans = Self.words("send it to cotari", uncertain: ["cotari": ["Kothari"]])
+        let result = await Self.lander(w, stages: stage).land(spans, startedAt: Date(), focus: Self.mock().frontmost)
+        #expect(result.text == "send it to cotari" && cold.callCount == 0)
+        #expect(!events.all.contains { if case .started = $0 { return true }; return false }, "no Writing… for a skip")
+        guard case .finished(_, let outcome, _, _)? = events.all.last else { Issue.record("no finished event"); return }
+        #expect(outcome == "skipped:notResident")
+        #expect(!events.all.last!.isUnpolished, "no Not polished note")
+        #expect(WriterGateStage.translated(.failed("notResident", ms: 1)) == .skipped("notResident"))
+        #expect(WriterGateStage.translated(.failed("timeout", ms: 1)) == .failed("timeout", ms: 1))
     }
 
     // MARK: Replay
@@ -473,5 +662,37 @@ struct WriterWiringTests {
         let boost = (ranked?.stableLayer ?? []) + (ranked?.perTurnLayer ?? [])
         #expect(!boost.map(\.text).contains("Kubernetes"))
         #expect(boost.map(\.text).contains("Postgres"))
+    }
+
+    struct Terms: VocabularyBooster {
+        let terms: [String]
+        func boost(tokens: [DecodedToken], samples: [Float]) async -> BoostOutcome? { nil }
+    }
+
+    /// A plain word has no derived spoken form, so it reaches the boost list only through the form
+    /// the user typed in the Dictionary — on the legacy build and the rubric build alike. A
+    /// Contacts row never does.
+    @Test func aDictionaryRowsTypedSpokenFormReachesTheBoostList() throws {
+        let db = try AppDatabase.inMemory()
+        let typed = DictionaryRecord(term: "Kothari", spokenForms: "ko thaa ree")
+        let bare = DictionaryRecord(term: "Zyxwvut")
+        let contact = DictionaryRecord(term: "Nandini", spokenForms: "nun dee nee")
+        try db.writer.write { conn in
+            try typed.insert(conn)
+            try bare.insert(conn)
+            try contact.insert(conn)
+            try conn.execute(sql: "CREATE TABLE IF NOT EXISTS \(DictionaryOrigins.metaTable) (termID TEXT PRIMARY KEY NOT NULL, language TEXT NOT NULL, source TEXT NOT NULL)")
+            try conn.execute(sql: "INSERT INTO \(DictionaryOrigins.metaTable) (termID, language, source) VALUES (?, 'any', 'personal'), (?, 'any', 'contacts')",
+                             arguments: [typed.id, contact.id])
+        }
+        #expect(BoostingWiring.boostEntries(database: db).map(\.term).sorted() == ["Kothari", "Zyxwvut"])
+        let legacy = BoostingWiring.controller(database: db, adaptation: nil, surface: nil, weights: nil, learning: nil,
+                                               makeBooster: { Terms(terms: $0) })
+        #expect(legacy.makeBoosterForUtterance()?.terms == ["Kothari"])
+        let rubric = BoostingWiring.controller(database: db, adaptation: nil,
+                                               surface: { SurfaceResolution(kind: .chatComposer, confidence: 0.9, isWebArea: false, signals: []) },
+                                               weights: nil, learning: nil, makeBooster: { Terms(terms: $0) })
+        let terms = rubric.makeBoosterForUtterance()?.terms ?? []
+        #expect(terms.contains("Kothari") && !terms.contains("Nandini") && !terms.contains("Zyxwvut"))
     }
 }

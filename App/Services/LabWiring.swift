@@ -59,7 +59,7 @@ public enum LabWiring {
             guard let model = WriterWiring.installedLocalModel() else {
                 throw LabError.badArguments("local writer: no rewrite model on this Mac (Settings › Models › Rewrite models)")
             }
-            return WriterContextMagicRunner(backend: LocalWriterBackend(model: model), recognize: recognize)
+            return WriterContextMagicRunner(backend: LocalWriterBackend(model: model, loadsOnWrite: true), recognize: recognize)
         }
     }
 
