@@ -9,13 +9,18 @@ public struct LabRegistry: Sendable {
     /// V5 V1 — `lab eval --model <id>` backends. The app registers real models (`LabWiring`);
     /// `reference` (echo the reference: WER 0) is always present for smoke runs.
     public var evalBackends: [String: @Sendable () throws -> any EvalBackend]
+    /// Context Writer — `lab run --suites context-magic --writer <id>` writers. The app registers
+    /// the real Context Writer backends (`LabWiring`); `echo` (heard text untouched) is always present.
+    public var contextMagicWriters: [String: @Sendable () throws -> any ContextMagicRunning]
 
     public init(transcribers: [String: @Sendable ([FixtureSuite]) throws -> any FixtureTranscriber] = [:],
                 stages: [String: @Sendable () throws -> any PipelineStage] = [:],
-                evalBackends: [String: @Sendable () throws -> any EvalBackend] = ["reference": { ScriptedEvalBackend(modelID: "reference") }]) {
+                evalBackends: [String: @Sendable () throws -> any EvalBackend] = ["reference": { ScriptedEvalBackend(modelID: "reference") }],
+                contextMagicWriters: [String: @Sendable () throws -> any ContextMagicRunning] = ["echo": { EchoContextMagicRunner() }]) {
         self.transcribers = transcribers
         self.stages = stages
         self.evalBackends = evalBackends
+        self.contextMagicWriters = contextMagicWriters
     }
 
     /// `perfect` echoes the manifests; `degraded` deterministically corrupts every 5th word.
@@ -58,9 +63,11 @@ public enum LabCLI {
         public var reports: [LabReport]
         /// V5 V1 — set by `lab eval`.
         public var eval: EvalReport?
+        /// Context Writer — set by `lab run --suites context-magic`.
+        public var contextMagic: ContextMagicReport?
 
-        public init(exitCode: Int32, text: String, reports: [LabReport], eval: EvalReport? = nil) {
-            self.exitCode = exitCode; self.text = text; self.reports = reports; self.eval = eval
+        public init(exitCode: Int32, text: String, reports: [LabReport], eval: EvalReport? = nil, contextMagic: ContextMagicReport? = nil) {
+            self.exitCode = exitCode; self.text = text; self.reports = reports; self.eval = eval; self.contextMagic = contextMagic
         }
     }
 
@@ -83,6 +90,7 @@ public enum LabCLI {
     public static let usage = """
     usage: lab run [--name N] [--transcriber T] [--suites a,b] [--stages s1,s2] [--flags f=on,g=off] [--format md|json] [--out FILE] [--db FILE]
            lab compare --flag voiceRepair [run options]
+           lab run --suites context-magic [--writer echo] [--tier cloud|local] [--budget-ms N] [--text-only] [--gate] [--format md|json] [--out FILE]
            lab suites
            lab eval --set <name> --stage asr|cleanup|diar|decide --model <id> [--raw] [--limit N] [--tags a,b] [--hyp FILE] [--gate] [--no-write]
            lab fetch --set <name>                              # download a public set + build its manifest
@@ -101,7 +109,11 @@ public enum LabCLI {
 
         switch command {
         case "suites":
-            return Output(exitCode: 0, text: FixtureSuite.available(fixturesDirectory: fixturesDirectory).joined(separator: "\n"), reports: [])
+            var names = FixtureSuite.available(fixturesDirectory: fixturesDirectory)
+            if ContextMagicSuite.isAvailable(fixturesDirectory: fixturesDirectory) { names.append(ContextMagicSuite.name) }
+            return Output(exitCode: 0, text: names.joined(separator: "\n"), reports: [])
+        case "run" where list(opts["suites"]).contains(ContextMagicSuite.name):
+            return try await runContextMagic(opts, registry: registry, fixturesDirectory: fixturesDirectory)
         case "run":
             let config = try makeConfig(opts, name: opts["name"] ?? "run")
             let report = try await run(config, registry: registry, lab: lab)
