@@ -26,3 +26,7 @@ One SwiftPM package, one target per module: `Shared`, `Engine`, `Pipeline`, `Inj
 ## Docs
 
 Start with [`PRODUCT-SPEC.md`](PRODUCT-SPEC.md) (why) and [`DESIGN.md`](DESIGN.md) (what it looks like). Every other doc is indexed in [`docs/README.md`](docs/README.md). Agents: read [`CLAUDE.md`](CLAUDE.md).
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md): free for personal, research, educational and other noncommercial use; commercial use needs a separate license from the author. Third-party components keep their own licenses — see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
