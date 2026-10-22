@@ -7,8 +7,8 @@ import Testing
 /// G0.3 — the design tokens against the verified design, and the WCAG contrast audit.
 ///
 /// Three sources are re-read on every run so the Swift values cannot drift from them: the prototype
-/// (`design/design_v1.html` `:root`, `body.light`, `.notch` rules), the specification's token tables
-/// (`design/design_v1.md` §3, §3.1) and the Spool spec fixture (`Fixtures/spool/spool_spec.json`).
+/// (`docs/design-history/design/design_v1.html` `:root`, `body.light`, `.notch` rules), the specification's token tables
+/// (`docs/design-history/design/design_v1.md` §3, §3.1) and the Spool spec fixture (`Fixtures/spool/spool_spec.json`).
 /// The contrast audit's measured ratios must also appear verbatim in `DESIGN.md` §3.3, so the
 /// document can never claim a number the code does not produce.
 @Suite("Design tokens (G0.3)")
@@ -130,7 +130,7 @@ struct DesignTokenTests {
     // MARK: - Parity with the verified design
 
     @Test func windowColoursEqualThePrototypeCSS() throws {
-        let html = try Self.read("design/design_v1.html")
+        let html = try Self.read("docs/design-history/design/design_v1.html")
         let dark = try #require(Self.cssBlock(html, selector: ":root{color-scheme:dark;"))
         let light = try #require(Self.cssBlock(html, selector: "body.light{"))
         for role in Role.allCases {
@@ -147,7 +147,7 @@ struct DesignTokenTests {
     }
 
     @Test func pillColoursEqualThePrototypeNotchRules() throws {
-        let html = try Self.read("design/design_v1.html")
+        let html = try Self.read("docs/design-history/design/design_v1.html")
         typealias P = Tokens.Pill.Token
         let expectations: [(String, String, P)] = [
             (".notch{position:relative;", "background", .background),
@@ -173,7 +173,7 @@ struct DesignTokenTests {
     }
 
     @Test func windowColoursEqualTheSpecificationTable() throws {
-        let md = try Self.read("design/design_v1.md")
+        let md = try Self.read("docs/design-history/design/design_v1.md")
         let names: [(String, Role)] = [
             ("Canvas", .canvas), ("Sidebar", .sidebar), ("Surface", .surface), ("Elevated", .elevated),
             ("Primary ink", .ink), ("Secondary ink", .secondaryInk), ("Separator", .separator),
@@ -188,7 +188,7 @@ struct DesignTokenTests {
     }
 
     @Test func spoolMaterialsEqualTheSpecificationAndTheFixture() throws {
-        let md = try Self.read("design/design_v1.md")
+        let md = try Self.read("docs/design-history/design/design_v1.md")
         let rows: [(String, Tokens.SpoolMaterial)] = [
             ("Tape oxide face", .tapeFace), ("Tape reverse", .tapeReverse), ("Tape cut edge", .tapeEdge),
             ("Tape shadow / grain", .tapeShadow), ("Cassette housing", .housing), ("Hub / pressure pad", .hub),
@@ -307,7 +307,7 @@ struct DesignTokenTests {
 
     @Test func designDocumentRecordsAuthorityAndOwnerDecisions() throws {
         let doc = try Self.read("DESIGN.md")
-        #expect(doc.contains("`design/design_v3.html` → `design/design_v3.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`"))
+        #expect(doc.contains("`docs/design-history/design/design_v3.html` → `docs/design-history/design/design_v3.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`"))
         for decision in ["fn / 🌐", "Voice enrollment", "Deixis box", "latch pause"] {
             #expect(doc.contains(decision), "owner decision missing: \(decision)")
         }

@@ -1,7 +1,7 @@
 # VoicePlus — Implementation Build V4 · Wave 1 + Spool Design
 
 Execution plan for **every Wave 1 item of `VoicePlus_Improvements_V4.md` §14.2** and **the complete
-Spool design (`design/design_v1.md`, prototype `design/design_v1.html`)**, on top of `main` @ `d79cc98`
+Spool design (`docs/design-history/design/design_v1.md`, prototype `docs/design-history/design/design_v1.html`)**, on top of `main` @ `d79cc98`
 (1.10.0 candidate). Written to be run end to end by a coding agent with parallel subagents. Output is
 release **1.11.0**.
 
@@ -9,7 +9,7 @@ release **1.11.0**.
 
 ## 0. How to run this document
 
-- Read first: `VoicePlus_Improvements_V4.md` §0–§14 (why), `design/design_v1.md` §3–§13 (what it must look
+- Read first: `VoicePlus_Improvements_V4.md` §0–§14 (why), `docs/design-history/design/design_v1.md` §3–§13 (what it must look
   like and do), this document (how). `VoicePlus_Improvements_V3.md` §1 rules still apply.
 - Work wave by wave (§1). Inside a wave every task marked **[P]** runs in its own subagent at the same
   time. A wave is done when every task in it reports done. Do not start a wave early.
@@ -19,7 +19,7 @@ release **1.11.0**.
 - Every task ends with: whole package builds clean, its tests green, a ≤15-line report (§6), a scoped commit.
 - Evidence labels: `implemented` · `fixture-verified` · `hardware-verified`. Never upgrade a label. Hardware
   checks go to §5; they never block the next wave.
-- The prototype is the visual reference. Open `design/design_v1.html` for geometry, motion and copy; the
+- The prototype is the visual reference. Open `docs/design-history/design/design_v1.html` for geometry, motion and copy; the
   Spool SVG geometry is in its JS (`function art / face / lens / rig / limb / tapeRibbon`, lines ~850–1013)
   and is ported, not redrawn.
 
@@ -72,7 +72,7 @@ release **1.11.0**.
 | Corpus + replay | `Fixtures/real-room/`, `Tests/EngineTests/RecordingReplayTests.swift`; `Fixtures/audio/{clean,noisy,silence,vad}` |
 
 ### The verified design is authoritative
-`design/design_v1.html` and `design/design_v1.md` have been iterated on and verified by the owner. Their
+`docs/design-history/design/design_v1.html` and `docs/design-history/design/design_v1.md` have been iterated on and verified by the owner. Their
 states, colours, geometry, animations, copy and screens are requirements, not suggestions. Order of
 authority for anything visible: **prototype code → design_v1.md → this document → DESIGN.md → V4 plan.**
 Where the prototype simulates something the markdown specifies for the real product (live audio, real
@@ -358,7 +358,7 @@ waves. Agents in wave 1 have no dependency on each other except the file-ownersh
 
 ### Wave 1 — S1 · Spool art — exact port of the prototype (design §3.1, §11.1)
 
-**Source of truth is the prototype's code, not the prose.** `design/design_v1.html` lines ~850–1000
+**Source of truth is the prototype's code, not the prose.** `docs/design-history/design/design_v1.html` lines ~850–1000
 (`const Spool=(()=>{ … })()`) plus its frame loop `drawWave()` (~line 1047). Where `design_v1.md` and the
 prototype differ, the prototype wins, except where §S1.6 below says otherwise. Do not redraw Spool.
 
@@ -551,8 +551,8 @@ these are part of the verified design and are tested separately from the golden 
 
 ### Wave 2 — S7 · Main window (design §8, §9) — split into seven parallel tasks
 
-Reference for every S7 task: `design/design_v1.html` › **App surfaces** (screen picker + the
-content / empty / loading / error / partial variant switch) and `design/design_v1.md` §8.1–§8.6, §8.9, §9.
+Reference for every S7 task: `docs/design-history/design/design_v1.html` › **App surfaces** (screen picker + the
+content / empty / loading / error / partial variant switch) and `docs/design-history/design/design_v1.md` §8.1–§8.6, §8.9, §9.
 Each screen renders exactly one base state through `SectionState` (content / empty / loading / error) plus
 a scoped banner for partial data. Loading never looks like empty. Retry is scoped and disabled while
 retrying. A failed save keeps the entered value and the previous active value.
@@ -805,7 +805,7 @@ The six tasks below run **in parallel** after S7a. Each owns only its files.
 4. 50 silent holds: 0 landings; "No speech detected" fades. **Collect:** landings / 50 (target 0); stop reasons from the `engine` log (expect `.noSpeech`). Fixture side already 0/2 (`SpeechGateTests.silenceFixturesLandNothing`).
 5. Latch in Docs, Claude, Notes: 5 minutes, pauses of 2–3 s, move the caret between pauses; count wrong placements and "another voice" chips. **Collect:** segments landed, wrong placements (target ≤ 2 in 30 per app, right caret ≥ 95 %), "another voice" chips (target 0 alone).
 6. Draw a box with the key held in Docs, Sheets, Figma: chip shows crop + text; deny Screen Recording once and confirm the AX-only fallback copy. **Collect:** per app: chip crop + text shown (y/n); AX-only fallback copy seen after denial (y/n).
-7. Spool side by side with `design/design_v1.html` (Spool studio, every state chip): same silhouette, colours, blink, lean, mouth and lamp per state; reels counterclockwise while listening, clockwise while inserting, still in preview/held/error, parked in silence (deliberate difference); inlet width continuous; nothing drawn behind the notch; floating pill on an external display. **Collect:** per state chip, match / mismatch + screenshot of each mismatch.
+7. Spool side by side with `docs/design-history/design/design_v1.html` (Spool studio, every state chip): same silhouette, colours, blink, lean, mouth and lamp per state; reels counterclockwise while listening, clockwise while inserting, still in preview/held/error, parked in silence (deliberate difference); inlet width continuous; nothing drawn behind the notch; floating pill on an external display. **Collect:** per state chip, match / mismatch + screenshot of each mismatch.
 8. Preview-before-insert: final text visible ≥ 900 ms before it lands; hover freezes it; Escape during preview inserts nothing; low-confidence word extends to 1.8 s. **Collect:** preview-visible time on 10 turns (screen recording, ≥ 900 ms; ≥ 1800 ms with a red-dotted word); Escape-in-preview inserts (target 0); hover freeze (y/n).
 9. "Inserted in Mail" with tick in Mail/Notes; "Inserted · not confirmed" in Docs; held row after an app switch during dwell, Insert here re-targets. **Collect:** row shown per app (verified / not confirmed / held); Insert here lands once (y/n).
 10. New press while finishing → "Finishing your previous dictation"; duplicate key-up cannot double-insert (hold, release, tap again fast). **Collect:** K04 row seen (y/n); double inserts over 20 fast tap-agains (target 0).
@@ -1018,7 +1018,7 @@ Open after the fixes (details in the Pending doc §B):
 
 ## 10. V3 native fidelity follow-up — 2026-09-20
 
-The current owner request supersedes V1 visual/motion/review rules with `design/design_v3.html` and `design/design_v3.md`. Earlier Wave 1 implementation and release records above remain historical evidence, not V3 acceptance.
+The current owner request supersedes V1 visual/motion/review rules with `docs/design-history/design/design_v3.html` and `docs/design-history/design/design_v3.md`. Earlier Wave 1 implementation and release records above remain historical evidence, not V3 acceptance.
 
 - [x] Split implementation into isolated parallel worktrees with disjoint rendering, layout and review-flow ownership.
 - [x] Port V3 cassette art, per-state pose, continuous reel motion, ribbon material and multi-line insertion landing.

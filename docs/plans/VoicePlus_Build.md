@@ -473,7 +473,7 @@ Integration: P1.12 wires all; P1.13 packages.
   
 - [x] 
   
-  **T5** Security review: injection surfaces, subprocess adapters, Keychain usage, no dynamic code loading. _(status: done 2f6dc91; docs/SECURITY-REVIEW.md; fixed CLIDetector PATH handling, model downloads gated by egress kill switch; follow-ups listed in §7 of that doc)_
+  **T5** Security review: injection surfaces, subprocess adapters, Keychain usage, no dynamic code loading. _(status: done 2f6dc91; docs/reviews/SECURITY-REVIEW.md; fixed CLIDetector PATH handling, model downloads gated by egress kill switch; follow-ups listed in §7 of that doc)_
   
 
 **Acceptance:** Phase 1 "Done when" from spec — on the published harness, beat competitor baselines on WER and zero-edit rate for the recorded fixture suite; all budgets met.

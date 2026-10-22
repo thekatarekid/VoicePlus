@@ -57,7 +57,7 @@ public enum DeliveryCopy {
 // MARK: - The Spool pill's copy deck (S2)
 
 /// Every sentence and button the Spool pill draws, verbatim from the verified prototype
-/// (`Fixtures/design/design_copy.json` › `pill`, generated from `design/design_v3.html` `renderState`),
+/// (`Fixtures/design/design_copy.json` › `pill`, generated from `docs/design-history/design/design_v3.html` `renderState`),
 /// asserted string by string by `DesignCopyParityTests`. Nothing here is retyped from the markdown.
 ///
 /// Three runtime substitutions only (build doc S2): the fixture's sample transcript becomes the real

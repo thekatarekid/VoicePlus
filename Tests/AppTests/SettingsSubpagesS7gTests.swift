@@ -16,7 +16,7 @@ import Testing
 /// unknown-caret style, latch pause, the fn system-action prompt, draw-without-key, the
 /// speaker-embedding model). No SwiftUI `body` can be driven on this toolchain, so every page's
 /// behaviour is asserted through its model and the pure rules the page renders, its copy is held to
-/// the verified prototype (`design/design_v1.html`) and `design_copy.json`, and each page gets an
+/// the verified prototype (`docs/design-history/design/design_v1.html`) and `design_copy.json`, and each page gets an
 /// `ImageRenderer` smoke render.
 @Suite("S7g · Settings subpages")
 @MainActor
@@ -31,7 +31,7 @@ struct SettingsSubpagesS7gTests {
     }()
 
     static func prototype() throws -> String {
-        try String(contentsOf: root.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
+        try String(contentsOf: root.appendingPathComponent("docs/design-history/design/design_v1.html"), encoding: .utf8)
     }
 
     /// The prototype's `case'<screen>':out=…;break;` source for one screen.

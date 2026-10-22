@@ -5,7 +5,7 @@ import SwiftUI
 /// written (`DESIGN.md` §2, §12.4).
 ///
 /// Sources, in the order of authority `DESIGN.md` §0 fixes: the prototype's `:root` / `body.light`
-/// CSS custom properties and its `.notch` rules (`design/design_v1.html`), then `design/design_v1.md`
+/// CSS custom properties and its `.notch` rules (`docs/design-history/design/design_v1.html`), then `docs/design-history/design/design_v1.md`
 /// §3 (token table, typography, spacing, radii) and §3.1 (the six Spool material tokens, also in
 /// `Fixtures/spool/spool_spec.json`). `DesignTokenTests` re-reads all three and fails on any drift.
 ///

@@ -58,7 +58,7 @@ struct MenuBarGlyphTests {
     /// button and the header mark the design points at ("the cassette-face outline shown beside
     /// VoicePlus in the document header").
     @Test func markupEqualsThePrototype() throws {
-        let html = try Self.text("design/design_v1.html")
+        let html = try Self.text("docs/design-history/design/design_v1.html")
         let button = try #require(html.range(of: #"<button class="menu-glyph"[^>]*>(<svg.*?</svg>)</button>"#,
                                              options: .regularExpression))
         let buttonSVG = String(html[button]).replacingOccurrences(of: #"^<button[^>]*>|</button>$"#, with: "",

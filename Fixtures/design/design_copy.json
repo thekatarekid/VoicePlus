@@ -1,5 +1,5 @@
 {
-  "source": "design/design_v3.html",
+  "source": "docs/design-history/design/design_v3.html",
   "pill": {
     "idle": {
       "text": "<span class=\"dot\"></span>",
@@ -1319,5 +1319,5 @@
       "evidence": "EngineErrorMessage; proposed catch-all"
     }
   ],
-  "preview_runtime_source": "design/design_v3.html: pillHtml and updateDwellLabel (live automatic/manual preview)"
+  "preview_runtime_source": "docs/design-history/design/design_v3.html: pillHtml and updateDwellLabel (live automatic/manual preview)"
 }

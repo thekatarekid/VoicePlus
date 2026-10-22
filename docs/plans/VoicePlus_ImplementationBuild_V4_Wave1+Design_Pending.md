@@ -142,7 +142,7 @@ wave. Take option 2 only for Hindi / Hinglish, where Parakeet v3 has no coverage
 - The rule dates from `f1c5db8` (2026-08-29, first shipped in 1.6.1). Before that the pill started at the very top and
   the part behind the camera was invisible, so only its two ends showed. The fix moved the whole panel down,
   background included.
-- `design/design_v1.md` §4 requires it: line 111 "Preserve current placement directly below the physical notch /
+- `docs/design-history/design/design_v1.md` §4 requires it: line 111 "Preserve current placement directly below the physical notch /
   menu-bar safe band… No content is drawn behind the camera housing"; line 146 "Keep the upper corners square when
   attached". The prototype does the same. `Tests/AppTests/NotchGeometryTests.swift:142-146` and `:183-192` lock it in.
 - Why it looks worse in 1.11.x: S2 (`aef6b41`, 2026-09-19) widened the pill from 320 to 560 pt, so ~170 pt of menu
@@ -170,7 +170,7 @@ wave. Take option 2 only for Hindi / Hinglish, where Parakeet v3 has no coverage
 **Recommendation.** Option 1 with the narrower band (notch width plus margin), so no menu-bar items are covered or
 blocked.
 
-**Once decided.** This reverses the §4 rule, so amend `design/design_v1.md` §4 and add a `DECISIONS.md` entry.
+**Once decided.** This reverses the §4 rule, so amend `docs/design-history/design/design_v1.md` §4 and add a `DECISIONS.md` entry.
 - Code: `App/Core/NotchGeometry.swift` (split panel frame from content area, `contentTopInset`),
   `App/UI/PillPanelController.swift` (shadow, hit-testing), `App/UI/PillView.swift` (lane inset),
   presence chin geometry (`NotchPresenceGeometry.swift`).

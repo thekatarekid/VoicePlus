@@ -20,7 +20,7 @@ private let packageRoot: URL = {
 struct OnboardingCopyTests {
     /// The prototype's `steps` table (`case'onboarding'` in design_v1.html), as [heading, body, action].
     static func prototypeTable() throws -> [[String]] {
-        let html = try String(contentsOf: packageRoot.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
+        let html = try String(contentsOf: packageRoot.appendingPathComponent("docs/design-history/design/design_v1.html"), encoding: .utf8)
         let open = try #require(html.range(of: "case'onboarding':{const steps=["))
         let close = try #require(html.range(of: "]];", range: open.upperBound..<html.endIndex))
         let table = String(html[open.upperBound..<close.lowerBound])
@@ -105,7 +105,7 @@ struct OnboardingCopyTests {
     }
 
     @Test func chromeAndEyebrowMatchThePrototype() throws {
-        let html = try String(contentsOf: packageRoot.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
+        let html = try String(contentsOf: packageRoot.appendingPathComponent("docs/design-history/design/design_v1.html"), encoding: .utf8)
         #expect(html.contains("btn('\(OnboardingCopy.back)','setup-back')"))
         #expect(html.contains("btn('\(OnboardingCopy.setUpLater)','setup-later')"))
         #expect(html.contains("Setup · ${setupStep+1} of 6"))
@@ -115,7 +115,7 @@ struct OnboardingCopyTests {
 
     /// The Word review is the prototype's `#reviewDialog`, word for word.
     @Test func wordReviewCopyIsThePrototypeDialog() throws {
-        let html = try String(contentsOf: packageRoot.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
+        let html = try String(contentsOf: packageRoot.appendingPathComponent("docs/design-history/design/design_v1.html"), encoding: .utf8)
         let example = UncertainWordReview.example
         for fragment in ["<div class=\"eyebrow\">\(UncertainWordReview.eyebrow)</div>",
                          "<h3>\(example.title)</h3>", "<p>\(example.body)</p>",

@@ -1,6 +1,6 @@
 import Foundation
 
-/// S1 — Spool's pigments, exactly as the prototype writes them (`design/design_v3.html`, Spool module).
+/// S1 — Spool's pigments, exactly as the prototype writes them (`docs/design-history/design/design_v3.html`, Spool module).
 ///
 /// The six material colours come from `Tokens.SpoolMaterial` (design §3.1), spelled in the prototype's
 /// letter case because the parity hashes cover the SVG text. The shell's shading steps are computed

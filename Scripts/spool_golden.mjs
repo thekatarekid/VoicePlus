@@ -1,10 +1,10 @@
-// Extracts the Spool module from design/design_v3.html and writes golden reference output.
+// Extracts the Spool module from docs/design-history/design/design_v3.html and writes golden reference output.
 // Run: node Scripts/spool_golden.mjs   (writes Fixtures/spool/*.json; --design-copy opts into copy fixtures)
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 const full = process.argv.includes('--full');
 const sha = x => crypto.createHash('sha256').update(x).digest('hex');
-const html = fs.readFileSync('design/design_v3.html', 'utf8');
+const html = fs.readFileSync('docs/design-history/design/design_v3.html', 'utf8');
 const lines = html.split('\n');
 const start = lines.findIndex(l => l.startsWith('const Spool=(()=>{'));
 const end = lines.findIndex((l, i) => i > start && l.startsWith('})();'));
@@ -32,7 +32,7 @@ const flights = [0.05, 0.3, 0.65, 0.72, 0.9, 1.0, 1.2, 1.29].map(t => ({ t, from
   svg: Spool.flight(t, [480, 111], flightLines, 900, 600) }));
 
 const spec = {
-  source: 'design/design_v3.html (Spool module, lines ' + (start + 1) + '–' + (end + 1) + ')',
+  source: 'docs/design-history/design/design_v3.html (Spool module, lines ' + (start + 1) + '–' + (end + 1) + ')',
   character: Spool.character,
   tape: Spool.TAPE,
   housingShades: { gradientTop: Spool.shade(Spool.character.color, .38), gradientMid: Spool.character.color,
@@ -116,8 +116,8 @@ const screens = {};
 for (const l of lines) { const m = l.match(/^case'([a-z]+)':out=title\('([^']*)','([^']*)'/); if (m) screens[m[1]] = { title: m[2], subtitle: m[3] }; }
 fs.mkdirSync('Fixtures/design', { recursive: true });
 fs.writeFileSync('Fixtures/design/design_copy.json', JSON.stringify({
-  source: 'design/design_v3.html', pill, screens, emptyCopy, screenError, states,
+  source: 'docs/design-history/design/design_v3.html', pill, screens, emptyCopy, screenError, states,
   errors: ERRORS.map(e => ({ id: e[0], family: e[1], trigger: e[2], headline: e[3], consequence: e[4], action: e[5], data: e[6], evidence: e[7] })),
-  preview_runtime_source: 'design/design_v3.html: pillHtml and updateDwellLabel (live automatic/manual preview)'
+  preview_runtime_source: 'docs/design-history/design/design_v3.html: pillHtml and updateDwellLabel (live automatic/manual preview)'
 }, null, 2) + '\n');
 console.log('copy: pill', Object.keys(pill).length, 'screens', Object.keys(screens).length, 'empty', Object.keys(emptyCopy).length, 'errors', ERRORS.length, 'states', states.length);

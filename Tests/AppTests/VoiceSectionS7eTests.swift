@@ -616,7 +616,7 @@ struct VoiceSectionS7eTests {
     @Test("row copy is the prototype's Voice screen, verbatim")
     func prototypeCopy() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let html = try String(contentsOf: root.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
+        let html = try String(contentsOf: root.appendingPathComponent("docs/design-history/design/design_v1.html"), encoding: .utf8)
         guard let start = html.range(of: "case'voice':out=title('Voice'"),
               let end = html.range(of: "case'privacy'", range: start.upperBound..<html.endIndex) else {
             Issue.record("prototype Voice screen not found"); return

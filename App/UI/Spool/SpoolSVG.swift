@@ -4,7 +4,7 @@ import Foundation
 /// element order, attribute order, spacing (including the space before `/>` that `P()`, `E()` and `R()`
 /// leave when `extra` is empty) and JavaScript number printing. **Test only**: the pill renders with
 /// `SpoolCanvas`; this exists so `SpoolParityTests` can hash the Swift drawing against the golden
-/// frames generated from `design/design_v3.html`.
+/// frames generated from `docs/design-history/design/design_v3.html`.
 enum SpoolSVG {
     static func string(_ drawing: SpoolDrawing) -> String {
         var out = "<svg viewBox=\"" + drawing.viewBox.map(number).joined(separator: " ") + "\""

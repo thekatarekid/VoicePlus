@@ -1,7 +1,7 @@
 import Foundation
 
 /// S1 — Spool's body: an exact port of the prototype's `rig()` case 25 plus the overlays `art()` adds
-/// (`design/design_v3.html`, Spool module; build doc S1.1–S1.3). Nothing here is redrawn: every element,
+/// (`docs/design-history/design/design_v3.html`, Spool module; build doc S1.1–S1.3). Nothing here is redrawn: every element,
 /// coordinate, colour and expression is the prototype's, in the prototype's order.
 ///
 /// `face()`, `glove()`, `limb()` and `lens()` in the prototype belong to earlier mascots and are never

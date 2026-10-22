@@ -5,7 +5,7 @@ import Testing
 /// table to its source so the document cannot drift from the fixtures S2, S6, S7 and S8 build from.
 ///
 /// Sources: `Fixtures/design/design_copy.json` (pill statuses and actions, screen titles, empty
-/// states, per-screen error mapping, recovery catalogue) and the prototype `design/design_v3.html`
+/// states, per-screen error mapping, recovery catalogue) and the prototype `docs/design-history/design/design_v3.html`
 /// (onboarding steps, menu rows), which the fixture script does not export. Sample data in the
 /// prototype ("Mail", "Friday check-in", counts, "Right Control") is written in the document as a
 /// placeholder (`<app>`, `<turn title>`, `N`, `<key>`); `template(_:)` applies the same mapping.
@@ -154,7 +154,7 @@ struct DesignDocumentCopyTests {
 
     @Test func onboardingStepsAreThePrototypeStepsPlusTheOwnersVoiceStep() throws {
         let doc = try Self.read("DESIGN.md")
-        let html = try Self.read("design/design_v3.html")
+        let html = try Self.read("docs/design-history/design/design_v3.html")
         let source = try #require(Self.section(html, from: "case'onboarding':{const steps=[", to: "];"))
         let steps = Self.captures(#"\['([^']*)','([^']*)','([^']*)'\]"#, in: source)
         #expect(steps.count == 6, "prototype onboarding has \(steps.count) steps")
@@ -180,7 +180,7 @@ struct DesignDocumentCopyTests {
 
     @Test func menuRowsAreThePrototypeRows() throws {
         let doc = try Self.read("DESIGN.md")
-        let html = try Self.read("design/design_v3.html")
+        let html = try Self.read("docs/design-history/design/design_v3.html")
         let source = try #require(Self.section(html, from: "case'menu':", to: "break;"))
         let menu = try #require(Self.section(doc, from: "## 10. The menu", to: "## 11. Onboarding"))
         let rows = Self.captures(#"row\('([^']*)','([^']*)'"#, in: source)

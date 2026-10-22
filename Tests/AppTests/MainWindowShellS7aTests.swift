@@ -13,7 +13,7 @@ import Testing
 /// `SectionRendering` the page component draws.
 ///
 /// Copy is held to its sources, never retyped: `Fixtures/design/design_copy.json` (`screens`,
-/// `emptyCopy`, `screenError`) and the verified prototype `design/design_v1.html` (sidebar labels,
+/// `emptyCopy`, `screenError`) and the verified prototype `docs/design-history/design/design_v1.html` (sidebar labels,
 /// screen names, the loading / error / partial wording, the sidebar footer). No SwiftUI `body` can be
 /// driven on this toolchain, so the page is asserted through `SectionPageAnatomy` — the blocks the
 /// view renders one for one — plus an `ImageRenderer` pixel smoke test of the page itself.
@@ -38,7 +38,7 @@ struct MainWindowShellS7aTests {
         return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    static func prototype() throws -> String { try read("design/design_v1.html") }
+    static func prototype() throws -> String { try read("docs/design-history/design/design_v1.html") }
 
     /// `const screens=[ ['today','Today','…'], … ]` → key → name.
     static func prototypeScreenNames() throws -> [String: String] {

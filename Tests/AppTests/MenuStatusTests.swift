@@ -107,7 +107,7 @@ struct MenuStatusTests {
     /// The prototype's menu review surface (`case'menu'` in `design_v1.html`): every row's title and
     /// helper, verbatim, in order. The two §8.8-only rows (microphone, Settings…) are not drawn there.
     @Test func rowsAreThePrototypesMenuVerbatim() throws {
-        let html = try String(contentsOf: Self.packageRoot.appendingPathComponent("design/design_v1.html"),
+        let html = try String(contentsOf: Self.packageRoot.appendingPathComponent("docs/design-history/design/design_v1.html"),
                               encoding: .utf8)
         let start = try #require(html.range(of: "case'menu':"))
         let end = try #require(html.range(of: "break;", range: start.upperBound..<html.endIndex))

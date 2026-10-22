@@ -2,7 +2,7 @@ import Engine
 import Foundation
 
 /// S8 — every onboarding heading, body and primary action, verbatim from the verified prototype
-/// (`design/design_v1.html`, the `onboarding` screen's `steps` table; `OnboardingCopyTests` reads that
+/// (`docs/design-history/design/design_v1.html`, the `onboarding` screen's `steps` table; `OnboardingCopyTests` reads that
 /// table back and compares). Two rules from build doc §0 are applied here and nowhere else:
 ///
 /// * **Owner decision — default key.** "Right Control" is rendered with the configured key label

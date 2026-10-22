@@ -149,7 +149,7 @@ struct SpoolSurfacePolicyTests {
 
     @Test func surfaceNotesAreVerbatimFromThePrototype() throws {
         let dir = try #require(AppPaths.fixturesDirectory())
-        let html = try String(contentsOf: dir.deletingLastPathComponent().appendingPathComponent("design/design_v1.html"), encoding: .utf8)
+        let html = try String(contentsOf: dir.deletingLastPathComponent().appendingPathComponent("docs/design-history/design/design_v1.html"), encoding: .utf8)
         #expect(html.contains(Policy.readyNote))
         #expect(html.contains(Policy.heldNote))
         #expect(html.contains("const pose=['turn','recovery'].includes(screen)?'held':'ready'"))

@@ -4,8 +4,8 @@ Design source of truth for **the pill and its presence, Spool, the one window, t
 onboarding**. Item R0.1, rewritten for V4 Wave 1 by G0.3 (release 1.11.0).
 
 v1 of this file documented the 1.10.0 pill "as-is" and forbade redesigning it. That is over: the
-owner has verified a complete redesign — **Spool** — in `design/design_v1.md` and its prototype
-`design/design_v1.html`. This file restates that design in the terms the Swift code uses, records the
+owner has verified a complete redesign — **Spool** — in `docs/design-history/design/design_v1.md` and its prototype
+`docs/design-history/design/design_v1.html`. This file restates that design in the terms the Swift code uses, records the
 few decisions the owner made on top of it, and keeps the v1 rules that still hold (§5 focus, §7.1 copy
 voice, and most of §12). Section numbers are unchanged from v1 so existing code comments still point at
 the right place.
@@ -14,9 +14,9 @@ the right place.
 
 ## 0. Authority, sources and owner decisions
 
-**2026-09-20 V3 update:** `design/design_v3.html` and `design/design_v3.md` supersede the V1 visual and interaction rules quoted below. Current implementation uses a fixed 560 × 160 pt active notch, 80% Spool, an attached black cap without moving content, rounded idle corners, a two-line scroll-only transcript, and footer boxes bottom-aligned 12 pt above the edge. Context chips share the header. Inline alternatives are annotations, never inserted words; Edit draft edits inside the notch. Completed corrections learn quietly. The earlier V1 narrative below remains implementation history wherever V3 replaces it.
+**2026-09-20 V3 update:** `docs/design-history/design/design_v3.html` and `docs/design-history/design/design_v3.md` supersede the V1 visual and interaction rules quoted below. Current implementation uses a fixed 560 × 160 pt active notch, 80% Spool, an attached black cap without moving content, rounded idle corners, a two-line scroll-only transcript, and footer boxes bottom-aligned 12 pt above the edge. Context chips share the header. Inline alternatives are annotations, never inserted words; Edit draft edits inside the notch. Completed corrections learn quietly. The earlier V1 narrative below remains implementation history wherever V3 replaces it.
 
-**Order of authority for anything visible:** `design/design_v3.html` → `design/design_v3.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`.
+**Order of authority for anything visible:** `docs/design-history/design/design_v3.html` → `docs/design-history/design/design_v3.md` → `VoicePlus_ImplementationBuild_V4_Wave1+Design.md` → this file → `VoicePlus_Improvements_V4.md`.
 
 - Where this file disagrees with the prototype or `design_v1.md`, this file is wrong and gets fixed.
 - Where the prototype *simulates* something that `design_v1.md` specifies for the real product (live
@@ -26,7 +26,7 @@ the right place.
   `VoicePlus_Improvements_V4.md`. `VoicePlus_Improvements_V3.md` §1 rules still apply.
 
 **Sources that are data, not prose.** Copy and art are never retyped by hand. `node
-Scripts/spool_golden.mjs` reads `design/design_v3.html` and writes:
+Scripts/spool_golden.mjs` reads `docs/design-history/design/design_v3.html` and writes:
 
 | Fixture | Holds | Checked by |
 |---|---|---|

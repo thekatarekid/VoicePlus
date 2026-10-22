@@ -463,7 +463,7 @@ struct TodayTurnStoreReaderS7bTests {
 struct TodayCopyS7bTests {
     static func prototype() throws -> String {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        return try String(contentsOf: root.appendingPathComponent("design/design_v1.html"), encoding: .utf8)
+        return try String(contentsOf: root.appendingPathComponent("docs/design-history/design/design_v1.html"), encoding: .utf8)
     }
 
     @Test("the recovery sheet's, Today's and turn detail's sentences are the prototype's")

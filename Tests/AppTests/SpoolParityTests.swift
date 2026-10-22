@@ -6,7 +6,7 @@ import Testing
 /// S1 acceptance gate — the Swift Spool port against the verified prototype.
 ///
 /// `Fixtures/spool/spool_golden.json` holds the SHA-256 of every SVG the prototype's Spool module
-/// (`design/design_v3.html`) draws for 624 scene frames (26 states × 11 times × 2 reel angles, plus the
+/// (`docs/design-history/design/design_v3.html`) draws for 624 scene frames (26 states × 11 times × 2 reel angles, plus the
 /// 380 pt narrow layout and the still frames), 26 cameos and 8 three-line tape-flight frames. `SpoolSVG` writes
 /// the Swift `SpoolDrawing` in the prototype's exact text, so equal hashes mean the same drawing to
 /// the last attribute. `spool_spec.json` holds the constants; they must equal the Swift ones.
