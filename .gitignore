@@ -12,24 +12,5 @@ Fixtures/real-room/**/*.wav
 
 # full Spool golden dump, regenerate with: node Scripts/spool_golden.mjs --full
 Fixtures/spool/*.local.json
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.0.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.1.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.2.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.3.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.4.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.5.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.6.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.7.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.9.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.10.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.11.dmg
-Packaging/releases/VoicePlus_V3-Spool-Full_1.12.12.dmg
-Packaging/releases/VoicePlus_V5-Full_1.13.0.dmg
-Packaging/releases/VoicePlus_N-fixes_1.14.0.dmg
-Packaging/releases/VoicePlus_H-fixes_1.15.0.dmg
-Packaging/releases/VoicePlus_H-fixes_1.15.1.dmg
-Packaging/releases/VoicePlus_H-fixes_1.15.2.dmg
-Packaging/releases/VoicePlus_H-fixes_1.15.3.dmg
-Packaging/releases/VoicePlus_H-fixes_1.15.4.dmg
-Packaging/releases/VoicePlus_H-fixes_1.15.5.dmg
-Packaging/releases/VoicePlus_CW1_1.16.0.dmg
+Packaging/releases/*.dmg
+__pycache__/

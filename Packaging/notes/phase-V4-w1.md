@@ -62,7 +62,7 @@ are identical whether the audio is fed in 50 ms blocks, 10 ms blocks or the whol
 `VoicePlus_V4-w1_1.11.0.dmg` · sha256 `e80a1b58715c68f31661886001899246914657f03cc7ca02477caf618165cf92`
 Built from `928551d` in a clean worktree (`Packaging/release.sh V4-w1 1.11.0 --no-github`), `verify_install.sh` OK.
 Every wave 1 item of `VoicePlus_Improvements_V4.md` §14.2 and the whole Spool design
-(`design/design_v1.md`) are implemented. Waves 0–3 each closed with `swift test --no-parallel` all green
+(`docs/design-history/design/design_v1.md`) are implemented. Waves 0–3 each closed with `swift test --no-parallel` all green
 (3108 tests at the wave 3 gate); the release-candidate test run is R1's, recorded in `progress.md`.
 This is a **candidate**: every hardware check in build doc §5 is still unrun.
 
