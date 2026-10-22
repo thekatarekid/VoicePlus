@@ -1,6 +1,6 @@
 # VoicePlus — agent conventions (read before working)
 
-Source of truth: `PRODUCT-SPEC.md` (why), `VoicePlus_Build.md` (what/how). Your assigned item ID (e.g. P1.8) is defined there — read only your item's section + Sections 0–3.
+Source of truth: `PRODUCT-SPEC.md` (why), `DESIGN.md` (anything visible), `DECISIONS.md` (flag defaults). Your assigned item ID is defined in the plan you were pointed at — Phase items (e.g. P1.8) in `docs/plans/VoicePlus_Build.md`, later waves in the other `docs/plans/` docs; the current one is `docs/plans/VoicePlus_ContextWriter_Plan.md`. Read only your item's section + the plan's Sections 0–3. Every doc is indexed in `docs/README.md`.
 
 ## Toolchain reality (no Xcode.app on this machine)
 - Only Command Line Tools: Swift 6.0.3, `swift build`/`swift test`. **No `xcodebuild`, no Xcode UI tests, no simulators, and NO XCTest** (the CLT ships no XCTest.framework). **Tests use Swift Testing** (`import Testing`, `@Test`, `#expect`, `#require`) — see `Tests/SharedTests/` for the pattern.
@@ -11,7 +11,10 @@ Source of truth: `PRODUCT-SPEC.md` (why), `VoicePlus_Build.md` (what/how). Your 
 - Third-party deps via SwiftPM only: GRDB (SQLite), FluidAudio (ASR/VAD, Apache-2.0). Do not add deps without noting it in progress.md.
 
 ## Repo layout (SwiftPM, one package, one target per module)
-Shared/ Engine/ Pipeline/ Injection/ App/ Providers/ Lab/ Actions/ Packaging/ Tests/ Fixtures/ — see Build doc §2. `Package.swift` at root. Targets: `Shared`, `Engine`, `Pipeline`, `Injection`, `Providers`, `Lab`, `Actions`, `VoicePlusApp` (executable), `<Module>Tests`.
+Shared/ Engine/ Pipeline/ Injection/ App/ Providers/ Lab/ Actions/ Sync/ iOS/ Packaging/ Tests/ Fixtures/ Scripts/ tools/ docs/ — see Build doc §2. `Package.swift` at root. Targets: `Shared`, `Engine`, `Pipeline`, `Injection`, `Providers`, `Lab`, `Actions`, `Sync`, `KeyboardCore` (`iOS/KeyboardCore`), `VoicePlusApp` (executable, `App/`), `<Module>Tests`.
+
+## Where docs go
+Only `README.md`, `CLAUDE.md`, `PRODUCT-SPEC.md`, `DESIGN.md`, `DECISIONS.md` and `progress.md` live at the root. New investigations go to `docs/investigations/VoicePlus_Investigation_YYYY-MM-DD.md`, plans and build docs to `docs/plans/` (add a row to the timeline in `docs/README.md`), research to `docs/research/`. Release notes stay in `Packaging/notes/` (`release.sh` reads them). Tests read `DESIGN.md` and `docs/design-history/design/` by path — don't move them without updating `Tests/AppTests` and `Scripts/spool_golden.mjs`.
 
 ## Parallel-work rules (several agents work in this checkout simultaneously)
 - **Only touch your module's directory + your test target.** Never edit `Shared/` or `Package.swift` unless your item says so; if you need a change there, make it minimal, additive, and mention it in your final report.
